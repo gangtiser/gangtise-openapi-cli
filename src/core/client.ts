@@ -3,7 +3,7 @@ import fs from "node:fs/promises"
 
 import type { CliConfig } from "./config.js"
 import { normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache } from "./auth.js"
-import { ApiError } from "./errors.js"
+import { ApiError, ValidationError } from "./errors.js"
 import { ENDPOINTS, ENDPOINT_REGISTRY, type EndpointDefinition } from "./endpoints.js"
 
 interface Envelope<T> {
@@ -108,6 +108,95 @@ export class GangtiseClient {
     }
 
     throw new ApiError(`Unsupported local lookup endpoint: ${endpoint.key}`)
+  }
+
+  private isPaginatedListResponse(value: unknown): value is Record<string, unknown> & { total: number; list: unknown[] } {
+    return Boolean(
+      value
+      && typeof value === 'object'
+      && typeof (value as { total?: unknown }).total === 'number'
+      && Array.isArray((value as { list?: unknown[] }).list),
+    )
+  }
+
+  private async requestPaginated(endpoint: EndpointDefinition, body?: unknown) {
+    const initialBody = body && typeof body === 'object' ? { ...(body as Record<string, unknown>) } : {}
+
+    if ('from' in initialBody && (typeof initialBody.from !== 'number' || !Number.isFinite(initialBody.from) || initialBody.from < 0)) {
+      throw new ValidationError('Invalid from: expected a non-negative number')
+    }
+    if ('size' in initialBody && initialBody.size !== undefined && (typeof initialBody.size !== 'number' || !Number.isFinite(initialBody.size) || initialBody.size <= 0)) {
+      throw new ValidationError('Invalid size: expected a positive number')
+    }
+
+    const startFrom = typeof initialBody.from === 'number' && Number.isFinite(initialBody.from) ? initialBody.from : 0
+    const requestedSize = typeof initialBody.size === 'number' && Number.isFinite(initialBody.size) ? initialBody.size : undefined
+    const maxPageSize = endpoint.pagination?.maxPageSize ?? requestedSize ?? 20
+
+    const collected: unknown[] = []
+    let firstPage: Record<string, unknown> | undefined
+    let total: number | undefined
+    let nextFrom = startFrom
+
+    while (true) {
+      const remaining = requestedSize === undefined
+        ? maxPageSize
+        : Math.min(maxPageSize, requestedSize - collected.length)
+
+      if (requestedSize !== undefined && remaining <= 0) {
+        break
+      }
+
+      const page = await this.requestJson<Record<string, unknown>>(endpoint, {
+        ...initialBody,
+        from: nextFrom,
+        size: remaining,
+      })
+
+      if (!this.isPaginatedListResponse(page)) {
+        if (!firstPage) {
+          return page
+        }
+        return {
+          ...firstPage,
+          total,
+          list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
+        }
+      }
+
+      if (!firstPage) {
+        firstPage = page
+        total = page.total
+      }
+
+      if (page.list.length === 0) {
+        break
+      }
+
+      collected.push(...page.list)
+      nextFrom += page.list.length
+
+      const available = total === undefined ? undefined : Math.max(total - startFrom, 0)
+      if (requestedSize !== undefined && collected.length >= requestedSize) {
+        break
+      }
+      if (available !== undefined && collected.length >= available) {
+        break
+      }
+      if (page.list.length < remaining) {
+        break
+      }
+    }
+
+    if (!firstPage) {
+      return initialBody
+    }
+
+    return {
+      ...firstPage,
+      total,
+      list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
+    }
   }
 
   async login() {
@@ -233,6 +322,10 @@ export class GangtiseClient {
 
     if (endpoint.kind === 'download') {
       return this.download(endpoint, query ?? {})
+    }
+
+    if (endpoint.kind === 'json' && endpoint.pagination?.enabled) {
+      return this.requestPaginated(endpoint, body)
     }
 
     return this.requestJson(endpoint, body)

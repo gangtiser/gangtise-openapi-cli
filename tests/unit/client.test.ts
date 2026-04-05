@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { ValidationError } from "../../src/core/errors.js"
 import { GangtiseClient } from "../../src/core/client.js"
 
 const { requestMock } = vi.hoisted(() => ({
@@ -31,6 +32,20 @@ function jsonResponse(data: unknown) {
           data,
         }),
       ),
+    },
+  }
+}
+
+function binaryResponse(data: Uint8Array) {
+  return {
+    statusCode: 200,
+    headers: {
+      "content-type": "application/octet-stream",
+      "content-disposition": 'attachment; filename="report.pdf"',
+    },
+    body: {
+      arrayBuffer: vi.fn().mockResolvedValue(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)),
+      text: vi.fn(),
     },
   }
 }
@@ -122,6 +137,25 @@ describe("GangtiseClient pagination", () => {
     const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
 
     expect(result).toEqual({ answer: 1 })
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects non-finite size instead of treating it as fetch-all", async () => {
+    const client = createClient()
+
+    await expect(client.call("insight.research.list", { from: 0, size: Number.NaN })).rejects.toBeInstanceOf(ValidationError)
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
+  it("dispatches download endpoints through the download flow", async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    requestMock.mockResolvedValueOnce(binaryResponse(bytes))
+
+    const client = createClient()
+    const result = await client.call("insight.research.download", undefined, { reportId: "123" }) as { data?: Uint8Array; filename?: string }
+
+    expect(result.data).toEqual(bytes)
+    expect(result.filename).toBe("report.pdf")
     expect(requestMock).toHaveBeenCalledTimes(1)
   })
 

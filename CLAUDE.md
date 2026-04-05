@@ -88,6 +88,10 @@ Auth order:
 - Before changing lookup behavior, check `src/core/client.ts` to confirm whether the command is backed by local reference HTML.
 - Treat `.claude/*.html` and `.claude/*.lean.js` as repository assets; do not delete or rename them casually.
 - There is no `vitest.config.*` file yet; tests currently use Vitest defaults.
+- For paginated list commands, `--size` means the total rows requested by the user, not the per-request batch size.
+- When `--size` is omitted, the client auto-fetches all rows using the API `total` field.
+- Per-request batch sizing is internal to `src/core/client.ts` and uses endpoint metadata in `src/core/endpoints.ts`.
+- `src/core/output.ts` should only format the already-merged result.
 
 ## Working style for this repo
 

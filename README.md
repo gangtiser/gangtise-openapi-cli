@@ -58,11 +58,32 @@ gangtise lookup industry list
 再调用业务命令：
 
 ```bash
-gangtise insight opinion list --industry 104710000 --size 5
-gangtise insight summary list --institution C100000017 --size 5
+gangtise insight opinion list --industry 104710000
+gangtise insight summary list --institution C100000017
 gangtise quote day-kline --security 600519.SH --start-date 2025-03-01 --end-date 2025-03-12
 gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 ```
+
+## 自动翻页
+
+以下列表接口会自动翻页：
+- `insight opinion list`
+- `insight summary list`
+- `insight roadshow list`
+- `insight site-visit list`
+- `insight strategy list`
+- `insight forum list`
+- `insight research list`
+- `insight foreign-report list`
+- `insight announcement list`
+- `ai security-clue`
+- `ai cloud-disk-list`
+
+规则：
+- `--from` 表示起始偏移量
+- `--size` 表示最终最多返回多少条记录
+- 如果未传 `--size`，CLI 会根据返回里的 `total` 自动翻页，把从 `from` 开始的全部数据查全
+- 如果传了 `--size`，即使超过接口单次上限，CLI 也会自动翻页，直到累计记录数达到 `size` 或数据取完
 
 ## 常用示例
 
@@ -76,10 +97,16 @@ gangtise auth status
 ### Insight
 
 ```bash
-gangtise insight opinion list --keyword AI --size 10
-gangtise insight summary list --keyword 算力 --size 10
+# 只取前 120 条，CLI 内部自动翻页
+gangtise insight research list --start-time "2026-04-04 00:00:00" --end-time "2026-04-04 23:59:59" --size 120
+
+# 不传 size，自动查全
+gangtise insight research list --start-time "2026-04-04 00:00:00" --end-time "2026-04-04 23:59:59"
+
+gangtise insight opinion list --keyword AI
+gangtise insight summary list --keyword 算力
 gangtise insight summary download --summary-id 1831171109967 --output ./summary.pdf
-gangtise insight roadshow list --institution C100000017 --size 10
+gangtise insight roadshow list --institution C100000017
 gangtise insight research download --report-id 12345 --output ./report.pdf
 ```
 
@@ -95,7 +122,7 @@ gangtise quote valuation-analysis --security-code 600519.SH --indicator peTtm
 
 ```bash
 gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
-gangtise ai security-clue --start-time "2026-03-01 00:00:00" --end-time "2026-03-23 23:59:59" --query-mode bySecurity --gts-code 000001.SZ
+gangtise ai security-clue --start-time "2026-03-01 00:00:00" --end-time "2026-03-23 23:59:59" --query-mode bySecurity --gts-code 000001.SZ --size 800
 gangtise ai one-pager --security-code 600519.SH
 gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
@@ -108,8 +135,10 @@ gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 -
 ### Raw
 
 ```bash
-gangtise raw call insight.opinion.list --body '{"from":0,"size":5}'
+gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 ```
+
+说明：对已标记为自动翻页的 endpoint，`raw call` 也会复用同一套 client 翻页逻辑；这里的 `size` 仍表示最终希望返回的记录数。
 
 ## 已验证的真实联调
 

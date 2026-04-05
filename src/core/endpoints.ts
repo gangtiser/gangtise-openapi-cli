@@ -4,6 +4,10 @@ export interface EndpointDefinition {
   path: string
   kind: "json" | "download"
   description: string
+  pagination?: {
+    enabled: true
+    maxPageSize: number
+  }
 }
 
 export const ENDPOINTS = {
@@ -50,6 +54,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/chief-opinion/getList",
     kind: "json",
     description: "List chief opinions",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightSummaryList: {
     key: "insight.summary.list",
@@ -57,6 +62,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/summary/v2/getList",
     kind: "json",
     description: "List summaries",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightSummaryDownload: {
     key: "insight.summary.download",
@@ -71,6 +77,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/schedule/roadshow/getList",
     kind: "json",
     description: "List roadshows",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightSiteVisitList: {
     key: "insight.site-visit.list",
@@ -78,6 +85,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/schedule/site-visit/getList",
     kind: "json",
     description: "List site visits",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightStrategyList: {
     key: "insight.strategy.list",
@@ -85,6 +93,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/schedule/strategy-meeting/getList",
     kind: "json",
     description: "List strategy meetings",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightForumList: {
     key: "insight.forum.list",
@@ -92,6 +101,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/schedule/forum/getList",
     kind: "json",
     description: "List forums",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightResearchList: {
     key: "insight.research.list",
@@ -99,6 +109,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/broker-report/getList",
     kind: "json",
     description: "List broker research reports",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightResearchDownload: {
     key: "insight.research.download",
@@ -113,6 +124,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/foreign-report/getList",
     kind: "json",
     description: "List foreign reports",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightForeignReportDownload: {
     key: "insight.foreign-report.download",
@@ -127,6 +139,7 @@ export const ENDPOINTS = {
     path: "/application/open-insight/announcement/getList",
     kind: "json",
     description: "List announcements",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   insightAnnouncementDownload: {
     key: "insight.announcement.download",
@@ -185,6 +198,7 @@ export const ENDPOINTS = {
     path: "/application/open-ai/security-clue/getList",
     kind: "json",
     description: "List security clues",
+    pagination: { enabled: true, maxPageSize: 500 },
   },
   aiOnePager: {
     key: "ai.one-pager",
@@ -213,6 +227,7 @@ export const ENDPOINTS = {
     path: "/application/open-ai/drive/getList",
     kind: "json",
     description: "List AI cloud disk files",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   aiCloudDiskDownload: {
     key: "ai.cloud-disk.download",
