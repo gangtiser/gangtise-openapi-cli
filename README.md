@@ -5,20 +5,21 @@
 ## 安装
 
 ```bash
-npm install
-npm run build
-npm link
+npm install -g gangtise-openapi-cli
 ```
 
-安装后可直接使用：
+安装后直接使用：
 
 ```bash
 gangtise --help
 ```
 
-也可以本地开发运行：
+本地开发：
 
 ```bash
+git clone git@github.com:gangtiser/gangtise-openapi-cli.git
+cd gangtise-openapi-cli
+npm install
 npm run dev -- --help
 ```
 
