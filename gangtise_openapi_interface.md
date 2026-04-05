@@ -9,8 +9,9 @@
 - Insight 类接口
 - Quote 类接口
 - AI 类接口
+- CLI 自动分页机制
 
-> 说明：本文档聚焦实际接口调用说明（URL、方法、参数、返回字段）。部分官方页面中的超长“返回示例 JSON”未整段原样复制，但会完整保留字段表与关键示例信息。
+> 说明：本文档聚焦实际接口调用说明（URL、方法、参数、返回字段）。部分官方页面中的超长”返回示例 JSON”未整段原样复制，但会完整保留字段表与关键示例信息。
 
 ---
 
@@ -1360,9 +1361,112 @@
 
 ---
 
-## 6. 补充说明
+## 6. CLI 自动分页机制
+
+本 CLI 对支持分页的列表接口实现了**自动多页聚合**，用户无需手动处理 `from` 和 `size` 参数。
+
+### 支持自动分页的接口
+
+以下接口在 CLI 中已启用自动分页：
+
+| 接口类型 | 接口名称 | 单页最大值 |
+|---------|---------|-----------|
+| Insight | 观点列表 (insight.opinion.list) | 50 |
+| Insight | 纪要列表 (insight.summary.list) | 50 |
+| Insight | 路演列表 (insight.roadshow.list) | 50 |
+| Insight | 调研列表 (insight.site-visit.list) | 50 |
+| Insight | 策略会列表 (insight.strategy.list) | 50 |
+| Insight | 论坛列表 (insight.forum.list) | 50 |
+| Insight | 研报列表 (insight.research.list) | 50 |
+| Insight | 外资研报列表 (insight.foreign-report.list) | 50 |
+| Insight | 公告列表 (insight.announcement.list) | 50 |
+| AI | 投研线索 (ai.security-clue.list) | 500 |
+| AI | 云盘文件列表 (ai.cloud-disk.list) | 50 |
+
+### 分页行为说明
+
+#### 1. 省略 `--size` 参数
+
+- CLI 会自动循环请求，直到获取**全部数据**
+- 每次请求使用接口规定的单页最大值（如研报为 50，投研线索为 500）
+- 适用于需要导出完整数据集的场景
+
+**示例：**
+
+```bash
+# 获取今天所有研报（自动翻页）
+gangtise insight research list --start-time 2026-04-05 --end-time 2026-04-05
+
+# 获取指定时间段所有投研线索（自动翻页）
+gangtise ai security-clue --start-time 2026-03-01 --end-time 2026-03-31 --query-mode bySecurity
+```
+
+#### 2. 指定 `--size` 参数
+
+- `--size` 表示**用户期望的总行数**，而非单页数量
+- CLI 会自动计算需要请求的页数，并在达到指定行数后停止
+- 适用于只需要部分数据的场景
+
+**示例：**
+
+```bash
+# 只需要前 100 条研报
+gangtise insight research list --size 100
+
+# 只需要前 1000 条投研线索
+gangtise ai security-clue --size 1000 --start-time 2026-03-01 --end-time 2026-03-31 --query-mode bySecurity
+```
+
+#### 3. 指定 `--from` 参数
+
+- `--from` 表示**起始偏移量**
+- 通常与 `--size` 配合使用，实现自定义分页
+
+**示例：**
+
+```bash
+# 从第 100 条开始，获取接下来的 50 条研报
+gangtise insight research list --from 100 --size 50
+```
+
+### 返回格式
+
+所有支持分页的接口返回格式统一为：
+
+```json
+{
+  "total": 300,
+  "list": [ ... ],
+  "fieldList": [ ... ]  // 部分接口包含
+}
+```
+
+- **total**: 满足查询条件的总记录数
+- **list**: 实际返回的数据数组
+- **fieldList**: 部分接口（如研报）会返回字段列表
+
+### 实现细节
+
+1. **分页检测**：CLI 根据 `data.total` 字段判断是否需要继续请求
+2. **元数据保留**：自动保留第一页的 `fieldList` 等元数据
+3. **容错机制**：如果后续页面格式异常，返回已成功获取的数据
+4. **性能优化**：使用接口允许的最大单页数量，减少请求次数
+
+### 与原生 API 的区别
+
+| 维度 | 原生 API | CLI 自动分页 |
+|-----|---------|-------------|
+| `size` 含义 | 单页数量 | 期望的总行数 |
+| 获取全量数据 | 需手动循环请求 | 省略 `--size` 即可 |
+| 单次最大返回 | 50/500 条 | 无限制（自动聚合） |
+| 实现复杂度 | 用户自行处理 | CLI 内部完成 |
+
+---
+
+## 7. 补充说明
 
 - 上述接口均来自本仓库中的 `Gangtise API URL.md` 对应官方文档页。
-- 某些接口在真实联调中会出现“标准 envelope”与“非 envelope 成功返回”并存的情况，例如 `AI 云盘查询`。
+- 某些接口在真实联调中会出现”标准 envelope”与”非 envelope 成功返回”并存的情况，例如 `AI 云盘查询`。
 - 某些下载/资源接口会因数据源权限、白名单或资源不匹配而返回业务错误，如 `10011401`、`433007`、`410004`。
 - 如果需要程序化调用，建议统一按认证、统一返回结构与错误码约定进行封装。
+- CLI 对支持分页的列表接口已实现自动多页聚合，详见第 6 章”CLI 自动分页机制”。
