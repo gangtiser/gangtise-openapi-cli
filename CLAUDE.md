@@ -16,7 +16,7 @@ Key paths:
 - `src/core/args.ts` — reusable CLI argument collectors
 - `src/core/errors.ts` — CLI/API error classes and hints
 - `tests/unit/output.test.ts` — current Vitest coverage
-- `.claude/` — local reference HTML/JS assets used by some lookup flows
+- `src/core/lookupData.ts` — built-in lookup enums for research areas, broker orgs, meeting orgs, and industries
 
 ## Commands
 
@@ -84,9 +84,7 @@ Auth order:
 
 ## Important repository behavior
 
-- Some lookup commands intentionally read local files in `.claude/` instead of calling live endpoints.
-- Before changing lookup behavior, check `src/core/client.ts` to confirm whether the command is backed by local reference HTML.
-- Treat `.claude/*.html` and `.claude/*.lean.js` as repository assets; do not delete or rename them casually.
+- Lookup commands for research areas, broker orgs, meeting orgs, and industries use built-in static data instead of calling live endpoints.
 - There is no `vitest.config.*` file yet; tests currently use Vitest defaults.
 - For paginated list commands, `--size` means the total rows requested by the user, not the per-request batch size.
 - When `--size` is omitted, the client auto-fetches all rows using the API `total` field.

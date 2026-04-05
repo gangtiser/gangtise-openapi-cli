@@ -44,6 +44,8 @@ export GANGTISE_TOKEN="Bearer xxx"
 - `gangtise ai ...`
 - `gangtise raw call ...`
 
+其中 `lookup` 下的研究方向、机构、行业枚举已内置在项目中，无需额外本地文档文件。
+
 ## 推荐工作流
 
 先查枚举/参数：

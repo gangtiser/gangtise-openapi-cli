@@ -1,10 +1,10 @@
 import { request } from "undici"
-import fs from "node:fs/promises"
 
 import type { CliConfig } from "./config.js"
 import { normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache } from "./auth.js"
 import { ApiError, ValidationError } from "./errors.js"
 import { ENDPOINTS, ENDPOINT_REGISTRY, type EndpointDefinition } from "./endpoints.js"
+import { BROKER_ORGS, INDUSTRIES, MEETING_ORGS, RESEARCH_AREAS } from "./lookupData.js"
 
 interface Envelope<T> {
   code?: string | number
@@ -76,35 +76,20 @@ export class GangtiseClient {
   }
 
   private async readLocalLookup(endpoint: EndpointDefinition) {
-    const base = process.cwd()
-    const resolve = async (relativePath: string) => {
-      const content = await fs.readFile(`${base}/${relativePath}`, "utf8")
-      return content
-    }
-
     if (endpoint.key === "lookup.research-areas.list") {
-      const html = await resolve('.claude/researchArea.html')
-      const matches = [...html.matchAll(/<tr><td>([^<]+)<\/td><td>([^<]+)<\/td><\/tr>/g)]
-      return matches.map(([, id, name]) => ({ id, name }))
+      return RESEARCH_AREAS
     }
 
     if (endpoint.key === "lookup.broker-orgs.list") {
-      const html = await resolve('.claude/brokerReportOrg.html')
-      const matches = [...html.matchAll(/<tr><td>(C[^<]+)<\/td><td>([^<]+)<\/td><\/tr>/g)]
-      return matches.map(([, id, name]) => ({ id, name }))
+      return BROKER_ORGS
     }
 
     if (endpoint.key === "lookup.meeting-orgs.list") {
-      const html = await resolve('.claude/meetingOrg.html')
-      const matches = [...html.matchAll(/<tr><td>(C[^<]+)<\/td><td>([^<]+)<\/td><\/tr>/g)]
-      return matches.map(([, id, name]) => ({ id, name }))
+      return MEETING_ORGS
     }
 
     if (endpoint.key === "lookup.industries.list") {
-      const html = await resolve('.claude/industryEnum.html')
-      const sw = html.match(/<h3 id="申万行业分类"[\s\S]*?<table>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)
-      const matches = sw ? [...sw[1].matchAll(/<tr><td>([^<]+)<\/td><td>([^<]+)<\/td><\/tr>/g)] : []
-      return matches.map(([, name, id]) => ({ id, name, taxonomy: 'sw' }))
+      return INDUSTRIES
     }
 
     throw new ApiError(`Unsupported local lookup endpoint: ${endpoint.key}`)

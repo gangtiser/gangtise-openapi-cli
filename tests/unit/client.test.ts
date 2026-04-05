@@ -159,6 +159,21 @@ describe("GangtiseClient pagination", () => {
     expect(requestMock).toHaveBeenCalledTimes(1)
   })
 
+  it("returns built-in lookup data without making HTTP requests", async () => {
+    const client = createClient()
+
+    const researchAreas = await client.call("lookup.research-areas.list") as Array<{ id: string; name: string }>
+    const brokerOrgs = await client.call("lookup.broker-orgs.list") as Array<{ id: string; name: string }>
+    const meetingOrgs = await client.call("lookup.meeting-orgs.list") as Array<{ id: string; name: string }>
+    const industries = await client.call("lookup.industries.list") as Array<{ id: string; name: string; taxonomy: string }>
+
+    expect(researchAreas[0]).toEqual({ id: "122000001", name: "宏观" })
+    expect(brokerOrgs[0]).toEqual({ id: "C800150015", name: "野村证券" })
+    expect(meetingOrgs[0]).toEqual({ id: "C000000000", name: "公司自发" })
+    expect(industries[0]).toEqual({ id: "104410000", name: "公用事业", taxonomy: "sw" })
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
   it("falls back to the data already fetched when later pages lose total/list shape", async () => {
     requestMock
       .mockResolvedValueOnce(jsonResponse({ total: 4, list: [{ id: 1 }, { id: 2 }] }))
