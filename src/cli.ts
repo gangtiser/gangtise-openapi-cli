@@ -72,7 +72,20 @@ function addTimeFilters(command: Command) {
 }
 
 const program = new Command()
-program.name("gangtise").description("Gangtise OpenAPI CLI").version("0.1.0")
+import { createRequire } from "node:module"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
+function loadPackageVersion(): string {
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const req = createRequire(import.meta.url)
+  // Works from both src/ (dev) and dist/src/ (built)
+  try { return (req(resolve(__dirname, "../package.json")) as { version: string }).version } catch {}
+  try { return (req(resolve(__dirname, "../../package.json")) as { version: string }).version } catch {}
+  return "0.0.0"
+}
+
+program.name("gangtise").description("Gangtise OpenAPI CLI").version(loadPackageVersion())
 
 program
   .command("auth")
