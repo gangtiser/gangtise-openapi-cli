@@ -1,7 +1,6 @@
 ---
 name: gangtise-openapi
-description: 通过 gangtise CLI 直接调用 Gangtise OpenAPI 获取投研数据。当需要查询首席观点、纪要、路演、研报、公告、行情K线、财务报表、估值分析、AI知识库搜索、个股一页通、投资逻辑、同业对比、云盘文件等原始数据时使用此 skill。适用于需要从 Gangtise 平台拉取原始 API 数据的场景，包括但不限于：用户提到"调 API"、"拉数据"、"查原始数据"、"用 gangtise 命令"、"openapi"，或需要批量导出、下载文件、查询枚举值等操作。
----
+description: 通过 gangtise CLI 直接调用 Gangtise OpenAPI 获取投研数据。当需要查询首席观点、纪要、路演、调研，策略会，线下论坛，研报、外资研报、公告、行情K线、财务报表、估值分析、AI知识库搜索、投研线索、个股一页通、投资逻辑、同业对比、AI云盘文件等原始数据时使用此skill。适用于需要从Gangtise平台拉取原始API数据的场景，包括但不限于：用户提到"调API"、"gangtise接口"、"gangtise cli"、"用gangtise命令"、"openapi"，或需要批量导出、下载文件、查询枚举值等操作
 
 # Gangtise OpenAPI CLI
 
@@ -101,7 +100,7 @@ gangtise insight research download --report-id <id> [--output <path>]
 
 list 特有参数：`--broker <id>`、`--security <code>`、`--industry <id>`
 
-#### 海外研报
+#### 外资研报
 
 ```bash
 gangtise insight foreign-report list [options]
@@ -163,21 +162,31 @@ gangtise ai knowledge-resource-download --resource-type <n> --source-id <id> [--
 
 注意：`resourceType + sourceId` 组合必须匹配，错误组合返回 `433007`。
 
-#### 个股线索
+#### 投研线索
 
 ```bash
 gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <bySecurity|byAll> [--gts-code <code>] [--source <name>] [--from <n>] [--size <n>]
 ```
 
-#### AI 个股分析
+#### 一页通
 
 ```bash
 gangtise ai one-pager --security-code <code>           # 一页通
+```
+
+#### 投资逻辑
+
+```bash
 gangtise ai investment-logic --security-code <code>    # 投资逻辑
+```
+
+#### 同业对比
+
+```bash
 gangtise ai peer-comparison --security-code <code>     # 同业对比
 ```
 
-#### 云盘
+#### AI云盘
 
 ```bash
 gangtise ai cloud-disk-list [--keyword <text>] [--file-type <n>] [--space-type <n>] [--from <n>] [--size <n>]
