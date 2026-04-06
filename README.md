@@ -164,6 +164,26 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 - `csv`
 - `markdown`
 
+## Claude Code Skill
+
+本项目包含一个 [Claude Code](https://claude.ai/claude-code) skill 定义（`SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。
+
+安装到 Claude Code：
+
+```bash
+# 方式一：从本地项目安装
+cp SKILL.md ~/.claude/skills/gangtise-openapi/SKILL.md
+
+# 方式二：手动创建目录并复制
+mkdir -p ~/.claude/skills/gangtise-openapi
+cp SKILL.md ~/.claude/skills/gangtise-openapi/
+```
+
+安装后，在 Claude Code 中可以用自然语言触发，例如：
+- "帮我查今天所有的研报"
+- "用 gangtise 命令查一下贵州茅台的日K线"
+- "导出最近一周的首席观点到 jsonl"
+
 ## 常见错误
 
 - `8000014`: `GANGTISE_ACCESS_KEY` 错误
