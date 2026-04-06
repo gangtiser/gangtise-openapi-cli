@@ -76,6 +76,7 @@ gangtise lookup research-area list   # 研究方向 ID
 gangtise lookup broker-org list      # 券商机构 ID
 gangtise lookup meeting-org list     # 会议机构 ID
 gangtise lookup industry list        # 行业 ID
+gangtise lookup industry-code list   # 申万行业代码（用于 security-clue --gts-code）
 ```
 
 ## Insight 命令（投研内容）
@@ -194,8 +195,10 @@ gangtise ai knowledge-resource-download --resource-type <n> --source-id <id> [--
 ### 投研线索
 
 ```bash
-gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <bySecurity|byAll> [--gts-code <code>] [--source <name>] [--from <n>] [--size <n>]
+gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <bySecurity|byIndustry> [--gts-code <code>] [--source <name>] [--from <n>] [--size <n>]
 ```
+
+`--gts-code` 支持个股代码或申万行业代码（如 `821035.SWI`），行业代码可通过 `gangtise lookup industry-code list` 查询。
 
 ### 一页通 / 投资逻辑 / 同业对比
 

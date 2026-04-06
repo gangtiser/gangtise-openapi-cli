@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command } from "commander"
+import { Command, Option } from "commander"
 
 import { collectKeyValue, collectList, collectNumberList, maybeArray } from "./core/args.js"
 import { readTokenCache } from "./core/auth.js"
@@ -112,6 +112,42 @@ lookup
   .addCommand(new Command("industry").addCommand(new Command("list").option("--format <format>", "Output format", "table").action(async (options) => {
     const client = new GangtiseClient(loadConfig())
     await printData(await client.call("lookup.industries.list"), parseFormat(options.format))
+  })))
+  .addCommand(new Command("industry-code").description("Shenwan industry codes for security-clue --gts-code").addCommand(new Command("list").option("--format <format>", "Output format", "table").action(async (options) => {
+    const data = [
+      { name: "申万农林牧渔", code: "821031.SWI" },
+      { name: "申万基础化工", code: "821032.SWI" },
+      { name: "申万钢铁", code: "821033.SWI" },
+      { name: "申万有色金属", code: "821034.SWI" },
+      { name: "申万电子", code: "821035.SWI" },
+      { name: "申万汽车", code: "821036.SWI" },
+      { name: "申万家用电器", code: "821037.SWI" },
+      { name: "申万食品饮料", code: "821038.SWI" },
+      { name: "申万纺织服饰", code: "821039.SWI" },
+      { name: "申万轻工制造", code: "821040.SWI" },
+      { name: "申万医药生物", code: "821041.SWI" },
+      { name: "申万公用事业", code: "821042.SWI" },
+      { name: "申万交通运输", code: "821043.SWI" },
+      { name: "申万房地产", code: "821044.SWI" },
+      { name: "申万商贸零售", code: "821045.SWI" },
+      { name: "申万社会服务", code: "821046.SWI" },
+      { name: "申万银行", code: "821047.SWI" },
+      { name: "申万非银金融", code: "821048.SWI" },
+      { name: "申万综合", code: "821049.SWI" },
+      { name: "申万建筑材料", code: "821050.SWI" },
+      { name: "申万建筑装饰", code: "821051.SWI" },
+      { name: "申万电力设备", code: "821052.SWI" },
+      { name: "申万机械设备", code: "821053.SWI" },
+      { name: "申万国防军工", code: "821054.SWI" },
+      { name: "申万计算机", code: "821055.SWI" },
+      { name: "申万传媒", code: "821056.SWI" },
+      { name: "申万通信", code: "821057.SWI" },
+      { name: "申万煤炭", code: "821058.SWI" },
+      { name: "申万石油石化", code: "821059.SWI" },
+      { name: "申万环保", code: "821060.SWI" },
+      { name: "申万美容护理", code: "821061.SWI" },
+    ]
+    await printData(data, parseFormat(options.format))
   })))
 program.addCommand(lookup)
 
@@ -239,7 +275,7 @@ ai.command("knowledge-resource-download").requiredOption("--resource-type <numbe
   const client = new GangtiseClient(loadConfig())
   await saveDownloadResult(await client.call("ai.knowledge-resource.download", undefined, { resourceType: Number(options.resourceType), sourceId: options.sourceId }), `resource-${options.sourceId}`, options.output)
 })
-ai.command("security-clue").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").requiredOption("--start-time <datetime>").requiredOption("--end-time <datetime>").requiredOption("--query-mode <mode>").option("--gts-code <code>", "GTS code", collectList, []).option("--source <name>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+ai.command("security-clue").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").requiredOption("--start-time <datetime>").requiredOption("--end-time <datetime>").addOption(new Option("--query-mode <mode>").choices(["bySecurity", "byIndustry"]).makeOptionMandatory()).option("--gts-code <code>", "GTS code", collectList, []).option("--source <name>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
   await printData(await client.call("ai.security-clue.list", { from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, queryMode: options.queryMode, gtsCodeList: maybeArray(options.gtsCode), source: maybeArray(options.source) }), parseFormat(options.format), options.output)
 })

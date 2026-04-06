@@ -56,6 +56,7 @@ gangtise lookup research-area list
 gangtise lookup broker-org list
 gangtise lookup meeting-org list
 gangtise lookup industry list
+gangtise lookup industry-code list   # 申万行业代码（用于 security-clue --gts-code）
 ```
 
 再调用业务命令：
@@ -147,7 +148,7 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 
 已真实跑通：
 - auth: `login`
-- lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list`
+- lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list`
 - insight: `opinion list` / `summary list` / `summary download` / `roadshow list` / `site-visit list` / `strategy list` / `forum list` / `research list` / `research download` / `foreign-report list` / `foreign-report download` / `announcement list` / `announcement download`
 - quote: `day-kline` / `income-statement` / `main-business` / `valuation-analysis`
 - ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `cloud-disk-list` / `one-pager` / `investment-logic` / `peer-comparison`
