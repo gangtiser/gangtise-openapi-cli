@@ -89,6 +89,16 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - 如果未传 `--size`，CLI 会根据返回里的 `total` 自动翻页，把从 `from` 开始的全部数据查全
 - 如果传了 `--size`，即使超过接口单次上限，CLI 也会自动翻页，直到累计记录数达到 `size` 或数据取完
 
+## 智能文件命名
+
+下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`cloud-disk-download`）省略 `--output` 时，自动使用真实标题作为文件名：
+
+1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
+2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
+3. **兜底** — 都找不到时使用服务器返回的原始文件名或 `{type}-{id}.{ext}`
+
+推荐工作流：先 `list` 再 `download`，文件名自动正确。
+
 ## 常用示例
 
 ### 认证
@@ -109,14 +119,24 @@ gangtise insight research list --start-time "2026-04-04 00:00:00" --end-time "20
 
 gangtise insight opinion list --keyword AI
 gangtise insight summary list --keyword 算力
-gangtise insight summary download --summary-id 1831171109967 --output ./summary.pdf
-gangtise insight roadshow list --institution C100000017
+
+# 下载：先 list 再 download，自动使用真实标题作为文件名
+gangtise insight summary download --summary-id 4902586
+# → 超颖电子：2026年4月7日投资者关系活动记录表.txt
+
+gangtise insight research download --report-id 432092410345574400
+# → 建筑材料行业投资策略周报：战争对预期的影响仍大 中长期关注传统建材底部机会.pdf
+
+# 也可手动指定文件名
 gangtise insight research download --report-id 12345 --output ./report.pdf
+
+gangtise insight roadshow list --institution C100000017
 ```
 
 ### Quote
 
 ```bash
+gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
 gangtise quote income-statement --security-code 600519.SH --fiscal-year 2025 --period q3 --field netProfit
 gangtise quote main-business --security-code 600519.SH
 gangtise quote valuation-analysis --security-code 600519.SH --indicator peTtm
@@ -127,11 +147,16 @@ gangtise quote valuation-analysis --security-code 600519.SH --indicator peTtm
 ```bash
 gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 gangtise ai security-clue --start-time "2026-03-01 00:00:00" --end-time "2026-03-23 23:59:59" --query-mode bySecurity --gts-code 000001.SZ --size 800
+gangtise ai security-clue --start-time "2026-04-01 00:00:00" --end-time "2026-04-07 23:59:59" --query-mode byIndustry --gts-code 821055.SWI
 gangtise ai one-pager --security-code 600519.SH
 gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
 gangtise ai cloud-disk-list --keyword 部门文档
-gangtise ai cloud-disk-download --file-id 43319 --output ./file.bin
+
+# 云盘下载：自动使用文件标题命名
+gangtise ai cloud-disk-download --file-id 62130
+# → 2028 全球智能危机  一份来自未来的金融史思想实验  .pdf
+
 gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 --output ./resource.txt
 # 若接口返回外链 URL，也会直接输出 URL 或按 --output 保存
 ```
@@ -151,7 +176,7 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 - lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list`
 - insight: `opinion list` / `summary list` / `summary download` / `roadshow list` / `site-visit list` / `strategy list` / `forum list` / `research list` / `research download` / `foreign-report list` / `foreign-report download` / `announcement list` / `announcement download`
 - quote: `day-kline` / `income-statement` / `main-business` / `valuation-analysis`
-- ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `cloud-disk-list` / `one-pager` / `investment-logic` / `peer-comparison`
+- ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `cloud-disk-list` / `cloud-disk-download` / `one-pager` / `investment-logic` / `peer-comparison`
 
 注意：`knowledge-resource-download` 依赖正确的 `resourceType + sourceId` 组合；错误组合会返回 `433007 不支持该数据源`。
 

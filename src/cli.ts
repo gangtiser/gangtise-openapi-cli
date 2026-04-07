@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { Command, Option } from "commander"
 
+import fs from "node:fs/promises"
+import os from "node:os"
+import path, { extname } from "node:path"
 import { collectKeyValue, collectList, collectNumberList, maybeArray } from "./core/args.js"
 import { readTokenCache } from "./core/auth.js"
 import { GangtiseClient } from "./core/client.js"
@@ -17,8 +20,50 @@ function parseFormat(value?: string): OutputFormat {
   throw new ConfigError(`Unsupported format: ${format}`)
 }
 
-async function printData(data: unknown, format: OutputFormat, output?: string) {
+// --- Title cache: list writes, download reads ---
+const TITLE_CACHE_PATH = path.join(os.homedir(), ".config", "gangtise", "title-cache.json")
+const TITLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+
+interface TitleCacheEntry { titles: Record<string, string>; ts: number }
+type TitleCacheData = Record<string, TitleCacheEntry> // keyed by endpoint
+
+async function readTitleCache(): Promise<TitleCacheData> {
+  try {
+    return JSON.parse(await fs.readFile(TITLE_CACHE_PATH, "utf8")) as TitleCacheData
+  } catch { return {} }
+}
+
+async function writeTitleCache(endpoint: string, titles: Record<string, string>): Promise<void> {
+  const data = await readTitleCache()
+  data[endpoint] = { titles, ts: Date.now() }
+  await fs.mkdir(path.dirname(TITLE_CACHE_PATH), { recursive: true })
+  await fs.writeFile(TITLE_CACHE_PATH, JSON.stringify(data), "utf8")
+}
+
+function lookupTitleCache(data: TitleCacheData, endpoint: string, id: string): string | undefined {
+  const entry = data[endpoint]
+  if (!entry || Date.now() - entry.ts > TITLE_CACHE_TTL_MS) return undefined
+  return entry.titles[id]
+}
+
+interface TitleCacheConfig { endpointKey: string; idField: string; titleField?: string }
+
+async function printData(data: unknown, format: OutputFormat, output?: string, cache?: TitleCacheConfig) {
   const normalized = normalizeRows(data)
+  // Populate title cache from list results
+  if (cache && Array.isArray(normalized)) {
+    const titleField = cache.titleField ?? "title"
+    const titles: Record<string, string> = {}
+    for (const row of normalized) {
+      if (row && typeof row === "object") {
+        const r = row as Record<string, unknown>
+        const id = r[cache.idField]
+        const title = r[titleField]
+        if (id != null && typeof title === "string" && title) titles[String(id)] = title
+      }
+    }
+    if (Object.keys(titles).length > 0) writeTitleCache(cache.endpointKey, titles).catch(() => {})
+  }
   const content = renderOutput(normalized, format)
   if (output) {
     await saveOutputIfNeeded(content, output)
@@ -28,15 +73,87 @@ async function printData(data: unknown, format: OutputFormat, output?: string) {
   process.stdout.write(`${content}\n`)
 }
 
+const MIME_EXT: Record<string, string> = {
+  "application/pdf": ".pdf",
+  "application/msword": ".doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.ms-excel": ".xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "application/vnd.ms-powerpoint": ".ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+  "application/zip": ".zip",
+  "application/x-rar-compressed": ".rar",
+  "application/gzip": ".gz",
+  "application/x-7z-compressed": ".7z",
+  "application/json": ".json",
+  "application/xml": ".xml",
+  "text/plain": ".txt",
+  "text/html": ".html",
+  "text/csv": ".csv",
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/svg+xml": ".svg",
+  "audio/mpeg": ".mp3",
+  "video/mp4": ".mp4",
+  "application/octet-stream": ".bin",
+}
+
+function extFromContentType(contentType?: string): string {
+  if (!contentType) return ""
+  const mime = contentType.split(";")[0].trim().toLowerCase()
+  return MIME_EXT[mime] ?? ""
+}
+
+/** Resolve a human-readable filename by looking up the title from cache or list endpoint. */
+async function resolveTitle(
+  client: GangtiseClient,
+  result: unknown,
+  listEndpoint: string,
+  idField: string,
+  idValue: string,
+  titleField = "title",
+): Promise<string | undefined> {
+  const file = result as { filename?: string; contentType?: string }
+  const serverExt = file.filename ? extname(file.filename) : extFromContentType(file.contentType)
+
+  function buildFilename(rawTitle: string): string {
+    let title = rawTitle.replace(/[/\\:*?"<>|]/g, "_").trim()
+    if (serverExt && !title.toLowerCase().endsWith(serverExt.toLowerCase())) {
+      title += serverExt
+    }
+    return title
+  }
+
+  // 1. Check file-based title cache (populated by prior list command)
+  try {
+    const cacheData = await readTitleCache()
+    const cached = lookupTitleCache(cacheData, listEndpoint, idValue)
+    if (cached) return buildFilename(cached)
+  } catch { /* ignore */ }
+
+  // 2. Fallback: query list API (scan recent 200 items)
+  try {
+    const resp = await client.call(listEndpoint, { from: 0, size: 200 }) as { list?: Array<Record<string, unknown>> }
+    const items = Array.isArray(resp) ? resp : (resp.list ?? [])
+    const match = items.find(f => String(f[idField]) === String(idValue))
+    const rawTitle = match?.[titleField]
+    if (typeof rawTitle === "string" && rawTitle) return buildFilename(rawTitle)
+  } catch { /* ignore */ }
+
+  return undefined
+}
+
 async function saveDownloadResult(result: unknown, fallbackName: string, output?: string) {
   if (!(result && typeof result === "object")) {
     throw new DownloadError("Unexpected download response")
   }
 
-  const file = result as { data?: Uint8Array; text?: string; url?: string; filename?: string }
+  const file = result as { data?: Uint8Array; text?: string; url?: string; filename?: string; contentType?: string }
 
   if (file.data instanceof Uint8Array) {
-    const outputPath = output ?? file.filename ?? fallbackName
+    const outputPath = output ?? file.filename ?? (fallbackName + extFromContentType(file.contentType))
     await saveOutputIfNeeded(file.data, outputPath)
     process.stdout.write(`${outputPath}\n`)
     return
@@ -73,15 +190,14 @@ function addTimeFilters(command: Command) {
 
 const program = new Command()
 import { createRequire } from "node:module"
-import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 function loadPackageVersion(): string {
-  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const __dirname = path.dirname(fileURLToPath(import.meta.url))
   const req = createRequire(import.meta.url)
   // Works from both src/ (dev) and dist/src/ (built)
-  try { return (req(resolve(__dirname, "../package.json")) as { version: string }).version } catch {}
-  try { return (req(resolve(__dirname, "../../package.json")) as { version: string }).version } catch {}
+  try { return (req(path.resolve(__dirname, "../package.json")) as { version: string }).version } catch {}
+  try { return (req(path.resolve(__dirname, "../../package.json")) as { version: string }).version } catch {}
   return "0.0.0"
 }
 
@@ -192,11 +308,13 @@ addTimeFilters(summary.command("list").option("--search-type <number>", "Search 
     searchType: Number(options.searchType), rankType: Number(options.rankType), keyword: options.keyword, sourceList: options.source.length ? options.source : undefined,
     researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution),
     categoryList: maybeArray(options.category), marketList: maybeArray(options.market), participantRoleList: maybeArray(options.participantRole),
-  }), parseFormat(options.format), options.output)
+  }), parseFormat(options.format), options.output, { endpointKey: "insight.summary.list", idField: "summaryId" })
 })
 summary.command("download").requiredOption("--summary-id <id>").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await saveDownloadResult(await client.call("insight.summary.download", undefined, { summaryId: options.summaryId }), `summary-${options.summaryId}`, options.output)
+  const result = await client.call("insight.summary.download", undefined, { summaryId: options.summaryId })
+  const title = options.output ? undefined : await resolveTitle(client, result, "insight.summary.list", "summaryId", options.summaryId)
+  await saveDownloadResult(result, `summary-${options.summaryId}`, options.output ?? title)
 })
 
 const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
@@ -218,11 +336,13 @@ addTimeFilters(research.command("list").option("--broker <id>", "Broker ID", col
   await printData(await client.call("insight.research.list", {
     from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
     brokerList: maybeArray(options.broker), securityList: maybeArray(options.security), industryList: maybeArray(options.industry),
-  }), parseFormat(options.format), options.output)
+  }), parseFormat(options.format), options.output, { endpointKey: "insight.research.list", idField: "reportId" })
 })
 research.command("download").requiredOption("--report-id <id>").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await saveDownloadResult(await client.call("insight.research.download", undefined, { reportId: options.reportId }), `research-${options.reportId}`, options.output)
+  const result = await client.call("insight.research.download", undefined, { reportId: options.reportId })
+  const title = options.output ? undefined : await resolveTitle(client, result, "insight.research.list", "reportId", options.reportId)
+  await saveDownloadResult(result, `research-${options.reportId}`, options.output ?? title)
 })
 
 addTimeFilters(foreignReport.command("list").option("--security <code>", "Security code", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
@@ -230,11 +350,13 @@ addTimeFilters(foreignReport.command("list").option("--security <code>", "Securi
   await printData(await client.call("insight.foreign-report.list", {
     from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
     securityList: maybeArray(options.security),
-  }), parseFormat(options.format), options.output)
+  }), parseFormat(options.format), options.output, { endpointKey: "insight.foreign-report.list", idField: "reportId" })
 })
 foreignReport.command("download").requiredOption("--report-id <id>").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await saveDownloadResult(await client.call("insight.foreign-report.download", undefined, { reportId: options.reportId }), `foreign-report-${options.reportId}`, options.output)
+  const result = await client.call("insight.foreign-report.download", undefined, { reportId: options.reportId })
+  const title = options.output ? undefined : await resolveTitle(client, result, "insight.foreign-report.list", "reportId", options.reportId)
+  await saveDownloadResult(result, `foreign-report-${options.reportId}`, options.output ?? title)
 })
 
 addTimeFilters(announcement.command("list").option("--security <code>", "Security code", collectList, []).option("--announcement-type <type>", "Announcement type", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
@@ -242,11 +364,13 @@ addTimeFilters(announcement.command("list").option("--security <code>", "Securit
   await printData(await client.call("insight.announcement.list", {
     from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
     securityList: maybeArray(options.security), announcementTypeList: maybeArray(options.announcementType),
-  }), parseFormat(options.format), options.output)
+  }), parseFormat(options.format), options.output, { endpointKey: "insight.announcement.list", idField: "announcementId" })
 })
 announcement.command("download").requiredOption("--announcement-id <id>").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await saveDownloadResult(await client.call("insight.announcement.download", undefined, { announcementId: options.announcementId }), `announcement-${options.announcementId}`, options.output)
+  const result = await client.call("insight.announcement.download", undefined, { announcementId: options.announcementId })
+  const title = options.output ? undefined : await resolveTitle(client, result, "insight.announcement.list", "announcementId", options.announcementId)
+  await saveDownloadResult(result, `announcement-${options.announcementId}`, options.output ?? title)
 })
 
 insight.addCommand(opinion)
@@ -306,11 +430,13 @@ ai.command("peer-comparison").requiredOption("--security-code <code>").option("-
 })
 ai.command("cloud-disk-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await printData(await client.call("ai.cloud-disk.list", { from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, fileTypeList: options.fileType.length ? options.fileType : undefined, spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), parseFormat(options.format), options.output)
+  await printData(await client.call("ai.cloud-disk.list", { from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, fileTypeList: options.fileType.length ? options.fileType : undefined, spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), parseFormat(options.format), options.output, { endpointKey: "ai.cloud-disk.list", idField: "fileId" })
 })
 ai.command("cloud-disk-download").requiredOption("--file-id <id>").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await saveDownloadResult(await client.call("ai.cloud-disk.download", undefined, { fileId: options.fileId }), `file-${options.fileId}`, options.output)
+  const result = await client.call("ai.cloud-disk.download", undefined, { fileId: options.fileId })
+  const title = options.output ? undefined : await resolveTitle(client, result, "ai.cloud-disk.list", "fileId", options.fileId)
+  await saveDownloadResult(result, `file-${options.fileId}`, options.output ?? title)
 })
 program.addCommand(ai)
 
