@@ -42,6 +42,7 @@ export GANGTISE_TOKEN="Bearer xxx"
 - `gangtise lookup ...`
 - `gangtise insight ...`
 - `gangtise quote ...`
+- `gangtise fundamental ...`
 - `gangtise ai ...`
 - `gangtise raw call ...`
 
@@ -137,9 +138,14 @@ gangtise insight roadshow list --institution C100000017
 
 ```bash
 gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
-gangtise quote income-statement --security-code 600519.SH --fiscal-year 2025 --period q3 --field netProfit
-gangtise quote main-business --security-code 600519.SH
-gangtise quote valuation-analysis --security-code 600519.SH --indicator peTtm
+```
+
+### Fundamental
+
+```bash
+gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2025 --period q3 --field netProfit
+gangtise fundamental main-business --security-code 600519.SH
+gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm
 ```
 
 ### AI
@@ -175,7 +181,8 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 - auth: `login`
 - lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list`
 - insight: `opinion list` / `summary list` / `summary download` / `roadshow list` / `site-visit list` / `strategy list` / `forum list` / `research list` / `research download` / `foreign-report list` / `foreign-report download` / `announcement list` / `announcement download`
-- quote: `day-kline` / `income-statement` / `main-business` / `valuation-analysis`
+- quote: `day-kline`
+- fundamental: `income-statement` / `main-business` / `valuation-analysis`
 - ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `cloud-disk-list` / `cloud-disk-download` / `one-pager` / `investment-logic` / `peer-comparison`
 
 注意：`knowledge-resource-download` 依赖正确的 `resourceType + sourceId` 组合；错误组合会返回 `433007 不支持该数据源`。

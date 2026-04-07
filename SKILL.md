@@ -1,7 +1,7 @@
 ---
 name: gangtise-openapi
 description: |-
-  通过 gangtise CLI 调用 Gangtise OpenAPI，获取投研原始数据并执行批量操作。覆盖：首席观点、纪要、路演、调研、策略会、论坛、研报、外资研报、公告、日K线行情、财务报表（利润表/主营）、估值分析、AI知识库搜索、投研线索、个股一页通、投资逻辑、同业对比、AI云盘文件管理。
+  通过 gangtise CLI 调用 Gangtise OpenAPI，获取投研原始数据并执行批量操作。覆盖：首席观点、纪要、路演、调研、策略会、论坛、研报、外资研报、公告、日K线行情、基本面数据（利润表/主营/估值分析）、AI知识库搜索、投研线索、个股一页通、投资逻辑、同业对比、AI云盘文件管理。
 
   **务必在以下场景使用此 skill（即使用户没有明确提到 API 或 CLI）**：
   - 需要从 Gangtise 平台拉取**原始数据**（非经过其他 skill 加工的结果）
@@ -35,9 +35,9 @@ description: |-
 | 外资研报 | `insight foreign-report list/download` |
 | 公告 | `insight announcement list/download` |
 | K线行情 | `quote day-kline` |
-| 利润表/财务数据 | `quote income-statement` |
-| 主营业务构成 | `quote main-business` |
-| PE/PB/PEG 等估值 | `quote valuation-analysis` |
+| 利润表/财务数据 | `fundamental income-statement` |
+| 主营业务构成 | `fundamental main-business` |
+| PE/PB/PEG 等估值 | `fundamental valuation-analysis` |
 | 知识库语义搜索 | `ai knowledge-batch` |
 | 投研线索 | `ai security-clue` |
 | 个股一页通 | `ai one-pager` |
@@ -148,7 +148,7 @@ gangtise insight announcement download --announcement-id <id> [--output <path>]
 
 专有参数：`--security <code>`、`--announcement-type <type>`
 
-## Quote 命令（行情/财务）
+## Quote 命令（行情）
 
 ### 日K线
 
@@ -156,22 +156,24 @@ gangtise insight announcement download --announcement-id <id> [--output <path>]
 gangtise quote day-kline --security <code> --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> [--limit <n>] [--field <name>]
 ```
 
+## Fundamental 命令（基本面）
+
 ### 利润表
 
 ```bash
-gangtise quote income-statement --security-code <code> [--fiscal-year <year>] [--period <q1|q2|q3|latest>] [--report-type <consolidated|parent>] [--field <name>]
+gangtise fundamental income-statement --security-code <code> [--fiscal-year <year>] [--period <q1|q2|q3|latest>] [--report-type <consolidated|parent>] [--field <name>]
 ```
 
 ### 主营业务
 
 ```bash
-gangtise quote main-business --security-code <code> [--fiscal-year <year>] [--field <name>]
+gangtise fundamental main-business --security-code <code> [--fiscal-year <year>] [--field <name>]
 ```
 
 ### 估值分析
 
 ```bash
-gangtise quote valuation-analysis --security-code <code> --indicator <name> [--start-date <date>] [--end-date <date>] [--limit <n>]
+gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <date>] [--end-date <date>] [--limit <n>]
 ```
 
 indicator 可选值：`peTtm` | `pbMrq` | `peg` | `psTtm` | `pcfTtm` | `em`
@@ -223,7 +225,7 @@ gangtise ai cloud-disk-download --file-id <id> [--output <path>]
 gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'
 ```
 
-endpoint key 格式如 `insight.opinion.list`、`quote.day-kline`、`ai.knowledge-batch` 等。
+endpoint key 格式如 `insight.opinion.list`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch` 等。
 
 ## 自动翻页
 

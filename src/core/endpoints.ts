@@ -156,22 +156,22 @@ export const ENDPOINTS = {
     kind: "json",
     description: "Query daily kline",
   },
-  quoteIncomeStatement: {
-    key: "quote.income-statement",
+  fundamentalIncomeStatement: {
+    key: "fundamental.income-statement",
     method: "POST",
     path: "/application/open-fundamental/financial-report/income-statement",
     kind: "json",
     description: "Query income statement",
   },
-  quoteMainBusiness: {
-    key: "quote.main-business",
+  fundamentalMainBusiness: {
+    key: "fundamental.main-business",
     method: "POST",
     path: "/application/open-fundamental/main-business",
     kind: "json",
     description: "Query main business composition",
   },
-  quoteValuationAnalysis: {
-    key: "quote.valuation-analysis",
+  fundamentalValuationAnalysis: {
+    key: "fundamental.valuation-analysis",
     method: "POST",
     path: "/application/open-fundamental/valuation-analysis",
     kind: "json",

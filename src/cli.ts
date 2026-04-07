@@ -389,19 +389,22 @@ quote.command("day-kline").option("--security <code>", "Security code", collectL
   const client = new GangtiseClient(loadConfig())
   await printData(await client.call("quote.day-kline", { securityList: maybeArray(options.security), startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
-quote.command("income-statement").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
-  const client = new GangtiseClient(loadConfig())
-  await printData(await client.call("quote.income-statement", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : ["latest"], reportType: options.reportType.length ? options.reportType : ["consolidated"], fieldList: options.field }), parseFormat(options.format), options.output)
-})
-quote.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
-  const client = new GangtiseClient(loadConfig())
-  await printData(await client.call("quote.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
-})
-quote.command("valuation-analysis").requiredOption("--security-code <code>").requiredOption("--indicator <name>", "Indicator like peTtm/pbMrq/peg/psTtm/pcfTtm/em").option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
-  const client = new GangtiseClient(loadConfig())
-  await printData(await client.call("quote.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
-})
 program.addCommand(quote)
+
+const fundamental = new Command("fundamental").description("Fundamental APIs")
+fundamental.command("income-statement").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = new GangtiseClient(loadConfig())
+  await printData(await client.call("fundamental.income-statement", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : ["latest"], reportType: options.reportType.length ? options.reportType : ["consolidated"], fieldList: options.field }), parseFormat(options.format), options.output)
+})
+fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = new GangtiseClient(loadConfig())
+  await printData(await client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+})
+fundamental.command("valuation-analysis").requiredOption("--security-code <code>").requiredOption("--indicator <name>", "Indicator like peTtm/pbMrq/peg/psTtm/pcfTtm/em").option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = new GangtiseClient(loadConfig())
+  await printData(await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+})
+program.addCommand(fundamental)
 
 const ai = new Command("ai").description("AI APIs")
 ai.command("knowledge-batch").requiredOption("--query <text>", "Query", collectList, []).option("--top <number>", "Top", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <ms>").option("--end-time <ms>").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
