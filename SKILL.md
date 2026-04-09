@@ -59,7 +59,7 @@ description: |-
 gangtise insight opinion list [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--llm-tag <tag>] [--source <source>] [--rank-type <n>]
 ```
 
-枚举值：
+**枚举值：**
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
 - `--source`：`realTime` 实时 | `openSource` 开放来源
 - `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
@@ -76,10 +76,15 @@ gangtise insight summary list [--search-type <n>] [--rank-type <n>] [--source <n
 gangtise insight summary download --summary-id <id> [--output <path>]
 ```
 
-枚举值：
+**枚举值：**
 - `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索
 - `--market`：`aShares` A股 | `hkStocks` 港股 | `usChinaConcept` 美股中概 | `usStocks` 美股
 - `--participant-role`：`management` 管理层 | `expert` 专家
+
+示例：查 A 股高管纪要
+```bash
+gangtise insight summary list --market aShares --participant-role management --start-time "2025-04-01 00:00:00" --format json
+```
 
 ### 路演 / 调研 / 策略会 / 论坛
 
@@ -90,9 +95,9 @@ gangtise insight strategy list [options]
 gangtise insight forum list [options]
 ```
 
-共用参数：`--research-area <id>` `--institution <id>` `--security <code>` `--category <name>` `--market <name>` `--participant-role <name>` `--broker-type <type>` `--object <type>` `--permission <n>`
+**共用参数：** `--research-area <id>` `--institution <id>` `--security <code>` `--category <name>` `--market <name>` `--participant-role <name>` `--broker-type <type>` `--object <type>` `--permission <n>`
 
-枚举值：
+**枚举值：**
 - `--category`（路演）：`earningsCall` 业绩交流 | `strategyMeeting` 策略会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `fundRoadshow` 基金路演
 - `--category`（调研）：`single` 单场调研 | `series` 系列调研
 - `--object`（调研）：`company` 公司调研 | `industry` 行业调研
@@ -104,6 +109,11 @@ gangtise insight forum list [options]
 gangtise insight site-visit list --object company --start-time "2025-04-01 00:00:00" --format json
 ```
 
+示例：查业绩交流类路演
+```bash
+gangtise insight roadshow list --category earningsCall --start-time "2025-04-01 00:00:00" --format json
+```
+
 ### 研报
 
 ```bash
@@ -111,7 +121,7 @@ gangtise insight research list [--search-type <n>] [--rank-type <n>] [--broker <
 gangtise insight research download --report-id <id> [--file-type <n>] [--output <path>]
 ```
 
-枚举值：
+**枚举值：**
 - `--category`：`macro` 宏观 | `strategy` 策略 | `industry` 行业 | `company` 公司 | `bond` 债券 | `quant` 金工 | `morningNotes` 晨会 | `fund` 基金 | `forex` 外汇 | `futures` 期货 | `options` 期权 | `warrants` 权证 | `market` 市场 | `wealthManagement` 理财 | `other` 其他
 - `--llm-tag`：`inDepth` 深度报告 | `earningsReview` 业绩点评 | `industryStrategy` 行业策略
 - `--rating`：`buy` 买入 | `overweight` 增持 | `neutral` 中性 | `underweight` 减持 | `sell` 卖出
@@ -122,6 +132,11 @@ gangtise insight research download --report-id <id> [--file-type <n>] [--output 
 示例：查食品饮料行业的深度研报（买入评级）
 ```bash
 gangtise insight research list --industry 104340000 --category company --llm-tag inDepth --rating buy --format json
+```
+
+示例：下载研报 PDF
+```bash
+gangtise insight research download --report-id <id> --output ./report.pdf
 ```
 
 ### 外资研报
@@ -140,6 +155,11 @@ gangtise insight foreign-report download --report-id <id> [--file-type <n>] [--o
 gangtise insight foreign-report download --report-id <id> --file-type 3 --output ./report.pdf
 ```
 
+示例：查美国区域的外资深度研报
+```bash
+gangtise insight foreign-report list --region us --llm-tag inDepth --format json
+```
+
 ### 公告
 
 ```bash
@@ -156,6 +176,11 @@ gangtise insight announcement download --announcement-id <id> [--file-type <n>] 
 gangtise insight announcement list --security 600519.SH --category 103910200 --format json
 ```
 
+示例：下载公告 Markdown 版本
+```bash
+gangtise insight announcement download --announcement-id <id> --file-type 2 --output ./announcement.md
+```
+
 ---
 
 ## Quote 命令
@@ -165,6 +190,8 @@ gangtise insight announcement list --security 600519.SH --category 103910200 --f
 ```bash
 gangtise quote day-kline --security <code> --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> [--limit <n>] [--field <name>]
 ```
+
+**可选字段（--field）：** `tradeDate` 交易日期 | `open` 开盘价 | `high` 最高价 | `low` 最低价 | `close` 收盘价 | `volume` 成交量 | `amount` 成交额 | `pctChange` 涨跌幅(%) | `turnoverRate` 换手率(%) | `change` 涨跌额 | `preClose` 前收盘价
 
 示例：
 ```bash
@@ -178,20 +205,31 @@ gangtise quote day-kline --security 600519.SH --start-date 2025-01-01 --end-date
 ### 利润表
 
 ```bash
-gangtise fundamental income-statement --security-code <code> [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
+gangtise fundamental income-statement --security-code <code> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
 ```
 
-- `--period`：`q1` | `q2` | `q3` | `latest`（默认）
+**枚举值：**
+- `--period`：`q1` 一季报 | `q2` 中报 | `q3` 三季报 | `latest` 年报（默认）
 - `--report-type`：`consolidated` 合并报表（默认）| `parent` 母公司报表
+
+**可选字段（--field）：** `reportDate` 报告期 | `reportType` 报告类型 | `opRevenue` 营业收入 | `opCost` 营业成本 | `grossProfit` 毛利 | `netProfit` 净利润（省略则返回全部字段）
+
+示例：查茅台近两年合并利润表
+```bash
+gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2024 --fiscal-year 2023 --report-type consolidated --format json
+```
 
 ### 主营业务
 
 ```bash
-gangtise fundamental main-business --security-code <code> --breakdown <type> [--period <type>] [--fiscal-year <year>] [--field <name>]
+gangtise fundamental main-business --security-code <code> --breakdown <type> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--period <type>] [--field <name>]
 ```
 
+**枚举值：**
 - `--breakdown`（必选）：`product` 按产品（默认）| `industry` 按行业 | `region` 按地区
 - `--period`：`interim` 中报 | `annual` 年报
+
+**可选字段（--field）：** `opRevenue` 营业收入 | `opRevenueYoy` 营业收入同比增速 | `opRevenueRatio` 营业收入占比 | `opCost` 营业成本 | `grossProfit` 毛利 | `grossMargin` 毛利率 | `grossMarginYoy` 毛利率同比变化（省略则返回全部字段）
 
 示例：查茅台按地区拆分的主营构成
 ```bash
@@ -201,10 +239,19 @@ gangtise fundamental main-business --security-code 600519.SH --breakdown region 
 ### 估值分析
 
 ```bash
-gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <date>] [--end-date <date>] [--limit <n>]
+gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
 ```
 
-- `--indicator`（必选）：`peTtm` | `pbMrq` | `peg` | `psTtm` | `pcfTtm` | `em`
+- `--indicator`（必选）：`peTtm` 滚动市盈率 | `pbMrq` 市净率 | `peg` 市盈率相对盈利增长率 | `psTtm` 滚动市销率 | `pcfTtm` 滚动市现率 | `em` 企业倍数
+- `--limit`：最大返回行数，默认 2000
+- 默认查近一年数据（`--start-date` 省略时自动向前一年）
+
+**可选字段（--field）：** `value` 原始值 | `percentileRank` 分位点 | `average` 平均值 | `median` 中位数 | `p10` 10分位数 | `p25` 25分位数 | `p75` 75分位数 | `p90` 90分位数 | `upper1Std` +1标准差 | `lower1Std` -1标准差（省略则返回全部字段）
+
+示例：查茅台近三年 PE-TTM 及历史分位
+```bash
+gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm --start-date 2022-01-01 --end-date 2025-04-01 --format json
+```
 
 ---
 
@@ -216,8 +263,14 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>]
 ```
 
+- `--top`：返回文档数量，默认 10，最大 20
 - `--resource-type`：`10` 券商研报 | `11` 外资研报 | `20` 内部报告 | `40` 首席观点 | `50` 公司公告 | `51` 港股公告 | `60` 会议平台纪要 | `70` 调研纪要公告 | `80` 网络资源纪要 | `90` 产业公众号
 - `--knowledge-name`：`system_knowledge_doc` 系统知识库 | `tenant_knowledge_doc` 机构知识库
+
+示例：搜索茅台相关研报
+```bash
+gangtise ai knowledge-batch --query 贵州茅台 --resource-type 10 --top 5 --format json
+```
 
 ### 知识资源下载
 
@@ -233,9 +286,14 @@ gangtise ai knowledge-resource-download --resource-type <n> --source-id <id> [--
 gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <mode> [--gts-code <code>] [--source <name>]
 ```
 
-- `--query-mode`（必选）：`bySecurity` | `byIndustry`
+- `--query-mode`（必选）：`bySecurity` 按证券 | `byIndustry` 按行业
 - `--source`：`researchReport` 研报 | `conference` 电话会议 | `announcement` 公告 | `view` 观点
 - `--gts-code` 支持个股代码或申万行业代码（如 `821035.SWI`），行业代码用 `lookup industry-code list` 查
+
+示例：查电子行业近一个月投研线索
+```bash
+gangtise ai security-clue --start-time "2025-03-01 00:00:00" --end-time "2025-04-01 00:00:00" --query-mode byIndustry --gts-code 821035.SWI --format json
+```
 
 ### 一页通 / 投资逻辑 / 同业对比
 
@@ -255,6 +313,16 @@ gangtise ai cloud-disk-download --file-id <id> [--output <path>]
 - `--file-type`：`1` 文档 | `2` 图片 | `3` 音视频 | `4` 公众号文章 | `5` 其他
 - `--space-type`：`1` 我的云盘 | `2` 机构云盘
 
+示例：查我的云盘文档
+```bash
+gangtise ai cloud-disk-list --space-type 1 --file-type 1 --format json
+```
+
+示例：下载云盘文件
+```bash
+gangtise ai cloud-disk-download --file-id <id> --output ./file.pdf
+```
+
 ---
 
 ## Lookup 命令
@@ -271,6 +339,11 @@ gangtise lookup announcement-category list # 公告分类 ID
 gangtise lookup industry-code list        # 申万行业代码（security-clue --gts-code 用）
 ```
 
+示例：查中信建投的券商 ID
+```bash
+gangtise lookup broker-org list --format json | grep 中信建投
+```
+
 ## Raw 调用
 
 ```bash
@@ -278,6 +351,11 @@ gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'
 ```
 
 endpoint key 如 `insight.opinion.list`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch` 等。
+
+示例：直接调用首席观点接口
+```bash
+gangtise raw call insight.opinion.list --body '{"from":0,"size":10}'
+```
 
 ---
 
