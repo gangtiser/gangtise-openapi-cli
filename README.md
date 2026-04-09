@@ -57,6 +57,8 @@ gangtise lookup research-area list
 gangtise lookup broker-org list
 gangtise lookup meeting-org list
 gangtise lookup industry list
+gangtise lookup region list              # 外资研报区域
+gangtise lookup announcement-category list  # 公告分类
 gangtise lookup industry-code list   # 申万行业代码（用于 security-clue --gts-code）
 ```
 
@@ -85,10 +87,9 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `ai cloud-disk-list`
 
 规则：
-- `--from` 表示起始偏移量
-- `--size` 表示最终最多返回多少条记录
-- 如果未传 `--size`，CLI 会根据返回里的 `total` 自动翻页，把从 `from` 开始的全部数据查全
-- 如果传了 `--size`，即使超过接口单次上限，CLI 也会自动翻页，直到累计记录数达到 `size` 或数据取完
+- **有时间范围时**（传了 `--start-time/--end-time` 或 `--start-date/--end-date`）：**省略 `--size`**，CLI 自动翻页查全
+- **无时间范围时**（未传时间参数）：默认 `--size 200`，防止一次查询数据量过大
+- 如果显式传了 `--size`，则按指定值翻页，直到达到 `size` 或数据取完
 
 ## 智能文件命名
 
@@ -112,11 +113,14 @@ gangtise auth status
 ### Insight
 
 ```bash
-# 只取前 120 条，CLI 内部自动翻页
-gangtise insight research list --start-time "2026-04-04 00:00:00" --end-time "2026-04-04 23:59:59" --size 120
+# 有时间范围 → 省略 --size，自动查全
+gangtise insight research list --start-time "2026-04-01 00:00:00" --end-time "2026-04-09 23:59:59"
 
-# 不传 size，自动查全
-gangtise insight research list --start-time "2026-04-04 00:00:00" --end-time "2026-04-04 23:59:59"
+# 无时间范围 → 默认 --size 200
+gangtise insight research list --industry 104270000 --category company --llm-tag inDepth --rating buy
+
+# 多值 List 模式：一次查多家券商 + 多个行业 + 多个评级
+gangtise insight research list --broker C100000027 --broker C100000014 --industry 104340000 --industry 104370000 --rating buy --rating overweight --format json
 
 gangtise insight opinion list --keyword AI
 gangtise insight summary list --keyword 算力
@@ -125,8 +129,12 @@ gangtise insight summary list --keyword 算力
 gangtise insight summary download --summary-id 4902586
 # → 超颖电子：2026年4月7日投资者关系活动记录表.txt
 
-gangtise insight research download --report-id 432092410345574400
-# → 建筑材料行业投资策略周报：战争对预期的影响仍大 中长期关注传统建材底部机会.pdf
+# 下载 Markdown 版本
+gangtise insight research download --report-id 432092410345574400 --file-type 2
+# 下载外资研报中文翻译版
+gangtise insight foreign-report download --report-id RPT20260401001 --file-type 4
+# 下载公告 Markdown 版本
+gangtise insight announcement download --announcement-id 123456 --file-type 2
 
 # 也可手动指定文件名
 gangtise insight research download --report-id 12345 --output ./report.pdf
@@ -144,7 +152,9 @@ gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date
 
 ```bash
 gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2025 --period q3 --field netProfit
-gangtise fundamental main-business --security-code 600519.SH
+# 多周期：同时查一季报和中报
+gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2024 --period q1 --period q2 --report-type consolidated
+gangtise fundamental main-business --security-code 600519.SH --breakdown region
 gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm
 ```
 
@@ -152,12 +162,13 @@ gangtise fundamental valuation-analysis --security-code 600519.SH --indicator pe
 
 ```bash
 gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
-gangtise ai security-clue --start-time "2026-03-01 00:00:00" --end-time "2026-03-23 23:59:59" --query-mode bySecurity --gts-code 000001.SZ --size 800
-gangtise ai security-clue --start-time "2026-04-01 00:00:00" --end-time "2026-04-07 23:59:59" --query-mode byIndustry --gts-code 821055.SWI
+# 多 resource-type：同时搜索券商研报和外资研报
+gangtise ai knowledge-batch --query 新能源汽车 --resource-type 10 --resource-type 11 --top 10
+gangtise ai security-clue --start-time "2026-04-01 00:00:00" --end-time "2026-04-09 23:59:59" --query-mode byIndustry --gts-code 821035.SWI --source researchReport --source announcement
 gangtise ai one-pager --security-code 600519.SH
 gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
-gangtise ai cloud-disk-list --keyword 部门文档
+gangtise ai cloud-disk-list --keyword 部门文档 --space-type 1 --file-type 1
 
 # 云盘下载：自动使用文件标题命名
 gangtise ai cloud-disk-download --file-id 62130
@@ -178,8 +189,8 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 ## 已验证的真实联调
 
 已真实跑通：
-- auth: `login`
-- lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list`
+- auth: `login` / `status`
+- lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list`
 - insight: `opinion list` / `summary list` / `summary download` / `roadshow list` / `site-visit list` / `strategy list` / `forum list` / `research list` / `research download` / `foreign-report list` / `foreign-report download` / `announcement list` / `announcement download`
 - quote: `day-kline`
 - fundamental: `income-statement` / `main-business` / `valuation-analysis`
