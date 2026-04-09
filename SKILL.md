@@ -25,9 +25,8 @@ description: |-
 4. **时间格式**：datetime 用 `"YYYY-MM-DD HH:mm:ss"`（带引号），date 用 `YYYY-MM-DD`
 5. **多值参数重复传入**：`--security 600519.SH --security 000858.SZ`
 6. **`--size` 使用策略**：
-   - 有时间范围时（`--start-time`/`--end-time` 或 `--start-date`/`--end-date`）：**省略 `--size`，自动翻页查全**
-   - 用户明确说"全部/所有"时：**省略 `--size`，查全**
-   - 无时间范围且用户未明确说全部时：**指定 `--size`（建议 20-50）**，避免数据量过大
+   - 有时间范围时（`--start-time`/`--end-time` 或 `--start-date`/`--end-date`）：**省略 `--size`，自动翻页查全**（除非用户明确指定了条数）
+   - 无时间范围时：**指定 `--size 200`**，防止一次查询数据量过大
 7. **`--field` 参数可重复传入**（CLI 用 `collectList` 实现）：`--field open --field close --field volume` 等效于 API 的 `["open","close","volume"]`
 
 ## List 模式：单次调用传多值，替代多次调用
@@ -44,7 +43,7 @@ description: |-
 | 公告 | `--security` `--announcement-type` `--category` |
 | 日K线 | `--security` `--field` |
 | 利润表 | `--fiscal-year` `--period` `--report-type` `--field` |
-| 主营业务 | `--period` `--field` |
+| 主营业务 | `--fiscal-year` `--period` `--field` |
 | 估值分析 | `--field` |
 | 知识库搜索 | `--query`（最多 5 个）`--resource-type` |
 | 投研线索 | `--gts-code` `--source` |
@@ -276,7 +275,7 @@ gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 20
 ### 主营业务
 
 ```bash
-gangtise fundamental main-business --security-code <code> --breakdown <type> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--period <type>] [--field <name>]
+gangtise fundamental main-business --security-code <code> --breakdown <type> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--fiscal-year <year>] [--period <type>] [--field <name>]
 ```
 
 **枚举值：**
@@ -314,7 +313,7 @@ gangtise fundamental valuation-analysis --security-code 600519.SH --indicator pe
 ### 知识库搜索
 
 ```bash
-gangtise ai knowledge-batch --query <text> [--query <text2>] [--query <text3>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>]
+gangtise ai knowledge-batch --query <text> [--query <text2>] [--query <text3>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>] [--start-time <ms>] [--end-time <ms>]
 ```
 
 - `--query`（可重复多次，最多 5 个）：语义搜索问题，如 `--query 贵州茅台 --query 白酒行业`
@@ -343,7 +342,7 @@ gangtise ai knowledge-resource-download --resource-type <n> --source-id <id> [--
 ### 投研线索
 
 ```bash
-gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <mode> [--gts-code <code>] [--source <name>]
+gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <mode> [--gts-code <code>] [--source <name>] [--from <n>] [--size <n>]
 ```
 
 - `--query-mode`（必选）：`bySecurity` 按证券 | `byIndustry` 按行业
@@ -376,7 +375,7 @@ gangtise ai one-pager --security-code 600519.SH --format json
 ### AI 云盘
 
 ```bash
-gangtise ai cloud-disk-list [--keyword <text>] [--file-type <n>] [--space-type <n>] [--from <n>] [--size <n>]
+gangtise ai cloud-disk-list [--keyword <text>] [--file-type <n>] [--space-type <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
 gangtise ai cloud-disk-download --file-id <id> [--output <path>]
 ```
 
