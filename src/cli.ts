@@ -4,7 +4,7 @@ import { Command, Option } from "commander"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path, { extname } from "node:path"
-import { collectKeyValue, collectList, collectNumberList, maybeArray } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, maybeArray, toTimestamp13 } from "./core/args.js"
 import { readTokenCache } from "./core/auth.js"
 import { GangtiseClient } from "./core/client.js"
 import { loadConfig, type OutputFormat } from "./core/config.js"
@@ -242,6 +242,14 @@ lookup
     const client = new GangtiseClient(loadConfig())
     await printData(await client.call("lookup.industries.list"), parseFormat(options.format))
   })))
+  .addCommand(new Command("region").description("Foreign report region codes").addCommand(new Command("list").option("--format <format>", "Output format", "table").action(async (options) => {
+    const client = new GangtiseClient(loadConfig())
+    await printData(await client.call("lookup.regions.list"), parseFormat(options.format))
+  })))
+  .addCommand(new Command("announcement-category").description("Announcement category codes").addCommand(new Command("list").option("--format <format>", "Output format", "table").action(async (options) => {
+    const client = new GangtiseClient(loadConfig())
+    await printData(await client.call("lookup.announcement-categories.list"), parseFormat(options.format))
+  })))
   .addCommand(new Command("industry-code").description("Shenwan industry codes for security-clue --gts-code").addCommand(new Command("list").option("--format <format>", "Output format", "table").action(async (options) => {
     const data = [
       { name: "申万农林牧渔", code: "821031.SWI" },
@@ -317,13 +325,13 @@ summary.command("download").requiredOption("--summary-id <id>").option("--output
   await saveDownloadResult(result, `summary-${options.summaryId}`, options.output ?? title)
 })
 
-const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
+const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--object <type>", "Object type: company/industry", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
   const client = new GangtiseClient(loadConfig())
   await printData(await client.call(endpointKey, {
     from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
     researchAreaList: maybeArray(options.researchArea), institutionList: maybeArray(options.institution), securityList: maybeArray(options.security),
     categoryList: maybeArray(options.category), marketList: maybeArray(options.market), participantRoleList: maybeArray(options.participantRole),
-    brokerTypeList: maybeArray(options.brokerType), permission: options.permission.length ? options.permission : undefined,
+    brokerTypeList: maybeArray(options.brokerType), objectList: maybeArray(options.object), permission: options.permission.length ? options.permission : undefined,
   }), parseFormat(options.format), options.output)
 })
 addScheduleList(roadshow, "insight.roadshow.list")
@@ -331,44 +339,54 @@ addScheduleList(siteVisit, "insight.site-visit.list")
 addScheduleList(strategy, "insight.strategy.list")
 addScheduleList(forum, "insight.forum.list")
 
-addTimeFilters(research.command("list").option("--broker <id>", "Broker ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
+addTimeFilters(research.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--broker <id>", "Broker ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--source <type>", "Source type", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
   const client = new GangtiseClient(loadConfig())
   await printData(await client.call("insight.research.list", {
     from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
+    searchType: Number(options.searchType), rankType: Number(options.rankType),
     brokerList: maybeArray(options.broker), securityList: maybeArray(options.security), industryList: maybeArray(options.industry),
+    categoryList: maybeArray(options.category), llmTagList: maybeArray(options.llmTag), ratingList: maybeArray(options.rating),
+    ratingChangeList: maybeArray(options.ratingChange), minReportPages: options.minPages ? Number(options.minPages) : undefined,
+    maxReportPages: options.maxPages ? Number(options.maxPages) : undefined, sourceList: maybeArray(options.source),
   }), parseFormat(options.format), options.output, { endpointKey: "insight.research.list", idField: "reportId" })
 })
-research.command("download").requiredOption("--report-id <id>").option("--output <path>").action(async (options) => {
+research.command("download").requiredOption("--report-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown", "1").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  const result = await client.call("insight.research.download", undefined, { reportId: options.reportId })
+  const result = await client.call("insight.research.download", undefined, { reportId: options.reportId, fileType: Number(options.fileType) })
   const title = options.output ? undefined : await resolveTitle(client, result, "insight.research.list", "reportId", options.reportId)
   await saveDownloadResult(result, `research-${options.reportId}`, options.output ?? title)
 })
 
-addTimeFilters(foreignReport.command("list").option("--security <code>", "Security code", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
+addTimeFilters(foreignReport.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--region <id>", "Region ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
   const client = new GangtiseClient(loadConfig())
   await printData(await client.call("insight.foreign-report.list", {
     from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
-    securityList: maybeArray(options.security),
+    searchType: Number(options.searchType), rankType: Number(options.rankType),
+    securityList: maybeArray(options.security), regionList: maybeArray(options.region), categoryList: maybeArray(options.category),
+    industryList: maybeArray(options.industry), brokerList: maybeArray(options.broker), llmTagList: maybeArray(options.llmTag),
+    ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
+    minReportPages: options.minPages ? Number(options.minPages) : undefined, maxReportPages: options.maxPages ? Number(options.maxPages) : undefined,
   }), parseFormat(options.format), options.output, { endpointKey: "insight.foreign-report.list", idField: "reportId" })
 })
-foreignReport.command("download").requiredOption("--report-id <id>").option("--output <path>").action(async (options) => {
+foreignReport.command("download").requiredOption("--report-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", "1").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  const result = await client.call("insight.foreign-report.download", undefined, { reportId: options.reportId })
+  const result = await client.call("insight.foreign-report.download", undefined, { reportId: options.reportId, fileType: Number(options.fileType) })
   const title = options.output ? undefined : await resolveTitle(client, result, "insight.foreign-report.list", "reportId", options.reportId)
   await saveDownloadResult(result, `foreign-report-${options.reportId}`, options.output ?? title)
 })
 
-addTimeFilters(announcement.command("list").option("--security <code>", "Security code", collectList, []).option("--announcement-type <type>", "Announcement type", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
+addTimeFilters(announcement.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--announcement-type <type>", "Announcement type", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
   const client = new GangtiseClient(loadConfig())
   await printData(await client.call("insight.announcement.list", {
-    from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
-    securityList: maybeArray(options.security), announcementTypeList: maybeArray(options.announcementType),
+    from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size),
+    startTime: toTimestamp13(options.startTime), endTime: toTimestamp13(options.endTime),
+    searchType: Number(options.searchType), rankType: Number(options.rankType), keyword: options.keyword,
+    securityList: maybeArray(options.security), announcementTypeList: maybeArray(options.announcementType), categoryList: maybeArray(options.category),
   }), parseFormat(options.format), options.output, { endpointKey: "insight.announcement.list", idField: "announcementId" })
 })
-announcement.command("download").requiredOption("--announcement-id <id>").option("--output <path>").action(async (options) => {
+announcement.command("download").requiredOption("--announcement-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown", "1").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  const result = await client.call("insight.announcement.download", undefined, { announcementId: options.announcementId })
+  const result = await client.call("insight.announcement.download", undefined, { announcementId: options.announcementId, fileType: Number(options.fileType) })
   const title = options.output ? undefined : await resolveTitle(client, result, "insight.announcement.list", "announcementId", options.announcementId)
   await saveDownloadResult(result, `announcement-${options.announcementId}`, options.output ?? title)
 })
@@ -394,13 +412,13 @@ program.addCommand(quote)
 const fundamental = new Command("fundamental").description("Fundamental APIs")
 fundamental.command("income-statement").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await printData(await client.call("fundamental.income-statement", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : ["latest"], reportType: options.reportType.length ? options.reportType : ["consolidated"], fieldList: options.field }), parseFormat(options.format), options.output)
+  await printData(await client.call("fundamental.income-statement", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : ["latest"], reportType: options.reportType.length ? options.reportType : ["consolidated"], fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
-fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).addOption(new Option("--period <type>", "Period: interim/annual").choices(["interim", "annual"])).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
-  await printData(await client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+  await printData(await client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), breakdown: options.breakdown, period: options.period, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
-fundamental.command("valuation-analysis").requiredOption("--security-code <code>").requiredOption("--indicator <name>", "Indicator like peTtm/pbMrq/peg/psTtm/pcfTtm/em").option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = new GangtiseClient(loadConfig())
   await printData(await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })

@@ -47,6 +47,20 @@ export const ENDPOINTS = {
     kind: "json",
     description: "List industries from local docs",
   },
+  lookupRegions: {
+    key: "lookup.regions.list",
+    method: "GET",
+    path: "/guide/regions-local",
+    kind: "json",
+    description: "List regions from local docs",
+  },
+  lookupAnnouncementCategories: {
+    key: "lookup.announcement-categories.list",
+    method: "GET",
+    path: "/guide/announcement-categories-local",
+    kind: "json",
+    description: "List announcement categories from local docs",
+  },
 
   insightOpinionList: {
     key: "insight.opinion.list",

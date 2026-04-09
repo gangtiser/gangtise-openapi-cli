@@ -38,3 +38,13 @@ export function collectKeyValue(value: string, previous: Record<string, string> 
 export function maybeArray<T>(value: T[]): T[] | undefined {
   return value.length > 0 ? value : undefined
 }
+
+export function toTimestamp13(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined
+  const num = Number(value)
+  if (!Number.isNaN(num) && num > 1e12) return num
+  if (!Number.isNaN(num) && num > 1e9) return num * 1000
+  const ms = new Date(value).getTime()
+  if (Number.isNaN(ms)) return undefined
+  return ms
+}
