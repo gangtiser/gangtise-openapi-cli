@@ -61,6 +61,13 @@ export const ENDPOINTS = {
     kind: "json",
     description: "List announcement categories from local docs",
   },
+  lookupIndustryCodes: {
+    key: "lookup.industry-codes.list",
+    method: "GET",
+    path: "/guide/industry-codes-local",
+    kind: "json",
+    description: "List Shenwan industry codes from local docs",
+  },
 
   insightOpinionList: {
     key: "insight.opinion.list",

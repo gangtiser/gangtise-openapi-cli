@@ -4,7 +4,7 @@ import type { CliConfig } from "./config.js"
 import { normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache } from "./auth.js"
 import { ApiError, ValidationError } from "./errors.js"
 import { ENDPOINTS, ENDPOINT_REGISTRY, type EndpointDefinition } from "./endpoints.js"
-import { ANNOUNCEMENT_CATEGORIES, BROKER_ORGS, INDUSTRIES, MEETING_ORGS, REGIONS, RESEARCH_AREAS } from "./lookupData.js"
+import { ANNOUNCEMENT_CATEGORIES, BROKER_ORGS, INDUSTRIES, INDUSTRY_CODES, MEETING_ORGS, REGIONS, RESEARCH_AREAS } from "./lookupData.js"
 
 interface Envelope<T> {
   code?: string | number
@@ -98,6 +98,10 @@ export class GangtiseClient {
 
     if (endpoint.key === "lookup.announcement-categories.list") {
       return ANNOUNCEMENT_CATEGORIES
+    }
+
+    if (endpoint.key === "lookup.industry-codes.list") {
+      return INDUSTRY_CODES
     }
 
     throw new ApiError(`Unsupported local lookup endpoint: ${endpoint.key}`)
