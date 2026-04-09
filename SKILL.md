@@ -21,9 +21,44 @@ description: |-
 1. **agent 调用务必加 `--format json`** 便于解析
 2. **opaque ID 参数**（research-area / broker / institution / chief / industry / concept）— **先用 `gangtise lookup` 查准确 ID，禁止凭记忆猜测**
 3. **证券代码带后缀**：`600519.SH`（沪）、`000858.SZ`（深）、`300750.SZ`（创）、`01913.HK`（港）
+   - Insight/Quote 命令用 `--security`，Fundamental 命令用 `--security-code`，注意区分
 4. **时间格式**：datetime 用 `"YYYY-MM-DD HH:mm:ss"`（带引号），date 用 `YYYY-MM-DD`
 5. **多值参数重复传入**：`--security 600519.SH --security 000858.SZ`
-6. **省略 `--size` 自动翻页查全**，需要限量时才传 `--size`
+6. **`--size` 使用策略**：
+   - 有时间范围时（`--start-time`/`--end-time` 或 `--start-date`/`--end-date`）：**省略 `--size`，自动翻页查全**
+   - 用户明确说"全部/所有"时：**省略 `--size`，查全**
+   - 无时间范围且用户未明确说全部时：**指定 `--size`（建议 20-50）**，避免数据量过大
+7. **`--field` 参数可重复传入**（CLI 用 `collectList` 实现）：`--field open --field close --field volume` 等效于 API 的 `["open","close","volume"]`
+
+## List 模式：单次调用传多值，替代多次调用
+
+大多数 CLI 参数对应 API 的 List 字段，同一参数可重复传入多个值，一次调用覆盖更广。
+
+### 支持重复的参数一览
+
+| 命令 | 可重复参数 |
+|------|-----------|
+| 首席观点 | `--security` `--broker` `--industry` `--research-area` `--chief` `--concept` `--llm-tag` `--source` |
+| 纪要 / 路演 / 调研 | `--security` `--institution` `--research-area` `--category` `--market` `--participant-role` `--broker-type` `--object` |
+| 研报 / 外资研报 | `--security` `--broker` `--industry` `--category` `--region` `--llm-tag` `--rating` `--rating-change` |
+| 公告 | `--security` `--announcement-type` `--category` |
+| 日K线 | `--security` `--field` |
+| 利润表 | `--fiscal-year` `--period` `--report-type` `--field` |
+| 主营业务 | `--period` `--field` |
+| 估值分析 | `--field` |
+| 知识库搜索 | `--query`（最多 5 个）`--resource-type` |
+| 投研线索 | `--gts-code` `--source` |
+| 云盘列表 | `--file-type` `--space-type` |
+
+**示例：一次查多只股票日K线**
+```bash
+gangtise quote day-kline --security 600519.SH --security 000858.SZ --security 300750.SZ --start-date 2025-01-01 --end-date 2025-03-31 --format json
+```
+
+**示例：一次查多个行业研报（买/增持）**
+```bash
+gangtise insight research list --industry 104340000 --industry 104370000 --rating buy --rating overweight --format json
+```
 
 ## 快速路由
 
@@ -69,6 +104,11 @@ gangtise insight opinion list [--research-area <id>] [--chief <id>] [--security 
 gangtise insight opinion list --broker C100000027 --llm-tag strongRcmd --start-time "2025-04-01 00:00:00" --format json
 ```
 
+示例：一次查食品饮料+医药两个行业、买入+增持评级的研报
+```bash
+gangtise insight research list --industry 104340000 --industry 104370000 --rating buy --rating overweight --format json
+```
+
 ### 纪要
 
 ```bash
@@ -78,8 +118,10 @@ gangtise insight summary download --summary-id <id> [--output <path>]
 
 **枚举值：**
 - `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索
+- `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
 - `--market`：`aShares` A股 | `hkStocks` 港股 | `usChinaConcept` 美股中概 | `usStocks` 美股
 - `--participant-role`：`management` 管理层 | `expert` 专家
+- `--source`：`1` 实时 | `2` 开放来源
 
 示例：查 A 股高管纪要
 ```bash
@@ -89,19 +131,23 @@ gangtise insight summary list --market aShares --participant-role management --s
 ### 路演 / 调研 / 策略会 / 论坛
 
 ```bash
-gangtise insight roadshow list [options]
-gangtise insight site-visit list [options]
-gangtise insight strategy list [options]
-gangtise insight forum list [options]
+gangtise insight roadshow list [options]       # category/market/participant-role/broker-type 均支持
+gangtise insight site-visit list [options]   # object/category/market/permission 均支持
+gangtise insight strategy list [options]      # 仅 keyword/institution/research-area
+gangtise insight forum list [options]         # 仅 keyword/security/research-area
 ```
 
-**共用参数：** `--research-area <id>` `--institution <id>` `--security <code>` `--category <name>` `--market <name>` `--participant-role <name>` `--broker-type <type>` `--object <type>` `--permission <n>`
+**共用参数：** `--research-area <id>` `--institution <id>` `--security <code>` `--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`
 
-**枚举值：**
+**共用枚举值：**
 - `--category`（路演）：`earningsCall` 业绩交流 | `strategyMeeting` 策略会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `fundRoadshow` 基金路演
-- `--category`（调研）：`single` 单场调研 | `series` 系列调研
-- `--object`（调研）：`company` 公司调研 | `industry` 行业调研
-- `--broker-type`：`cnBroker` 内资券商 | `otherBroker` 其他
+- `--market`（纪要/路演/调研）：`aShares` A股 | `hkStocks` 港股 | `usChinaConcept` 美股中概 | `usStocks` 美股
+- `--participant-role`（纪要/路演/调研）：`management` 管理层 | `expert` 专家
+- `--broker-type`（路演/调研）：`cnBroker` 内资券商 | `otherBroker` 其他
+
+**调研专有：**
+- `--object`：`company` 公司调研 | `industry` 行业调研
+- `--category`：`single` 单场调研 | `series` 系列调研
 - `--permission`：`1` 公开 | `2` 私密
 
 示例：查最近的公司调研日程
@@ -163,17 +209,25 @@ gangtise insight foreign-report list --region us --llm-tag inDepth --format json
 ### 公告
 
 ```bash
-gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--security <code>] [--category <id>]
+gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--security <code>] [--announcement-type <id>] [--category <id>]
 gangtise insight announcement download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- `--category`（一级）：`103910100` IPO | `103910200` 财务报告 | `103910300` 重大事项 | `103910400` 交易提示 | `103910500` 配股 | `103910600` 增发 | `103910700` 股权股本 | `103910800` 一般公告 | `103910900` 公司治理（二级分类用 `lookup announcement-category list`）
+- `--announcement-type`（公告类型，用 `lookup announcement-category list` 查）：与 `--category` 互为补充，均可重复传入
+- `--category`（栏目 ID，完整列表用 `lookup announcement-category list`）：`103910100` IPO | `103910200` 财务报告 | `103910300` 重大事项 | `103910400` 交易提示 | `103910500` 配股 | `103910600` 增发 | `103910700` 股权股本 | `103910800` 一般公告 | `103910900` 公司治理
+- `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索
+- `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown
 - 时间参数自动转 13 位时间戳，照常传 `"YYYY-MM-DD HH:mm:ss"`
 
 示例：查贵州茅台最近的财务报告类公告
 ```bash
 gangtise insight announcement list --security 600519.SH --category 103910200 --format json
+```
+
+示例：一次查茅台+宁德时代的财务报告+重大事项公告
+```bash
+gangtise insight announcement list --security 600519.SH --security 300750.SZ --category 103910200 --category 103910300 --format json
 ```
 
 示例：下载公告 Markdown 版本
@@ -193,9 +247,9 @@ gangtise quote day-kline --security <code> --start-date <YYYY-MM-DD> --end-date 
 
 **可选字段（--field）：** `tradeDate` 交易日期 | `open` 开盘价 | `high` 最高价 | `low` 最低价 | `close` 收盘价 | `volume` 成交量 | `amount` 成交额 | `pctChange` 涨跌幅(%) | `turnoverRate` 换手率(%) | `change` 涨跌额 | `preClose` 前收盘价
 
-示例：
+示例：查茅台、宁德时代两只股票日K线
 ```bash
-gangtise quote day-kline --security 600519.SH --start-date 2025-01-01 --end-date 2025-03-31 --format json
+gangtise quote day-kline --security 600519.SH --security 300750.SZ --start-date 2025-01-01 --end-date 2025-03-31 --format json
 ```
 
 ---
@@ -260,9 +314,10 @@ gangtise fundamental valuation-analysis --security-code 600519.SH --indicator pe
 ### 知识库搜索
 
 ```bash
-gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>]
+gangtise ai knowledge-batch --query <text> [--query <text2>] [--query <text3>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>]
 ```
 
+- `--query`（可重复多次，最多 5 个）：语义搜索问题，如 `--query 贵州茅台 --query 白酒行业`
 - `--top`：返回文档数量，默认 10，最大 20
 - `--resource-type`：`10` 券商研报 | `11` 外资研报 | `20` 内部报告 | `40` 首席观点 | `50` 公司公告 | `51` 港股公告 | `60` 会议平台纪要 | `70` 调研纪要公告 | `80` 网络资源纪要 | `90` 产业公众号
 - `--knowledge-name`：`system_knowledge_doc` 系统知识库 | `tenant_knowledge_doc` 机构知识库
@@ -270,6 +325,11 @@ gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--reso
 示例：搜索茅台相关研报
 ```bash
 gangtise ai knowledge-batch --query 贵州茅台 --resource-type 10 --top 5 --format json
+```
+
+示例：同时搜索茅台、白酒行业两个问题（最多 5 个 query）
+```bash
+gangtise ai knowledge-batch --query 贵州茅台 --query 白酒行业 --query 酱香型白酒 --format json
 ```
 
 ### 知识资源下载
@@ -295,12 +355,22 @@ gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-
 gangtise ai security-clue --start-time "2025-03-01 00:00:00" --end-time "2025-04-01 00:00:00" --query-mode byIndustry --gts-code 821035.SWI --format json
 ```
 
+示例：一次查电子+食品饮料两个行业、研报+公告来源的线索
+```bash
+gangtise ai security-clue --start-time "2025-03-01 00:00:00" --end-time "2025-04-01 00:00:00" --query-mode byIndustry --gts-code 821035.SWI --gts-code 821038.SWI --source researchReport --source announcement --format json
+```
+
 ### 一页通 / 投资逻辑 / 同业对比
 
 ```bash
 gangtise ai one-pager --security-code <code>
 gangtise ai investment-logic --security-code <code>
 gangtise ai peer-comparison --security-code <code>
+```
+
+示例：生成贵州茅台一页通
+```bash
+gangtise ai one-pager --security-code 600519.SH --format json
 ```
 
 ### AI 云盘
