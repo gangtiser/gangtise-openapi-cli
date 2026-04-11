@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gangtise-openapi-cli — Technical Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --c-bg: #f8fafc;
+      --c-canvas: #ffffff;
+      --c-border: #cbd5e1;
+      --c-border-dark: #94a3b8;
+      --c-text-main: #0f172a;
+      --c-text-sub: #64748b;
+      --c-text-light: #94a3b8;
+      --c-accent: #0f172a;
+      --c-flow-a: #1e40af;
+      --c-flow-b: #b45309;
+      --c-flow-c: #15803d;
+      --font-ui: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--c-bg);
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+
+    .diagram-container {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    .diagram-canvas {
+      background: var(--c-canvas);
+      border: 1px solid var(--c-border);
+      padding: 32px;
+    }
+
+    .diagram-header {
+      border-bottom: 2px solid var(--c-text-main);
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .diagram-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--c-text-main);
+      letter-spacing: -0.02em;
+    }
+
+    .diagram-subtitle {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--c-text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .diagram-version {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--c-text-sub);
+    }
+
+    /* --- Section --- */
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--c-text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+
+    .section {
+      margin-bottom: 20px;
+    }
+
+    /* --- Component --- */
+    .comp {
+      border: 1px solid var(--c-border);
+      background: var(--c-canvas);
+      padding: 10px 14px;
+      position: relative;
+    }
+
+    .comp-dark {
+      border: 1px solid var(--c-text-main);
+      background: var(--c-text-main);
+      color: var(--c-canvas);
+    }
+
+    .comp-dark .comp-label { color: #94a3b8; }
+    .comp-dark .comp-value { color: #ffffff; }
+    .comp-dark .comp-sub { color: #94a3b8; }
+
+    .comp-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--c-text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 2px;
+    }
+
+    .comp-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--c-text-main);
+    }
+
+    .comp-sub {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-sub);
+      margin-top: 2px;
+    }
+
+    /* --- Badge --- */
+    .badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 500;
+      padding: 2px 6px;
+      border: 1px solid var(--c-border);
+      color: var(--c-text-sub);
+    }
+
+    .badge-solid {
+      background: var(--c-text-main);
+      color: var(--c-canvas);
+      border-color: var(--c-text-main);
+    }
+
+    /* --- Flow Arrow --- */
+    .flow-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 0;
+      color: var(--c-text-light);
+    }
+
+    .flow-row svg { display: block; }
+
+    /* --- Grid Layouts --- */
+    .layer-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .cols-2 { grid-template-columns: 1fr 1fr; }
+    .cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+    .cols-5 { grid-template-columns: 1fr 1fr 1fr 1fr 1fr; }
+
+    /* --- Flow Legend --- */
+    .legend {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--c-border);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-line {
+      width: 32px;
+      height: 2px;
+    }
+
+    .legend-line-solid { background: var(--c-flow-a); }
+    .legend-line-dashed {
+      background: repeating-linear-gradient(
+        90deg,
+        var(--c-flow-b) 0, var(--c-flow-b) 6px,
+        transparent 6px, transparent 10px
+      );
+    }
+    .legend-line-dotted {
+      background: repeating-linear-gradient(
+        90deg,
+        var(--c-flow-c) 0, var(--c-flow-c) 3px,
+        transparent 3px, transparent 8px
+      );
+    }
+
+    .legend-text {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-sub);
+    }
+
+    /* --- Horizontal Connector --- */
+    .h-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 28px;
+    }
+
+    .h-connector svg {
+      display: block;
+    }
+
+    /* --- API Group --- */
+    .api-group {
+      border: 1px solid var(--c-border);
+      padding: 10px 12px;
+    }
+
+    .api-group-title {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--c-text-main);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--c-border);
+    }
+
+    .api-group-items {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-sub);
+      line-height: 1.7;
+    }
+
+    /* --- Pattern Pill --- */
+    .pattern-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .pattern-item {
+      border: 1px dashed var(--c-border);
+      padding: 8px 12px;
+    }
+
+    .pattern-name {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--c-text-main);
+    }
+
+    .pattern-desc {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      color: var(--c-text-sub);
+      margin-top: 2px;
+    }
+
+    /* --- Data Flow Steps --- */
+    .flow-steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      overflow-x: auto;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      white-space: nowrap;
+    }
+
+    .flow-step-box {
+      border: 1px solid var(--c-border);
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-main);
+      font-weight: 500;
+    }
+
+    .flow-step-arrow {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-light);
+      padding: 0 4px;
+    }
+
+    /* --- Token Chain --- */
+    .token-chain {
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+
+    .token-step {
+      border: 1px solid var(--c-border);
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-main);
+    }
+
+    .token-fallback {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-light);
+      padding: 0 6px;
+    }
+
+    /* --- FS Block --- */
+    .fs-block {
+      border: 1px solid var(--c-border);
+      border-left: 3px solid var(--c-text-main);
+      padding: 8px 12px;
+    }
+
+    .fs-path {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-main);
+      font-weight: 500;
+    }
+
+    .fs-desc {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      color: var(--c-text-sub);
+      margin-top: 2px;
+    }
+
+    /* --- Three-flow section --- */
+    .three-flows {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .flow-card {
+      border: 1px solid var(--c-border);
+      padding: 14px;
+    }
+
+    .flow-card-a { border-top: 2px solid var(--c-flow-a); }
+    .flow-card-b { border-top: 2px solid var(--c-flow-b); }
+    .flow-card-c { border-top: 2px solid var(--c-flow-c); }
+
+    .flow-card-title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--c-text-main);
+      margin-bottom: 8px;
+    }
+
+    .flow-card-step {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-sub);
+      line-height: 1.8;
+    }
+
+    .flow-card-step span {
+      color: var(--c-text-main);
+      font-weight: 500;
+    }
+
+    /* --- Deps --- */
+    .dep-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .dep-item {
+      border: 1px solid var(--c-border);
+      padding: 4px 10px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-sub);
+    }
+
+    .dep-item strong {
+      color: var(--c-text-main);
+      font-weight: 500;
+    }
+
+    /* --- Bottom bar --- */
+    .bottom-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    /* --- Divider --- */
+    .divider {
+      border-top: 1px solid var(--c-border);
+      margin: 20px 0;
+    }
+
+    .divider-dashed {
+      border-top: 1px dashed var(--c-border);
+      margin: 16px 0;
+    }
+  </style>
+</head>
+<body>
+<div class="diagram-container">
+  <div class="diagram-canvas">
+    <!-- Header -->
+    <div class="diagram-header">
+      <div>
+        <div class="diagram-title">gangtise-openapi-cli</div>
+        <div class="diagram-subtitle">Technical Architecture / Layered Data Flow</div>
+      </div>
+      <div class="diagram-version">v0.5.1 &middot; Node &ge;20 &middot; ESM</div>
+    </div>
+
+    <!-- Flow Legend -->
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-line legend-line-solid"></div>
+        <div class="legend-text">QUERY FLOW (paginated JSON)</div>
+      </div>
+      <div class="legend-item">
+        <div class="legend-line legend-line-dashed"></div>
+        <div class="legend-text">DOWNLOAD FLOW (binary / redirect)</div>
+      </div>
+      <div class="legend-item">
+        <div class="legend-line legend-line-dotted"></div>
+        <div class="legend-text">LOCAL LOOKUP (short-circuit)</div>
+      </div>
+    </div>
+
+    <!-- ═══════════ LAYER 1: USER ENTRY ═══════════ -->
+    <div class="section">
+      <div class="section-label">Layer 1 — User Entry</div>
+      <div class="layer-grid cols-3">
+        <div class="comp comp-dark">
+          <div class="comp-label">CLI Binary</div>
+          <div class="comp-value">gangtise</div>
+          <div class="comp-sub">dist/src/cli.js</div>
+        </div>
+        <div class="comp comp-dark">
+          <div class="comp-label">Dev Entry</div>
+          <div class="comp-value">npm run dev</div>
+          <div class="comp-sub">tsx src/cli.ts</div>
+        </div>
+        <div class="comp comp-dark">
+          <div class="comp-label">AI Agent</div>
+          <div class="comp-value">Claude Code</div>
+          <div class="comp-sub">SKILL.md integration</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow down -->
+    <div class="flow-row">
+      <svg width="16" height="24" viewBox="0 0 16 24"><path d="M8 0 L8 18 M3 14 L8 20 L13 14" stroke="#94a3b8" stroke-width="1.5" fill="none"/></svg>
+    </div>
+
+    <!-- ═══════════ LAYER 2: CLI FRAMEWORK ═══════════ -->
+    <div class="section">
+      <div class="section-label">Layer 2 — CLI Framework</div>
+      <div class="layer-grid cols-2">
+        <div class="comp">
+          <div class="comp-label">Commander.js</div>
+          <div class="comp-value">src/cli.ts &mdash; ~460 lines</div>
+          <div class="comp-sub">All commands, options, action handlers</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Argument Parsers</div>
+          <div class="comp-value">src/core/args.ts</div>
+          <div class="comp-sub">splitCsv / collectList / collectKeyValue / toTimestamp13</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow down -->
+    <div class="flow-row">
+      <svg width="16" height="24" viewBox="0 0 16 24"><path d="M8 0 L8 18 M3 14 L8 20 L13 14" stroke="#94a3b8" stroke-width="1.5" fill="none"/></svg>
+    </div>
+
+    <!-- ═══════════ LAYER 3: CORE ENGINE ═══════════ -->
+    <div class="section">
+      <div class="section-label">Layer 3 — Core Engine (src/core/)</div>
+
+      <!-- Top row: Config + Auth + Client -->
+      <div class="layer-grid cols-3" style="margin-bottom: 12px;">
+        <div class="comp">
+          <div class="comp-label">Configuration</div>
+          <div class="comp-value">config.ts</div>
+          <div class="comp-sub">GANGTISE_BASE_URL / AK / SK / TIMEOUT</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Authentication</div>
+          <div class="comp-value">auth.ts</div>
+          <div class="comp-sub">Token cache &middot; AK/SK login &middot; Expiry check</div>
+        </div>
+        <div class="comp comp-dark">
+          <div class="comp-label">Core Dispatcher</div>
+          <div class="comp-value">client.ts &middot; GangtiseClient</div>
+          <div class="comp-sub">call() &rarr; requestPaginated / requestJson / download</div>
+        </div>
+      </div>
+
+      <!-- Bottom row: Endpoints + Errors + Normalize + Output -->
+      <div class="layer-grid cols-4">
+        <div class="comp">
+          <div class="comp-label">Endpoint Registry</div>
+          <div class="comp-value">endpoints.ts</div>
+          <div class="comp-sub">23 endpoints &middot; O(1) lookup</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Error Hierarchy</div>
+          <div class="comp-value">errors.ts</div>
+          <div class="comp-sub">CliError &rarr; Config / Validation / Download / Api</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Normalization</div>
+          <div class="comp-value">normalize.ts</div>
+          <div class="comp-sub">fieldList+list &rarr; flat objects</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Output Renderer</div>
+          <div class="comp-value">output.ts</div>
+          <div class="comp-sub">table / json / jsonl / csv / markdown</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow down -->
+    <div class="flow-row">
+      <svg width="16" height="24" viewBox="0 0 16 24"><path d="M8 0 L8 18 M3 14 L8 20 L13 14" stroke="#94a3b8" stroke-width="1.5" fill="none"/></svg>
+    </div>
+
+    <!-- ═══════════ THREE FLOWS ═══════════ -->
+    <div class="section">
+      <div class="section-label">Layer 4 — Execution Flows</div>
+      <div class="three-flows">
+        <!-- Flow A: Query -->
+        <div class="flow-card flow-card-a">
+          <div class="flow-card-title" style="color: var(--c-flow-a);">QUERY FLOW</div>
+          <div class="flow-card-step">
+            <span>1.</span> client.call(key, params)<br>
+            <span>2.</span> ENDPOINT_REGISTRY lookup<br>
+            <span>3.</span> kind="json" + pagination<br>
+            <span>4.</span> requestPaginated() loop<br>
+            <span>5.</span> unwrapEnvelope() &rarr; .data<br>
+            <span>6.</span> normalizeRows() flatten<br>
+            <span>7.</span> renderOutput() &rarr; stdout
+          </div>
+        </div>
+        <!-- Flow B: Download -->
+        <div class="flow-card flow-card-b">
+          <div class="flow-card-title" style="color: var(--c-flow-b);">DOWNLOAD FLOW</div>
+          <div class="flow-card-step">
+            <span>1.</span> client.call(key, undefined, query)<br>
+            <span>2.</span> ENDPOINT_REGISTRY lookup<br>
+            <span>3.</span> kind="download"<br>
+            <span>4.</span> download() via undici<br>
+            <span>5.</span> Content-Type dispatch:<br>
+            &nbsp;&nbsp;&nbsp;&middot; JSON &rarr; unwrap &rarr; redirect URL<br>
+            &nbsp;&nbsp;&nbsp;&middot; binary &rarr; Uint8Array<br>
+            <span>6.</span> Smart filename (title cache)<br>
+            <span>7.</span> saveOutputIfNeeded()
+          </div>
+        </div>
+        <!-- Flow C: Local Lookup -->
+        <div class="flow-card flow-card-c">
+          <div class="flow-card-title" style="color: var(--c-flow-c);">LOCAL LOOKUP</div>
+          <div class="flow-card-step">
+            <span>1.</span> requestJson() detects /guide/<br>
+            <span>2.</span> Short-circuit: no HTTP call<br>
+            <span>3.</span> Return lookupData.ts directly<br>
+            <br>
+            <span>Static data:</span><br>
+            &middot; 52 research areas<br>
+            &middot; 100+ broker orgs<br>
+            &middot; 100+ meeting orgs<br>
+            &middot; 31 industries / codes<br>
+            &middot; 19 regions / 80+ categories
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow down -->
+    <div class="flow-row">
+      <svg width="16" height="24" viewBox="0 0 16 24"><path d="M8 0 L8 18 M3 14 L8 20 L13 14" stroke="#94a3b8" stroke-width="1.5" fill="none"/></svg>
+    </div>
+
+    <!-- ═══════════ LAYER 5: EXTERNAL ═══════════ -->
+    <div class="section">
+      <div class="section-label">Layer 5 — External Services &amp; Storage</div>
+      <div class="layer-grid cols-2" style="margin-bottom: 16px;">
+        <!-- Gangtise OpenAPI -->
+        <div>
+          <div class="api-group">
+            <div class="api-group-title">Gangtise OpenAPI &middot; https://open.gangtise.com</div>
+            <div class="api-group-items">
+              <strong style="color:var(--c-text-main)">Auth</strong> &mdash; /application/auth/oauth/open/loginV2<br>
+              <strong style="color:var(--c-text-main)">Insight</strong> &mdash; chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement<br>
+              <strong style="color:var(--c-text-main)">Quote</strong> &mdash; kline/daily<br>
+              <strong style="color:var(--c-text-main)">Fundamental</strong> &mdash; income-statement / main-business / valuation-analysis<br>
+              <strong style="color:var(--c-text-main)">AI</strong> &mdash; knowledge search / security-clue / one-pager / investment-logic / peer-comparison / drive
+            </div>
+          </div>
+        </div>
+        <!-- Local Filesystem -->
+        <div>
+          <div style="display: grid; gap: 8px;">
+            <div class="fs-block">
+              <div class="fs-path">~/.config/gangtise/token.json</div>
+              <div class="fs-desc">Cached OAuth token &middot; expiresAt &middot; 5min buffer</div>
+            </div>
+            <div class="fs-block">
+              <div class="fs-path">~/.config/gangtise/title-cache.json</div>
+              <div class="fs-desc">Download filename resolution &middot; 24h TTL &middot; id &rarr; title</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══════════ TOKEN RESOLUTION CHAIN ═══════════ -->
+    <div class="section">
+      <div class="section-label">Token Resolution Chain</div>
+      <div class="token-chain">
+        <div class="token-step" style="border-color: var(--c-flow-a);">
+          <strong>1.</strong> GANGTISE_TOKEN env
+        </div>
+        <div class="token-fallback">&rarr; miss &rarr;</div>
+        <div class="token-step" style="border-color: var(--c-flow-b);">
+          <strong>2.</strong> Cached token (~/.config/...)
+        </div>
+        <div class="token-fallback">&rarr; expired &rarr;</div>
+        <div class="token-step" style="border-color: var(--c-text-main); background: var(--c-text-main); color: #fff;">
+          <strong>3.</strong> Auto-login AK/SK &rarr; POST loginV2
+        </div>
+      </div>
+    </div>
+
+    <div class="divider-dashed"></div>
+
+    <!-- ═══════════ BOTTOM: PATTERNS + DEPS ═══════════ -->
+    <div class="bottom-bar">
+      <!-- Design Patterns -->
+      <div>
+        <div class="section-label">Design Patterns</div>
+        <div class="pattern-grid">
+          <div class="pattern-item">
+            <div class="pattern-name">Endpoint Registry</div>
+            <div class="pattern-desc">Declarative &middot; O(1) key lookup &middot; type-safe via satisfies</div>
+          </div>
+          <div class="pattern-item">
+            <div class="pattern-name">Auto Pagination</div>
+            <div class="pattern-desc">Transparent multi-page &middot; maxPageSize per endpoint</div>
+          </div>
+          <div class="pattern-item">
+            <div class="pattern-name">Envelope Unwrapping</div>
+            <div class="pattern-desc">Standard {code, msg, success, data} handling</div>
+          </div>
+          <div class="pattern-item">
+            <div class="pattern-name">Smart Title Cache</div>
+            <div class="pattern-desc">Human-readable filenames &middot; list-then-download</div>
+          </div>
+        </div>
+      </div>
+      <!-- Dependencies -->
+      <div>
+        <div class="section-label">Dependencies (Minimal)</div>
+        <div style="margin-bottom: 10px;">
+          <div class="section-label" style="margin-top:8px;">Runtime</div>
+          <div class="dep-row">
+            <div class="dep-item"><strong>commander</strong> ^14.0.0</div>
+            <div class="dep-item"><strong>undici</strong> ^7.16.0</div>
+          </div>
+        </div>
+        <div>
+          <div class="section-label">Dev</div>
+          <div class="dep-row">
+            <div class="dep-item"><strong>typescript</strong> ^5.9.2</div>
+            <div class="dep-item"><strong>vitest</strong> ^3.2.4</div>
+            <div class="dep-item"><strong>tsx</strong> ^4.20.5</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /diagram-canvas -->
+</div><!-- /diagram-container -->
+</body>
+</html>
