@@ -99,7 +99,7 @@
 | **Insight** | `/application/open-insight/` | chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement |
 | **Quote** | `/application/open-quote/` | kline/daily |
 | **Fundamental** | `/application/open-fundamental/` | income-statement / main-business / valuation-analysis |
-| **AI** | `/application/open-data/ai/` & `/application/open-ai/` | knowledge search / security-clue / one-pager / investment-logic / peer-comparison / drive |
+| **AI** | `/application/open-data/ai/` & `/application/open-ai/` | knowledge search / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / research-outline / drive |
 
 ### Local Filesystem
 

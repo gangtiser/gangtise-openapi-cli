@@ -4,7 +4,7 @@ import type { CliConfig } from "./config.js"
 import { normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache } from "./auth.js"
 import { ApiError, ValidationError } from "./errors.js"
 import { ENDPOINTS, ENDPOINT_REGISTRY, type EndpointDefinition } from "./endpoints.js"
-import { ANNOUNCEMENT_CATEGORIES, BROKER_ORGS, INDUSTRIES, INDUSTRY_CODES, MEETING_ORGS, REGIONS, RESEARCH_AREAS } from "./lookupData.js"
+import { getLookupData } from "./lookupData/index.js"
 
 interface Envelope<T> {
   code?: string | number
@@ -76,32 +76,20 @@ export class GangtiseClient {
   }
 
   private async readLocalLookup(endpoint: EndpointDefinition) {
-    if (endpoint.key === "lookup.research-areas.list") {
-      return RESEARCH_AREAS
+    const keyMapping: Record<string, Parameters<typeof getLookupData>[0]> = {
+      "lookup.research-areas.list": "research-areas",
+      "lookup.broker-orgs.list": "broker-orgs",
+      "lookup.meeting-orgs.list": "meeting-orgs",
+      "lookup.industries.list": "industries",
+      "lookup.regions.list": "regions",
+      "lookup.announcement-categories.list": "announcement-categories",
+      "lookup.industry-codes.list": "industry-codes",
+      "lookup.theme-ids.list": "theme-ids",
     }
 
-    if (endpoint.key === "lookup.broker-orgs.list") {
-      return BROKER_ORGS
-    }
-
-    if (endpoint.key === "lookup.meeting-orgs.list") {
-      return MEETING_ORGS
-    }
-
-    if (endpoint.key === "lookup.industries.list") {
-      return INDUSTRIES
-    }
-
-    if (endpoint.key === "lookup.regions.list") {
-      return REGIONS
-    }
-
-    if (endpoint.key === "lookup.announcement-categories.list") {
-      return ANNOUNCEMENT_CATEGORIES
-    }
-
-    if (endpoint.key === "lookup.industry-codes.list") {
-      return INDUSTRY_CODES
+    const lookupKey = keyMapping[endpoint.key]
+    if (lookupKey) {
+      return getLookupData(lookupKey)
     }
 
     throw new ApiError(`Unsupported local lookup endpoint: ${endpoint.key}`)

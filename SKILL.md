@@ -3,7 +3,7 @@ name: gangtise-openapi
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
-  覆盖：首席观点、纪要、路演、调研、策略会、论坛、研报、外资研报、公告、日K线行情、基本面（利润表/主营/估值）、AI知识库搜索、投研线索、一页通、投资逻辑、同业对比、云盘。
+  覆盖：首席观点、纪要、路演、调研、策略会、论坛、研报、外资研报、公告、日K线行情、基本面（利润表/主营/估值）、AI知识库搜索、投研线索、一页通、投资逻辑、同业对比、业绩点评、主题跟踪、调研提纲、云盘。
 
   **触发场景（即使用户没有明确提到 API 或 CLI 也要使用）**：
   - 用户提到"调接口"、"CLI"、"openapi"、"导出"、"下载研报"、"批量查"
@@ -71,11 +71,16 @@ gangtise insight research list --industry 104340000 --industry 104370000 --ratin
 | 公告 | `insight announcement list/download` |
 | K线行情 | `quote day-kline` |
 | 利润表 | `fundamental income-statement` |
+| 资产负债表 | `fundamental balance-sheet` |
+| 现金流量表 | `fundamental cash-flow` |
 | 主营业务 | `fundamental main-business` |
 | PE/PB/PEG 估值 | `fundamental valuation-analysis` |
 | 知识库搜索 | `ai knowledge-batch` |
 | 投研线索 | `ai security-clue` |
 | 一页通/投资逻辑/同业对比 | `ai one-pager/investment-logic/peer-comparison` |
+| 业绩点评 | `ai earnings-review` |
+| 主题跟踪 | `ai theme-tracking` |
+| 调研提纲 | `ai research-outline` |
 | 云盘文件 | `ai cloud-disk-list/download` |
 | 不确定 ID | `lookup` 先查 |
 
@@ -139,6 +144,7 @@ gangtise insight forum list [options]         # 仅 keyword/security/research-ar
 **共用参数：** `--research-area <id>` `--institution <id>` `--security <code>` `--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`
 
 **共用枚举值：**
+- `--category`（纪要）：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other` 其他
 - `--category`（路演）：`earningsCall` 业绩交流 | `strategyMeeting` 策略会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `fundRoadshow` 基金路演
 - `--market`（纪要/路演/调研）：`aShares` A股 | `hkStocks` 港股 | `usChinaConcept` 美股中概 | `usStocks` 美股
 - `--participant-role`（纪要/路演/调研）：`management` 管理层 | `expert` 专家
@@ -262,14 +268,81 @@ gangtise fundamental income-statement --security-code <code> [--start-date <YYYY
 ```
 
 **枚举值：**
-- `--period`：`q1` 一季报 | `q2` 中报 | `q3` 三季报 | `latest` 年报（默认）
-- `--report-type`：`consolidated` 合并报表（默认）| `parent` 母公司报表
+- `--period`：`q1` 一季报 | `interim` 中报 | `q3` 三季报 | `annual` 年报 | `latest` 最新一期（不传则由 API 默认返回最新一期）
+- `--report-type`：`consolidated` 合并报表 | `consolidatedRestated` 合并报表（调整）| `standalone` 母公司报表 | `standaloneRestated` 母公司报表（调整）（不传则由 API 默认合并报表）
+- `--start-date`/`--end-date`：有值时覆盖 `--fiscalYear` 筛选
 
-**可选字段（--field）：** `reportDate` 报告期 | `reportType` 报告类型 | `opRevenue` 营业收入 | `opCost` 营业成本 | `grossProfit` 毛利 | `netProfit` 净利润（省略则返回全部字段）
+**可选字段（--field）：** `totalOpRev` 营业总收入 | `opRev` 营业收入 | `totalOpCost` 营业总成本 | `opCost` 营业成本 | `opProfit` 营业利润 | `totalProfit` 利润总额 | `netProfit` 净利润 | `netProfitAttrParent` 归母净利润 | `basicEPS` 基本每股收益 | `dilutedEPS` 稀释每股收益（省略则返回完整利润表）
 
-示例：查茅台近两年合并利润表
+示例：查茅台2025三季报核心指标
 ```bash
-gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2024 --fiscal-year 2023 --report-type consolidated --format json
+gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2025 --period q3 --field totalOpRev --field netProfit --field basicEPS --format json
+```
+
+示例：查茅台近三年年报净利润
+```bash
+gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2023 --fiscal-year 2024 --fiscal-year 2025 --period annual --field netProfit --format json
+```
+
+示例：查茅台最新一期完整利润表
+```bash
+gangtise fundamental income-statement --security-code 600519.SH --format json
+```
+
+### 资产负债表
+
+```bash
+gangtise fundamental balance-sheet --security-code <code> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
+```
+
+**枚举值：**
+- `--period`：`q1` 一季报 | `interim` 中报 | `q3` 三季报 | `annual` 年报 | `latest` 最新一期（不传则由 API 默认返回最新一期）
+- `--report-type`：`consolidated` 合并报表 | `consolidatedRestated` 合并报表（调整）| `standalone` 母公司报表 | `standaloneRestated` 母公司报表（调整）（不传则由 API 默认合并报表）
+- `--start-date`/`--end-date`：有值时覆盖 `--fiscalYear` 筛选
+
+**可选字段（--field）：** `totalCurrAssets` 流动资产合计 | `totalNonCurrAssets` 非流动资产合计 | `totalAssets` 资产总计 | `totalCurrLiab` 流动负债合计 | `totalNonCurrLiab` 非流动负债合计 | `totalLiab` 负债合计 | `totalParentEq` 归属母公司所有者权益合计 | `totalEquity` 所有者权益合计 | `totalLAndE` 负债和所有者权益总计 | `monetaryAssets` 货币资金 | `inventory` 存货 | `goodwill` 商誉 | `shareCapital` 股本 | `retainedEarn` 未分配利润（省略则返回完整资产负债表）
+
+示例：查茅台2025三季报资产负债结构
+```bash
+gangtise fundamental balance-sheet --security-code 600519.SH --fiscal-year 2025 --period q3 --field totalCurrAssets --field totalNonCurrAssets --field totalCurrLiab --field totalNonCurrLiab --format json
+```
+
+示例：查茅台近三年年报负债和所有者权益总计
+```bash
+gangtise fundamental balance-sheet --security-code 600519.SH --fiscal-year 2023 --fiscal-year 2024 --fiscal-year 2025 --period annual --field totalLAndE --format json
+```
+
+示例：查茅台最新一期完整资产负债表
+```bash
+gangtise fundamental balance-sheet --security-code 600519.SH --format json
+```
+
+### 现金流量表
+
+```bash
+gangtise fundamental cash-flow --security-code <code> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
+```
+
+**枚举值：**
+- `--period`：`q1` 一季报 | `interim` 中报 | `q3` 三季报 | `annual` 年报 | `latest` 最新一期（不传则由 API 默认返回最新一期）
+- `--report-type`：`consolidated` 合并报表 | `consolidatedRestated` 合并报表（调整）| `standalone` 母公司报表 | `standaloneRestated` 母公司报表（调整）（不传则由 API 默认合并报表）
+- `--start-date`/`--end-date`：有值时覆盖 `--fiscalYear` 筛选
+
+**可选字段（--field）：** `netOpCashFlows` 经营活动现金流量净额 | `netInvCashFlows` 投资活动现金流量净额 | `netFinCashFlows` 筹资活动现金流量净额 | `cashFromSales` 销售商品收到的现金 | `cashPaidForGoodsServices` 购买商品支付的现金 | `cashPaidEmployees` 支付给职工的现金 | `cashPaidTaxes` 支付的各项税费 | `cashPaidInvestments` 投资支付的现金 | `cashPaidDebtRepayment` 偿还债务支付的现金 | `cashPaidDividendsInterest` 分配股利或偿付利息支付的现金 | `netIncCashEquivalents` 现金及现金等价物净增加额 | `closingCashBalance` 期末现金及现金等价物余额（省略则返回完整现金流量表）
+
+示例：查茅台2025三季报三大现金流
+```bash
+gangtise fundamental cash-flow --security-code 600519.SH --fiscal-year 2025 --period q3 --field netOpCashFlows --field netInvCashFlows --field netFinCashFlows --format json
+```
+
+示例：查茅台近三年年报筹资活动现金流
+```bash
+gangtise fundamental cash-flow --security-code 600519.SH --fiscal-year 2023 --fiscal-year 2024 --fiscal-year 2025 --period annual --field netFinCashFlows --format json
+```
+
+示例：查茅台最新一期完整现金流量表
+```bash
+gangtise fundamental cash-flow --security-code 600519.SH --format json
 ```
 
 ### 主营业务
@@ -372,6 +445,71 @@ gangtise ai peer-comparison --security-code <code>
 gangtise ai one-pager --security-code 600519.SH --format json
 ```
 
+### 业绩点评
+
+```bash
+gangtise ai earnings-review --security-code <code> --period <period> [--wait]
+gangtise ai earnings-review-check --data-id <id>
+```
+
+- `--security-code`（必选）：证券代码，如 `600519.SH`，目前仅支持 A 股
+- `--period`（必选）：报告期，格式为 `年份+报告期`，如 `2025q3`：
+  - `q1` 一季报 | `interim` 中报 | `q3` 三季报 | `annual` 年报
+- `--wait`：阻塞等待内容生成（最多 3 分钟），默认不传则立即返回 dataId
+- 支持最近 6 期财报查询
+- 内容生成需要 1-3 分钟
+- 积分消耗：10 积分/篇（getId 成功后扣除）
+
+**Agent 异步工作流：**
+1. 执行 `gangtise ai earnings-review --security-code <code> --period <period> --format json`
+2. 返回 `{"dataId":"xxx","status":"pending","hint":"..."}` → 等待约 2 分钟
+3. 执行 `gangtise ai earnings-review-check --data-id xxx --format json`
+4. 若仍返回 `status: "pending"` → 再等 2 分钟后重试
+5. 若返回内容 → 直接展示给用户
+
+示例：获取贵州茅台 2025 年三季报业绩点评
+```bash
+gangtise ai earnings-review --security-code 600519.SH --period 2025q3 --format json
+# → {"dataId":"xxx","status":"pending",...}
+# 等待 ~2 分钟后：
+gangtise ai earnings-review-check --data-id xxx --format json
+```
+
+### 主题跟踪
+
+```bash
+gangtise ai theme-tracking --theme-id <id> --date <yyyy-MM-dd> [--type <name>]
+```
+
+- `--theme-id`（必选）：主题 ID，如 `121000131`，完整列表用 `lookup theme-id list` 查
+- `--date`（必选）：查询日期，格式 yyyy-MM-dd，支持近 30 天
+- `--type`：资讯类型，可重复传入：`morning` 晨报 | `night` 晚报（不传则返回晨报+晚报）
+- 积分消耗：10 积分/篇
+
+示例：获取商业航天 2026-03-01 的晨报
+```bash
+gangtise ai theme-tracking --theme-id 121000131 --date 2026-03-01 --type morning --format json
+```
+
+示例：获取商业航天 2026-03-01 的晨报+晚报
+```bash
+gangtise ai theme-tracking --theme-id 121000131 --date 2026-03-01 --format json
+```
+
+### 调研提纲
+
+```bash
+gangtise ai research-outline --security-code <code>
+```
+
+- `--security-code`（必选）：证券代码，如 `600519.SH`，目前仅支持 A 股
+- 积分消耗：10 积分/篇
+
+示例：获取贵州茅台调研提纲
+```bash
+gangtise ai research-outline --security-code 600519.SH --format json
+```
+
 ### AI 云盘
 
 ```bash
@@ -406,6 +544,7 @@ gangtise lookup industry list             # 行业 ID
 gangtise lookup region list               # 外资研报区域 ID
 gangtise lookup announcement-category list # 公告分类 ID
 gangtise lookup industry-code list        # 申万行业代码（security-clue --gts-code 用）
+gangtise lookup theme-id list             # 主题 ID（theme-tracking --theme-id 用）
 ```
 
 示例：查中信建投的券商 ID

@@ -152,8 +152,16 @@ gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date
 
 ```bash
 gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2025 --period q3 --field netProfit
-# 多周期：同时查一季报和中报
-gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2024 --period q1 --period q2 --report-type consolidated
+# 多年度：同时查2023-2025年报净利润
+gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 2023 --fiscal-year 2024 --fiscal-year 2025 --period annual --field netProfit
+# 最新一期完整利润表
+gangtise fundamental income-statement --security-code 600519.SH --format json
+gangtise fundamental balance-sheet --security-code 600519.SH --fiscal-year 2025 --period q3 --field totalCurrAssets --field totalCurrLiab
+# 最新一期完整资产负债表
+gangtise fundamental balance-sheet --security-code 600519.SH --format json
+gangtise fundamental cash-flow --security-code 600519.SH --fiscal-year 2025 --period q3 --field netOpCashFlows --field netInvCashFlows --field netFinCashFlows
+# 最新一期完整现金流量表
+gangtise fundamental cash-flow --security-code 600519.SH --format json
 gangtise fundamental main-business --security-code 600519.SH --breakdown region
 gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm
 ```
@@ -168,6 +176,9 @@ gangtise ai security-clue --start-time "2026-04-01 00:00:00" --end-time "2026-04
 gangtise ai one-pager --security-code 600519.SH
 gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
+gangtise ai earnings-review --security-code 600519.SH --period 2025q3
+gangtise ai theme-tracking --theme-id 121000131 --date 2026-03-01 --type morning
+gangtise ai research-outline --security-code 600519.SH
 gangtise ai cloud-disk-list --keyword 部门文档 --space-type 1 --file-type 1
 
 # 云盘下载：自动使用文件标题命名
@@ -194,7 +205,7 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 - insight: `opinion list` / `summary list` / `summary download` / `roadshow list` / `site-visit list` / `strategy list` / `forum list` / `research list` / `research download` / `foreign-report list` / `foreign-report download` / `announcement list` / `announcement download`
 - quote: `day-kline`
 - fundamental: `income-statement` / `main-business` / `valuation-analysis`
-- ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `cloud-disk-list` / `cloud-disk-download` / `one-pager` / `investment-logic` / `peer-comparison`
+- ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `cloud-disk-list` / `cloud-disk-download` / `one-pager` / `investment-logic` / `peer-comparison` / `earnings-review` / `theme-tracking` / `research-outline`
 
 注意：`knowledge-resource-download` 依赖正确的 `resourceType + sourceId` 组合；错误组合会返回 `433007 不支持该数据源`。
 

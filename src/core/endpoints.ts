@@ -68,6 +68,13 @@ export const ENDPOINTS = {
     kind: "json",
     description: "List Shenwan industry codes from local docs",
   },
+  lookupThemeIds: {
+    key: "lookup.theme-ids.list",
+    method: "GET",
+    path: "/guide/theme-ids-local",
+    kind: "json",
+    description: "List theme IDs from local docs",
+  },
 
   insightOpinionList: {
     key: "insight.opinion.list",
@@ -180,9 +187,23 @@ export const ENDPOINTS = {
   fundamentalIncomeStatement: {
     key: "fundamental.income-statement",
     method: "POST",
-    path: "/application/open-fundamental/financial-report/income-statement",
+    path: "/application/open-fundamental/financial-report/income-statement/accumulated",
     kind: "json",
-    description: "Query income statement",
+    description: "Query income statement (accumulated)",
+  },
+  fundamentalBalanceSheet: {
+    key: "fundamental.balance-sheet",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/balance-sheet/accumulated",
+    kind: "json",
+    description: "Query balance sheet (accumulated)",
+  },
+  fundamentalCashFlow: {
+    key: "fundamental.cash-flow",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/cash-flow-statement/accumulated",
+    kind: "json",
+    description: "Query cash flow statement (accumulated)",
   },
   fundamentalMainBusiness: {
     key: "fundamental.main-business",
@@ -241,6 +262,34 @@ export const ENDPOINTS = {
     path: "/application/open-ai/agent/peer-comparison",
     kind: "json",
     description: "Generate peer comparison",
+  },
+  aiEarningsReviewGetId: {
+    key: "ai.earnings-review.get-id",
+    method: "POST",
+    path: "/application/open-ai/agent/earnings-review-getid",
+    kind: "json",
+    description: "Get earnings review ID",
+  },
+  aiEarningsReviewGetContent: {
+    key: "ai.earnings-review.get-content",
+    method: "POST",
+    path: "/application/open-ai/agent/earnings-review-getcontent",
+    kind: "json",
+    description: "Get earnings review content",
+  },
+  aiThemeTracking: {
+    key: "ai.theme-tracking",
+    method: "POST",
+    path: "/application/open-ai/agent/theme-tracking",
+    kind: "json",
+    description: "Get theme tracking daily report",
+  },
+  aiResearchOutline: {
+    key: "ai.research-outline",
+    method: "POST",
+    path: "/application/open-ai/agent/research-outline",
+    kind: "json",
+    description: "Get company research outline",
   },
   aiCloudDiskList: {
     key: "ai.cloud-disk.list",
