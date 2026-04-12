@@ -221,17 +221,22 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 
 ## Claude Code Skill
 
-本项目包含一个 [Claude Code](https://claude.ai/claude-code) skill 定义（`SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。
+本项目包含一个 [Claude Code](https://claude.ai/claude-code) skill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。
+
+Skill 目录结构：
+
+```
+gangtise-openapi/
+├── SKILL.md                    # 主 skill 文件（命令参考、参数枚举、使用规则）
+└── references/
+    └── lookup-ids.md           # 常用 ID 速查表（行业/券商/机构/公告分类等）
+```
 
 安装到 Claude Code：
 
 ```bash
-# 方式一：从本地项目安装
-cp SKILL.md ~/.claude/skills/gangtise-openapi/SKILL.md
-
-# 方式二：手动创建目录并复制
-mkdir -p ~/.claude/skills/gangtise-openapi
-cp SKILL.md ~/.claude/skills/gangtise-openapi/
+# 从项目根目录复制整个 skill 目录
+cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
 ```
 
 安装后，在 Claude Code 中可以用自然语言触发，例如：
