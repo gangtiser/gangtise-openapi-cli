@@ -217,7 +217,7 @@ function addTimeFilters(command: Command) {
 
 const program = new Command()
 
-const CLI_VERSION = "0.6.0"
+const CLI_VERSION = "0.7.1"
 
 program.name("gangtise").description("Gangtise OpenAPI CLI").version(CLI_VERSION)
 
