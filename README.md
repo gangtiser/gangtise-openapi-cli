@@ -44,6 +44,7 @@ export GANGTISE_TOKEN="Bearer xxx"
 - `gangtise quote ...`
 - `gangtise fundamental ...`
 - `gangtise ai ...`
+- `gangtise vault ...`
 - `gangtise raw call ...`
 
 其中 `lookup` 下的研究方向、机构、行业枚举已内置在项目中，无需额外本地文档文件。
@@ -84,7 +85,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight foreign-report list`
 - `insight announcement list`
 - `ai security-clue`
-- `ai cloud-disk-list`
+- `vault drive-list`
 
 规则：
 - **有时间范围时**（传了 `--start-time/--end-time` 或 `--start-date/--end-date`）：**省略 `--size`**，CLI 自动翻页查全
@@ -93,7 +94,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 
 ## 智能文件命名
 
-下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`cloud-disk-download`）省略 `--output` 时，自动使用真实标题作为文件名：
+下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`vault drive-download`）省略 `--output` 时，自动使用真实标题作为文件名：
 
 1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
 2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
@@ -146,6 +147,10 @@ gangtise insight roadshow list --institution C100000017
 
 ```bash
 gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
+# 不传 --security 默认返回全市场，不传 --start-date 默认往前一年，不传 --end-date 默认最新
+gangtise quote day-kline --format json
+# 港股日K线
+gangtise quote day-kline-hk --security 00700.HK --start-date 2026-03-01 --end-date 2026-03-31
 ```
 
 ### Fundamental
@@ -179,14 +184,19 @@ gangtise ai peer-comparison --security-code 600519.SH
 gangtise ai earnings-review --security-code 600519.SH --period 2025q3
 gangtise ai theme-tracking --theme-id 121000131 --date 2026-03-01 --type morning
 gangtise ai research-outline --security-code 600519.SH
-gangtise ai cloud-disk-list --keyword 部门文档 --space-type 1 --file-type 1
+```
+
+### Vault
+
+```bash
+gangtise vault drive-list --keyword 部门文档 --space-type 1 --file-type 1
 
 # 云盘下载：自动使用文件标题命名
-gangtise ai cloud-disk-download --file-id 62130
+gangtise vault drive-download --file-id 62130
 # → 2028 全球智能危机  一份来自未来的金融史思想实验  .pdf
+```
 
 gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 --output ./resource.txt
-# 若接口返回外链 URL，也会直接输出 URL 或按 --output 保存
 ```
 
 ### Raw
@@ -203,9 +213,10 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 - auth: `login` / `status`
 - lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list`
 - insight: `opinion list` / `summary list` / `summary download` / `roadshow list` / `site-visit list` / `strategy list` / `forum list` / `research list` / `research download` / `foreign-report list` / `foreign-report download` / `announcement list` / `announcement download`
-- quote: `day-kline`
+- quote: `day-kline` / `day-kline-hk`
 - fundamental: `income-statement` / `main-business` / `valuation-analysis`
-- ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `cloud-disk-list` / `cloud-disk-download` / `one-pager` / `investment-logic` / `peer-comparison` / `earnings-review` / `theme-tracking` / `research-outline`
+- ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `one-pager` / `investment-logic` / `peer-comparison` / `earnings-review` / `theme-tracking` / `research-outline`
+- vault: `drive-list` / `drive-download`
 
 注意：`knowledge-resource-download` 依赖正确的 `resourceType + sourceId` 组合；错误组合会返回 `433007 不支持该数据源`。
 

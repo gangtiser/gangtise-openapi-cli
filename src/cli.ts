@@ -393,9 +393,13 @@ insight.addCommand(announcement)
 program.addCommand(insight)
 
 const quote = new Command("quote").description("Quote APIs")
-quote.command("day-kline").option("--security <code>", "Security code", collectList, []).option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+quote.command("day-kline").option("--security <code>", "Security code (A-share only: .SH/.SZ/.BJ)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 5000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
   await printData(await client.call("quote.day-kline", { securityList: maybeArray(options.security), startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+})
+quote.command("day-kline-hk").option("--security <code>", "Security code (HK stock only: .HK)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 5000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("quote.day-kline-hk", { securityList: maybeArray(options.security), startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
 program.addCommand(quote)
 
@@ -511,16 +515,18 @@ ai.command("research-outline").requiredOption("--security-code <code>").option("
   const client = await createClient()
   await printData(await client.call("ai.research-outline", { securityCode: options.securityCode }), parseFormat(options.format), options.output)
 })
-ai.command("cloud-disk-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+const vault = new Command("vault").description("Vault APIs")
+vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("ai.cloud-disk.list", { from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, fileTypeList: options.fileType.length ? options.fileType : undefined, spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), parseFormat(options.format), options.output, { endpointKey: "ai.cloud-disk.list", idField: "fileId" })
+  await printData(await client.call("vault.drive.list", { from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, fileTypeList: options.fileType.length ? options.fileType : undefined, spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), parseFormat(options.format), options.output, { endpointKey: "vault.drive.list", idField: "fileId" })
 })
-ai.command("cloud-disk-download").requiredOption("--file-id <id>").option("--output <path>").action(async (options) => {
+vault.command("drive-download").requiredOption("--file-id <id>").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("ai.cloud-disk.download", undefined, { fileId: options.fileId })
-  const title = options.output ? undefined : await resolveTitle(client, result, "ai.cloud-disk.list", "fileId", options.fileId)
+  const result = await client.call("vault.drive.download", undefined, { fileId: options.fileId })
+  const title = options.output ? undefined : await resolveTitle(client, result, "vault.drive.list", "fileId", options.fileId)
   await saveDownloadResult(result, `file-${options.fileId}`, options.output ?? title)
 })
+program.addCommand(vault)
 program.addCommand(ai)
 
 program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {

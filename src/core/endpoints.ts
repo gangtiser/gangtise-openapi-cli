@@ -182,7 +182,14 @@ export const ENDPOINTS = {
     method: "POST",
     path: "/application/open-quote/kline/daily",
     kind: "json",
-    description: "Query daily kline",
+    description: "Query A-share daily kline (SH/SZ/BJ)",
+  },
+  quoteDayKlineHk: {
+    key: "quote.day-kline-hk",
+    method: "POST",
+    path: "/application/open-quote/kline-hk/daily",
+    kind: "json",
+    description: "Query HK stock daily kline (HK)",
   },
   fundamentalIncomeStatement: {
     key: "fundamental.income-statement",
@@ -291,20 +298,20 @@ export const ENDPOINTS = {
     kind: "json",
     description: "Get company research outline",
   },
-  aiCloudDiskList: {
-    key: "ai.cloud-disk.list",
+  vaultDriveList: {
+    key: "vault.drive.list",
     method: "POST",
-    path: "/application/open-ai/drive/getList",
+    path: "/application/open-vault/drive/getList",
     kind: "json",
-    description: "List AI cloud disk files",
+    description: "List vault drive files",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  aiCloudDiskDownload: {
-    key: "ai.cloud-disk.download",
+  vaultDriveDownload: {
+    key: "vault.drive.download",
     method: "GET",
-    path: "/application/open-ai/drive/download/file",
+    path: "/application/open-vault/drive/download/file",
     kind: "download",
-    description: "Download AI cloud disk file",
+    description: "Download vault drive file",
   },
 } as const satisfies Record<string, EndpointDefinition>
 

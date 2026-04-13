@@ -3,7 +3,7 @@ name: gangtise-openapi
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
-  覆盖：首席观点、纪要、路演、调研、策略会、论坛、研报、外资研报、公告、日K线行情、基本面（利润表/资产负债表/现金流量表/主营/估值）、AI知识库搜索、投研线索、一页通、投资逻辑、同业对比、业绩点评、主题跟踪、调研提纲、云盘。
+  覆盖：首席观点、纪要、路演、调研、策略会、论坛、研报、外资研报、公告、日K线行情（A股/港股）、基本面（利润表/资产负债表/现金流量表/主营/估值）、AI知识库搜索、投研线索、一页通、投资逻辑、同业对比、业绩点评、主题跟踪、调研提纲、AI云盘（Vault）。
 
   **触发场景（即使用户没有明确提到 API 或 CLI 也要使用）**：
   - 用户提到"调接口"、"CLI"、"openapi"、"导出"、"下载研报"、"批量查"
@@ -16,7 +16,7 @@ description: |-
 
 # Gangtise OpenAPI CLI
 
-## 核心规则
+## 1-核心规则
 
 1. **agent 调用务必加 `--format json`** 便于解析
 2. **opaque ID 参数**（research-area / broker / institution / chief / industry / concept）— **先用 `gangtise lookup` 查准确 ID，禁止凭记忆猜测**。常用 ID 见 `references/lookup-ids.md`，不确定时 lookup 优先
@@ -29,7 +29,7 @@ description: |-
    - 无时间范围时：**指定 `--size 200`**，防止一次查询数据量过大
 7. **`--field` 参数可重复传入**（CLI 用 `collectList` 实现）：`--field open --field close --field volume` 等效于 API 的 `["open","close","volume"]`
 
-## List 模式：单次调用传多值，替代多次调用
+## 2-List 模式：单次调用传多值，替代多次调用
 
 大多数 CLI 参数对应 API 的 List 字段，同一参数可重复传入多个值，一次调用覆盖更广。
 
@@ -39,15 +39,16 @@ description: |-
 | 纪要 / 路演 / 调研 | `--security` `--institution` `--research-area` `--category` `--market` `--participant-role` `--broker-type` `--object` |
 | 研报 / 外资研报 | `--security` `--broker` `--industry` `--category` `--region` `--llm-tag` `--rating` `--rating-change` |
 | 公告 | `--security` `--announcement-type` `--category` |
-| 日K线 | `--security` `--field` |
+| 日K线（A股） | `--security` `--field` |
+| 日K线（港股） | `--security` `--field` |
 | 利润表/资产负债表/现金流量表 | `--fiscal-year` `--period` `--report-type` `--field` |
 | 主营业务 | `--fiscal-year` `--period` `--field` |
 | 估值分析 | `--field` |
 | 知识库搜索 | `--query`（最多 5 个）`--resource-type` |
 | 投研线索 | `--gts-code` `--source` |
-| 云盘列表 | `--file-type` `--space-type` |
+| AI云盘 | `--file-type` `--space-type`（Vault 域） |
 
-## 快速路由
+## 3-快速路由
 
 | 用户想要 | 命令 |
 |----------|------|
@@ -57,7 +58,8 @@ description: |-
 | 研报（券商） | `insight research list/download` |
 | 外资研报 | `insight foreign-report list/download` |
 | 公告 | `insight announcement list/download` |
-| K线行情 | `quote day-kline` |
+| K线行情（A股） | `quote day-kline` |
+| K线行情（港股） | `quote day-kline-hk` |
 | 利润表 | `fundamental income-statement` |
 | 资产负债表 | `fundamental balance-sheet` |
 | 现金流量表 | `fundamental cash-flow` |
@@ -69,12 +71,12 @@ description: |-
 | 业绩点评 | `ai earnings-review` |
 | 主题跟踪 | `ai theme-tracking` |
 | 调研提纲 | `ai research-outline` |
-| 云盘文件 | `ai cloud-disk-list/download` |
+| AI云盘 | `vault drive-list/download` |
 | 不确定 ID | `lookup` 先查 |
 
 ---
 
-## Insight 命令
+## 4-Insight 命令
 
 所有 insight list 命令共享：`--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`
 
@@ -190,23 +192,44 @@ gangtise insight announcement download --announcement-id <id> --file-type 2 --ou
 
 ---
 
-## Quote 命令
+## 5-Quote 命令
 
-### 日K线
+### 日K线（A股）
 
 ```bash
-gangtise quote day-kline --security <code> --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> [--limit <n>] [--field <name>]
+gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
 ```
 
-可选字段：`tradeDate` 交易日期 | `open` 开盘价 | `high` 最高价 | `low` 最低价 | `close` 收盘价 | `volume` 成交量 | `amount` 成交额 | `pctChange` 涨跌幅(%) | `turnoverRate` 换手率(%) | `change` 涨跌额 | `preClose` 前收盘价 | `adjustFactor` 复权因子
+- 仅支持 A 股：上交所（`.SH`）、深交所（`.SZ`）、北交所（`.BJ`）
+- `--security`：可选，不传默认返回全市场；可重复传入多只
+- `--start-date`：可选，默认 `endDate` 往前一年
+- `--end-date`：可选，默认最新一条
+- `--limit`：单次请求最大返回行数，默认 5000，系统上限 10000（超过请缩短日期区间分批拉取）
+
+可选字段：`securityCode` 证券代码 | `tradeDate` 交易日期 | `open` 开盘价 | `high` 最高价 | `low` 最低价 | `close` 收盘价 | `preClose` 昨收价 | `change` 涨跌额 | `pctChange` 涨跌幅(%) | `volume` 成交量(手) | `amount` 成交总额(元) | `adjustFactor` 复权因子
 
 ```bash
 gangtise quote day-kline --security 600519.SH --security 300750.SZ --start-date 2025-01-01 --end-date 2025-03-31 --format json
 ```
 
+### 日K线（港股）
+
+```bash
+gangtise quote day-kline-hk [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
+```
+
+- 仅支持港股：港交所（`.HK`）
+- 参数规则与 A 股日K线一致：`--security` 可选（不传返回全市场），`--start-date`/`--end-date` 可选，`--limit` 默认 5000 上限 10000
+
+可选字段：`securityCode` 证券代码 | `tradeDate` 交易日期 | `open` 开盘价 | `high` 最高价 | `low` 最低价 | `close` 收盘价 | `preClose` 昨收价 | `change` 涨跌额 | `pctChange` 涨跌幅(%) | `volume` 成交量(手) | `amount` 成交总额(元) | `adjustFactor` 复权因子
+
+```bash
+gangtise quote day-kline-hk --security 00700.HK --start-date 2025-01-01 --end-date 2025-03-31 --format json
+```
+
 ---
 
-## Fundamental 命令
+## 6-Fundamental 命令
 
 三大报表（利润表/资产负债表/现金流量表）共享参数格式：
 
@@ -276,7 +299,7 @@ gangtise fundamental valuation-analysis --security-code 600519.SH --indicator pe
 
 ---
 
-## AI 命令
+## 7-AI 命令
 
 ### 知识库搜索
 
@@ -371,15 +394,17 @@ gangtise ai research-outline --security-code <code>
 gangtise ai research-outline --security-code 600519.SH --format json
 ```
 
+## 8-Vault数据（私域）
+
 ### AI 云盘
 
 ```bash
-gangtise ai cloud-disk-list [--keyword <text>] [--file-type <n>] [--space-type <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
-gangtise ai cloud-disk-download --file-id <id> [--output <path>]
+gangtise vault drive-list [--keyword <text>] [--file-type <n>] [--space-type <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
+gangtise vault drive-download --file-id <id> [--output <path>]
 ```
 
 - `--file-type`：`1` 文档 | `2` 图片 | `3` 音视频 | `4` 公众号文章 | `5` 其他
-- `--space-type`：`1` 我的云盘 | `2` 机构云盘
+- `--space-type`：`1` 我的云盘 | `2` 租户云盘
 
 ---
 

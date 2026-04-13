@@ -88,4 +88,34 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINT_REGISTRY["ai.earnings-review.get-id"]).toBeDefined()
     expect(ENDPOINT_REGISTRY["ai.earnings-review.get-content"]).toBeDefined()
   })
+
+  it("includes quote day-kline and day-kline-hk endpoints", () => {
+    expect(ENDPOINT_REGISTRY["quote.day-kline"]).toBeDefined()
+    expect(ENDPOINT_REGISTRY["quote.day-kline-hk"]).toBeDefined()
+  })
+
+  it("A-share day-kline uses /open-quote/kline/daily path", () => {
+    expect(ENDPOINTS.quoteDayKline.key).toBe("quote.day-kline")
+    expect(ENDPOINTS.quoteDayKline.method).toBe("POST")
+    expect(ENDPOINTS.quoteDayKline.path).toBe("/application/open-quote/kline/daily")
+    expect(ENDPOINTS.quoteDayKline.kind).toBe("json")
+  })
+
+  it("HK stock day-kline uses /open-quote/kline-hk/daily path", () => {
+    expect(ENDPOINTS.quoteDayKlineHk.key).toBe("quote.day-kline-hk")
+    expect(ENDPOINTS.quoteDayKlineHk.method).toBe("POST")
+    expect(ENDPOINTS.quoteDayKlineHk.path).toBe("/application/open-quote/kline-hk/daily")
+    expect(ENDPOINTS.quoteDayKlineHk.kind).toBe("json")
+  })
+
+  it("vault drive endpoints use correct keys and paths", () => {
+    expect(ENDPOINTS.vaultDriveList.key).toBe("vault.drive.list")
+    expect(ENDPOINTS.vaultDriveList.path).toBe("/application/open-vault/drive/getList")
+    expect(ENDPOINTS.vaultDriveList.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+
+    expect(ENDPOINTS.vaultDriveDownload.key).toBe("vault.drive.download")
+    expect(ENDPOINTS.vaultDriveDownload.path).toBe("/application/open-vault/drive/download/file")
+    expect(ENDPOINTS.vaultDriveDownload.kind).toBe("download")
+    expect(ENDPOINTS.vaultDriveDownload.method).toBe("GET")
+  })
 })
