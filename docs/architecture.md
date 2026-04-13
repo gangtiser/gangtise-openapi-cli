@@ -1,6 +1,6 @@
 # gangtise-openapi-cli — Technical Architecture
 
-**v0.5.1 · Node ≥20 · ESM**
+**v0.7.0 · Node ≥20 · ESM**
 
 ---
 
@@ -46,7 +46,7 @@
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| 23 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList+list → flat objects | table / json / jsonl / csv / markdown |
+| 41 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList+list → flat objects | table / json / jsonl / csv / markdown |
 
 ↓
 
@@ -97,8 +97,8 @@
 |:--|:--|:--|
 | **Auth** | `/application/auth/oauth/open/` | loginV2 |
 | **Insight** | `/application/open-insight/` | chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement |
-| **Quote** | `/application/open-quote/` | kline/daily |
-| **Fundamental** | `/application/open-fundamental/` | income-statement / main-business / valuation-analysis |
+| **Quote** | `/application/open-quote/` | kline/daily / kline-hk/daily |
+| **Fundamental** | `/application/open-fundamental/` | income-statement / balance-sheet / cash-flow / main-business / valuation-analysis |
 | **AI** | `/application/open-data/ai/` & `/application/open-ai/` | knowledge search / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / research-outline |
 | **Vault** | `/application/open-vault/` | drive |
 
