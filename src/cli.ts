@@ -215,9 +215,9 @@ function addTimeFilters(command: Command) {
     .option("--keyword <keyword>", "Keyword")
 }
 
-const program = new Command()
+import { CLI_VERSION } from "./version.js"
 
-const CLI_VERSION = "0.7.1"
+const program = new Command()
 
 program.name("gangtise").description("Gangtise OpenAPI CLI").version(CLI_VERSION)
 
