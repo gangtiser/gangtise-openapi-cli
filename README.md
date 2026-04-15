@@ -240,6 +240,7 @@ Skill 目录结构：
 gangtise-openapi/
 ├── SKILL.md                    # 主 skill 文件（命令参考、参数枚举、使用规则）
 └── references/
+    ├── fields.md               # 字段中英文对照速查表
     └── lookup-ids.md           # 常用 ID 速查表（行业/券商/机构/公告分类等）
 ```
 
