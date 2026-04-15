@@ -45,12 +45,47 @@ description: |-
 
 每次调用遵循以下步骤：
 
-1. **解析意图** — 从「意图路由表」匹配命令；匹配不到时按命令组名猜测（如"研报"→insight research）
+1. **解析意图** — 从「意图路由表」匹配命令；匹配不到时按命令组名猜测（如"研报"→insight research）；**歧义时先向用户复述理解并确认**
 2. **解析参数** — 公司名→证券代码（查「公司名速查表」或 fallback 查询）；opaque ID→查 lookup 或 `references/lookup-ids.md`
 3. **过检查点** — 逐条过「决策检查点」，需要用户确认的必须先问
 4. **拼命令** — 加 `--format json`；按核心规则处理时间/分页/多值参数
 5. **执行** — 运行命令，检查返回 `code` 字段：`200` 成功，其他查错误码表
 6. **处理结果** — 空结果时建议扩大范围或换关键词；异步任务按轮询流程处理
+
+### 响应解析
+
+所有命令返回统一信封格式：`{code, msg, success, data}`。`code=200` 时取 `data` 字段。
+
+| 命令类型 | data 结构 | 关键提取字段 |
+|----------|----------|------------|
+| insight list | `{list: [...], total: N}` | `list[].id` / `list[].title` / `list[].publishDate` / `list[].securityCode` / `list[].institutionName` |
+| insight download | 文件路径（stdout） | 解析输出路径字符串 |
+| quote day-kline | `{list: [...]}` | `list[].tradeDate` / `list[].close` / `list[].pctChange` / `list[].volume` |
+| fundamental 报表 | `{list: [...]}` | `list[].fiscalYear` / `list[].period` + 各 `--field` 字段 |
+| fundamental valuation | `{list: [...]}` | `list[].tradeDate` / `list[].value` / `list[].percentileRank` |
+| ai knowledge-batch | `{list: [...]}` | `list[].resourceType` / `list[].sourceId` / `list[].title` / `list[].summary` |
+| ai one-pager / investment-logic / peer-comparison | `{content: "markdown文本"}` | `content` 直接使用 |
+| ai earnings-review | `{dataId: "xxx"}` | `dataId` 用于后续 `earnings-review-check` |
+| ai earnings-review-check | `{status: "pending"/"completed", content: "..."}` | `status=completed` 时取 `content` |
+| ai security-clue | `{list: [...]}` | `list[].securityCode` / `list[].title` / `list[].clueType` |
+| ai theme-tracking | `{morningReport: {...}, nightReport: {...}}` | 按 `--type` 提取对应报告 |
+| ai research-outline | `{content: "markdown文本"}` | `content` 直接使用 |
+| vault drive-list | `{list: [...]}` | `list[].id` / `list[].title` / `list[].fileType` |
+| vault drive-download | 文件路径（stdout） | 解析输出路径字符串 |
+| lookup list | `[...]` | `[].id` / `[].name` |
+
+### 异常处理
+
+| 场景 | 处理方式 |
+|------|---------|
+| CLI 未安装/命令找不到 | 提示 `npm install -g gangtise-openapi-cli`，不要重试 |
+| 认证 token 过期 | 自动重新登录（AK/SK 模式），无需用户干预；若 AK/SK 也失败则提示检查环境变量 |
+| 网络超时/连接失败 | 最多重试 1 次，仍失败则提示用户检查网络 |
+| 空结果（data 为空数组） | 建议扩大时间范围、换关键词、或去掉部分筛选条件 |
+| 返回结果 >200 条 | 仅展示前 20 条摘要 + 总数，询问用户是否导出全量 |
+| 速率限制（903301） | 不重试，提示用户"今日调用次数已达上限，建议明日重试或联系管理员升级配额" |
+| 异步任务轮询超过 3 次仍 pending | 终止轮询，返回 dataId 给用户，建议稍后手动 `earnings-review-check` |
+| 下载文件路径冲突 | 若 `--output` 指定路径已存在，先询问用户是否覆盖 |
 
 ### 模糊时间词默认映射
 
@@ -72,7 +107,7 @@ description: |-
 Step 1: 意图路由 → insight research list
 Step 2: 贵州茅台 → 600519.SH（速查表）；"最近一周" → --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59"
 Step 3: 检查点 → 认证OK、代码已知、有明确时间范围无需确认数据量
-Step 4: gangtise insight research list --security 600519.SH --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --format json
+Step 4: gangtise insight research list --security 600519.SH --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --rank-type 2 --format json
 Step 5: 检查返回 code=200，提取 data 数组
 ```
 
@@ -94,38 +129,49 @@ Step 3: 检查点 → 模糊时间已自动映射，无需确认
 Step 4: gangtise insight opinion list --keyword AI --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --rank-type 2 --format json
 ```
 
+**用户说："下载中金最近的宏观策略研报"**（多步编排示例）
+
+```
+Step 1: 意图路由 → insight research list + download
+Step 2: 中金 → 查 references/lookup-ids.md → C100000026；"宏观策略" → 宏观 122000001 + 策略 122000002（两个 research-area）；"最近"→默认7天
+Step 3: 检查点 → 认证OK；ID已知无需lookup；结果可能>200条需确认🔴
+Step 4: gangtise insight research list --broker C100000026 --research-area 122000001 --research-area 122000002 --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --rank-type 2 --format json
+Step 5: 从返回 data[] 中提取 reportId + title
+Step 6: gangtise insight research download --report-id <id> --output ./<title>.pdf
+```
+
 ## 意图路由表
 
 用户意图 → 命令快速映射（避免从 20+ 子命令中猜测）：
 
-| 用户意图 | 命令 | 关键参数 |
-|----------|------|----------|
-| 研报/券商报告 | `insight research list` | `--security` `--broker` `--industry` `--start-time` |
-| 外资研报 | `insight foreign-report list` | `--security` `--region` `--broker` |
-| 首席观点/分析师观点 | `insight opinion list` | `--keyword` `--research-area` `--chief` |
-| 纪要/会议纪要 | `insight summary list` | `--security` `--institution` `--category` |
-| 路演 | `insight roadshow list` | `--security` `--institution` |
-| 调研 | `insight site-visit list` | `--security` `--institution` |
-| 策略会 | `insight strategy list` | `--keyword` `--institution` |
-| 论坛 | `insight forum list` | `--keyword` `--security` |
-| 公告 | `insight announcement list` | `--security` `--category` |
-| 日K线/行情 | `quote day-kline` | `--security` `--start-date` `--field` |
-| 港股K线 | `quote day-kline-hk` | `--security` `--start-date` |
-| 利润表/营收/净利润 | `fundamental income-statement` | `--security-code` `--fiscal-year` `--field` |
-| 资产负债表 | `fundamental balance-sheet` | `--security-code` `--fiscal-year` `--field` |
-| 现金流量表 | `fundamental cash-flow` | `--security-code` `--fiscal-year` `--field` |
-| 主营业务/收入结构 | `fundamental main-business` | `--security-code` `--breakdown` |
-| 估值/PE/PB | `fundamental valuation-analysis` | `--security-code` `--indicator` |
-| 知识库搜索 | `ai knowledge-batch` | `--query` `--resource-type` |
-| 一页通/个股概览 | `ai one-pager` | `--security-code` |
-| 投资逻辑 | `ai investment-logic` | `--security-code` |
-| 同业对比/竞对 | `ai peer-comparison` | `--security-code` |
-| 业绩点评 | `ai earnings-review` | `--security-code` `--period` |
-| 投研线索 | `ai security-clue` | `--query-mode` `--gts-code` `--source` |
-| 主题跟踪 | `ai theme-tracking` | `--theme-id` `--date` |
-| 调研提纲 | `ai research-outline` | `--security-code` |
-| 云盘文件 | `vault drive-list` | `--keyword` `--file-type` |
-| 下载文件 | `insight <type> download` 或 `vault drive-download` | `--<type>-id` `--output` |
+| 用户意图 | 命令 |
+|----------|------|
+| 研报/券商报告 | `insight research list` |
+| 外资研报 | `insight foreign-report list` |
+| 首席观点/分析师观点 | `insight opinion list` |
+| 纪要/会议纪要 | `insight summary list` |
+| 路演 | `insight roadshow list` |
+| 调研 | `insight site-visit list` |
+| 策略会 | `insight strategy list` |
+| 论坛 | `insight forum list` |
+| 公告 | `insight announcement list` |
+| 日K线/行情 | `quote day-kline` |
+| 港股K线 | `quote day-kline-hk` |
+| 利润表/营收/净利润 | `fundamental income-statement` |
+| 资产负债表 | `fundamental balance-sheet` |
+| 现金流量表 | `fundamental cash-flow` |
+| 主营业务/收入结构 | `fundamental main-business` |
+| 估值/PE/PB | `fundamental valuation-analysis` |
+| 知识库搜索 | `ai knowledge-batch` |
+| 一页通/个股概览 | `ai one-pager` |
+| 投资逻辑 | `ai investment-logic` |
+| 同业对比/竞对 | `ai peer-comparison` |
+| 业绩点评 | `ai earnings-review` |
+| 投研线索 | `ai security-clue` |
+| 主题跟踪 | `ai theme-tracking` |
+| 调研提纲 | `ai research-outline` |
+| 云盘文件 | `vault drive-list` |
+| 下载文件 | `insight <type> download` / `vault drive-download` |
 
 ## 公司名 → 证券代码
 
@@ -146,16 +192,16 @@ Step 4: gangtise insight opinion list --keyword AI --start-time "2026-04-08 00:0
 
 ## 决策检查点
 
-调用任何命令前，按顺序过以下检查：
+调用任何命令前，按顺序过以下检查（🔴 必须用户确认，🟡 可自行判断）：
 
-1. **认证** — 先 `gangtise auth status`，未登录则提示配置 AK/SK，不要盲目调接口
-2. **ID 参数** — 需要传 broker / institution / industry / chief / region / theme-id 等 opaque ID 时：
+1. 🔴 **认证** — 先 `gangtise auth status`，未登录则提示配置 AK/SK，不要盲目调接口
+2. 🟡 **ID 参数** — 需要传 broker / institution / industry / chief / region / theme-id 等 opaque ID 时：
    - 高频 → 查 `references/lookup-ids.md`
    - 不确定 → 先 `gangtise lookup <type> list`，**绝不猜测**
-3. **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
-4. **数据量** — 无时间范围的 list 查询默认 `--size 200`；若用户未指定范围且数据量可能很大，先确认是否需要全量
-5. **下载格式** — download 前确认用户需要原始 PDF（`--file-type 1`）还是 Markdown（`--file-type 2`）；外资研报另有中文翻译版本（`--file-type 3/4`）
-6. **异步任务** — `ai earnings-review` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `earnings-review-check` → 若 pending 再等
+3. 🟡 **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
+4. 🔴 **数据量** — 无明确时间范围时默认 `--size 200`，若用户要求全量则先询问确认
+5. 🔴 **下载格式** — download 前确认用户需要原始 PDF（`--file-type 1`）还是 Markdown（`--file-type 2`）；外资研报另有中文翻译版本（`--file-type 3/4`）
+6. 🔴 **异步任务** — `ai earnings-review` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `earnings-review-check` → 若 pending 再等
 
 ---
 
@@ -166,7 +212,7 @@ Step 4: gangtise insight opinion list --keyword AI --start-time "2026-04-08 00:0
 ### 首席观点 `insight opinion list`
 
 ```bash
-gangtise insight opinion list [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--llm-tag <tag>] [--source <src>] [--rank-type <n>]
+gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--llm-tag <tag>] [--source <src>] [--rank-type <n>]
 ```
 
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
