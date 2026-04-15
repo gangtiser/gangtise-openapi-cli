@@ -230,9 +230,13 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 - `csv`
 - `markdown`
 
-## Claude Code Skill
+## AI Agent Skill
 
-本项目包含一个 [Claude Code](https://claude.ai/claude-code) skill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。
+本项目包含 skill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。支持以下 AI 编程助手：
+
+- [Claude Code](https://claude.ai/claude-code) — `~/.claude/skills/`
+- [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/skills/`
+- [Hermes](https://github.com/nicepkg/hermes) — `~/.hermes/skills/`
 
 Skill 目录结构：
 
@@ -244,14 +248,20 @@ gangtise-openapi/
     └── lookup-ids.md           # 常用 ID 速查表（行业/券商/机构/公告分类等）
 ```
 
-安装到 Claude Code：
+安装：
 
 ```bash
-# 从项目根目录复制整个 skill 目录
+# Claude Code
 cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
+
+# OpenClaw
+cp -r gangtise-openapi ~/.openclaw/skills/gangtise-openapi
+
+# Hermes
+cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 ```
 
-安装后，在 Claude Code 中可以用自然语言触发，例如：
+安装后，可以用自然语言触发，例如：
 - "帮我查今天所有的研报"
 - "用 gangtise 命令查一下贵州茅台的日K线"
 - "导出最近一周的首席观点到 jsonl"
