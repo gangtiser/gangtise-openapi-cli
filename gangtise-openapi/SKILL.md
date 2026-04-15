@@ -27,30 +27,22 @@ description: |-
    - `--from` 表示起始偏移量，可与 `--size` 配合实现自定义分页
 7. **`--field` 可重复传入**：`--field open --field close --field volume`。可用字段见 `references/fields.md`
 
-## List 模式：同一参数可重复，一次调用覆盖多值
-
-| 命令组 | 可重复参数 |
-|--------|-----------|
-| 首席观点 | `--security` `--broker` `--industry` `--research-area` `--chief` `--concept` `--llm-tag` `--source` |
-| 纪要/路演/调研 | `--security` `--institution` `--research-area` `--category` `--market` `--participant-role` `--broker-type` `--object` |
-| 研报/外资研报 | `--security` `--broker` `--industry` `--category` `--region` `--llm-tag` `--rating` `--rating-change` |
-| 公告 | `--security` `--announcement-type` `--category` |
-| 日K线(A股/港股) | `--security` `--field` |
-| 财务报表 | `--fiscal-year` `--period` `--report-type` `--field` |
-| 知识库搜索 | `--query`（最多5个）`--resource-type` |
-| 投研线索 | `--gts-code` `--source` |
-| AI云盘 | `--file-type` `--space-type` |
-
 ## 执行工作流
 
 每次调用遵循以下步骤：
 
 1. **解析意图** — 从「意图路由表」匹配命令；匹配不到时按命令组名猜测（如"研报"→insight research）；**歧义时先向用户复述理解并确认**
+   - 输出：命令名 + 命令组
 2. **解析参数** — 公司名→证券代码（查「公司名速查表」或 fallback 查询）；opaque ID→查 lookup 或 `references/lookup-ids.md`
-3. **过检查点** — 逐条过「决策检查点」，需要用户确认的必须先问
+   - 输出：参数键值对
+3. **过检查点** — 逐条过「决策检查点」，🔴 必须等用户确认才能继续
+   - 输出：通过/等待确认
 4. **拼命令** — 加 `--format json`；按核心规则处理时间/分页/多值参数
-5. **执行** — 运行命令，检查返回 `code` 字段：`200` 成功，其他查错误码表
-6. **处理结果** — 空结果时建议扩大范围或换关键词；异步任务按轮询流程处理
+   - 输出：完整可执行命令
+5. **执行** — 运行命令，检查返回 `code` 字段：`200` 成功，其他查异常处理表
+   - 输出：code + data
+6. **处理结果** — 按响应解析表提取关键字段呈现给用户；空结果时建议扩大范围或换关键词；异步任务按轮询流程处理
+   - 输出：用户可读的结果摘要
 
 ### 响应解析
 
@@ -83,19 +75,21 @@ description: |-
 | 网络超时/连接失败 | 最多重试 1 次，仍失败则提示用户检查网络 |
 | 空结果（data 为空数组） | 建议扩大时间范围、换关键词、或去掉部分筛选条件 |
 | 返回结果 >200 条 | 仅展示前 20 条摘要 + 总数，询问用户是否导出全量 |
+| K线数据超 10000 条 | 按季度分批拉取：先取 Q1（1/1-3/31），再取 Q2，依此类推 |
 | 速率限制（903301） | 不重试，提示用户"今日调用次数已达上限，建议明日重试或联系管理员升级配额" |
 | 异步任务轮询超过 3 次仍 pending | 终止轮询，返回 dataId 给用户，建议稍后手动 `earnings-review-check` |
 | 下载文件路径冲突 | 若 `--output` 指定路径已存在，先询问用户是否覆盖 |
+| 无效证券代码 | 返回空结果或错误码，提示用户检查代码和交易所后缀是否正确 |
 
 ### 模糊时间词默认映射
 
 用户说"最近/近期"时，如果未明确指定天数，按以下规则处理：
 
-| 模糊词 | 默认时间范围 | 对应参数 |
-|--------|------------|----------|
-| 最近/近期 | 当前日期往前 7 天 | `--start-time "<7天前日期> 00:00:00"` `--end-time "<当前日期> 23:59:59"` |
-| 最近一个月 | 当前日期往前 30 天 | 同上，30 天 |
-| 今年 | 当年 1/1 至今 | `--start-time "<当年>-01-01 00:00:00"` |
+| 模糊词 | 默认时间范围 | datetime 参数（Insight/Vault/AI） | date 参数（Quote/Fundamental） |
+|--------|------------|----------------------------------|-------------------------------|
+| 最近/近期 | 当前日期往前 7 天 | `--start-time "<7天前> 00:00:00"` `--end-time "<今天> 23:59:59"` | `--start-date <7天前>` `--end-date <今天>` |
+| 最近一个月 | 当前日期往前 30 天 | 同上，30 天 | 同上，30 天 |
+| 今年 | 当年 1/1 至今 | `--start-time "<当年>-01-01 00:00:00"` | `--start-date <当年>-01-01` |
 
 同时在洞察命令加 `--rank-type 2`（时间倒序），确保最新结果优先。
 
@@ -108,7 +102,7 @@ Step 1: 意图路由 → insight research list
 Step 2: 贵州茅台 → 600519.SH（速查表）；"最近一周" → --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59"
 Step 3: 检查点 → 认证OK、代码已知、有明确时间范围无需确认数据量
 Step 4: gangtise insight research list --security 600519.SH --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --rank-type 2 --format json
-Step 5: 检查返回 code=200，提取 data 数组
+Step 5: 检查返回 code=200，提取 data.list[].title / publishDate / reportId
 ```
 
 **用户说："比亚迪的一页通"**
@@ -118,6 +112,7 @@ Step 1: 意图路由 → ai one-pager
 Step 2: 比亚迪 → 002594.SZ（速查表）；一页通用 --security-code（不是 --security）
 Step 3: 检查点 → 认证OK、代码已知
 Step 4: gangtise ai one-pager --security-code 002594.SZ --format json
+Step 5: 返回 data.content（Markdown 文本），直接呈现给用户
 ```
 
 **用户说："查一下最近有哪些首席观点提到AI"**
@@ -127,6 +122,7 @@ Step 1: 意图路由 → insight opinion list
 Step 2: "最近"→默认7天；"AI"→--keyword AI
 Step 3: 检查点 → 模糊时间已自动映射，无需确认
 Step 4: gangtise insight opinion list --keyword AI --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --rank-type 2 --format json
+Step 5: 提取 data.list[].title / chiefName / publishDate，按时间倒序列表呈现
 ```
 
 **用户说："下载中金最近的宏观策略研报"**（多步编排示例）
@@ -134,10 +130,10 @@ Step 4: gangtise insight opinion list --keyword AI --start-time "2026-04-08 00:0
 ```
 Step 1: 意图路由 → insight research list + download
 Step 2: 中金 → 查 references/lookup-ids.md → C100000026；"宏观策略" → 宏观 122000001 + 策略 122000002（两个 research-area）；"最近"→默认7天
-Step 3: 检查点 → 认证OK；ID已知无需lookup；结果可能>200条需确认🔴
+Step 3: 检查点 → 认证OK；ID已知无需lookup；结果可能>200条需确认🔴；下载格式需确认🔴
 Step 4: gangtise insight research list --broker C100000026 --research-area 122000001 --research-area 122000002 --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --rank-type 2 --format json
-Step 5: 从返回 data[] 中提取 reportId + title
-Step 6: gangtise insight research download --report-id <id> --output ./<title>.pdf
+Step 5: 从返回 data[] 中提取 reportId + title，展示给用户
+Step 6: 确认 file-type 后 → gangtise insight research download --report-id <id> --file-type <n> --output ./<title>.pdf
 ```
 
 ## 意图路由表
@@ -155,6 +151,8 @@ Step 6: gangtise insight research download --report-id <id> --output ./<title>.p
 | 策略会 | `insight strategy list` |
 | 论坛 | `insight forum list` |
 | 公告 | `insight announcement list` |
+| 搜索/语义搜索 | `ai knowledge-batch` |
+| 搜索多类文档（研报+纪要等）| `ai knowledge-batch`（用多个 `--resource-type`）|
 | 日K线/行情 | `quote day-kline` |
 | 港股K线 | `quote day-kline-hk` |
 | 利润表/营收/净利润 | `fundamental income-statement` |
@@ -178,36 +176,47 @@ Step 6: gangtise insight research download --report-id <id> --output ./<title>.p
 用户常只给公司名（如"茅台"），agent 需转为带交易所后缀的代码。查找方式（按优先级）：
 
 1. **常用代码速查**（高频可直接映射）：
-   | 公司 | 代码 | 公司 | 代码 |
-   |------|------|------|------|
-   | 贵州茅台 | `600519.SH` | 宁德时代 | `300750.SZ` |
-   | 比亚迪 | `002594.SZ` | 招商银行 | `600036.SH` |
-   | 中国平安 | `601318.SH` | 腾讯控股 | `00700.HK` |
-   | 工商银行 | `601398.SH` | 美团 | `03690.HK` |
-   | 中芯国际 | `688981.SH` | 药明康德 | `603259.SH` |
+   | 公司 | A股代码 | 港股代码 |
+   |------|---------|---------|
+   | 贵州茅台 | `600519.SH` | — |
+   | 宁德时代 | `300750.SZ` | — |
+   | 比亚迪 | `002594.SZ` | `01211.HK` |
+   | 招商银行 | `600036.SH` | `03968.HK` |
+   | 中国平安 | `601318.SH` | `02318.HK` |
+   | 工商银行 | `601398.SH` | `01398.HK` |
+   | 中芯国际 | `688981.SH` | `00981.HK` |
+   | 药明康德 | `603259.SH` | — |
+   | 腾讯控股 | — | `00700.HK` |
+   | 美团 | — | `03690.HK` |
+   | 阿里巴巴 | — | `09988.HK` |
+   | 京东集团 | — | `09618.HK` |
+   | 小米集团 | — | `01810.HK` |
+   | 网易 | — | `09999.HK` |
 
-2. **不确定时**：用 `gangtise-data-client` skill 查证券详情（如果可用），或用 `gangtise ai knowledge-batch --query <公司名>` 搜索，从返回结果中提取代码
+2. **不确定时**：用 `gangtise-data-client` skill 查证券详情（如果可用），或用 `gangtise ai knowledge-batch --query <公司名>` 搜索，从返回 data.list[].securityCode 提取代码
 
 3. **交易所后缀规则**：`.SH` 上交所（6开头）| `.SZ` 深交所（0/3开头）| `.BJ` 北交所 | `.HK` 港股
+4. **跨市场**：用户同时需要 A 股+港股数据时，需分别调对应命令（如 `quote day-kline` + `quote day-kline-hk`），不能合并为一次调用
 
 ## 决策检查点
 
 调用任何命令前，按顺序过以下检查（🔴 必须用户确认，🟡 可自行判断）：
 
 1. 🔴 **认证** — 先 `gangtise auth status`，未登录则提示配置 AK/SK，不要盲目调接口
-2. 🟡 **ID 参数** — 需要传 broker / institution / industry / chief / region / theme-id 等 opaque ID 时：
+2. 🟡 **意图歧义** — 多个命令匹配时向用户复述理解并确认（如"搜索研报"→ knowledge-batch 还是 research list？）
+3. 🟡 **ID 参数** — 需要传 broker / institution / industry / chief / region / theme-id 等 opaque ID 时：
    - 高频 → 查 `references/lookup-ids.md`
    - 不确定 → 先 `gangtise lookup <type> list`，**绝不猜测**
-3. 🟡 **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
-4. 🔴 **数据量** — 无明确时间范围时默认 `--size 200`，若用户要求全量则先询问确认
-5. 🔴 **下载格式** — download 前确认用户需要原始 PDF（`--file-type 1`）还是 Markdown（`--file-type 2`）；外资研报另有中文翻译版本（`--file-type 3/4`）
-6. 🔴 **异步任务** — `ai earnings-review` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `earnings-review-check` → 若 pending 再等
+4. 🟡 **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
+5. 🔴 **数据量** — 无明确时间范围时默认 `--size 200`，若用户要求全量则先询问确认
+6. 🔴 **下载格式** — download 前确认用户需要原始 PDF（`--file-type 1`）还是 Markdown（`--file-type 2`）；外资研报另有中文翻译版本（`--file-type 3/4`）
+7. 🔴 **异步任务** — `ai earnings-review` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `earnings-review-check` → 若 pending 再等
 
 ---
 
 ## Insight 命令
 
-所有 insight list 共享：`--keyword` `--start-time` `--end-time` `--from` `--size`
+所有 insight list 共享：`--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`
 
 ### 首席观点 `insight opinion list`
 
@@ -235,10 +244,10 @@ gangtise insight summary download --summary-id <id> [--output <path>]
 ### 路演/调研/策略会/论坛
 
 ```bash
-gangtise insight roadshow list [options]     # 路演
-gangtise insight site-visit list [options]   # 调研
-gangtise insight strategy list [options]     # 策略会（仅 keyword/institution）
-gangtise insight forum list [options]        # 论坛（仅 keyword/security/research-area）
+gangtise insight roadshow list [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--keyword <text>] [--start-time <dt>] [--end-time <dt>] [--from <n>] [--size <n>]
+gangtise insight site-visit list [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--broker-type <name>] [--permission <n>] [--object <name>] [--keyword <text>] [--start-time <dt>] [--end-time <dt>] [--from <n>] [--size <n>]
+gangtise insight strategy list [--keyword <text>] [--institution <id>] [--start-time <dt>] [--end-time <dt>] [--from <n>] [--size <n>]
+gangtise insight forum list [--keyword <text>] [--security <code>] [--research-area <id>] [--start-time <dt>] [--end-time <dt>] [--from <n>] [--size <n>]
 ```
 
 共用参数：`--research-area` `--institution` `--security` `--keyword` `--start-time` `--end-time` `--from` `--size`
@@ -402,7 +411,7 @@ gangtise ai earnings-review-check --data-id <id>
 
 - `--period`（必选）：`年份+报告期`，如 `2025q3`（q1/interim/q3/annual），仅支持 A 股，覆盖最近 6 期
 - `--wait`：阻塞等待（最多 3 分钟），默认立即返回 dataId
-- **异步流程**：① `earnings-review` → 得到 `dataId` → ② 等 2 分钟 → ③ `earnings-review-check --data-id xxx` → 若仍 pending 再等 2 分钟重试
+- **异步流程**：① `earnings-review` → 得到 `dataId` → ② 等 2 分钟 → ③ `earnings-review-check --data-id xxx` → 若 `status=completed` 取 `content`，若 `status=pending` 再等 2 分钟 → 最多轮询 3 次，超过则终止并返回 dataId 给用户
 
 ### 主题跟踪 `ai theme-tracking`
 
@@ -431,7 +440,7 @@ gangtise vault drive-list [--keyword <text>] [--file-type <n>] [--space-type <n>
 gangtise vault drive-download --file-id <id> [--output <path>]
 ```
 
-- `--file-type`：`1` 文档 | `2` 图片 | `3` 音视频 | `4` 公众号文章 | `5` 其他
+- `--file-type`：`1` 文档（含 PDF/Word/PPT 等）| `2` 图片 | `3` 音视频 | `4` 公众号文章 | `5` 其他
 - `--space-type`：`1` 我的云盘 | `2` 租户云盘
 
 ---
