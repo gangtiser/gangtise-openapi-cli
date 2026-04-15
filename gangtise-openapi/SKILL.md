@@ -3,16 +3,11 @@ name: gangtise-openapi
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
-  覆盖能力：首席观点、纪要、路演、调研、策略会、论坛、研报、外资研报、公告、日K线行情（A股/港股）、基本面（利润表/资产负债表/现金流量表/主营/估值）、AI知识库搜索、投研线索、一页通、投资逻辑、同业对比、业绩点评、主题跟踪、调研提纲、AI云盘（Vault）。
+  **触发词**：调接口 / CLI / openapi / 导出 / 下载研报 / 批量查 / 拉数据 / 跑一下
 
-  **必须使用此 skill 的场景**（即使用户没有明确提到 API 或 CLI）：
-  - 用户提到"调接口"、"CLI"、"openapi"、"导出"、"下载研报"、"批量查"、"拉数据"、"跑一下"
-  - 需要原始数据（非经过其他 skill 加工）、批量导出 jsonl/csv、下载 PDF/Markdown
-  - 查行情K线（日线、股价走势、涨跌幅）、财务报表（利润表、资产负债表、现金流）、估值指标（PE/PB/PEG）
-  - 调用 AI 能力：知识库搜索、一页通、投资逻辑、同业对比、投研线索、业绩点评、主题跟踪、调研提纲
-  - 其他 skill（如 gangtise-stock-research、gangtise-competitive-analysis）需要底层数据时，也通过此 skill 的 CLI 获取
+  **适用**：原始数据导出、批量jsonl/csv、下载PDF/MD、行情K线、财务报表、估值指标、AI能力（一页通/投资逻辑/同业对比/线索/业绩点评/主题跟踪/调研提纲/知识库搜索）、云盘文件管理（Vault）
 
-  **不适用场景**：纯个股研究工作流用 gangtise-stock-research；观点总结/PK 用 gangtise-opinion-*；仅查证券详情/板块/股东等元数据用 gangtise-data-client。
+  **不适用**：个股研究→gangtise-stock-research；观点总结/PK→gangtise-opinion-*；证券详情/板块/股东元数据→gangtise-data-client
 ---
 
 # Gangtise OpenAPI CLI
@@ -45,6 +40,122 @@ description: |-
 | 知识库搜索 | `--query`（最多5个）`--resource-type` |
 | 投研线索 | `--gts-code` `--source` |
 | AI云盘 | `--file-type` `--space-type` |
+
+## 执行工作流
+
+每次调用遵循以下步骤：
+
+1. **解析意图** — 从「意图路由表」匹配命令；匹配不到时按命令组名猜测（如"研报"→insight research）
+2. **解析参数** — 公司名→证券代码（查「公司名速查表」或 fallback 查询）；opaque ID→查 lookup 或 `references/lookup-ids.md`
+3. **过检查点** — 逐条过「决策检查点」，需要用户确认的必须先问
+4. **拼命令** — 加 `--format json`；按核心规则处理时间/分页/多值参数
+5. **执行** — 运行命令，检查返回 `code` 字段：`200` 成功，其他查错误码表
+6. **处理结果** — 空结果时建议扩大范围或换关键词；异步任务按轮询流程处理
+
+### 模糊时间词默认映射
+
+用户说"最近/近期"时，如果未明确指定天数，按以下规则处理：
+
+| 模糊词 | 默认时间范围 | 对应参数 |
+|--------|------------|----------|
+| 最近/近期 | 当前日期往前 7 天 | `--start-time "<7天前日期> 00:00:00"` `--end-time "<当前日期> 23:59:59"` |
+| 最近一个月 | 当前日期往前 30 天 | 同上，30 天 |
+| 今年 | 当年 1/1 至今 | `--start-time "<当年>-01-01 00:00:00"` |
+
+同时在洞察命令加 `--rank-type 2`（时间倒序），确保最新结果优先。
+
+### 典型执行示例
+
+**用户说："帮我查一下贵州茅台最近一周的研报"**
+
+```
+Step 1: 意图路由 → insight research list
+Step 2: 贵州茅台 → 600519.SH（速查表）；"最近一周" → --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59"
+Step 3: 检查点 → 认证OK、代码已知、有明确时间范围无需确认数据量
+Step 4: gangtise insight research list --security 600519.SH --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --format json
+Step 5: 检查返回 code=200，提取 data 数组
+```
+
+**用户说："比亚迪的一页通"**
+
+```
+Step 1: 意图路由 → ai one-pager
+Step 2: 比亚迪 → 002594.SZ（速查表）；一页通用 --security-code（不是 --security）
+Step 3: 检查点 → 认证OK、代码已知
+Step 4: gangtise ai one-pager --security-code 002594.SZ --format json
+```
+
+**用户说："查一下最近有哪些首席观点提到AI"**
+
+```
+Step 1: 意图路由 → insight opinion list
+Step 2: "最近"→默认7天；"AI"→--keyword AI
+Step 3: 检查点 → 模糊时间已自动映射，无需确认
+Step 4: gangtise insight opinion list --keyword AI --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --rank-type 2 --format json
+```
+
+## 意图路由表
+
+用户意图 → 命令快速映射（避免从 20+ 子命令中猜测）：
+
+| 用户意图 | 命令 | 关键参数 |
+|----------|------|----------|
+| 研报/券商报告 | `insight research list` | `--security` `--broker` `--industry` `--start-time` |
+| 外资研报 | `insight foreign-report list` | `--security` `--region` `--broker` |
+| 首席观点/分析师观点 | `insight opinion list` | `--keyword` `--research-area` `--chief` |
+| 纪要/会议纪要 | `insight summary list` | `--security` `--institution` `--category` |
+| 路演 | `insight roadshow list` | `--security` `--institution` |
+| 调研 | `insight site-visit list` | `--security` `--institution` |
+| 策略会 | `insight strategy list` | `--keyword` `--institution` |
+| 论坛 | `insight forum list` | `--keyword` `--security` |
+| 公告 | `insight announcement list` | `--security` `--category` |
+| 日K线/行情 | `quote day-kline` | `--security` `--start-date` `--field` |
+| 港股K线 | `quote day-kline-hk` | `--security` `--start-date` |
+| 利润表/营收/净利润 | `fundamental income-statement` | `--security-code` `--fiscal-year` `--field` |
+| 资产负债表 | `fundamental balance-sheet` | `--security-code` `--fiscal-year` `--field` |
+| 现金流量表 | `fundamental cash-flow` | `--security-code` `--fiscal-year` `--field` |
+| 主营业务/收入结构 | `fundamental main-business` | `--security-code` `--breakdown` |
+| 估值/PE/PB | `fundamental valuation-analysis` | `--security-code` `--indicator` |
+| 知识库搜索 | `ai knowledge-batch` | `--query` `--resource-type` |
+| 一页通/个股概览 | `ai one-pager` | `--security-code` |
+| 投资逻辑 | `ai investment-logic` | `--security-code` |
+| 同业对比/竞对 | `ai peer-comparison` | `--security-code` |
+| 业绩点评 | `ai earnings-review` | `--security-code` `--period` |
+| 投研线索 | `ai security-clue` | `--query-mode` `--gts-code` `--source` |
+| 主题跟踪 | `ai theme-tracking` | `--theme-id` `--date` |
+| 调研提纲 | `ai research-outline` | `--security-code` |
+| 云盘文件 | `vault drive-list` | `--keyword` `--file-type` |
+| 下载文件 | `insight <type> download` 或 `vault drive-download` | `--<type>-id` `--output` |
+
+## 公司名 → 证券代码
+
+用户常只给公司名（如"茅台"），agent 需转为带交易所后缀的代码。查找方式（按优先级）：
+
+1. **常用代码速查**（高频可直接映射）：
+   | 公司 | 代码 | 公司 | 代码 |
+   |------|------|------|------|
+   | 贵州茅台 | `600519.SH` | 宁德时代 | `300750.SZ` |
+   | 比亚迪 | `002594.SZ` | 招商银行 | `600036.SH` |
+   | 中国平安 | `601318.SH` | 腾讯控股 | `00700.HK` |
+   | 工商银行 | `601398.SH` | 美团 | `03690.HK` |
+   | 中芯国际 | `688981.SH` | 药明康德 | `603259.SH` |
+
+2. **不确定时**：用 `gangtise-data-client` skill 查证券详情（如果可用），或用 `gangtise ai knowledge-batch --query <公司名>` 搜索，从返回结果中提取代码
+
+3. **交易所后缀规则**：`.SH` 上交所（6开头）| `.SZ` 深交所（0/3开头）| `.BJ` 北交所 | `.HK` 港股
+
+## 决策检查点
+
+调用任何命令前，按顺序过以下检查：
+
+1. **认证** — 先 `gangtise auth status`，未登录则提示配置 AK/SK，不要盲目调接口
+2. **ID 参数** — 需要传 broker / institution / industry / chief / region / theme-id 等 opaque ID 时：
+   - 高频 → 查 `references/lookup-ids.md`
+   - 不确定 → 先 `gangtise lookup <type> list`，**绝不猜测**
+3. **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
+4. **数据量** — 无时间范围的 list 查询默认 `--size 200`；若用户未指定范围且数据量可能很大，先确认是否需要全量
+5. **下载格式** — download 前确认用户需要原始 PDF（`--file-type 1`）还是 Markdown（`--file-type 2`）；外资研报另有中文翻译版本（`--file-type 3/4`）
+6. **异步任务** — `ai earnings-review` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `earnings-review-check` → 若 pending 再等
 
 ---
 
