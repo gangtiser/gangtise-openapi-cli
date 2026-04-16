@@ -8,7 +8,13 @@
 npm install -g gangtise-openapi-cli
 ```
 
-安装后直接使用：
+更新到最新版：
+
+```bash
+npm update -g gangtise-openapi-cli
+```
+
+验证安装：
 
 ```bash
 gangtise --help
@@ -48,6 +54,42 @@ export GANGTISE_TOKEN="Bearer xxx"
 - `gangtise raw call ...`
 
 其中 `lookup` 下的研究方向、机构、行业枚举已内置在项目中，无需额外本地文档文件。
+
+## AI Agent Skill
+
+本项目包含 SKill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。支持以下 AI 编程助手：
+
+- [Claude Code](https://claude.ai/claude-code) — `~/.claude/skills/`
+- [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/skills/`
+- [Hermes](https://github.com/nicepkg/hermes) — `~/.hermes/skills/`
+
+Skill 目录结构：
+
+```
+gangtise-openapi/
+├── SKILL.md                    # 主 skill 文件（命令参考、参数枚举、使用规则）
+└── references/
+    ├── fields.md               # 字段中英文对照速查表
+    └── lookup-ids.md           # 常用 ID 速查表（行业/券商/机构/公告分类等）
+```
+
+安装：
+
+```bash
+# Claude Code
+cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
+
+# OpenClaw
+cp -r gangtise-openapi ~/.openclaw/skills/gangtise-openapi
+
+# Hermes
+cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
+```
+
+安装后，可以用自然语言触发，例如：
+- "帮我查今天所有的研报"
+- "用 gangtise 命令查一下贵州茅台的日K线"
+- "导出最近一周的首席观点到 jsonl"
 
 ## 推荐工作流
 
@@ -184,6 +226,7 @@ gangtise ai peer-comparison --security-code 600519.SH
 gangtise ai earnings-review --security-code 600519.SH --period 2025q3
 gangtise ai theme-tracking --theme-id 121000131 --date 2026-03-01 --type morning
 gangtise ai research-outline --security-code 600519.SH
+gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 --output ./resource.txt
 ```
 
 ### Vault
@@ -196,9 +239,6 @@ gangtise vault drive-download --file-id 62130
 # → 2028 全球智能危机  一份来自未来的金融史思想实验  .pdf
 ```
 
-gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 --output ./resource.txt
-```
-
 ### Raw
 
 ```bash
@@ -206,19 +246,6 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 ```
 
 说明：对已标记为自动翻页的 endpoint，`raw call` 也会复用同一套 client 翻页逻辑；这里的 `size` 仍表示最终希望返回的记录数。
-
-## 已验证的真实联调
-
-已真实跑通：
-- auth: `login` / `status`
-- lookup: `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list`
-- insight: `opinion list` / `summary list` / `summary download` / `roadshow list` / `site-visit list` / `strategy list` / `forum list` / `research list` / `research download` / `foreign-report list` / `foreign-report download` / `announcement list` / `announcement download`
-- quote: `day-kline` / `day-kline-hk`
-- fundamental: `income-statement` / `main-business` / `valuation-analysis`
-- ai: `knowledge-batch` / `knowledge-resource-download` / `security-clue` / `one-pager` / `investment-logic` / `peer-comparison` / `earnings-review` / `theme-tracking` / `research-outline`
-- vault: `drive-list` / `drive-download`
-
-注意：`knowledge-resource-download` 依赖正确的 `resourceType + sourceId` 组合；错误组合会返回 `433007 不支持该数据源`。
 
 ## 输出格式
 
@@ -229,42 +256,6 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 - `jsonl`
 - `csv`
 - `markdown`
-
-## AI Agent Skill
-
-本项目包含 skill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。支持以下 AI 编程助手：
-
-- [Claude Code](https://claude.ai/claude-code) — `~/.claude/skills/`
-- [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/skills/`
-- [Hermes](https://github.com/nicepkg/hermes) — `~/.hermes/skills/`
-
-Skill 目录结构：
-
-```
-gangtise-openapi/
-├── SKILL.md                    # 主 skill 文件（命令参考、参数枚举、使用规则）
-└── references/
-    ├── fields.md               # 字段中英文对照速查表
-    └── lookup-ids.md           # 常用 ID 速查表（行业/券商/机构/公告分类等）
-```
-
-安装：
-
-```bash
-# Claude Code
-cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
-
-# OpenClaw
-cp -r gangtise-openapi ~/.openclaw/skills/gangtise-openapi
-
-# Hermes
-cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
-```
-
-安装后，可以用自然语言触发，例如：
-- "帮我查今天所有的研报"
-- "用 gangtise 命令查一下贵州茅台的日K线"
-- "导出最近一周的首席观点到 jsonl"
 
 ## 常见错误
 
@@ -280,4 +271,4 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | `999995` | 积分不足 |
 | `999997` | 未开通接口权限 |
 | `999999` | Gangtise 系统错误，请稍后重试 |
-| `433007` | 不支持该数据源（常见于知识资源下载参数不匹配） |
+| `433007` | 不支持该数据源（`knowledge-resource-download` 需正确的 `resourceType + sourceId` 组合） |
