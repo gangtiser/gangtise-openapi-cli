@@ -42,18 +42,37 @@ export GANGTISE_TOKEN="Bearer xxx"
 
 如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地。
 
-## 命令概览
 
-- `gangtise auth ...`
-- `gangtise lookup ...`
-- `gangtise insight ...`
-- `gangtise quote ...`
-- `gangtise fundamental ...`
-- `gangtise ai ...`
-- `gangtise vault ...`
-- `gangtise raw call ...`
+## 数据接口覆盖
 
-其中 `lookup` 下的研究方向、机构、行业枚举已内置在项目中，无需额外本地文档文件。
+| 模块 | 子命令 | 说明 |
+|------|--------|------|
+| **Auth** | `login` / `status` | 认证登录、状态查询 |
+| **Lookup** | `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list` / `theme-id list` | 枚举速查（内置，无需额外文档） |
+| **Insight** | `opinion list` | 首席观点 |
+| | `summary list` / `download` | 纪要（含下载） |
+| | `roadshow list` | 路演 |
+| | `site-visit list` | 调研 |
+| | `strategy list` | 策略 |
+| | `forum list` | 论坛 |
+| | `research list` / `download` | 研报（含 Markdown 下载） |
+| | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
+| | `announcement list` / `download` | 公告（含 Markdown 下载） |
+| **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
+| **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | 三大财务报表 |
+| | `main-business` | 主营构成（按地区/产品拆分） |
+| | `valuation-analysis` | 估值分析 |
+| **AI** | `knowledge-batch` | 知识库批量检索 |
+| | `knowledge-resource-download` | 知识资源下载 |
+| | `security-clue` | 个股线索 |
+| | `one-pager` | 一页通 |
+| | `investment-logic` | 投资逻辑 |
+| | `peer-comparison` | 同业对比 |
+| | `earnings-review` / `earnings-review-check` | 业绩回顾 |
+| | `theme-tracking` | 主题跟踪 |
+| | `research-outline` | 研究提纲 |
+| **Vault** | `drive-list` / `drive-download` | 云盘文件列表与下载 |
+| **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
 
 ## AI Agent Skill
 
@@ -90,6 +109,18 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 - "帮我查今天所有的研报"
 - "用 gangtise 命令查一下贵州茅台的日K线"
 - "导出最近一周的首席观点到 jsonl"
+
+
+## 命令概览
+
+- `gangtise auth ...`
+- `gangtise lookup ...`
+- `gangtise insight ...`
+- `gangtise quote ...`
+- `gangtise fundamental ...`
+- `gangtise ai ...`
+- `gangtise vault ...`
+- `gangtise raw call ...`
 
 ## 推荐工作流
 
