@@ -55,9 +55,7 @@ export class GangtiseClient {
   }
 
   private unwrapEnvelope<T>(parsed: Envelope<T>, statusCode?: number): T {
-    const hasEnvelopeFields = parsed && typeof parsed === 'object' && ('code' in parsed || 'status' in parsed || 'success' in parsed || 'data' in parsed)
-
-    if (!hasEnvelopeFields) {
+    if (!parsed || typeof parsed !== 'object' || !('code' in parsed)) {
       return parsed as T
     }
 
@@ -257,20 +255,13 @@ export class GangtiseClient {
         return { text, contentType }
       }
 
-      const hasEnvelopeFields = parsed && typeof parsed === 'object' && ('code' in (parsed as Record<string, unknown>) || 'status' in (parsed as Record<string, unknown>) || 'success' in (parsed as Record<string, unknown>) || 'data' in (parsed as Record<string, unknown>))
-      if (hasEnvelopeFields) {
-        const data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
-        if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {
-          return { url: String((data as Record<string, unknown>).url), contentType }
-        }
-        return { text: JSON.stringify(data, null, 2), contentType }
+      const data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
+
+      if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {
+        return { url: String((data as Record<string, unknown>).url), contentType }
       }
 
-      if (parsed && typeof parsed === 'object' && 'url' in (parsed as Record<string, unknown>) && typeof (parsed as Record<string, unknown>).url === 'string') {
-        return { url: String((parsed as Record<string, unknown>).url), contentType }
-      }
-
-      return { text: JSON.stringify(parsed, null, 2), contentType }
+      return { text: JSON.stringify(data, null, 2), contentType }
     }
 
     if (contentType?.includes('text/plain') || contentType?.includes('text/html')) {

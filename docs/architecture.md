@@ -69,7 +69,7 @@
 3. `kind="download"`
 4. `download()` via undici
 5. Content-Type dispatch:
-   - JSON → unwrap → redirect URL
+   - JSON → unwrapEnvelope → redirect URL or text
    - binary → Uint8Array
 6. Smart filename (title cache)
 7. `saveOutputIfNeeded()`
@@ -125,7 +125,7 @@
 |:--|:--|
 | **Endpoint Registry** | Declarative · O(1) key lookup · type-safe via `satisfies` |
 | **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint |
-| **Envelope Unwrapping** | Standard `{code, msg, success, data}` handling |
+| **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
 
 ---

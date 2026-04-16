@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ValidationError } from "../../src/core/errors.js"
+import { ApiError, ValidationError } from "../../src/core/errors.js"
 import { GangtiseClient } from "../../src/core/client.js"
 
 const { requestMock } = vi.hoisted(() => ({
@@ -32,6 +32,16 @@ function jsonResponse(data: unknown) {
           data,
         }),
       ),
+    },
+  }
+}
+
+function rawJsonResponse(payload: unknown) {
+  return {
+    statusCode: 200,
+    headers: { "content-type": "application/json" },
+    body: {
+      text: vi.fn().mockResolvedValue(JSON.stringify(payload)),
     },
   }
 }
@@ -184,5 +194,54 @@ describe("GangtiseClient pagination", () => {
 
     expect(result.total).toBe(4)
     expect(result.list).toEqual([{ id: 1 }, { id: 2 }])
+  })
+})
+
+describe("GangtiseClient envelope unwrapping", () => {
+  beforeEach(() => {
+    requestMock.mockReset()
+  })
+
+  it("passes through a direct array response without envelope", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse([{ id: 1 }, { id: 2 }]))
+
+    const client = createClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual([{ id: 1 }, { id: 2 }])
+  })
+
+  it("passes through a response with 'data' field but no 'code' (not an envelope)", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse({ data: [1, 2, 3], total: 3 }))
+
+    const client = createClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ data: [1, 2, 3], total: 3 })
+  })
+
+  it("passes through a response with 'status' field but no 'code' (not an envelope)", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse({ status: true, items: ["a", "b"] }))
+
+    const client = createClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ status: true, items: ["a", "b"] })
+  })
+
+  it("unwraps a standard {code, data} envelope", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse({ code: "000000", msg: "ok", data: { answer: 42 } }))
+
+    const client = createClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ answer: 42 })
+  })
+
+  it("throws ApiError for envelope with error code", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse({ code: "410110", msg: "生成中" }))
+
+    const client = createClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toBeInstanceOf(ApiError)
   })
 })
