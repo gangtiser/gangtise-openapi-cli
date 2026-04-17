@@ -298,6 +298,14 @@ export const ENDPOINTS = {
     kind: "json",
     description: "Get company research outline",
   },
+  aiHotTopic: {
+    key: "ai.hot-topic",
+    method: "POST",
+    path: "/application/open-ai/hot-topic/getList",
+    kind: "json",
+    description: "List hot topic reports",
+    pagination: { enabled: true, maxPageSize: 20 },
+  },
   vaultDriveList: {
     key: "vault.drive.list",
     method: "POST",

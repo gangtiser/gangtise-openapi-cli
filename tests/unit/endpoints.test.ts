@@ -108,6 +108,13 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS.quoteDayKlineHk.kind).toBe("json")
   })
 
+  it("includes hot-topic endpoint with pagination", () => {
+    expect(ENDPOINT_REGISTRY["ai.hot-topic"]).toBeDefined()
+    expect(ENDPOINTS.aiHotTopic.method).toBe("POST")
+    expect(ENDPOINTS.aiHotTopic.path).toBe("/application/open-ai/hot-topic/getList")
+    expect(ENDPOINTS.aiHotTopic.pagination).toEqual({ enabled: true, maxPageSize: 20 })
+  })
+
   it("vault drive endpoints use correct keys and paths", () => {
     expect(ENDPOINTS.vaultDriveList.key).toBe("vault.drive.list")
     expect(ENDPOINTS.vaultDriveList.path).toBe("/application/open-vault/drive/getList")

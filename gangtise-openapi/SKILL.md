@@ -58,6 +58,7 @@ description: |-
 | ai knowledge-batch | 编号列表 + 摘要 | 标题 / 类型 / 摘要前 100 字 |
 | ai one-pager / investment-logic / peer-comparison | 直接输出 markdown | — |
 | ai earnings-review | 告知 dataId + 预计等待时间 | — |
+| ai hot-topic | 表格（≤20 行）+ 总数 | 报告日期 / 类型 / 话题标题 / 驱动事件 |
 | vault drive-list | 编号列表 | 标题 / 文件类型 / 上传日期 |
 
 超过 20 条时仅展示前 20 条 + 总数，询问是否导出全量。
@@ -89,6 +90,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | ai security-clue | `{list: [...]}` | `list[].securityCode` / `list[].title` / `list[].clueType` |
 | ai theme-tracking | `{morningReport: {...}, nightReport: {...}}` | 按 `--type` 提取对应报告 |
 | ai research-outline | `{content: "markdown文本"}` | `content` 直接使用 |
+| ai hot-topic | `{list: [...], total: N}` | `list[].title` / `list[].reportDate` / `list[].category` / `list[].topics[].topicTitle` / `list[].topics[].driverEvent` / `list[].topics[].investLogic` |
 | vault drive-list | `{list: [...]}` | `list[].id` / `list[].title` / `list[].fileType` |
 | vault drive-download | 文件路径（stdout） | 解析输出路径字符串 |
 | lookup list | `[...]` | `[].id` / `[].name` |
@@ -241,6 +243,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 业绩点评 | `ai earnings-review` |
 | 投研线索 | `ai security-clue` |
 | 主题跟踪 | `ai theme-tracking` |
+| 热点话题/热点/早报午报晚报 | `ai hot-topic` |
 | 调研提纲 | `ai research-outline` |
 | 云盘文件 | `vault drive-list` |
 | 下载文件 | `insight <type> download` / `vault drive-download` |
@@ -511,6 +514,19 @@ gangtise ai theme-tracking --theme-id <id> --date <yyyy-MM-dd> [--type <name>]
 ```bash
 gangtise ai research-outline --security-code <code>    # 仅 A 股
 ```
+
+### 热点话题 `ai hot-topic`
+
+```bash
+gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <name>] [--with-related-securities] [--with-close-reading] [--from <n>] [--size <n>]
+```
+
+- 获取热点话题报告中各热点话题的结构化数据，包括驱动事件、投资逻辑、核心标的、话题精读
+- `--category`：`morningBriefing` 早报 | `noonBriefing` 午报 | `afternoonFlash` 盘中快报 | `eveningBriefing` 晚报（可重复传多值；不传时默认全部四种类型）
+- `--with-related-securities`：返回核心标的信息（默认 true）
+- `--with-close-reading`：返回话题精读内容（默认 true）
+- `--start-date` / `--end-date`：日期格式 `yyyy-MM-dd`
+- 分页：`--from` 默认 0，`--size` 单页最大 20，自动翻页
 
 ---
 

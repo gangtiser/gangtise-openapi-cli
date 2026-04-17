@@ -70,6 +70,7 @@ export GANGTISE_TOKEN="Bearer xxx"
 | | `peer-comparison` | 同业对比 |
 | | `earnings-review` / `earnings-review-check` | 业绩回顾 |
 | | `theme-tracking` | 主题跟踪 |
+| | `hot-topic` | 热点话题 |
 | | `research-outline` | 研究提纲 |
 | **Vault** | `drive-list` / `drive-download` | 云盘文件列表与下载 |
 | **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
@@ -159,6 +160,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight announcement list`
 - `ai security-clue`
 - `vault drive-list`
+- `ai hot-topic`
 
 规则：
 - **有时间范围时**（传了 `--start-time/--end-time` 或 `--start-date/--end-date`）：**省略 `--size`**，CLI 自动翻页查全
@@ -258,6 +260,9 @@ gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
 gangtise ai earnings-review --security-code 600519.SH --period 2025q3
 gangtise ai theme-tracking --theme-id 121000131 --date 2026-03-01 --type morning
+gangtise ai hot-topic --start-date 2026-03-22 --end-date 2026-03-27 --category morningBriefing --category noonBriefing --with-related-securities --with-close-reading
+# 不传 --category 默认查全部类型（早报+午报+盘中快报+晚报），--with-related-securities 和 --with-close-reading 默认开启
+gangtise ai hot-topic --start-date 2026-04-15 --end-date 2026-04-17
 gangtise ai research-outline --security-code 600519.SH
 gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 --output ./resource.txt
 ```

@@ -516,6 +516,19 @@ ai.command("research-outline").requiredOption("--security-code <code>").option("
   const client = await createClient()
   await printData(await client.call("ai.research-outline", { securityCode: options.securityCode }), parseFormat(options.format), options.output)
 })
+ai.command("hot-topic").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-date <date>", "Start date (yyyy-MM-dd)").option("--end-date <date>", "End date (yyyy-MM-dd)").option("--category <name>", "Report type: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing", collectList, []).option("--with-related-securities", "Include related securities info", true).option("--with-close-reading", "Include close reading content", true).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  const ALL_CATEGORIES = ["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"]
+  await printData(await client.call("ai.hot-topic", {
+    from: Number(options.from),
+    size: options.size === undefined ? undefined : Number(options.size),
+    startDate: options.startDate,
+    endDate: options.endDate,
+    categoryList: options.category.length > 0 ? options.category : ALL_CATEGORIES,
+    withRelatedSecurities: options.withRelatedSecurities || undefined,
+    withCloseReading: options.withCloseReading || undefined,
+  }), parseFormat(options.format), options.output)
+})
 const vault = new Command("vault").description("Vault APIs")
 vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
