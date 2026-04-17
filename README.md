@@ -241,6 +241,8 @@ gangtise fundamental cash-flow --security-code 600519.SH --fiscal-year 2025 --pe
 # 最新一期完整现金流量表
 gangtise fundamental cash-flow --security-code 600519.SH --format json
 gangtise fundamental main-business --security-code 600519.SH --breakdown region
+# 多报告期：--period 可传多个值
+gangtise fundamental main-business --security-code 600519.SH --breakdown product --period annual --period interim
 gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm
 ```
 
