@@ -426,11 +426,13 @@ gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 20
 ### 主营业务 `fundamental main-business`
 
 ```bash
-gangtise fundamental main-business --security-code <code> --breakdown <type> [--fiscal-year <year>] [--period <type>] [--field <name>]
+gangtise fundamental main-business --security-code <code> --breakdown <type> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--period <type>] [--field <name>]
 ```
 
 - `--breakdown`（必选）：`product` 按产品 | `industry` 按行业 | `region` 按地区
 - `--period`：`interim` 中报 | `annual` 年报
+- `--start-date`/`--end-date` 筛选时间区间（默认：endDate 当前日期、startDate 三年前）
+- 该命令不支持 `--fiscal-year`（API 不接受，误传会触发 900001）；按年份筛选请用 `--start-date`/`--end-date`
 - 可用字段见 `references/fields.md`
 
 ### 估值分析 `fundamental valuation-analysis`
