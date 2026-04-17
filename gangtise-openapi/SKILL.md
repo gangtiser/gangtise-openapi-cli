@@ -430,7 +430,7 @@ gangtise fundamental main-business --security-code <code> --breakdown <type> [--
 ```
 
 - `--breakdown`（必选）：`product` 按产品 | `industry` 按行业 | `region` 按地区
-- `--period`：`interim` 中报 | `annual` 年报
+- `--period`：`interim` 中报 | `annual` 年报（可重复：`--period annual --period interim`）
 - `--start-date`/`--end-date` 筛选时间区间（默认：endDate 当前日期、startDate 三年前）
 - 该命令不支持 `--fiscal-year`（API 不接受，误传会触发 900001）；按年份筛选请用 `--start-date`/`--end-date`
 - 可用字段见 `references/fields.md`
