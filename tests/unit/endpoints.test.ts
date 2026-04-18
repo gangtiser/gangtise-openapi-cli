@@ -115,6 +115,50 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS.aiHotTopic.pagination).toEqual({ enabled: true, maxPageSize: 20 })
   })
 
+  it("includes management-discuss-announcement endpoint", () => {
+    expect(ENDPOINT_REGISTRY["ai.management-discuss-announcement"]).toBeDefined()
+    expect(ENDPOINTS.aiManagementDiscussAnnouncement.method).toBe("POST")
+    expect(ENDPOINTS.aiManagementDiscussAnnouncement.path).toBe("/application/open-ai/management-discuss/from-announcement")
+    expect(ENDPOINTS.aiManagementDiscussAnnouncement.kind).toBe("json")
+  })
+
+  it("includes management-discuss-earnings-call endpoint", () => {
+    expect(ENDPOINT_REGISTRY["ai.management-discuss-earnings-call"]).toBeDefined()
+    expect(ENDPOINTS.aiManagementDiscussEarningsCall.method).toBe("POST")
+    expect(ENDPOINTS.aiManagementDiscussEarningsCall.path).toBe("/application/open-ai/management-discuss/from-earningsCall")
+    expect(ENDPOINTS.aiManagementDiscussEarningsCall.kind).toBe("json")
+  })
+
+  it("includes viewpoint-debate get-id and get-content endpoints", () => {
+    expect(ENDPOINT_REGISTRY["ai.viewpoint-debate.get-id"]).toBeDefined()
+    expect(ENDPOINTS.aiViewpointDebateGetId.method).toBe("POST")
+    expect(ENDPOINTS.aiViewpointDebateGetId.path).toBe("/application/open-ai/agent/viewpoint-debate-getid")
+    expect(ENDPOINT_REGISTRY["ai.viewpoint-debate.get-content"]).toBeDefined()
+    expect(ENDPOINTS.aiViewpointDebateGetContent.method).toBe("POST")
+    expect(ENDPOINTS.aiViewpointDebateGetContent.path).toBe("/application/open-ai/agent/viewpoint-debate-getcontent")
+  })
+
+  it("includes minute-kline endpoint", () => {
+    expect(ENDPOINT_REGISTRY["quote.minute-kline"]).toBeDefined()
+    expect(ENDPOINTS.quoteMinuteKline.method).toBe("POST")
+    expect(ENDPOINTS.quoteMinuteKline.path).toBe("/application/open-quote/kline/minute")
+    expect(ENDPOINTS.quoteMinuteKline.kind).toBe("json")
+  })
+
+  it("includes income-statement-quarterly endpoint", () => {
+    expect(ENDPOINT_REGISTRY["fundamental.income-statement-quarterly"]).toBeDefined()
+    expect(ENDPOINTS.fundamentalIncomeStatementQuarterly.method).toBe("POST")
+    expect(ENDPOINTS.fundamentalIncomeStatementQuarterly.path).toBe("/application/open-fundamental/financial-report/income-statement/quarterly")
+    expect(ENDPOINTS.fundamentalIncomeStatementQuarterly.kind).toBe("json")
+  })
+
+  it("includes cash-flow-quarterly endpoint", () => {
+    expect(ENDPOINT_REGISTRY["fundamental.cash-flow-quarterly"]).toBeDefined()
+    expect(ENDPOINTS.fundamentalCashFlowQuarterly.method).toBe("POST")
+    expect(ENDPOINTS.fundamentalCashFlowQuarterly.path).toBe("/application/open-fundamental/financial-report/cash-flow-statement/quarterly")
+    expect(ENDPOINTS.fundamentalCashFlowQuarterly.kind).toBe("json")
+  })
+
   it("vault drive endpoints use correct keys and paths", () => {
     expect(ENDPOINTS.vaultDriveList.key).toBe("vault.drive.list")
     expect(ENDPOINTS.vaultDriveList.path).toBe("/application/open-vault/drive/getList")

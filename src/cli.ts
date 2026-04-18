@@ -401,6 +401,10 @@ quote.command("day-kline-hk").option("--security <code>", "Security code (HK sto
   const client = await createClient()
   await printData(await client.call("quote.day-kline-hk", { securityList: maybeArray(options.security), startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
+quote.command("minute-kline").option("--security <code>", "Security code (A-share only: .SH/.SZ/.BJ)").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)").option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)").option("--limit <number>", "Max rows per request (default: 5000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("quote.minute-kline", { securityCode: options.security, startTime: options.startTime, endTime: options.endTime, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+})
 program.addCommand(quote)
 
 const fundamental = new Command("fundamental").description("Fundamental APIs")
@@ -409,6 +413,10 @@ fundamental.command("income-statement").requiredOption("--security-code <code>")
   const client = await createClient()
   await printData(await client.call("fundamental.income-statement", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
+fundamental.command("income-statement-quarterly").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period: q1/q2/q3/q4/latest", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("fundamental.income-statement-quarterly", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+})
 fundamental.command("balance-sheet").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
   await printData(await client.call("fundamental.balance-sheet", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
@@ -416,6 +424,10 @@ fundamental.command("balance-sheet").requiredOption("--security-code <code>").op
 fundamental.command("cash-flow").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
   await printData(await client.call("fundamental.cash-flow", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+})
+fundamental.command("cash-flow-quarterly").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period: q1/q2/q3/q4/latest", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("fundamental.cash-flow-quarterly", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
 fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).option("--period <type>", "Period: interim/annual", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -528,6 +540,69 @@ ai.command("hot-topic").option("--from <number>", "Starting offset", "0").option
     withRelatedSecurities: options.withRelatedSecurities || undefined,
     withCloseReading: options.withCloseReading || undefined,
   }), parseFormat(options.format), options.output)
+})
+ai.command("management-discuss-announcement").requiredOption("--report-date <date>", "Report date (yyyy-MM-dd, e.g. 2025-06-30)").requiredOption("--security-code <code>", "Security code (e.g. 000001.SZ)").addOption(new Option("--dimension <name>", "Discussion dimension").choices(["businessOperation", "financialPerformance", "developmentAndRisk"]).makeOptionMandatory()).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("ai.management-discuss-announcement", {
+    reportDate: options.reportDate,
+    securityCode: options.securityCode,
+    discussionDimension: options.dimension,
+  }), parseFormat(options.format), options.output)
+})
+ai.command("management-discuss-earnings-call").requiredOption("--report-date <date>", "Report date (yyyy-MM-dd, e.g. 2025-06-30)").requiredOption("--security-code <code>", "Security code (e.g. 000001.SZ)").addOption(new Option("--dimension <name>", "Discussion dimension").choices(["businessOperation", "financialPerformance", "developmentAndRisk"]).makeOptionMandatory()).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("ai.management-discuss-earnings-call", {
+    reportDate: options.reportDate,
+    securityCode: options.securityCode,
+    discussionDimension: options.dimension,
+  }), parseFormat(options.format), options.output)
+})
+ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint text (max 1000 chars)").option("--wait", "Wait for content generation (blocking, up to 3 min)").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  // Step 1: get dataId
+  const idResult = await client.call("ai.viewpoint-debate.get-id", { viewpoint: options.viewpoint }) as { dataId?: string }
+  const dataId = idResult?.dataId
+  if (!dataId) {
+    process.stderr.write("Failed to get viewpoint debate ID.\n")
+    process.exitCode = 1
+    return
+  }
+
+  // Non-blocking: return dataId immediately
+  if (!options.wait) {
+    process.stderr.write(`Viewpoint debate task submitted. dataId: ${dataId}\n`)
+    process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: `Run 'gangtise ai viewpoint-debate-check --data-id ${dataId}' in ~2 minutes to get results` })}\n`)
+    return
+  }
+
+  // Blocking (--wait): poll for content
+  process.stderr.write(`Got dataId: ${dataId}, waiting for content generation...\n`)
+  let attempts = 0
+  const maxAttempts = 12
+  const delayMs = 15_000
+  while (attempts < maxAttempts) {
+    attempts++
+    const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId }) as { data?: { date?: string; content?: string } }
+    if (contentResult?.data?.content) {
+      await printData(contentResult.data, parseFormat(options.format), options.output)
+      return
+    }
+    if (attempts < maxAttempts) {
+      process.stderr.write(`Attempt ${attempts}/${maxAttempts}: content not ready, retrying in 15s...\n`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+  process.stderr.write(`Content not available after ${maxAttempts} attempts. Try again later with: gangtise ai viewpoint-debate-check --data-id ${dataId}\n`)
+  process.exitCode = 1
+})
+ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId: options.dataId }) as { data?: { date?: string; content?: string } }
+  if (contentResult?.data?.content) {
+    await printData(contentResult.data, parseFormat(options.format), options.output)
+    return
+  }
+  process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
 })
 const vault = new Command("vault").description("Vault APIs")
 vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {

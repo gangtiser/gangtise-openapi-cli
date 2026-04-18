@@ -59,6 +59,8 @@ description: |-
 | ai one-pager / investment-logic / peer-comparison | 直接输出 markdown | — |
 | ai earnings-review | 告知 dataId + 预计等待时间 | — |
 | ai hot-topic | 表格（≤20 行）+ 总数 | 报告日期 / 类型 / 话题标题 / 驱动事件 |
+| ai management-discuss-* | 直接输出内容 | 证券代码 / 报告期 / 维度 / 内容摘要 |
+| ai viewpoint-debate | 告知 dataId + 预计等待时间 | — |
 | vault drive-list | 编号列表 | 标题 / 文件类型 / 上传日期 |
 
 超过 20 条时仅展示前 20 条 + 总数，询问是否导出全量。
@@ -69,7 +71,7 @@ description: |-
 
 1. 先执行 `list` 获取结果
 2. 展示前 10 条，让用户选择（🔴 确认）
-3. 🔴 确认下载格式（PDF / Markdown / 翻译版）
+3. 🔴 确认下载格式（仅 research / foreign-report / announcement download 支持 `--file-type`；summary download 不支持，无需确认）
 4. 执行 `download`
 
 ### 响应解析
@@ -91,6 +93,9 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | ai theme-tracking | `{morningReport: {...}, nightReport: {...}}` | 按 `--type` 提取对应报告 |
 | ai research-outline | `{content: "markdown文本"}` | `content` 直接使用 |
 | ai hot-topic | `{list: [...], total: N}` | `list[].title` / `list[].reportDate` / `list[].category` / `list[].topics[].topicTitle` / `list[].topics[].driverEvent` / `list[].topics[].investLogic` |
+| ai management-discuss-* | `{securityCode, reportDate, discussionDimension, content}` | `content` 为字符串数组（财报）或字符串（业绩会） |
+| ai viewpoint-debate | `{dataId: "xxx"}` | `dataId` 用于后续 `viewpoint-debate-check` |
+| ai viewpoint-debate-check | `{date, content}` | `content` 直接使用（Markdown） |
 | vault drive-list | `{list: [...]}` | `list[].id` / `list[].title` / `list[].fileType` |
 | vault drive-download | 文件路径（stdout） | 解析输出路径字符串 |
 | lookup list | `[...]` | `[].id` / `[].name` |
@@ -126,7 +131,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 datetime 参数（Insight/Vault/AI）：`--start-time "<日期> 00:00:00"` `--end-time "<日期> 23:59:59"`
 date 参数（Quote/Fundamental）：`--start-date <日期>` `--end-date <日期>`
 
-同时在洞察命令加 `--rank-type 2`（时间倒序），确保最新结果优先。
+同时在支持 `--rank-type` 的洞察命令加 `--rank-type 2`（时间倒序），确保最新结果优先。支持 `--rank-type` 的命令：opinion / summary / research / foreign-report / announcement；**不支持**的命令：roadshow / site-visit / strategy / forum（API 无此参数）。
 
 ### 典型执行示例
 
@@ -244,6 +249,12 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 投研线索 | `ai security-clue` |
 | 主题跟踪 | `ai theme-tracking` |
 | 热点话题/热点/早报午报晚报 | `ai hot-topic` |
+| 管理层讨论/财报讨论 | `ai management-discuss-announcement` |
+| 管理层讨论/业绩会讨论 | `ai management-discuss-earnings-call` |
+| 观点PK/多空辩论 | `ai viewpoint-debate` |
+| 分钟K线/分时行情 | `quote minute-kline` |
+| 利润表(单季)/单季利润表 | `fundamental income-statement-quarterly` |
+| 现金流量表(单季)/单季现金流 | `fundamental cash-flow-quarterly` |
 | 调研提纲 | `ai research-outline` |
 | 云盘文件 | `vault drive-list` |
 | 下载文件 | `insight <type> download` / `vault drive-download` |
@@ -286,8 +297,8 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
    - 不确定 → 先 `gangtise lookup <type> list`，**绝不猜测**
 4. 🟡 **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
 5. 🔴 **数据量** — 无明确时间范围时默认 `--size 200`，若用户要求全量则先询问确认
-6. 🔴 **下载格式** — download 前确认用户需要原始 PDF（`--file-type 1`）还是 Markdown（`--file-type 2`）；外资研报另有中文翻译版本（`--file-type 3/4`）
-7. 🔴 **异步任务** — `ai earnings-review` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `earnings-review-check` → 若 pending 再等
+6. 🔴 **下载格式** — 仅以下 download 命令支持 `--file-type`，需确认格式：research download（`1`PDF/`2`MD）、foreign-report download（`1`PDF/`2`MD/`3`翻译PDF/`4`翻译MD）、announcement download（`1`PDF/`2`MD）；**summary download 不支持 `--file-type`**，无需确认格式
+7. 🔴 **异步任务** — `ai earnings-review` / `ai viewpoint-debate` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `*-check` → 若 pending 再等
 8. 🔴 **文件选择** — list→download 流程中，展示结果让用户选择具体文件后再下载
 9. 🟡 **耗时提醒** — AI 命令（one-pager/investment-logic/peer-comparison/earnings-review）可能耗时较长，首次调用时告知用户
 
@@ -330,6 +341,8 @@ gangtise insight forum list [--keyword <text>] [--security <code>] [--research-a
 ```
 
 共用参数：`--research-area` `--institution` `--security` `--keyword` `--start-time` `--end-time` `--from` `--size`
+
+> **注意**：这四个命令不支持 `--rank-type`，API 无此参数。结果按 API 默认排序返回。
 
 路演/调研额外参数：
 - `--category`（路演）：`earningsCall` | `strategyMeeting` | `companyAnalysis` | `industryAnalysis` | `fundRoadshow`
@@ -399,6 +412,17 @@ gangtise quote day-kline-hk [--security <code>] [--start-date <YYYY-MM-DD>] [--e
 
 - 仅支持港股（`.HK`），参数规则与 A 股日K线一致
 
+### 分钟K线（A股）`quote minute-kline`
+
+```bash
+gangtise quote minute-kline [--security <code>] [--start-time <datetime>] [--end-time <datetime>] [--limit <n>] [--field <name>]
+```
+
+- 仅支持 A 股（`.SH` `.SZ` `.BJ`），不传 `--security` 返回全市场
+- `--start-time` / `--end-time`：格式 `yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全）
+- `--limit` 默认 5000，上限 10000（超过请缩短时间区间分批拉取）
+- 常用字段：`securityCode` `tradeTime` `open` `high` `low` `close` `change` `pctChange` `volume` `amount`
+
 ---
 
 ## Fundamental 命令
@@ -425,6 +449,24 @@ gangtise fundamental income-statement --security-code 600519.SH --fiscal-year 20
 ```
 - 资产负债表：`totalAssets` 总资产 | `totalLiab` 总负债 | `totalParentEq` 归母权益 | `monetaryAssets` 货币资金
 - 现金流：`netOpCashFlows` 经营净现金流 | `netInvCashFlows` 投资净现金流 | `netFinCashFlows` 筹资净现金流
+
+### 利润表（单季度）`fundamental income-statement-quarterly`
+
+```bash
+gangtise fundamental income-statement-quarterly --security-code <code> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
+```
+
+- 参数与累计利润表一致，区别在于返回单季度数据而非累计数据
+- `--period`：`q1` | `q2` | `q3` | `q4` | `latest`（默认）
+
+### 现金流量表（单季度）`fundamental cash-flow-quarterly`
+
+```bash
+gangtise fundamental cash-flow-quarterly --security-code <code> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
+```
+
+- 参数与累计现金流量表一致，区别在于返回单季度数据而非累计数据
+- `--period`：`q1` | `q2` | `q3` | `q4` | `latest`（默认）
 
 ### 主营业务 `fundamental main-business`
 
@@ -528,6 +570,45 @@ gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <nam
 - `--start-date` / `--end-date`：日期格式 `yyyy-MM-dd`
 - 分页：`--from` 默认 0，`--size` 单页最大 20，自动翻页
 
+### 管理层讨论-财报 `ai management-discuss-announcement`
+
+```bash
+gangtise ai management-discuss-announcement --report-date <date> --security-code <code> --dimension <name>
+```
+
+- 获取上市公司半年报/年报中管理层讨论与分析的结构化数据
+- `--report-date`（必选）：报告期，严格约束为 `yyyy-MM-dd`，仅接受 `xxxx-06-30`（半年报）和 `xxxx-12-31`（年报）
+- `--security-code`（必选）：证券代码，如 `000001.SZ`
+- `--dimension`（必选）：讨论维度
+  - `businessOperation` 业务经营与行业情况
+  - `financialPerformance` 财务状况与经营成果
+  - `developmentAndRisk` 发展规划与风险
+- 返回 `content` 为字符串数组，每个元素是一个段落
+
+### 管理层讨论-业绩会 `ai management-discuss-earnings-call`
+
+```bash
+gangtise ai management-discuss-earnings-call --report-date <date> --security-code <code> --dimension <name>
+```
+
+- 获取上市公司业绩会中管理层讨论与分析的结构化数据
+- `--report-date`（必选）：报告期，严格约束为 `yyyy-MM-dd`，接受 `xxxx-03-31`、`xxxx-06-30`、`xxxx-09-30`、`xxxx-12-31`
+- `--security-code`（必选）：证券代码，如 `000001.SZ`
+- `--dimension`（必选）：同上，`businessOperation` / `financialPerformance` / `developmentAndRisk`
+- 返回 `content` 为字符串
+
+### 观点PK `ai viewpoint-debate`
+
+```bash
+gangtise ai viewpoint-debate --viewpoint <text> [--wait]
+gangtise ai viewpoint-debate-check --data-id <id>
+```
+
+- 对标的/产业/政策等相关观点进行双向逻辑校验：输入看多观点时拆解潜在风险，输入看空逻辑时挖掘反转机会
+- `--viewpoint`（必选）：观点文本，上限 1000 字
+- `--wait`：阻塞等待（最多 3 分钟），默认立即返回 dataId
+- **异步流程**：① `viewpoint-debate` → 得到 `dataId` → ② 等 2 分钟 → ③ `viewpoint-debate-check --data-id xxx` → 若有 `content` 取出（Markdown），若 `status=pending` 再等 2 分钟 → 最多轮询 3 次
+
 ---
 
 ## Vault 命令（私域数据）
@@ -561,19 +642,29 @@ gangtise lookup theme-id list             # 主题 ID（theme-tracking 用）
 
 高频 ID 见 `references/lookup-ids.md`，没有时务必 `gangtise lookup` 查询。
 
-**常见行业别名映射**（用户口语 → 标准 --industry ID）：
+**常见行业别名映射**（用户口语 → 标准行业 ID）：
 
-| 用户说法 | 标准行业 | ID |
-|----------|---------|-----|
-| 新能源 / 光伏 / 风电 | 电力设备 | `104630000` |
-| 电新 | 电力设备 | `104630000` |
-| AI / 人工智能 / 算力 | 计算机 | `104710000` |
-| 半导体 / 芯片 | 电子 | `104270000` |
-| 互联网 / 平台 | 传媒 | `104720000` |
-| 白酒 | 食品饮料 | `104340000` |
-| 医药 / 创新药 | 医药生物 | `104370000` |
-| 地产 | 房地产 | `104430000` |
-| 券商 / 券商股 | 非银金融 | `104490000` |
+| 用户说法 | 标准行业 | `--industry` ID | `--research-area` 同用 | `--gts-code`（security-clue） |
+|----------|---------|----------------|----------------------|---------------------------|
+| 新能源 / 光伏 / 风电 | 电力设备 | `104630000` | ✅ | `821052.SWI` |
+| 电新 | 电力设备 | `104630000` | ✅ | `821052.SWI` |
+| AI / 人工智能 / 算力 | 计算机 | `104710000` | ✅ | `821055.SWI` |
+| 半导体 / 芯片 | 电子 | `104270000` | ✅ | `821035.SWI` |
+| 互联网 / 平台 | 传媒 | `104720000` | ✅ | `821056.SWI` |
+| 白酒 | 食品饮料 | `104340000` | ✅ | `821038.SWI` |
+| 医药 / 创新药 | 医药生物 | `104370000` | ✅ | `821041.SWI` |
+| 地产 | 房地产 | `104430000` | ✅ | `821044.SWI` |
+| 券商 / 券商股 | 非银金融 | `104490000` | ✅ | `821048.SWI` |
+| 银行 / 银行股 | 银行 | `104480000` | ✅ | `821047.SWI` |
+| 汽车 / 新车 | 汽车 | `104280000` | ✅ | `821036.SWI` |
+| 消费 / 大消费 | 见下方 | — | — | — |
+
+> **参数名选择规则**：
+> - `--industry`：用于 opinion / research / foreign-report（行业筛选参数名）
+> - `--research-area`：用于 roadshow / site-visit / forum / summary（研究方向参数名，ID 值相同可复用）
+> - `--gts-code`：仅用于 `ai security-clue`（需申万行业代码格式如 `821035.SWI`，不是数字 ID）
+>
+> **"消费"歧义处理**：用户说"消费/大消费"时覆盖多个子行业，应向用户确认具体方向（食品饮料 `104340000` / 商贸零售 `104450000` / 社会服务 `104460000` / 家电 `104330000` / 纺织服饰 `104350000` / 美容护理 `104770000`），或用 `--keyword 消费` 做宽泛搜索。
 
 ## Raw 调用
 

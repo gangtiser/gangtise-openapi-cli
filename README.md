@@ -59,7 +59,9 @@ export GANGTISE_TOKEN="Bearer xxx"
 | | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
 | | `announcement list` / `download` | 公告（含 Markdown 下载） |
 | **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
-| **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | 三大财务报表 |
+| | `minute-kline` | A股分钟K线 |
+| **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | 三大财务报表（累计） |
+| | `income-statement-quarterly` / `cash-flow-quarterly` | 利润表/现金流量表（单季度） |
 | | `main-business` | 主营构成（按地区/产品拆分） |
 | | `valuation-analysis` | 估值分析 |
 | **AI** | `knowledge-batch` | 知识库批量检索 |
@@ -72,6 +74,9 @@ export GANGTISE_TOKEN="Bearer xxx"
 | | `theme-tracking` | 主题跟踪 |
 | | `hot-topic` | 热点话题 |
 | | `research-outline` | 研究提纲 |
+| | `management-discuss-announcement` | 管理层讨论-财报 |
+| | `management-discuss-earnings-call` | 管理层讨论-业绩会 |
+| | `viewpoint-debate` / `viewpoint-debate-check` | 观点PK（异步） |
 | **Vault** | `drive-list` / `drive-download` | 云盘文件列表与下载 |
 | **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
 
@@ -226,6 +231,8 @@ gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date
 gangtise quote day-kline --format json
 # 港股日K线
 gangtise quote day-kline-hk --security 00700.HK --start-date 2026-03-01 --end-date 2026-03-31
+# A股分钟K线
+gangtise quote minute-kline --security 600519.SH --start-time "2026-04-15 09:30:00" --end-time "2026-04-15 15:00:00" --field open --field close --field volume
 ```
 
 ### Fundamental
@@ -246,6 +253,10 @@ gangtise fundamental main-business --security-code 600519.SH --breakdown region
 # 多报告期：--period 可传多个值
 gangtise fundamental main-business --security-code 600519.SH --breakdown product --period annual --period interim
 gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm
+# 利润表（单季度）
+gangtise fundamental income-statement-quarterly --security-code 600519.SH --fiscal-year 2025 --period q2 --field netProfit
+# 现金流量表（单季度）
+gangtise fundamental cash-flow-quarterly --security-code 600519.SH --fiscal-year 2025 --period q2 --field netOpCashFlows
 ```
 
 ### AI
@@ -264,6 +275,16 @@ gangtise ai hot-topic --start-date 2026-03-22 --end-date 2026-03-27 --category m
 # 不传 --category 默认查全部类型（早报+午报+盘中快报+晚报），--with-related-securities 和 --with-close-reading 默认开启
 gangtise ai hot-topic --start-date 2026-04-15 --end-date 2026-04-17
 gangtise ai research-outline --security-code 600519.SH
+# 管理层讨论-财报
+gangtise ai management-discuss-announcement --report-date 2025-06-30 --security-code 000001.SZ --dimension businessOperation
+# 管理层讨论-业绩会
+gangtise ai management-discuss-earnings-call --report-date 2025-06-30 --security-code 000001.SZ --dimension financialPerformance
+# 观点PK（异步，返回 dataId）
+gangtise ai viewpoint-debate --viewpoint "飞天茅台的批价低点是1500元"
+# 等待生成完成后查询结果
+gangtise ai viewpoint-debate-check --data-id 202603310528
+# 也可以 --wait 同步等待结果（最长3分钟）
+gangtise ai viewpoint-debate --viewpoint "比亚迪股价将突破500元" --wait
 gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 --output ./resource.txt
 ```
 
