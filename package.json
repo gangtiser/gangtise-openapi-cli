@@ -1,6 +1,6 @@
 {
   "name": "gangtise-openapi-cli",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "description": "CLI for Gangtise OpenAPI",
   "license": "MIT",
   "repository": {
@@ -23,7 +23,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
-    "prepare": "node -e \"const p=JSON.parse(require('fs').readFileSync('package.json','utf8'));const f=require('fs');f.writeFileSync('src/version.ts','// Auto-generated — DO NOT EDIT\\nexport const CLI_VERSION = \\\"'+p.version+'\\\"\\n');const s=f.readFileSync('gangtise-openapi/SKILL.md','utf8');f.writeFileSync('gangtise-openapi/SKILL.md',s.replace(/^(version:\\\\s*\\\\?\\\"?)[^\\\\\\\"\\'\\n]+/m,'$1'+p.version))\" && npm run build"
+    "prepare": "node scripts/prepare.cjs && npm run build"
   },
   "engines": {
     "node": ">=20"
