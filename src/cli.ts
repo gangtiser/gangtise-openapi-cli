@@ -496,9 +496,9 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
   while (attempts < maxAttempts) {
     attempts++
     try {
-      const contentResult = await client.call("ai.earnings-review.get-content", { dataId }) as { data?: { date?: string; content?: string } }
-      if (contentResult?.data?.content) {
-        await printData(contentResult.data, parseFormat(options.format), options.output)
+      const contentResult = await client.call("ai.earnings-review.get-content", { dataId }) as { date?: string; content?: string }
+      if (contentResult?.content) {
+        await printData(contentResult, parseFormat(options.format), options.output)
         return
       }
     } catch (error) {
@@ -517,9 +517,9 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
 ai.command("earnings-review-check").requiredOption("--data-id <id>", "dataId from earnings-review").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
   try {
-    const contentResult = await client.call("ai.earnings-review.get-content", { dataId: options.dataId }) as { data?: { date?: string; content?: string } }
-    if (contentResult?.data?.content) {
-      await printData(contentResult.data, parseFormat(options.format), options.output)
+    const contentResult = await client.call("ai.earnings-review.get-content", { dataId: options.dataId }) as { date?: string; content?: string }
+    if (contentResult?.content) {
+      await printData(contentResult, parseFormat(options.format), options.output)
       return
     }
     process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
@@ -595,9 +595,9 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   while (attempts < maxAttempts) {
     attempts++
     try {
-      const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId }) as { data?: { date?: string; content?: string } }
-      if (contentResult?.data?.content) {
-        await printData(contentResult.data, parseFormat(options.format), options.output)
+      const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId }) as { date?: string; content?: string }
+      if (contentResult?.content) {
+        await printData(contentResult, parseFormat(options.format), options.output)
         return
       }
     } catch (error) {
@@ -616,9 +616,9 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
 ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
   try {
-    const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId: options.dataId }) as { data?: { date?: string; content?: string } }
-    if (contentResult?.data?.content) {
-      await printData(contentResult.data, parseFormat(options.format), options.output)
+    const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId: options.dataId }) as { date?: string; content?: string }
+    if (contentResult?.content) {
+      await printData(contentResult, parseFormat(options.format), options.output)
       return
     }
     process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
