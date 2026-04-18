@@ -43,49 +43,9 @@ export GANGTISE_TOKEN="Bearer xxx"
 如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地。
 
 
-## 数据接口覆盖
-
-| 模块 | 子命令 | 说明 |
-|------|--------|------|
-| **Auth** | `login` / `status` | 认证登录、状态查询 |
-| **Lookup** | `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list` / `theme-id list` | 枚举速查（内置，无需额外文档） |
-| **Insight** | `opinion list` | 首席观点 |
-| | `summary list` / `download` | 纪要（含下载） |
-| | `roadshow list` | 路演 |
-| | `site-visit list` | 调研 |
-| | `strategy list` | 策略 |
-| | `forum list` | 论坛 |
-| | `research list` / `download` | 研报（含 Markdown 下载） |
-| | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
-| | `announcement list` / `download` | 公告（含 Markdown 下载） |
-| **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
-| | `minute-kline` | A股分钟K线 |
-| **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | 三大财务报表（累计） |
-| | `income-statement-quarterly` / `cash-flow-quarterly` | 利润表/现金流量表（单季度） |
-| | `main-business` | 主营构成（按地区/产品拆分） |
-| | `valuation-analysis` | 估值分析 |
-| | `earning-forecast` | 盈利预测（一致预期） |
-| **AI** | `knowledge-batch` | 知识库批量检索 |
-| | `knowledge-resource-download` | 知识资源下载 |
-| | `security-clue` | 个股线索 |
-| | `one-pager` | 一页通 |
-| | `investment-logic` | 投资逻辑 |
-| | `peer-comparison` | 同业对比 |
-| | `earnings-review` / `earnings-review-check` | 业绩回顾 |
-| | `theme-tracking` | 主题跟踪 |
-| | `hot-topic` | 热点话题 |
-| | `research-outline` | 研究提纲 |
-| | `management-discuss-announcement` | 管理层讨论-财报 |
-| | `management-discuss-earnings-call` | 管理层讨论-业绩会 |
-| | `viewpoint-debate` / `viewpoint-debate-check` | 观点PK（异步） |
-| **Vault** | `drive-list` / `drive-download` | 云盘文件列表与下载 |
-| | `record-list` / `record-download` | 录音速记列表与下载 |
-| | `my-conference-list` / `my-conference-download` | 我的会议列表与下载 |
-| **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
-
 ## AI Agent Skill
 
-本项目包含 SKill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。支持以下 AI 编程助手：
+本项目包含 Skill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。支持以下 AI 编程助手：
 
 - [Claude Code](https://claude.ai/claude-code) — `~/.claude/skills/`
 - [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/skills/`
@@ -128,6 +88,45 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 - "用 gangtise 命令查一下贵州茅台的日K线"
 - "导出最近一周的首席观点到 jsonl"
 
+## 数据接口覆盖
+
+| 模块 | 子命令 | 说明 |
+|------|--------|------|
+| **Auth** | `login` / `status` | 认证登录、状态查询 |
+| **Lookup** | `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list` / `theme-id list` | 枚举速查（内置，无需额外文档） |
+| **Insight** | `opinion list` | 首席观点 |
+| | `summary list` / `download` | 纪要（含下载） |
+| | `roadshow list` | 路演 |
+| | `site-visit list` | 调研 |
+| | `strategy list` | 策略 |
+| | `forum list` | 论坛 |
+| | `research list` / `download` | 研报（含 Markdown 下载） |
+| | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
+| | `announcement list` / `download` | 公告（含 Markdown 下载） |
+| **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
+| | `minute-kline` | A股分钟K线 |
+| **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | 三大财务报表（累计） |
+| | `income-statement-quarterly` / `cash-flow-quarterly` | 利润表/现金流量表（单季度） |
+| | `main-business` | 主营构成（按地区/产品拆分） |
+| | `valuation-analysis` | 估值分析 |
+| | `earning-forecast` | 盈利预测（一致预期） |
+| **AI** | `knowledge-batch` | 知识库批量检索 |
+| | `knowledge-resource-download` | 知识资源下载 |
+| | `security-clue` | 个股线索 |
+| | `one-pager` | 一页通 |
+| | `investment-logic` | 投资逻辑 |
+| | `peer-comparison` | 同业对比 |
+| | `earnings-review` / `earnings-review-check` | 业绩回顾 |
+| | `theme-tracking` | 主题跟踪 |
+| | `hot-topic` | 热点话题 |
+| | `research-outline` | 研究提纲 |
+| | `management-discuss-announcement` | 管理层讨论-财报 |
+| | `management-discuss-earnings-call` | 管理层讨论-业绩会 |
+| | `viewpoint-debate` / `viewpoint-debate-check` | 观点PK（异步） |
+| **Vault** | `drive-list` / `drive-download` | 云盘文件列表与下载 |
+| | `record-list` / `record-download` | 录音速记列表与下载 |
+| | `my-conference-list` / `my-conference-download` | 我的会议列表与下载 |
+| **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
 
 ## 命令概览
 
