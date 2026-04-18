@@ -18,6 +18,7 @@
       --c-flow-a: #1e40af;
       --c-flow-b: #b45309;
       --c-flow-c: #15803d;
+      --c-flow-d: #7c3aed;
       --font-ui: 'Inter', sans-serif;
       --font-mono: 'JetBrains Mono', monospace;
     }
@@ -174,6 +175,7 @@
       margin-bottom: 24px;
       padding-bottom: 16px;
       border-bottom: 1px solid var(--c-border);
+      flex-wrap: wrap;
     }
 
     .legend-item {
@@ -202,23 +204,18 @@
         transparent 3px, transparent 8px
       );
     }
+    .legend-line-async {
+      background: repeating-linear-gradient(
+        90deg,
+        var(--c-flow-d) 0, var(--c-flow-d) 4px,
+        transparent 4px, transparent 9px
+      );
+    }
 
     .legend-text {
       font-family: var(--font-mono);
       font-size: 10px;
       color: var(--c-text-sub);
-    }
-
-    /* --- Horizontal Connector --- */
-    .h-connector {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 28px;
-    }
-
-    .h-connector svg {
-      display: block;
     }
 
     /* --- API Group --- */
@@ -272,85 +269,11 @@
       margin-top: 2px;
     }
 
-    /* --- Data Flow Steps --- */
-    .flow-steps {
-      display: flex;
-      align-items: center;
-      gap: 0;
-      overflow-x: auto;
-    }
-
-    .flow-step {
-      display: flex;
-      align-items: center;
-      gap: 0;
-      white-space: nowrap;
-    }
-
-    .flow-step-box {
-      border: 1px solid var(--c-border);
-      padding: 6px 10px;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--c-text-main);
-      font-weight: 500;
-    }
-
-    .flow-step-arrow {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--c-text-light);
-      padding: 0 4px;
-    }
-
-    /* --- Token Chain --- */
-    .token-chain {
-      display: flex;
-      align-items: center;
-      gap: 0;
-    }
-
-    .token-step {
-      border: 1px solid var(--c-border);
-      padding: 6px 10px;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--c-text-main);
-    }
-
-    .token-fallback {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--c-text-light);
-      padding: 0 6px;
-    }
-
-    /* --- FS Block --- */
-    .fs-block {
-      border: 1px solid var(--c-border);
-      border-left: 3px solid var(--c-text-main);
-      padding: 8px 12px;
-    }
-
-    .fs-path {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--c-text-main);
-      font-weight: 500;
-    }
-
-    .fs-desc {
-      font-family: var(--font-ui);
-      font-size: 10px;
-      color: var(--c-text-sub);
-      margin-top: 2px;
-    }
-
-    /* --- Three-flow section --- */
-    .three-flows {
+    /* --- Four-flow section --- */
+    .four-flows {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 16px;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 12px;
       margin-top: 16px;
     }
 
@@ -362,6 +285,7 @@
     .flow-card-a { border-top: 2px solid var(--c-flow-a); }
     .flow-card-b { border-top: 2px solid var(--c-flow-b); }
     .flow-card-c { border-top: 2px solid var(--c-flow-c); }
+    .flow-card-d { border-top: 2px solid var(--c-flow-d); }
 
     .flow-card-title {
       font-family: var(--font-mono);
@@ -421,6 +345,59 @@
       border-top: 1px dashed var(--c-border);
       margin: 16px 0;
     }
+
+    /* --- Token Chain --- */
+    .token-chain {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      flex-wrap: wrap;
+    }
+
+    .token-step {
+      border: 1px solid var(--c-border);
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-main);
+    }
+
+    .token-fallback {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-light);
+      padding: 0 6px;
+    }
+
+    /* --- FS Block --- */
+    .fs-block {
+      border: 1px solid var(--c-border);
+      border-left: 3px solid var(--c-text-main);
+      padding: 8px 12px;
+    }
+
+    .fs-path {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--c-text-main);
+      font-weight: 500;
+    }
+
+    .fs-desc {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      color: var(--c-text-sub);
+      margin-top: 2px;
+    }
+
+    @media (max-width: 900px) {
+      .four-flows { grid-template-columns: 1fr 1fr; }
+      .bottom-bar { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .four-flows { grid-template-columns: 1fr; }
+      .cols-4 { grid-template-columns: 1fr 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -432,7 +409,7 @@
         <div class="diagram-title">gangtise-openapi-cli</div>
         <div class="diagram-subtitle">Technical Architecture / Layered Data Flow</div>
       </div>
-      <div class="diagram-version">v0.7.0 &middot; Node &ge;20 &middot; ESM</div>
+      <div class="diagram-version">v0.10.0 &middot; Node &ge;20 &middot; ESM</div>
     </div>
 
     <!-- Flow Legend -->
@@ -446,6 +423,10 @@
         <div class="legend-text">DOWNLOAD FLOW (binary / redirect)</div>
       </div>
       <div class="legend-item">
+        <div class="legend-line legend-line-async"></div>
+        <div class="legend-text">ASYNC TASK FLOW (polling)</div>
+      </div>
+      <div class="legend-item">
         <div class="legend-line legend-line-dotted"></div>
         <div class="legend-text">LOCAL LOOKUP (short-circuit)</div>
       </div>
@@ -453,7 +434,7 @@
 
     <!-- ═══════════ LAYER 1: USER ENTRY ═══════════ -->
     <div class="section">
-      <div class="section-label">Layer 1 — User Entry</div>
+      <div class="section-label">Layer 1 &mdash; User Entry</div>
       <div class="layer-grid cols-3">
         <div class="comp comp-dark">
           <div class="comp-label">CLI Binary</div>
@@ -480,11 +461,11 @@
 
     <!-- ═══════════ LAYER 2: CLI FRAMEWORK ═══════════ -->
     <div class="section">
-      <div class="section-label">Layer 2 — CLI Framework</div>
+      <div class="section-label">Layer 2 &mdash; CLI Framework</div>
       <div class="layer-grid cols-2">
         <div class="comp">
           <div class="comp-label">Commander.js</div>
-          <div class="comp-value">src/cli.ts &mdash; ~460 lines</div>
+          <div class="comp-value">src/cli.ts &mdash; ~700 lines</div>
           <div class="comp-sub">All commands, options, action handlers</div>
         </div>
         <div class="comp">
@@ -502,7 +483,7 @@
 
     <!-- ═══════════ LAYER 3: CORE ENGINE ═══════════ -->
     <div class="section">
-      <div class="section-label">Layer 3 — Core Engine (src/core/)</div>
+      <div class="section-label">Layer 3 &mdash; Core Engine (src/core/)</div>
 
       <!-- Top row: Config + Auth + Client -->
       <div class="layer-grid cols-3" style="margin-bottom: 12px;">
@@ -528,7 +509,7 @@
         <div class="comp">
           <div class="comp-label">Endpoint Registry</div>
           <div class="comp-value">endpoints.ts</div>
-          <div class="comp-sub">41 endpoints &middot; O(1) lookup</div>
+          <div class="comp-sub">60 endpoints &middot; O(1) lookup</div>
         </div>
         <div class="comp">
           <div class="comp-label">Error Hierarchy</div>
@@ -553,10 +534,10 @@
       <svg width="16" height="24" viewBox="0 0 16 24"><path d="M8 0 L8 18 M3 14 L8 20 L13 14" stroke="#94a3b8" stroke-width="1.5" fill="none"/></svg>
     </div>
 
-    <!-- ═══════════ THREE FLOWS ═══════════ -->
+    <!-- ═══════════ FOUR FLOWS ═══════════ -->
     <div class="section">
-      <div class="section-label">Layer 4 — Execution Flows</div>
-      <div class="three-flows">
+      <div class="section-label">Layer 4 &mdash; Execution Flows</div>
+      <div class="four-flows">
         <!-- Flow A: Query -->
         <div class="flow-card flow-card-a">
           <div class="flow-card-title" style="color: var(--c-flow-a);">QUERY FLOW</div>
@@ -585,6 +566,19 @@
             <span>7.</span> saveOutputIfNeeded()
           </div>
         </div>
+        <!-- Flow D: Async Task -->
+        <div class="flow-card flow-card-d">
+          <div class="flow-card-title" style="color: var(--c-flow-d);">ASYNC TASK FLOW</div>
+          <div class="flow-card-step">
+            <span>1.</span> client.call(get-id, params)<br>
+            <span>2.</span> &rarr; { dataId }<br>
+            <span>3.</span> Non-blocking: return dataId<br>
+            <span>4.</span> Blocking (--wait): poll every 15s<br>
+            <span>5.</span> Handle 410110 as pending<br>
+            <span>6.</span> On success: printData()<br>
+            <span>7.</span> Timeout: return dataId
+          </div>
+        </div>
         <!-- Flow C: Local Lookup -->
         <div class="flow-card flow-card-c">
           <div class="flow-card-title" style="color: var(--c-flow-c);">LOCAL LOOKUP</div>
@@ -598,7 +592,8 @@
             &middot; 100+ broker orgs<br>
             &middot; 100+ meeting orgs<br>
             &middot; 31 industries / codes<br>
-            &middot; 19 regions / 80+ categories
+            &middot; 19 regions / 80+ categories<br>
+            &middot; 8 theme IDs
           </div>
         </div>
       </div>
@@ -611,7 +606,7 @@
 
     <!-- ═══════════ LAYER 5: EXTERNAL ═══════════ -->
     <div class="section">
-      <div class="section-label">Layer 5 — External Services &amp; Storage</div>
+      <div class="section-label">Layer 5 &mdash; External Services &amp; Storage</div>
       <div class="layer-grid cols-2" style="margin-bottom: 16px;">
         <!-- Gangtise OpenAPI -->
         <div>
@@ -620,10 +615,10 @@
             <div class="api-group-items">
               <strong style="color:var(--c-text-main)">Auth</strong> &mdash; /application/auth/oauth/open/loginV2<br>
               <strong style="color:var(--c-text-main)">Insight</strong> &mdash; chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement<br>
-              <strong style="color:var(--c-text-main)">Quote</strong> &mdash; kline/daily / kline-hk/daily<br>
-              <strong style="color:var(--c-text-main)">Fundamental</strong> &mdash; income-statement / balance-sheet / cash-flow / main-business / valuation-analysis<br>
-              <strong style="color:var(--c-text-main)">AI</strong> &mdash; knowledge search / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / research-outline<br>
-              <strong style="color:var(--c-text-main)">Vault</strong> &mdash; drive<br>
+              <strong style="color:var(--c-text-main)">Quote</strong> &mdash; kline/daily / kline-hk/daily / kline/minute<br>
+              <strong style="color:var(--c-text-main)">Fundamental</strong> &mdash; income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / main-business / valuation-analysis / earning-forecast<br>
+              <strong style="color:var(--c-text-main)">AI</strong> &mdash; knowledge-batch / knowledge-resource / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / hot-topic / research-outline / management-discuss / viewpoint-debate<br>
+              <strong style="color:var(--c-text-main)">Vault</strong> &mdash; drive / record / my-conference
             </div>
           </div>
         </div>
@@ -681,11 +676,15 @@
           </div>
           <div class="pattern-item">
             <div class="pattern-name">Envelope Unwrapping</div>
-            <div class="pattern-desc">Standard {code, msg, success, data} handling</div>
+            <div class="pattern-desc">Detects code field &middot; unwraps {code, msg, data} envelope</div>
           </div>
           <div class="pattern-item">
             <div class="pattern-name">Smart Title Cache</div>
             <div class="pattern-desc">Human-readable filenames &middot; list-then-download</div>
+          </div>
+          <div class="pattern-item">
+            <div class="pattern-name">Async Task Polling</div>
+            <div class="pattern-desc">--wait flag &middot; 410110 error handling &middot; exponential-safe retry</div>
           </div>
         </div>
       </div>

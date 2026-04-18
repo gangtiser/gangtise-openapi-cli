@@ -412,7 +412,7 @@ gangtise insight announcement download --announcement-id <id> [--file-type <n>] 
 gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
 ```
 
-- 仅支持 A 股（`.SH` `.SZ` `.BJ`），不传 `--security` 返回全市场
+- 仅支持 A 股（`.SH` `.SZ` `.BJ`），**必须传 `--security`**，否则返回 430007（行情查询超出限制）
 - `--limit` 默认 5000，上限 10000（超过请缩短日期区间分批拉取）
 - 常用字段：`open` `high` `low` `close` `pctChange` `volume` `amount`（完整列表见 `references/fields.md`）
 
@@ -422,7 +422,7 @@ gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 gangtise quote day-kline-hk [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
 ```
 
-- 仅支持港股（`.HK`），参数规则与 A 股日K线一致
+- 仅支持港股（`.HK`），**必须传 `--security`**，否则返回 430007（行情查询超出限制）
 
 ### 分钟K线（A股）`quote minute-kline`
 
@@ -430,7 +430,7 @@ gangtise quote day-kline-hk [--security <code>] [--start-date <YYYY-MM-DD>] [--e
 gangtise quote minute-kline [--security <code>] [--start-time <datetime>] [--end-time <datetime>] [--limit <n>] [--field <name>]
 ```
 
-- 仅支持 A 股（`.SH` `.SZ` `.BJ`），不传 `--security` 返回全市场
+- 仅支持 A 股（`.SH` `.SZ` `.BJ`），**必须传 `--security`**，否则返回 430007（行情查询超出限制）
 - `--start-time` / `--end-time`：格式 `yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全）
 - `--limit` 默认 5000，上限 10000（超过请缩短时间区间分批拉取）
 - 常用字段：`securityCode` `tradeTime` `open` `high` `low` `close` `change` `pctChange` `volume` `amount`
@@ -546,8 +546,8 @@ gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-
 ```
 
 - `--query-mode`（必选）：`bySecurity` 按证券 | `byIndustry` 按行业
+- `--gts-code`（必选）：个股代码（如 `600519.SH`）或申万行业代码（如 `821035.SWI`），行业代码用 `lookup industry-code list` 查
 - `--source`：`researchReport` | `conference` | `announcement` | `view`
-- `--gts-code`：个股代码或申万行业代码（如 `821035.SWI`），行业代码用 `lookup industry-code list` 查
 
 ### 一页通 / 投资逻辑 / 同业对比
 
@@ -748,4 +748,5 @@ gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'
 | `903301` | 今日调用次数达上限 | 等待次日或升级配额 |
 | `433007` | 数据源不匹配 | 检查 resourceType + sourceId 组合 |
 | `410004` | 数据未找到 | 检查查询条件 |
+| `430007` | 行情查询超出限制 | 必须传 `--security`，不要查全市场 |
 | `10011401` | 白名单权限控制 | 联系管理员开通 |

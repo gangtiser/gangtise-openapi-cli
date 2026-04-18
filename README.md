@@ -348,3 +348,4 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 | `999997` | 未开通接口权限 |
 | `999999` | Gangtise 系统错误，请稍后重试 |
 | `433007` | 不支持该数据源（`knowledge-resource-download` 需正确的 `resourceType + sourceId` 组合） |
+| `430007` | 行情查询超出限制（日K线/分钟K线不传 `--security` 返回全市场，数据量过大；请指定证券代码或缩短日期范围） |

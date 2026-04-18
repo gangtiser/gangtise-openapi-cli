@@ -493,10 +493,16 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
   const delayMs = 15_000
   while (attempts < maxAttempts) {
     attempts++
-    const contentResult = await client.call("ai.earnings-review.get-content", { dataId }) as { data?: { date?: string; content?: string } }
-    if (contentResult?.data?.content) {
-      await printData(contentResult.data, parseFormat(options.format), options.output)
-      return
+    try {
+      const contentResult = await client.call("ai.earnings-review.get-content", { dataId }) as { data?: { date?: string; content?: string } }
+      if (contentResult?.data?.content) {
+        await printData(contentResult.data, parseFormat(options.format), options.output)
+        return
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
+        throw error
+      }
     }
     if (attempts < maxAttempts) {
       process.stderr.write(`Attempt ${attempts}/${maxAttempts}: content not ready, retrying in 15s...\n`)
@@ -586,10 +592,16 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   const delayMs = 15_000
   while (attempts < maxAttempts) {
     attempts++
-    const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId }) as { data?: { date?: string; content?: string } }
-    if (contentResult?.data?.content) {
-      await printData(contentResult.data, parseFormat(options.format), options.output)
-      return
+    try {
+      const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId }) as { data?: { date?: string; content?: string } }
+      if (contentResult?.data?.content) {
+        await printData(contentResult.data, parseFormat(options.format), options.output)
+        return
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
+        throw error
+      }
     }
     if (attempts < maxAttempts) {
       process.stderr.write(`Attempt ${attempts}/${maxAttempts}: content not ready, retrying in 15s...\n`)
@@ -601,12 +613,20 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
 })
 ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId: options.dataId }) as { data?: { date?: string; content?: string } }
-  if (contentResult?.data?.content) {
-    await printData(contentResult.data, parseFormat(options.format), options.output)
-    return
+  try {
+    const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId: options.dataId }) as { data?: { date?: string; content?: string } }
+    if (contentResult?.data?.content) {
+      await printData(contentResult.data, parseFormat(options.format), options.output)
+      return
+    }
+    process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
+  } catch (error) {
+    if (error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中"))) {
+      process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
+      return
+    }
+    throw error
   }
-  process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
 })
 const vault = new Command("vault").description("Vault APIs")
 vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {

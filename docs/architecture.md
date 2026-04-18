@@ -1,6 +1,6 @@
 # gangtise-openapi-cli — Technical Architecture
 
-**v0.7.0 · Node ≥20 · ESM**
+**v0.10.0 · Node ≥20 · ESM**
 
 ---
 
@@ -27,7 +27,7 @@
 
 | Commander.js | Argument Parsers |
 |:--|:--|
-| `src/cli.ts` — ~460 lines | `src/core/args.ts` |
+| `src/cli.ts` — ~700 lines | `src/core/args.ts` |
 | All commands, options, action handlers | splitCsv / collectList / collectKeyValue / toTimestamp13 |
 
 ↓
@@ -46,7 +46,7 @@
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| 41 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList+list → flat objects | table / json / jsonl / csv / markdown |
+| 60 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList+list → flat objects | table / json / jsonl / csv / markdown |
 
 ↓
 
@@ -74,6 +74,15 @@
 6. Smart filename (title cache)
 7. `saveOutputIfNeeded()`
 
+### ASYNC TASK FLOW `⏳`
+
+1. `client.call(get-id endpoint, params)` → `{ dataId }`
+2. Non-blocking: return dataId + hint
+3. Blocking (`--wait`): poll `get-content` endpoint every 15s × 12 attempts
+4. Handle 410110 ("generating") as pending, continue retrying
+5. On success: `printData()` → stdout
+6. On timeout: return dataId for manual `*-check` command
+
 ### LOCAL LOOKUP `┈┈┈`
 
 1. `requestJson()` detects `/guide/`
@@ -86,6 +95,7 @@
 - 100+ meeting orgs
 - 31 industries / codes
 - 19 regions / 80+ categories
+- 8 theme IDs
 
 ↓
 
@@ -97,10 +107,10 @@
 |:--|:--|:--|
 | **Auth** | `/application/auth/oauth/open/` | loginV2 |
 | **Insight** | `/application/open-insight/` | chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement |
-| **Quote** | `/application/open-quote/` | kline/daily / kline-hk/daily |
-| **Fundamental** | `/application/open-fundamental/` | income-statement / balance-sheet / cash-flow / main-business / valuation-analysis |
-| **AI** | `/application/open-data/ai/` & `/application/open-ai/` | knowledge search / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / research-outline |
-| **Vault** | `/application/open-vault/` | drive |
+| **Quote** | `/application/open-quote/` | kline/daily / kline-hk/daily / kline/minute |
+| **Fundamental** | `/application/open-fundamental/` | income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / main-business / valuation-analysis / earning-forecast |
+| **AI** | `/application/open-ai/` | knowledge-batch / knowledge-resource / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / hot-topic / research-outline / management-discuss / viewpoint-debate |
+| **Vault** | `/application/open-vault/` | drive / record / my-conference |
 
 ### Local Filesystem
 
@@ -127,6 +137,7 @@
 | **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint |
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
+| **Async Task Polling** | `--wait` flag for AI async commands · 410110 error handling · exponential-safe retry |
 
 ---
 
