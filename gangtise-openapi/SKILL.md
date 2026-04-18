@@ -1,5 +1,6 @@
 ---
 name: gangtise-openapi
+version: "0.10.3"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 

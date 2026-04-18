@@ -114,6 +114,15 @@ cp -r gangtise-openapi ~/.openclaw/skills/gangtise-openapi
 cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 ```
 
+> **版本更新**：每次 CLI 发版时，`gangtise-openapi/SKILL.md` 的 `version` 字段会自动同步。更新 CLI 后，请将项目中的 `gangtise-openapi/` 目录重新复制到对应的 skills 目录覆盖更新：
+>
+> ```bash
+> # 示例：更新 Claude Code 的 skill
+> cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
+> ```
+>
+> 可通过查看 SKILL.md 头部的 `version` 字段确认当前版本。
+
 安装后，可以用自然语言触发，例如：
 - "帮我查今天所有的研报"
 - "用 gangtise 命令查一下贵州茅台的日K线"
