@@ -92,7 +92,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | ai knowledge-batch | `{list: [...]}` | `list[].resourceType` / `list[].sourceId` / `list[].title` / `list[].summary` |
 | ai one-pager / investment-logic / peer-comparison | `{content: "markdown文本"}` | `content` 直接使用 |
 | ai earnings-review | `{dataId: "xxx"}` | `dataId` 用于后续 `earnings-review-check` |
-| ai earnings-review-check | `{status: "pending"/"completed", content: "..."}` | `status=completed` 时取 `content` |
+| ai earnings-review-check | pending: `{dataId, status: "pending", hint}` / completed: `{date, content}` | `content` 直接使用（Markdown） |
 | ai security-clue | `{list: [...]}` | `list[].securityCode` / `list[].title` / `list[].clueType` |
 | ai theme-tracking | `{morningReport: {...}, nightReport: {...}}` | 按 `--type` 提取对应报告 |
 | ai research-outline | `{content: "markdown文本"}` | `content` 直接使用 |
@@ -119,7 +119,9 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | 返回结果 >200 条 | 仅展示前 20 条摘要 + 总数，询问用户是否导出全量 |
 | K线数据超 10000 条 | 按季度分批拉取：先取 Q1（1/1-3/31），再取 Q2，依此类推 |
 | 速率限制（903301） | 不重试，提示用户"今日调用次数已达上限，建议明日重试或联系管理员升级配额" |
-| 异步任务轮询超过 3 次仍 pending | 终止轮询，返回 dataId 给用户，建议稍后手动 `earnings-review-check` |
+| 异步任务轮询超过 3 次仍 pending | 终止轮询，返回 dataId 给用户，建议稍后手动 `earnings-review-check` 或 `viewpoint-debate-check` |
+| 410110（生成中） | 异步任务仍在生成，视为 pending 继续等待 |
+| 410111（生成失败） | 异步任务生成失败，终态不可重试，建议换参数重新提交 |
 | 模糊公司名匹配多只证券 | 列出所有匹配项让用户选择（如"平安"→ 中国平安 601318.SH / 平安银行 000001.SZ） |
 | 下载文件路径冲突 | 若 `--output` 指定路径已存在，先询问用户是否覆盖 |
 | 无效证券代码 | 返回空结果或错误码，提示用户检查代码和交易所后缀是否正确 |
@@ -566,7 +568,7 @@ gangtise ai earnings-review-check --data-id <id>
 
 - `--period`（必选）：`年份+报告期`，如 `2025q3`（q1/interim/q3/annual），仅支持 A 股，覆盖最近 6 期
 - `--wait`：阻塞等待（最多 3 分钟），默认立即返回 dataId
-- **异步流程**：① `earnings-review` → 得到 `dataId` → ② 等 2 分钟 → ③ `earnings-review-check --data-id xxx` → 若 `status=completed` 取 `content`，若 `status=pending` 再等 2 分钟 → 最多轮询 3 次，超过则终止并返回 dataId 给用户
+- **异步流程**：① `earnings-review` → 得到 `dataId` → ② 等 2 分钟 → ③ `earnings-review-check --data-id xxx` → 若返回 `{date, content}` 则成功，若返回 `{status: "pending"}` 则再等 2 分钟 → 最多轮询 3 次，超过则终止并返回 dataId 给用户。注意：410110（生成中）视为 pending 继续等待，410111（生成失败）为终态
 
 ### 主题跟踪 `ai theme-tracking`
 
@@ -634,7 +636,7 @@ gangtise ai viewpoint-debate-check --data-id <id>
 - 对标的/产业/政策等相关观点进行双向逻辑校验：输入看多观点时拆解潜在风险，输入看空逻辑时挖掘反转机会
 - `--viewpoint`（必选）：观点文本，上限 1000 字
 - `--wait`：阻塞等待（最多 3 分钟），默认立即返回 dataId
-- **异步流程**：① `viewpoint-debate` → 得到 `dataId` → ② 等 2 分钟 → ③ `viewpoint-debate-check --data-id xxx` → 若有 `content` 取出（Markdown），若 `status=pending` 再等 2 分钟 → 最多轮询 3 次
+- **异步流程**：① `viewpoint-debate` → 得到 `dataId` → ② 等 2 分钟 → ③ `viewpoint-debate-check --data-id xxx` → 若返回 `{date, content}` 则成功，若返回 `{status: "pending"}` 则再等 2 分钟 → 最多轮询 3 次。注意：410110（生成中）视为 pending 继续等待，410111（生成失败）为终态
 
 ---
 

@@ -575,8 +575,9 @@
             <span>3.</span> Non-blocking: return dataId<br>
             <span>4.</span> Blocking (--wait): poll every 15s<br>
             <span>5.</span> Handle 410110 as pending<br>
-            <span>6.</span> On success: printData()<br>
-            <span>7.</span> Timeout: return dataId
+            <span>6.</span> Handle 410111 as terminal failure<br>
+            <span>7.</span> On success: printData()<br>
+            <span>8.</span> Timeout: return dataId
           </div>
         </div>
         <!-- Flow C: Local Lookup -->
@@ -684,7 +685,7 @@
           </div>
           <div class="pattern-item">
             <div class="pattern-name">Async Task Polling</div>
-            <div class="pattern-desc">--wait flag &middot; 410110 error handling &middot; exponential-safe retry</div>
+            <div class="pattern-desc">--wait flag &middot; 410110/410111 error handling &middot; exponential-safe retry</div>
           </div>
         </div>
       </div>

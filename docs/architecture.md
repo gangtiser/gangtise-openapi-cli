@@ -80,6 +80,7 @@
 2. Non-blocking: return dataId + hint
 3. Blocking (`--wait`): poll `get-content` endpoint every 15s × 12 attempts
 4. Handle 410110 ("generating") as pending, continue retrying
+5. On 410111 ("generation failed") — terminal state, report error
 5. On success: `printData()` → stdout
 6. On timeout: return dataId for manual `*-check` command
 
@@ -137,7 +138,7 @@
 | **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint |
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
-| **Async Task Polling** | `--wait` flag for AI async commands · 410110 error handling · exponential-safe retry |
+| **Async Task Polling** | `--wait` flag for AI async commands · 410110 error handling · 410111 terminal failure |
 
 ---
 
