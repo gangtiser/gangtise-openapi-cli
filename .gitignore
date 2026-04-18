@@ -6,3 +6,4 @@ dist/
 .env.*
 coverage/
 .vitest/
+src/version.ts
