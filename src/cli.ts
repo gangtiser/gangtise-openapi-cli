@@ -696,3 +696,23 @@ async function main() {
 }
 
 void main()
+
+// Background update check on --version
+if (process.argv.includes("--version") || process.argv.includes("-V")) {
+  import("node:https").then((https) => {
+    const req = https.get("https://registry.npmjs.org/gangtise-openapi-cli/latest", (res) => {
+      let body = ""
+      res.on("data", (chunk: string) => { body += chunk })
+      res.on("end", () => {
+        try {
+          const latest: string = JSON.parse(body).version
+          if (latest && latest !== CLI_VERSION) {
+            process.stderr.write(`\nUpdate available: ${CLI_VERSION} → ${latest}\nRun: npm update -g gangtise-openapi-cli\n`)
+          }
+        } catch { /* ignore */ }
+      })
+    })
+    req.on("error", () => { /* ignore */ })
+    req.setTimeout(3000, () => { req.destroy() })
+  }).catch(() => { /* ignore */ })
+}
