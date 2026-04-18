@@ -2,22 +2,10 @@
 
 一个可直接调用 Gangtise OpenAPI 的命令行工具。
 
-## 安装
+## 首次安装
 
 ```bash
 npm install -g gangtise-openapi-cli
-```
-
-更新到最新版：
-
-```bash
-npm update -g gangtise-openapi-cli
-```
-
-查看当前版本：
-
-```bash
-gangtise --version
 ```
 
 验证安装：
@@ -34,8 +22,22 @@ cd gangtise-openapi-cli
 npm install
 npm run dev -- --help
 ```
+## 版本更新
 
-## 配置
+查看当前版本（自动与线上版本比对）：
+
+```bash
+gangtise --version
+```
+
+手动更新到最新版：
+
+```bash
+npm update -g gangtise-openapi-cli
+```
+
+
+## 环境配置
 
 优先读取以下环境变量：
 
