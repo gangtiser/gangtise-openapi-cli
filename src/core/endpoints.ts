@@ -219,6 +219,13 @@ export const ENDPOINTS = {
     kind: "json",
     description: "Query main business composition",
   },
+  fundamentalEarningForecast: {
+    key: "fundamental.earning-forecast",
+    method: "POST",
+    path: "/application/open-fundamental/earning-forecast",
+    kind: "json",
+    description: "Query earning forecast (consensus estimates)",
+  },
   fundamentalValuationAnalysis: {
     key: "fundamental.valuation-analysis",
     method: "POST",
@@ -369,6 +376,36 @@ export const ENDPOINTS = {
     path: "/application/open-vault/drive/download/file",
     kind: "download",
     description: "Download vault drive file",
+  },
+  vaultRecordList: {
+    key: "vault.record.list",
+    method: "POST",
+    path: "/application/open-vault/record/getList",
+    kind: "json",
+    description: "List voice recording transcriptions",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  vaultRecordDownload: {
+    key: "vault.record.download",
+    method: "GET",
+    path: "/application/open-vault/record/download/file",
+    kind: "download",
+    description: "Download voice recording transcription file",
+  },
+  vaultMyConferenceList: {
+    key: "vault.my-conference.list",
+    method: "POST",
+    path: "/application/open-vault/my-conference/getList",
+    kind: "json",
+    description: "List my conferences",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  vaultMyConferenceDownload: {
+    key: "vault.my-conference.download",
+    method: "GET",
+    path: "/application/open-vault/my-conference/download/file",
+    kind: "download",
+    description: "Download my conference resource",
   },
 } as const satisfies Record<string, EndpointDefinition>
 

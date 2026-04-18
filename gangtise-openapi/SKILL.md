@@ -55,6 +55,7 @@ description: |-
 | quote day-kline | 表格（最近 10 个交易日） | 日期 / 收盘 / 涨跌幅 / 成交量 |
 | fundamental 报表 | 表格（按年度/报告期分行） | 报告期 + 所选字段值 |
 | fundamental valuation | 表格 + 分位点标注 | 日期 / 值 / 分位 |
+| fundamental earning-forecast | 表格（按日期×预测年份） | 预测年份 + 所选指标值 |
 | ai knowledge-batch | 编号列表 + 摘要 | 标题 / 类型 / 摘要前 100 字 |
 | ai one-pager / investment-logic / peer-comparison | 直接输出 markdown | — |
 | ai earnings-review | 告知 dataId + 预计等待时间 | — |
@@ -62,6 +63,8 @@ description: |-
 | ai management-discuss-* | 直接输出内容 | 证券代码 / 报告期 / 维度 / 内容摘要 |
 | ai viewpoint-debate | 告知 dataId + 预计等待时间 | — |
 | vault drive-list | 编号列表 | 标题 / 文件类型 / 上传日期 |
+| vault record-list | 编号列表 + 总数 | 标题 / 录音类型 / 创建时间 / 时长 |
+| vault my-conference-list | 编号列表 + 总数 | 标题 / 会议类型 / 机构 / 时间 |
 
 超过 20 条时仅展示前 20 条 + 总数，询问是否导出全量。
 
@@ -71,7 +74,7 @@ description: |-
 
 1. 先执行 `list` 获取结果
 2. 展示前 10 条，让用户选择（🔴 确认）
-3. 🔴 确认下载格式（仅 research / foreign-report / announcement download 支持 `--file-type`；summary download 不支持，无需确认）
+3. 🔴 确认下载格式（仅 research / foreign-report / announcement download 支持 `--file-type`；summary download 不支持，无需确认；vault record-download 需确认 `--content-type`，但用户已明确说明"AI速记"/"原始文件"/"语音识别"时直接映射无需确认；vault my-conference-download 同理）
 4. 执行 `download`
 
 ### 响应解析
@@ -85,6 +88,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | quote day-kline | `{list: [...]}` | `list[].tradeDate` / `list[].close` / `list[].pctChange` / `list[].volume` |
 | fundamental 报表 | `{list: [...]}` | `list[].fiscalYear` / `list[].period` + 各 `--field` 字段 |
 | fundamental valuation | `{list: [...]}` | `list[].tradeDate` / `list[].value` / `list[].percentileRank` |
+| fundamental earning-forecast | `{securityCode, securityName, updateList: [...]}` | `updateList[].date` / `updateList[].fieldList[].forecastYear` + 各 consensus 指标 |
 | ai knowledge-batch | `{list: [...]}` | `list[].resourceType` / `list[].sourceId` / `list[].title` / `list[].summary` |
 | ai one-pager / investment-logic / peer-comparison | `{content: "markdown文本"}` | `content` 直接使用 |
 | ai earnings-review | `{dataId: "xxx"}` | `dataId` 用于后续 `earnings-review-check` |
@@ -98,6 +102,10 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | ai viewpoint-debate-check | `{date, content}` | `content` 直接使用（Markdown） |
 | vault drive-list | `{list: [...]}` | `list[].id` / `list[].title` / `list[].fileType` |
 | vault drive-download | 文件路径（stdout） | 解析输出路径字符串 |
+| vault record-list | `{list: [...], total: N}` | `list[].recordId` / `list[].title` / `list[].category` / `list[].createTime` / `list[].recordDuration` |
+| vault record-download | 文件路径（stdout） | 解析输出路径字符串 |
+| vault my-conference-list | `{list: [...], total: N}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
+| vault my-conference-download | 文件路径（stdout） | 解析输出路径字符串 |
 | lookup list | `[...]` | `[].id` / `[].name` |
 
 ### 异常处理
@@ -241,6 +249,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 现金流量表 | `fundamental cash-flow` |
 | 主营业务/收入结构 | `fundamental main-business` |
 | 估值/PE/PB | `fundamental valuation-analysis` |
+| 盈利预测/一致预期/净利润预测 | `fundamental earning-forecast` |
 | 知识库搜索 | `ai knowledge-batch` |
 | 一页通/个股概览 | `ai one-pager` |
 | 投资逻辑 | `ai investment-logic` |
@@ -257,7 +266,10 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 现金流量表(单季)/单季现金流 | `fundamental cash-flow-quarterly` |
 | 调研提纲 | `ai research-outline` |
 | 云盘文件 | `vault drive-list` |
-| 下载文件 | `insight <type> download` / `vault drive-download` |
+| 录音速记/速记 | `vault record-list` |
+| 我的会议/会议助理/会议/有哪些会议 | `vault my-conference-list` |
+| 业绩会/策略会/基金路演（我的） | `vault my-conference-list --category earningsCall/strategyMeeting/fundRoadshow` |
+| 下载文件 | `insight <type> download` / `vault drive-download` / `vault record-download` / `vault my-conference-download` |
 
 ## 公司名 → 证券代码
 
@@ -297,7 +309,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
    - 不确定 → 先 `gangtise lookup <type> list`，**绝不猜测**
 4. 🟡 **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
 5. 🔴 **数据量** — 无明确时间范围时默认 `--size 200`，若用户要求全量则先询问确认
-6. 🔴 **下载格式** — 仅以下 download 命令支持 `--file-type`，需确认格式：research download（`1`PDF/`2`MD）、foreign-report download（`1`PDF/`2`MD/`3`翻译PDF/`4`翻译MD）、announcement download（`1`PDF/`2`MD）；**summary download 不支持 `--file-type`**，无需确认格式
+6. 🔴 **下载格式** — 仅以下 download 命令支持 `--file-type`，需确认格式：research download（`1`PDF/`2`MD）、foreign-report download（`1`PDF/`2`MD/`3`翻译PDF/`4`翻译MD）、announcement download（`1`PDF/`2`MD）；**summary download 不支持 `--file-type`**，无需确认格式；vault record-download 需确认 `--content-type`（`original`/`asr`/`summary`）——用户明确说了"AI速记"/"原始文件"/"语音识别"时可直接映射，无需确认；vault my-conference-download 需确认 `--content-type`（`asr`/`summary`）——同上
 7. 🔴 **异步任务** — `ai earnings-review` / `ai viewpoint-debate` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `*-check` → 若 pending 再等
 8. 🔴 **文件选择** — list→download 流程中，展示结果让用户选择具体文件后再下载
 9. 🟡 **耗时提醒** — AI 命令（one-pager/investment-logic/peer-comparison/earnings-review）可能耗时较长，首次调用时告知用户
@@ -490,6 +502,21 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 - `--limit` 默认 2000，省略 `--start-date` 时自动查近一年
 - 可用字段见 `references/fields.md`
 
+### 盈利预测 `fundamental earning-forecast`
+
+```bash
+gangtise fundamental earning-forecast --security-code <code> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--consensus <name>]
+```
+
+- `--security-code`（必选）：证券代码，如 `600519.SH`
+- `--start-date` / `--end-date`：日期格式 `YYYY-MM-DD`，不传默认当前日期
+- `--consensus` 可重复：一致预期指标
+  - `netIncome` 归母净利润 | `netIncomeYoy` 归母净利润同比增速 | `eps` 每股收益
+  - `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG
+  - `roe` 净资产收益率 | `ps` 市销率
+- 返回格式：`{securityCode, securityName, updateList: [{date, fieldList: [{forecastYear, ...consensus}]}]}`
+  - 每个日期固定返回 3 年预测（如 `2026E` / `2027E` / `2028E`）
+
 ---
 
 ## AI 命令
@@ -622,6 +649,34 @@ gangtise vault drive-download --file-id <id> [--output <path>]
 
 - `--file-type`：`1` 文档（含 PDF/Word/PPT 等）| `2` 图片 | `3` 音视频 | `4` 公众号文章 | `5` 其他
 - `--space-type`：`1` 我的云盘 | `2` 租户云盘
+
+### 录音速记 `vault record-list/download`
+
+```bash
+gangtise vault record-list [--keyword <text>] [--category <name>] [--space-type <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
+gangtise vault record-download --record-id <id> --content-type <type> [--output <path>]
+```
+
+- `--category`：`upload` 上传文件 | `link` 导入链接 | `mobile` 手机录音 | `gtNote` 录音卡 | `pc` PC录音 | `share` 与我分享（可重复传多值）
+- `--space-type`：`1` 我的速记 | `2` 租户速记
+- `--content-type`（download 必选）：`original` 原始文件 | `asr` 语音识别 | `summary` AI速记
+  - 口语映射：「原始文件/原文件」→`original`、「语音识别/转写文本/ASR」→`asr`、「AI速记/智能摘要/会议纪要」→`summary`
+  - 注意：「与我分享」类型的录音无法下载原始文件
+- 返回字段：`recordId` / `title` / `createTime` / `category` / `recordDuration`（秒） / `recordSize`（Byte）/ `url` / `spaceType` / `uploader`
+
+### 我的会议 `vault my-conference-list/download`
+
+```bash
+gangtise vault my-conference-list [--keyword <text>] [--research-area <id>] [--security <code>] [--institution <id>] [--category <name>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
+gangtise vault my-conference-download --conference-id <id> --content-type <type> [--output <path>]
+```
+
+- `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`（可重复传多值）
+- `--research-area` / `--security` / `--institution`：同 Insight 命令的 ID 体系
+- `--keyword`：文本搜索（标题模糊匹配）；`--research-area`：按行业方向精确过滤。用户说"关于AI的"→用 `--keyword AI`；用户说"电子行业的会议"→用 `--research-area 104270000`
+- `--content-type`（download 必选）：`asr` 语音识别 | `summary` AI速记
+  - 口语映射：「语音识别/转写文本/ASR」→`asr`、「AI速记/智能摘要/会议纪要」→`summary`
+- 返回字段：`conferenceId` / `title` / `publishTime` / `category` / `institution{institutionId, institutionName}` / `security{securityCode, securityName}` / `researchArea{researchAreaId, researchAreaName}` / `guest`
 
 ---
 

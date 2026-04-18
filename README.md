@@ -64,6 +64,7 @@ export GANGTISE_TOKEN="Bearer xxx"
 | | `income-statement-quarterly` / `cash-flow-quarterly` | 利润表/现金流量表（单季度） |
 | | `main-business` | 主营构成（按地区/产品拆分） |
 | | `valuation-analysis` | 估值分析 |
+| | `earning-forecast` | 盈利预测（一致预期） |
 | **AI** | `knowledge-batch` | 知识库批量检索 |
 | | `knowledge-resource-download` | 知识资源下载 |
 | | `security-clue` | 个股线索 |
@@ -78,6 +79,8 @@ export GANGTISE_TOKEN="Bearer xxx"
 | | `management-discuss-earnings-call` | 管理层讨论-业绩会 |
 | | `viewpoint-debate` / `viewpoint-debate-check` | 观点PK（异步） |
 | **Vault** | `drive-list` / `drive-download` | 云盘文件列表与下载 |
+| | `record-list` / `record-download` | 录音速记列表与下载 |
+| | `my-conference-list` / `my-conference-download` | 我的会议列表与下载 |
 | **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
 
 ## AI Agent Skill
@@ -165,6 +168,8 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight announcement list`
 - `ai security-clue`
 - `vault drive-list`
+- `vault record-list`
+- `vault my-conference-list`
 - `ai hot-topic`
 
 规则：
@@ -174,7 +179,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 
 ## 智能文件命名
 
-下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`vault drive-download`）省略 `--output` 时，自动使用真实标题作为文件名：
+下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
 
 1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
 2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
@@ -253,6 +258,8 @@ gangtise fundamental main-business --security-code 600519.SH --breakdown region
 # 多报告期：--period 可传多个值
 gangtise fundamental main-business --security-code 600519.SH --breakdown product --period annual --period interim
 gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm
+# 盈利预测（一致预期）
+gangtise fundamental earning-forecast --security-code 600519.SH --consensus netIncome --consensus eps --consensus pe
 # 利润表（单季度）
 gangtise fundamental income-statement-quarterly --security-code 600519.SH --fiscal-year 2025 --period q2 --field netProfit
 # 现金流量表（单季度）
@@ -296,6 +303,16 @@ gangtise vault drive-list --keyword 部门文档 --space-type 1 --file-type 1
 # 云盘下载：自动使用文件标题命名
 gangtise vault drive-download --file-id 62130
 # → 2028 全球智能危机  一份来自未来的金融史思想实验  .pdf
+
+# 录音速记列表
+gangtise vault record-list --keyword 晨会 --category upload --category mobile
+# 录音速记下载（--content-type: original/asr/summary）
+gangtise vault record-download --record-id 49412 --content-type summary
+
+# 我的会议列表
+gangtise vault my-conference-list --keyword AI --category earningsCall --institution C100000027
+# 我的会议下载（--content-type: asr/summary）
+gangtise vault my-conference-download --conference-id 43319 --content-type asr
 ```
 
 ### Raw

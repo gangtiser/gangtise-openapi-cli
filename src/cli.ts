@@ -437,6 +437,10 @@ fundamental.command("valuation-analysis").requiredOption("--security-code <code>
   const client = await createClient()
   await printData(await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
+fundamental.command("earning-forecast").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("fundamental.earning-forecast", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, consensusList: maybeArray(options.consensus) }), parseFormat(options.format), options.output)
+})
 program.addCommand(fundamental)
 
 const ai = new Command("ai").description("AI APIs")
@@ -614,6 +618,26 @@ vault.command("drive-download").requiredOption("--file-id <id>").option("--outpu
   const result = await client.call("vault.drive.download", undefined, { fileId: options.fileId })
   const title = options.output ? undefined : await resolveTitle(client, result, "vault.drive.list", "fileId", options.fileId)
   await saveDownloadResult(result, `file-${options.fileId}`, options.output ?? title)
+})
+vault.command("record-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--category <name>", "Recording type: upload/link/mobile/gtNote/pc/share", collectList, []).option("--space-type <number>", "Space type: 1=my records / 2=tenant records", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("vault.record.list", { from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, categoryList: maybeArray(options.category), spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), parseFormat(options.format), options.output, { endpointKey: "vault.record.list", idField: "recordId" })
+})
+vault.command("record-download").requiredOption("--record-id <id>").requiredOption("--content-type <type>", "Content type: original/asr/summary").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  const result = await client.call("vault.record.download", undefined, { recordId: options.recordId, contentType: options.contentType })
+  const title = options.output ? undefined : await resolveTitle(client, result, "vault.record.list", "recordId", options.recordId)
+  await saveDownloadResult(result, `record-${options.recordId}`, options.output ?? title)
+})
+vault.command("my-conference-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--research-area <id>", "Research area ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("vault.my-conference.list", { from: Number(options.from), size: options.size === undefined ? undefined : Number(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution), categoryList: maybeArray(options.category) }), parseFormat(options.format), options.output, { endpointKey: "vault.my-conference.list", idField: "conferenceId" })
+})
+vault.command("my-conference-download").requiredOption("--conference-id <id>").requiredOption("--content-type <type>", "Content type: asr/summary").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  const result = await client.call("vault.my-conference.download", undefined, { conferenceId: options.conferenceId, contentType: options.contentType })
+  const title = options.output ? undefined : await resolveTitle(client, result, "vault.my-conference.list", "conferenceId", options.conferenceId)
+  await saveDownloadResult(result, `conference-${options.conferenceId}`, options.output ?? title)
 })
 program.addCommand(vault)
 program.addCommand(ai)

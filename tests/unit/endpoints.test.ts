@@ -64,6 +64,7 @@ describe("ENDPOINTS", () => {
     expect(fundamentalKeys).toContain("fundamental.cash-flow")
     expect(fundamentalKeys).toContain("fundamental.main-business")
     expect(fundamentalKeys).toContain("fundamental.valuation-analysis")
+    expect(fundamentalKeys).toContain("fundamental.earning-forecast")
   })
 
   it("income-statement uses the /accumulated path", () => {
@@ -168,5 +169,34 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS.vaultDriveDownload.path).toBe("/application/open-vault/drive/download/file")
     expect(ENDPOINTS.vaultDriveDownload.kind).toBe("download")
     expect(ENDPOINTS.vaultDriveDownload.method).toBe("GET")
+  })
+
+  it("includes earning-forecast endpoint", () => {
+    expect(ENDPOINT_REGISTRY["fundamental.earning-forecast"]).toBeDefined()
+    expect(ENDPOINTS.fundamentalEarningForecast.method).toBe("POST")
+    expect(ENDPOINTS.fundamentalEarningForecast.path).toBe("/application/open-fundamental/earning-forecast")
+    expect(ENDPOINTS.fundamentalEarningForecast.kind).toBe("json")
+  })
+
+  it("vault record endpoints use correct keys and paths", () => {
+    expect(ENDPOINTS.vaultRecordList.key).toBe("vault.record.list")
+    expect(ENDPOINTS.vaultRecordList.path).toBe("/application/open-vault/record/getList")
+    expect(ENDPOINTS.vaultRecordList.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+
+    expect(ENDPOINTS.vaultRecordDownload.key).toBe("vault.record.download")
+    expect(ENDPOINTS.vaultRecordDownload.path).toBe("/application/open-vault/record/download/file")
+    expect(ENDPOINTS.vaultRecordDownload.kind).toBe("download")
+    expect(ENDPOINTS.vaultRecordDownload.method).toBe("GET")
+  })
+
+  it("vault my-conference endpoints use correct keys and paths", () => {
+    expect(ENDPOINTS.vaultMyConferenceList.key).toBe("vault.my-conference.list")
+    expect(ENDPOINTS.vaultMyConferenceList.path).toBe("/application/open-vault/my-conference/getList")
+    expect(ENDPOINTS.vaultMyConferenceList.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+
+    expect(ENDPOINTS.vaultMyConferenceDownload.key).toBe("vault.my-conference.download")
+    expect(ENDPOINTS.vaultMyConferenceDownload.path).toBe("/application/open-vault/my-conference/download/file")
+    expect(ENDPOINTS.vaultMyConferenceDownload.kind).toBe("download")
+    expect(ENDPOINTS.vaultMyConferenceDownload.method).toBe("GET")
   })
 })
