@@ -437,9 +437,11 @@ fundamental.command("valuation-analysis").requiredOption("--security-code <code>
   const client = await createClient()
   await printData(await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
-fundamental.command("earning-forecast").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+fundamental.command("earning-forecast").requiredOption("--security-code <code>").option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: today)").option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("fundamental.earning-forecast", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, consensusList: maybeArray(options.consensus) }), parseFormat(options.format), options.output)
+  const endDate = options.endDate ?? new Date().toISOString().slice(0, 10)
+  const startDate = options.startDate ?? new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  await printData(await client.call("fundamental.earning-forecast", { securityCode: options.securityCode, startDate, endDate, consensusList: maybeArray(options.consensus) }), parseFormat(options.format), options.output)
 })
 program.addCommand(fundamental)
 

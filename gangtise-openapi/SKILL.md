@@ -509,7 +509,7 @@ gangtise fundamental earning-forecast --security-code <code> [--start-date <YYYY
 ```
 
 - `--security-code`（必选）：证券代码，如 `600519.SH`
-- `--start-date` / `--end-date`：日期格式 `YYYY-MM-DD`，不传默认当前日期
+- `--start-date` / `--end-date`：日期格式 `YYYY-MM-DD`，不传时默认近一年（start-date=一年前，end-date=今天）
 - `--consensus` 可重复：一致预期指标
   - `netIncome` 归母净利润 | `netIncomeYoy` 归母净利润同比增速 | `eps` 每股收益
   - `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG
