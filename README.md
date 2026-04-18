@@ -14,6 +14,12 @@ npm install -g gangtise-openapi-cli
 npm update -g gangtise-openapi-cli
 ```
 
+查看当前版本：
+
+```bash
+gangtise --version
+```
+
 验证安装：
 
 ```bash
