@@ -1,6 +1,6 @@
 # Gangtise OpenAPI CLI
 
-一个可直接调用 Gangtise OpenAPI 的命令行工具。
+一个可直接调用 Gangtise OpenAPI 获取金融数据的命令行工具，同时提供Agent Skill。
 
 ## 首次安装
 
