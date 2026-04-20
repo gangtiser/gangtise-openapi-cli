@@ -16,18 +16,22 @@ export interface TokenCache {
 export async function readTokenCache(filePath: string): Promise<TokenCache | null> {
   try {
     const content = await fs.readFile(filePath, "utf8")
-    return JSON.parse(content) as TokenCache
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === "object" && typeof parsed.accessToken === "string" && typeof parsed.expiresAt === "number") {
+      return parsed as TokenCache
+    }
+    return null
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null
     }
-    throw error
+    return null
   }
 }
 
 export async function writeTokenCache(filePath: string, cache: TokenCache): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
-  await fs.writeFile(filePath, JSON.stringify(cache, null, 2), "utf8")
+  await fs.writeFile(filePath, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 0o600 })
 }
 
 export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300): boolean {

@@ -21,7 +21,15 @@ function toRows(value: unknown): Array<Record<string, unknown>> {
   }
 
   if (value && typeof value === "object") {
-    return [value as Record<string, unknown>]
+    const record = value as Record<string, unknown>
+    if (Array.isArray(record.list)) {
+      const list = record.list
+      if (list.every((item) => item && typeof item === "object" && !Array.isArray(item))) {
+        return list as Array<Record<string, unknown>>
+      }
+      return list.map((item, index) => ({ index, value: item }))
+    }
+    return [record]
   }
 
   return [{ value }]
@@ -66,6 +74,9 @@ function renderCsv(rows: Array<Record<string, unknown>>): string {
 
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
   const escape = (value: string) => {
+    if (/^[=+\-@\t\r]/.test(value)) {
+      value = "'" + value
+    }
     if (/[",\n]/.test(value)) {
       return `"${value.replaceAll("\"", "\"\"")}"`
     }
@@ -83,8 +94,12 @@ export function renderOutput(value: unknown, format: OutputFormat): string {
   switch (format) {
     case "json":
       return JSON.stringify(value, null, 2)
-    case "jsonl":
-      return rows.map((row) => JSON.stringify(row)).join("\n")
+    case "jsonl": {
+      const items = value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as Record<string, unknown>).list)
+        ? (value as Record<string, unknown>).list as unknown[]
+        : null
+      return (items ?? rows).map((item) => JSON.stringify(item)).join("\n")
+    }
     case "csv":
       return renderCsv(rows)
     case "markdown":
@@ -99,6 +114,9 @@ export async function saveOutputIfNeeded(content: string | Uint8Array, outputPat
   if (!outputPath) {
     return
   }
+
+  const { dirname } = await import("node:path")
+  await (await import("node:fs/promises")).mkdir(dirname(outputPath), { recursive: true })
 
   if (typeof content === "string") {
     await fs.writeFile(outputPath, content, "utf8")

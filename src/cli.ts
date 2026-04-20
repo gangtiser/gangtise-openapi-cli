@@ -45,7 +45,8 @@ function getTitleCachePath() {
   }
   return _titleCachePath
 }
-const TITLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+const TITLE_LOOKUP_SIZE = 200
+const TITLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 interface TitleCacheEntry { titles: Record<string, string>; ts: number }
 type TitleCacheData = Record<string, TitleCacheEntry> // keyed by endpoint
@@ -76,11 +77,17 @@ interface TitleCacheConfig { endpointKey: string; idField: string; titleField?: 
 
 async function printData(data: unknown, format: OutputFormat, output?: string, cache?: TitleCacheConfig) {
   const normalized = await normalizeRows(data)
-  // Populate title cache from list results
-  if (cache && Array.isArray(normalized)) {
+
+  const items = Array.isArray(normalized)
+    ? normalized
+    : (normalized && typeof normalized === "object" && Array.isArray((normalized as Record<string, unknown>).list))
+      ? (normalized as Record<string, unknown>).list as unknown[]
+      : null
+
+  if (cache && items) {
     const titleField = cache.titleField ?? "title"
     const titles: Record<string, string> = {}
-    for (const row of normalized) {
+    for (const row of items) {
       if (row && typeof row === "object") {
         const r = row as Record<string, unknown>
         const id = r[cache.idField]
@@ -90,6 +97,15 @@ async function printData(data: unknown, format: OutputFormat, output?: string, c
     }
     if (Object.keys(titles).length > 0) writeTitleCache(cache.endpointKey, titles).catch(() => {})
   }
+
+  if (normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
+    const meta = normalized as Record<string, unknown>
+    if (typeof meta.total === "number") {
+      const listLen = Array.isArray(meta.list) ? (meta.list as unknown[]).length : 0
+      process.stderr.write(`Total: ${meta.total}, showing: ${listLen}\n`)
+    }
+  }
+
   const content = await renderOutput(normalized, format)
   if (output) {
     await saveOutputIfNeeded(content, output)
@@ -162,7 +178,7 @@ async function resolveTitle(
 
   // 2. Fallback: query list API (scan recent 200 items)
   try {
-    const resp = await client.call(listEndpoint, { from: 0, size: 200 }) as { list?: Array<Record<string, unknown>> }
+    const resp = await client.call(listEndpoint, { from: 0, size: TITLE_LOOKUP_SIZE }) as { list?: Array<Record<string, unknown>> }
     const items = Array.isArray(resp) ? resp : (resp.list ?? [])
     const match = items.find(f => String(f[idField]) === String(idValue))
     const rawTitle = match?.[titleField]
@@ -204,6 +220,59 @@ async function saveDownloadResult(result: unknown, fallbackName: string, output?
   }
 
   throw new DownloadError("Unexpected download response")
+}
+
+const POLL_MAX_ATTEMPTS = 12
+const POLL_DELAY_MS = 15_000
+
+async function pollAsyncContent(
+  client: Awaited<ReturnType<typeof createClient>>,
+  getContentEndpoint: string,
+  dataId: string,
+  format: OutputFormat,
+  output?: string,
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= POLL_MAX_ATTEMPTS; attempt++) {
+    try {
+      const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
+      if (result?.content) {
+        await printData(result, format, output)
+        return true
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
+        throw error
+      }
+    }
+    if (attempt < POLL_MAX_ATTEMPTS) {
+      process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: content not ready, retrying in 15s...\n`)
+      await new Promise(resolve => setTimeout(resolve, POLL_DELAY_MS))
+    }
+  }
+  return false
+}
+
+function checkAsyncContent(
+  client: Awaited<ReturnType<typeof createClient>>,
+  getContentEndpoint: string,
+  dataId: string,
+  format: OutputFormat,
+  output?: string,
+): Promise<void> {
+  return (async () => {
+    try {
+      const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
+      if (result?.content) {
+        await printData(result, format, output)
+        return
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
+        throw error
+      }
+    }
+    process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
+  })()
 }
 
 function addTimeFilters(command: Command) {
@@ -472,7 +541,6 @@ ai.command("peer-comparison").requiredOption("--security-code <code>").option("-
 })
 ai.command("earnings-review").requiredOption("--security-code <code>").requiredOption("--period <period>", "Report period (e.g. 2025q3, 2025interim, 2025annual)").option("--wait", "Wait for content generation (blocking, up to 3 min)").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  // Step 1: get dataId
   const idResult = await client.call("ai.earnings-review.get-id", { securityCode: options.securityCode, period: options.period }) as { dataId?: string }
   const dataId = idResult?.dataId
   if (!dataId) {
@@ -481,55 +549,21 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
     return
   }
 
-  // Non-blocking: return dataId immediately
   if (!options.wait) {
     process.stderr.write(`Earnings review task submitted. dataId: ${dataId}\n`)
     process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: `Run 'gangtise ai earnings-review-check --data-id ${dataId}' in ~2 minutes to get results` })}\n`)
     return
   }
 
-  // Blocking (--wait): poll for content
   process.stderr.write(`Got dataId: ${dataId}, waiting for content generation...\n`)
-  let attempts = 0
-  const maxAttempts = 12
-  const delayMs = 15_000
-  while (attempts < maxAttempts) {
-    attempts++
-    try {
-      const contentResult = await client.call("ai.earnings-review.get-content", { dataId }) as { date?: string; content?: string }
-      if (contentResult?.content) {
-        await printData(contentResult, parseFormat(options.format), options.output)
-        return
-      }
-    } catch (error) {
-      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
-        throw error
-      }
-    }
-    if (attempts < maxAttempts) {
-      process.stderr.write(`Attempt ${attempts}/${maxAttempts}: content not ready, retrying in 15s...\n`)
-      await new Promise(resolve => setTimeout(resolve, delayMs))
-    }
+  if (!await pollAsyncContent(client, "ai.earnings-review.get-content", dataId, parseFormat(options.format), options.output)) {
+    process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai earnings-review-check --data-id ${dataId}\n`)
+    process.exitCode = 1
   }
-  process.stderr.write(`Content not available after ${maxAttempts} attempts. Try again later with: gangtise ai earnings-review-check --data-id ${dataId}\n`)
-  process.exitCode = 1
 })
 ai.command("earnings-review-check").requiredOption("--data-id <id>", "dataId from earnings-review").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  try {
-    const contentResult = await client.call("ai.earnings-review.get-content", { dataId: options.dataId }) as { date?: string; content?: string }
-    if (contentResult?.content) {
-      await printData(contentResult, parseFormat(options.format), options.output)
-      return
-    }
-    process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
-  } catch (error) {
-    if (error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中"))) {
-      process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
-      return
-    }
-    throw error
-  }
+  await checkAsyncContent(client, "ai.earnings-review.get-content", options.dataId, parseFormat(options.format), options.output)
 })
 ai.command("theme-tracking").requiredOption("--theme-id <id>", "Theme ID (use lookup theme-id list)").requiredOption("--date <date>", "Date (yyyy-MM-dd)").option("--type <name>", "Report type: morning/night", collectList, []).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -540,7 +574,7 @@ ai.command("research-outline").requiredOption("--security-code <code>").option("
   const client = await createClient()
   await printData(await client.call("ai.research-outline", { securityCode: options.securityCode }), parseFormat(options.format), options.output)
 })
-ai.command("hot-topic").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-date <date>", "Start date (yyyy-MM-dd)").option("--end-date <date>", "End date (yyyy-MM-dd)").option("--category <name>", "Report type: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing", collectList, []).option("--with-related-securities", "Include related securities info", true).option("--with-close-reading", "Include close reading content", true).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
+ai.command("hot-topic").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-date <date>", "Start date (yyyy-MM-dd)").option("--end-date <date>", "End date (yyyy-MM-dd)").option("--category <name>", "Report type: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing", collectList, []).option("--with-related-securities", "Include related securities info").option("--no-with-related-securities", "Exclude related securities info").option("--with-close-reading", "Include close reading content").option("--no-with-close-reading", "Exclude close reading content").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
   const ALL_CATEGORIES = ["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"]
   await printData(await client.call("ai.hot-topic", {
@@ -549,8 +583,8 @@ ai.command("hot-topic").option("--from <number>", "Starting offset", "0").option
     startDate: options.startDate,
     endDate: options.endDate,
     categoryList: options.category.length > 0 ? options.category : ALL_CATEGORIES,
-    withRelatedSecurities: options.withRelatedSecurities || undefined,
-    withCloseReading: options.withCloseReading || undefined,
+    withRelatedSecurities: options.withRelatedSecurities === false ? undefined : true,
+    withCloseReading: options.withCloseReading === false ? undefined : true,
   }), parseFormat(options.format), options.output)
 })
 ai.command("management-discuss-announcement").requiredOption("--report-date <date>", "Report date (yyyy-MM-dd, e.g. 2025-06-30)").requiredOption("--security-code <code>", "Security code (e.g. 000001.SZ)").addOption(new Option("--dimension <name>", "Discussion dimension").choices(["businessOperation", "financialPerformance", "developmentAndRisk"]).makeOptionMandatory()).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
@@ -571,7 +605,6 @@ ai.command("management-discuss-earnings-call").requiredOption("--report-date <da
 })
 ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint text (max 1000 chars)").option("--wait", "Wait for content generation (blocking, up to 3 min)").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  // Step 1: get dataId
   const idResult = await client.call("ai.viewpoint-debate.get-id", { viewpoint: options.viewpoint }) as { dataId?: string }
   const dataId = idResult?.dataId
   if (!dataId) {
@@ -580,55 +613,21 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
     return
   }
 
-  // Non-blocking: return dataId immediately
   if (!options.wait) {
     process.stderr.write(`Viewpoint debate task submitted. dataId: ${dataId}\n`)
     process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: `Run 'gangtise ai viewpoint-debate-check --data-id ${dataId}' in ~2 minutes to get results` })}\n`)
     return
   }
 
-  // Blocking (--wait): poll for content
   process.stderr.write(`Got dataId: ${dataId}, waiting for content generation...\n`)
-  let attempts = 0
-  const maxAttempts = 12
-  const delayMs = 15_000
-  while (attempts < maxAttempts) {
-    attempts++
-    try {
-      const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId }) as { date?: string; content?: string }
-      if (contentResult?.content) {
-        await printData(contentResult, parseFormat(options.format), options.output)
-        return
-      }
-    } catch (error) {
-      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
-        throw error
-      }
-    }
-    if (attempts < maxAttempts) {
-      process.stderr.write(`Attempt ${attempts}/${maxAttempts}: content not ready, retrying in 15s...\n`)
-      await new Promise(resolve => setTimeout(resolve, delayMs))
-    }
+  if (!await pollAsyncContent(client, "ai.viewpoint-debate.get-content", dataId, parseFormat(options.format), options.output)) {
+    process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai viewpoint-debate-check --data-id ${dataId}\n`)
+    process.exitCode = 1
   }
-  process.stderr.write(`Content not available after ${maxAttempts} attempts. Try again later with: gangtise ai viewpoint-debate-check --data-id ${dataId}\n`)
-  process.exitCode = 1
 })
 ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  try {
-    const contentResult = await client.call("ai.viewpoint-debate.get-content", { dataId: options.dataId }) as { date?: string; content?: string }
-    if (contentResult?.content) {
-      await printData(contentResult, parseFormat(options.format), options.output)
-      return
-    }
-    process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
-  } catch (error) {
-    if (error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中"))) {
-      process.stdout.write(`${JSON.stringify({ dataId: options.dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
-      return
-    }
-    throw error
-  }
+  await checkAsyncContent(client, "ai.viewpoint-debate.get-content", options.dataId, parseFormat(options.format), options.output)
 })
 const vault = new Command("vault").description("Vault APIs")
 vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
@@ -666,7 +665,14 @@ program.addCommand(ai)
 
 program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
   const client = await createClient()
-  const body = options.body ? JSON.parse(options.body) : undefined
+  let body: unknown
+  if (options.body) {
+    try {
+      body = JSON.parse(options.body)
+    } catch {
+      throw new ConfigError(`Invalid JSON in --body: ${options.body}`)
+    }
+  }
   const data = await client.call(endpointKey, body, options.query)
   if (data && typeof data === "object" && "data" in (data as Record<string, unknown>) && (data as { data?: unknown }).data instanceof Uint8Array) {
     await saveDownloadResult(data, "download.bin", options.output)

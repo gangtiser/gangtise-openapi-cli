@@ -48,7 +48,7 @@ export GANGTISE_BASE_URL="https://open.gangtise.com"
 export GANGTISE_TOKEN="Bearer xxx"
 ```
 
-如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地。
+如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。
 
 
 ## AI Agent Skill
@@ -192,6 +192,8 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **有时间范围时**（传了 `--start-time/--end-time` 或 `--start-date/--end-date`）：**省略 `--size`**，CLI 自动翻页查全
 - **无时间范围时**（未传时间参数）：默认 `--size 200`，防止一次查询数据量过大
 - 如果显式传了 `--size`，则按指定值翻页，直到达到 `size` 或数据取完
+- 安全上限：自动翻页最多 1000 页，防止异常循环
+- 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`），同时 stderr 输出 `Total: N, showing: M`
 
 ## 智能文件命名
 
@@ -295,7 +297,7 @@ gangtise ai peer-comparison --security-code 600519.SH
 gangtise ai earnings-review --security-code 600519.SH --period 2025q3
 gangtise ai theme-tracking --theme-id 121000131 --date 2026-03-01 --type morning
 gangtise ai hot-topic --start-date 2026-03-22 --end-date 2026-03-27 --category morningBriefing --category noonBriefing --with-related-securities --with-close-reading
-# 不传 --category 默认查全部类型（早报+午报+盘中快报+晚报），--with-related-securities 和 --with-close-reading 默认开启
+# 不传 --category 默认查全部类型（早报+午报+盘中快报+晚报），--with-related-securities 和 --with-close-reading 默认开启，可用 --no-with-related-securities / --no-with-close-reading 关闭
 gangtise ai hot-topic --start-date 2026-04-15 --end-date 2026-04-17
 gangtise ai research-outline --security-code 600519.SH
 # 管理层讨论-财报
@@ -344,10 +346,12 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 支持：
 
 - `table`
-- `json`
-- `jsonl`
+- `json`（分页结果保留 `{total, list}` 结构）
+- `jsonl`（每行一条记录）
 - `csv`
 - `markdown`
+
+所有格式均支持 `--output <path>` 输出到文件（自动创建父目录）。
 
 ## 常见错误
 

@@ -20,7 +20,9 @@ const loaders: Record<LookupKey, () => Promise<{ [k: string]: LookupData }>> = {
 export async function getLookupData(key: LookupKey): Promise<LookupData> {
   if (cache.has(key)) return cache.get(key)!
   const mod = await loaders[key]()
-  const data = Object.values(mod)[0] as LookupData
+  const values = Object.values(mod)
+  const data = values.find(v => Array.isArray(v)) as LookupData | undefined
+  if (!data) throw new Error(`Lookup module "${key}" has no exported array`)
   cache.set(key, data)
   return data
 }

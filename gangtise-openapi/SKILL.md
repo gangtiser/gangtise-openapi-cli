@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.10.4"
+version: "0.10.5"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -590,13 +590,13 @@ gangtise ai research-outline --security-code <code>    # 仅 A 股
 ### 热点话题 `ai hot-topic`
 
 ```bash
-gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <name>] [--with-related-securities] [--with-close-reading] [--from <n>] [--size <n>]
+gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <name>] [--with-related-securities] [--no-with-related-securities] [--with-close-reading] [--no-with-close-reading] [--from <n>] [--size <n>]
 ```
 
 - 获取热点话题报告中各热点话题的结构化数据，包括驱动事件、投资逻辑、核心标的、话题精读
 - `--category`：`morningBriefing` 早报 | `noonBriefing` 午报 | `afternoonFlash` 盘中快报 | `eveningBriefing` 晚报（可重复传多值；不传时默认全部四种类型）
-- `--with-related-securities`：返回核心标的信息（默认 true）
-- `--with-close-reading`：返回话题精读内容（默认 true）
+- `--with-related-securities` / `--no-with-related-securities`：返回核心标的信息（默认开启）
+- `--with-close-reading` / `--no-with-close-reading`：返回话题精读内容（默认开启）
 - `--start-date` / `--end-date`：日期格式 `yyyy-MM-dd`
 - 分页：`--from` 默认 0，`--size` 单页最大 20，自动翻页
 

@@ -1,7 +1,7 @@
 import { request } from "undici"
 
 import type { CliConfig } from "./config.js"
-import { normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache } from "./auth.js"
+import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache } from "./auth.js"
 import { ApiError, ValidationError } from "./errors.js"
 import { ENDPOINTS, ENDPOINT_REGISTRY, type EndpointDefinition } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
@@ -15,6 +15,8 @@ interface Envelope<T> {
 }
 
 export class GangtiseClient {
+  private refreshPromise: Promise<string> | null = null
+
   constructor(private readonly config: CliConfig) {}
 
   private async getAuthorizationHeader(): Promise<string> {
@@ -23,10 +25,17 @@ export class GangtiseClient {
     }
 
     const cache = await readTokenCache(this.config.tokenCachePath)
-    if (cache?.accessToken && cache.expiresAt - 300 > Math.floor(Date.now() / 1000)) {
-      return normalizeToken(cache.accessToken)
+    if (isTokenCacheValid(cache)) {
+      return normalizeToken(cache!.accessToken)
     }
 
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.doTokenRefresh().finally(() => { this.refreshPromise = null })
+    }
+    return this.refreshPromise
+  }
+
+  private async doTokenRefresh(): Promise<string> {
     const credentials = requireAccessCredentials(this.config.accessKey, this.config.secretKey)
 
     const envelope = await this.requestJson<{
@@ -42,8 +51,7 @@ export class GangtiseClient {
     }, false)
 
     const accessToken = normalizeToken(envelope.accessToken)
-    const issuedAt = envelope.time ?? Math.floor(Date.now() / 1000)
-    const expiresAt = issuedAt + envelope.expiresIn
+    const expiresAt = Math.floor(Date.now() / 1000) + envelope.expiresIn
 
     await writeTokenCache(this.config.tokenCachePath, {
       ...envelope,
@@ -120,8 +128,9 @@ export class GangtiseClient {
     let firstPage: Record<string, unknown> | undefined
     let total: number | undefined
     let nextFrom = startFrom
+    const MAX_PAGES = 1000
 
-    while (true) {
+    for (let pageCount = 0; pageCount < MAX_PAGES; pageCount++) {
       const remaining = requestedSize === undefined
         ? maxPageSize
         : Math.min(maxPageSize, requestedSize - collected.length)
@@ -172,7 +181,7 @@ export class GangtiseClient {
     }
 
     if (!firstPage) {
-      return initialBody
+      return { total: 0, list: [] }
     }
 
     return {
@@ -213,12 +222,17 @@ export class GangtiseClient {
     })
 
     const text = await response.body.text()
+
+    if (response.statusCode >= 500) {
+      throw new ApiError(`Server error (HTTP ${response.statusCode})`, undefined, response.statusCode, text.slice(0, 500))
+    }
+
     let parsed: Envelope<T>
 
     try {
       parsed = JSON.parse(text) as Envelope<T>
     } catch {
-      throw new ApiError('Failed to parse API response', undefined, response.statusCode, text)
+      throw new ApiError('Failed to parse API response', undefined, response.statusCode, text.slice(0, 500))
     }
 
     return this.unwrapEnvelope(parsed, response.statusCode)

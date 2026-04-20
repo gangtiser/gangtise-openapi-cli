@@ -1,6 +1,6 @@
 # gangtise-openapi-cli — Technical Architecture
 
-**v0.10.0 · Node ≥20 · ESM**
+**v0.10.5 · Node ≥20 · ESM**
 
 ---
 
@@ -39,14 +39,14 @@
 | Configuration | Authentication | **Core Dispatcher** |
 |:--|:--|:--|
 | `config.ts` | `auth.ts` | **`client.ts` · GangtiseClient** |
-| GANGTISE_BASE_URL / AK / SK / TIMEOUT | Token cache · AK/SK login · Expiry check | **call() → requestPaginated / requestJson / download** |
+| GANGTISE_BASE_URL / AK / SK / TIMEOUT | Token cache (0600) · AK/SK login · isTokenCacheValid() | **call() → requestPaginated / requestJson / download** |
 
 ### Processing
 
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| 60 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList+list → flat objects | table / json / jsonl / csv / markdown |
+| 60 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList+list → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
 
 ↓
 
@@ -57,10 +57,10 @@
 1. `client.call(key, params)`
 2. `ENDPOINT_REGISTRY` lookup
 3. `kind="json"` + pagination
-4. `requestPaginated()` loop
-5. `unwrapEnvelope()` → `.data`
-6. `normalizeRows()` flatten
-7. `renderOutput()` → stdout
+4. `requestPaginated()` loop · MAX_PAGES=1000 safety limit
+5. HTTP 5xx check → `unwrapEnvelope()` → `.data`
+6. `normalizeRows()` flatten · preserves total/meta
+7. `renderOutput()` → stdout · `Total: N, showing: M` → stderr
 
 ### DOWNLOAD FLOW `╌╌╌`
 
@@ -78,7 +78,7 @@
 
 1. `client.call(get-id endpoint, params)` → `{ dataId }`
 2. Non-blocking: return dataId + hint
-3. Blocking (`--wait`): poll `get-content` endpoint every 15s × 12 attempts
+3. Blocking (`--wait`): shared `pollAsyncContent()` helper · poll every 15s × 12 attempts
 4. Handle 410110 ("generating") as pending, continue retrying
 5. On 410111 ("generation failed") — terminal state, report error
 5. On success: `printData()` → stdout
@@ -117,7 +117,7 @@
 
 | Path | Purpose |
 |:--|:--|
-| `~/.config/gangtise/token.json` | Cached OAuth token · expiresAt · 5min buffer |
+| `~/.config/gangtise/token.json` | Cached OAuth token · expiresAt · 5min buffer · 0600 permissions |
 | `~/.config/gangtise/title-cache.json` | Download filename resolution · 24h TTL · id → title |
 
 ---
@@ -128,6 +128,8 @@
 1. GANGTISE_TOKEN env  → miss →  2. Cached token (~/.config/...)  → expired →  3. Auto-login AK/SK → POST loginV2
 ```
 
+Concurrent requests coalesce into a single in-flight refresh promise (no duplicate login calls).
+
 ---
 
 ## Design Patterns
@@ -135,10 +137,12 @@
 | Pattern | Description |
 |:--|:--|
 | **Endpoint Registry** | Declarative · O(1) key lookup · type-safe via `satisfies` |
-| **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint |
+| **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint · MAX_PAGES=1000 safety limit |
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
-| **Async Task Polling** | `--wait` flag for AI async commands · 410110 error handling · 410111 terminal failure |
+| **Async Task Polling** | Shared `pollAsyncContent()` / `checkAsyncContent()` helpers · `--wait` flag · 410110/410111 handling |
+| **Token Refresh Dedup** | Single in-flight refresh promise · concurrent calls coalesce |
+| **Token Validation** | `isTokenCacheValid()` — single source of truth for cache/expiry check (client-time based) |
 
 ---
 
