@@ -225,6 +225,10 @@ async function saveDownloadResult(result: unknown, fallbackName: string, output?
 const POLL_MAX_ATTEMPTS = 12
 const POLL_DELAY_MS = 15_000
 
+function isAsyncPending(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "410110"
+}
+
 async function pollAsyncContent(
   client: Awaited<ReturnType<typeof createClient>>,
   getContentEndpoint: string,
@@ -235,14 +239,16 @@ async function pollAsyncContent(
   for (let attempt = 1; attempt <= POLL_MAX_ATTEMPTS; attempt++) {
     try {
       const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
-      if (result?.content) {
+      if (result?.content != null) {
         await printData(result, format, output)
         return true
       }
     } catch (error) {
-      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
-        throw error
+      if (error instanceof ApiError && error.code === "410111") {
+        process.stderr.write("Content generation failed (terminal). Do not retry.\n")
+        return false
       }
+      if (!isAsyncPending(error)) throw error
     }
     if (attempt < POLL_MAX_ATTEMPTS) {
       process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: content not ready, retrying in 15s...\n`)
@@ -252,27 +258,28 @@ async function pollAsyncContent(
   return false
 }
 
-function checkAsyncContent(
+async function checkAsyncContent(
   client: Awaited<ReturnType<typeof createClient>>,
   getContentEndpoint: string,
   dataId: string,
   format: OutputFormat,
   output?: string,
 ): Promise<void> {
-  return (async () => {
-    try {
-      const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
-      if (result?.content) {
-        await printData(result, format, output)
-        return
-      }
-    } catch (error) {
-      if (!(error instanceof ApiError && (error.code === "410110" || error.message?.includes("生成中")))) {
-        throw error
-      }
+  try {
+    const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
+    if (result?.content != null) {
+      await printData(result, format, output)
+      return
     }
-    process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
-  })()
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "410111") {
+      process.stderr.write("Content generation failed (terminal). Do not retry.\n")
+      process.exitCode = 1
+      return
+    }
+    if (!isAsyncPending(error)) throw error
+  }
+  process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
 }
 
 function addTimeFilters(command: Command) {
