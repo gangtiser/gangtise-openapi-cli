@@ -100,7 +100,7 @@ async function printData(data: unknown, format: OutputFormat, output?: string, c
 
   if (normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
     const meta = normalized as Record<string, unknown>
-    if (typeof meta.total === "number") {
+    if (typeof meta.total === "number" && format !== "json") {
       const listLen = Array.isArray(meta.list) ? (meta.list as unknown[]).length : 0
       process.stderr.write(`Total: ${meta.total}, showing: ${listLen}\n`)
     }
@@ -509,9 +509,24 @@ fundamental.command("main-business").requiredOption("--security-code <code>").op
   const client = await createClient()
   await printData(await client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, breakdown: options.breakdown, periodList: maybeArray(options.period), fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
 })
-fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--skip-null", "Drop rows where value or percentileRank is null").option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) }), parseFormat(options.format), options.output)
+  let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: options.limit ? Number(options.limit) : undefined, fieldList: maybeArray(options.field) })
+  if (options.skipNull) {
+    const normalized = await normalizeRows(data)
+    if (normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
+      const rec = normalized as Record<string, unknown>
+      if (Array.isArray(rec.list)) {
+        const filtered = rec.list.filter((row) => {
+          if (!row || typeof row !== "object") return false
+          const r = row as Record<string, unknown>
+          return r.value != null && r.percentileRank != null
+        })
+        data = { ...rec, list: filtered, total: filtered.length }
+      }
+    }
+  }
+  await printData(data, parseFormat(options.format), options.output)
 })
 fundamental.command("earning-forecast").requiredOption("--security-code <code>").option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: today)").option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()

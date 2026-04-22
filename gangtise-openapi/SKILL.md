@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.10.5"
+version: "0.10.7"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -498,11 +498,12 @@ gangtise fundamental main-business --security-code <code> --breakdown <type> [--
 ### 估值分析 `fundamental valuation-analysis`
 
 ```bash
-gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
+gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>] [--skip-null]
 ```
 
 - `--indicator`（必选）：`peTtm` 滚动PE | `pbMrq` PB | `peg` PEG | `psTtm` 滚动PS | `pcfTtm` 滚动PCF | `em` 企业倍数
 - `--limit` 默认 2000，省略 `--start-date` 时自动查近一年
+- `--skip-null`：丢弃 `value` 或 `percentileRank` 为 null 的行。最新交易日可能因估值数据未入库返回 null，调用方用脚本消费（如 Python 拿 value 和阈值比较）时务必加此开关或自行判空
 - 可用字段见 `references/fields.md`
 
 ### 盈利预测 `fundamental earning-forecast`
