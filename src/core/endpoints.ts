@@ -233,6 +233,13 @@ export const ENDPOINTS = {
     kind: "json",
     description: "Query valuation analysis",
   },
+  fundamentalTopHolders: {
+    key: "fundamental.top-holders",
+    method: "POST",
+    path: "/application/open-fundamental/capital-structure/top-holders",
+    kind: "json",
+    description: "Query top holders (top10 / top10 float)",
+  },
 
   aiKnowledgeBatch: {
     key: "ai.knowledge-batch",

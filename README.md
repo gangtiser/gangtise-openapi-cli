@@ -118,6 +118,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `main-business` | 主营构成（按地区/产品拆分） |
 | | `valuation-analysis` | 估值分析 |
 | | `earning-forecast` | 盈利预测（一致预期） |
+| | `top-holders` | 前十大股东/前十大流通股东 |
 | **AI** | `knowledge-batch` | 知识库批量检索 |
 | | `knowledge-resource-download` | 知识资源下载 |
 | | `security-clue` | 个股线索 |
@@ -252,8 +253,12 @@ gangtise insight roadshow list --institution C100000017
 gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
 # 不传 --security 默认返回全市场，不传 --start-date 默认往前一年，不传 --end-date 默认最新
 gangtise quote day-kline --format json
+# 全市场查询（--security all）
+gangtise quote day-kline --security all --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
 # 港股日K线
 gangtise quote day-kline-hk --security 00700.HK --start-date 2026-03-01 --end-date 2026-03-31
+# 港股全市场
+gangtise quote day-kline-hk --security all --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
 # A股分钟K线
 gangtise quote minute-kline --security 600519.SH --start-time "2026-04-15 09:30:00" --end-time "2026-04-15 15:00:00" --field open --field close --field volume
 ```
@@ -282,6 +287,10 @@ gangtise fundamental earning-forecast --security-code 600519.SH --consensus netI
 gangtise fundamental income-statement-quarterly --security-code 600519.SH --fiscal-year 2025 --period q2 --field netProfit
 # 现金流量表（单季度）
 gangtise fundamental cash-flow-quarterly --security-code 600519.SH --fiscal-year 2025 --period q2 --field netOpCashFlows
+# 前十大股东
+gangtise fundamental top-holders --security-code 600519.SH --holder-type top10 --fiscal-year 2025 --format json
+# 前十大流通股东（按日期范围）
+gangtise fundamental top-holders --security-code 600519.SH --holder-type top10Float --start-date 2025-01-01 --end-date 2025-12-31 --period q3 --format json
 ```
 
 ### AI
@@ -368,6 +377,6 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 | `999997` | 未开通接口权限 |
 | `999999` | Gangtise 系统错误，请稍后重试 |
 | `433007` | 不支持该数据源（`knowledge-resource-download` 需正确的 `resourceType + sourceId` 组合） |
-| `430007` | 行情查询超出限制（日K线/分钟K线不传 `--security` 返回全市场，数据量过大；请指定证券代码或缩短日期范围） |
+| `430007` | 行情查询超出限制（数据量过大，请缩短日期范围或减少 `--limit`） |
 | `410110` | 异步任务生成中（非终态，需继续轮询） |
 | `410111` | 异步任务生成失败（终态，不可重试） |

@@ -65,6 +65,7 @@ describe("ENDPOINTS", () => {
     expect(fundamentalKeys).toContain("fundamental.main-business")
     expect(fundamentalKeys).toContain("fundamental.valuation-analysis")
     expect(fundamentalKeys).toContain("fundamental.earning-forecast")
+    expect(fundamentalKeys).toContain("fundamental.top-holders")
   })
 
   it("income-statement uses the /accumulated path", () => {
@@ -176,6 +177,13 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS.fundamentalEarningForecast.method).toBe("POST")
     expect(ENDPOINTS.fundamentalEarningForecast.path).toBe("/application/open-fundamental/earning-forecast")
     expect(ENDPOINTS.fundamentalEarningForecast.kind).toBe("json")
+  })
+
+  it("includes top-holders endpoint", () => {
+    expect(ENDPOINT_REGISTRY["fundamental.top-holders"]).toBeDefined()
+    expect(ENDPOINTS.fundamentalTopHolders.method).toBe("POST")
+    expect(ENDPOINTS.fundamentalTopHolders.path).toBe("/application/open-fundamental/capital-structure/top-holders")
+    expect(ENDPOINTS.fundamentalTopHolders.kind).toBe("json")
   })
 
   it("vault record endpoints use correct keys and paths", () => {

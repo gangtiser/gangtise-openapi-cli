@@ -57,6 +57,7 @@ description: |-
 | fundamental 报表 | 表格（按年度/报告期分行） | 报告期 + 所选字段值 |
 | fundamental valuation | 表格 + 分位点标注 | 日期 / 值 / 分位 |
 | fundamental earning-forecast | 表格（按日期×预测年份） | 预测年份 + 所选指标值 |
+| fundamental top-holders | 表格（按报告期×排名） | 报告期 / 排名 / 股东名 / 持股数 / 持股比例 / 变动 |
 | ai knowledge-batch | 编号列表 + 摘要 | 标题 / 类型 / 摘要前 100 字 |
 | ai one-pager / investment-logic / peer-comparison | 直接输出 markdown | — |
 | ai earnings-review | 告知 dataId + 预计等待时间 | — |
@@ -90,6 +91,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | fundamental 报表 | `{list: [...]}` | `list[].fiscalYear` / `list[].period` + 各 `--field` 字段 |
 | fundamental valuation | `{list: [...]}` | `list[].tradeDate` / `list[].value` / `list[].percentileRank` |
 | fundamental earning-forecast | `{securityCode, securityName, updateList: [...]}` | `updateList[].date` / `updateList[].fieldList[].forecastYear` + 各 consensus 指标 |
+| fundamental top-holders | `{holderType, list: [...]}` | `list[].reportPeriod` / `list[].rank` / `list[].shareholderName` / `list[].holdingNum` / `list[].holdingPct` / `list[].chgNum` / `list[].chgPct` |
 | ai knowledge-batch | `{list: [...]}` | `list[].resourceType` / `list[].sourceId` / `list[].title` / `list[].summary` |
 | ai one-pager / investment-logic / peer-comparison | `{content: "markdown文本"}` | `content` 直接使用 |
 | ai earnings-review | `{dataId: "xxx"}` | `dataId` 用于后续 `earnings-review-check` |
@@ -118,7 +120,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | 网络超时/连接失败 | 最多重试 1 次，仍失败则提示用户检查网络 |
 | 空结果（data 为空数组） | 建议扩大时间范围、换关键词、或去掉部分筛选条件 |
 | 返回结果 >200 条 | 仅展示前 20 条摘要 + 总数，询问用户是否导出全量 |
-| K线数据超 10000 条 | 按季度分批拉取：先取 Q1（1/1-3/31），再取 Q2，依此类推 |
+| K线数据超 10000 条 | 按季度分批拉取：先取 Q1（1/1-3/31），再取 Q2，依此类推。全市场查询（`--security all`）建议缩短日期范围 |
 | 速率限制（903301） | 不重试，提示用户"今日调用次数已达上限，建议明日重试或联系管理员升级配额" |
 | 异步任务轮询超过 3 次仍 pending | 终止轮询，返回 dataId 给用户，建议稍后手动 `earnings-review-check` 或 `viewpoint-debate-check` |
 | 410110（生成中） | 异步任务仍在生成，视为 pending 继续等待 |
@@ -253,6 +255,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 主营业务/收入结构 | `fundamental main-business` |
 | 估值/PE/PB | `fundamental valuation-analysis` |
 | 盈利预测/一致预期/净利润预测 | `fundamental earning-forecast` |
+| 前十大股东/股东/流通股东/股东结构 | `fundamental top-holders` |
 | 知识库搜索 | `ai knowledge-batch` |
 | 一页通/个股概览 | `ai one-pager` |
 | 投资逻辑 | `ai investment-logic` |
@@ -415,8 +418,8 @@ gangtise insight announcement download --announcement-id <id> [--file-type <n>] 
 gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
 ```
 
-- 仅支持 A 股（`.SH` `.SZ` `.BJ`），**必须传 `--security`**，否则返回 430007（行情查询超出限制）
-- `--limit` 默认 5000，上限 10000（超过请缩短日期区间分批拉取）
+- 支持 A 股（`.SH` `.SZ` `.BJ`），传 `--security all` 返回全市场数据
+- `--limit` 默认 6000，上限 10000（超过请缩短日期区间分批拉取）
 - 常用字段：`open` `high` `low` `close` `pctChange` `volume` `amount`（完整列表见 `references/fields.md`）
 
 ### 日K线（港股）`quote day-kline-hk`
@@ -425,7 +428,8 @@ gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 gangtise quote day-kline-hk [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
 ```
 
-- 仅支持港股（`.HK`），**必须传 `--security`**，否则返回 430007（行情查询超出限制）
+- 支持港股（`.HK`），传 `--security all` 返回全市场数据
+- `--limit` 默认 6000，上限 10000（超过请缩短日期区间分批拉取）
 
 ### 分钟K线（A股）`quote minute-kline`
 
@@ -520,6 +524,24 @@ gangtise fundamental earning-forecast --security-code <code> [--start-date <YYYY
   - `roe` 净资产收益率 | `ps` 市销率
 - 返回格式：`{securityCode, securityName, updateList: [{date, fieldList: [{forecastYear, ...consensus}]}]}`
   - 每个日期固定返回 3 年预测（如 `2026E` / `2027E` / `2028E`）
+
+### 前十大股东 `fundamental top-holders`
+
+```bash
+gangtise fundamental top-holders --security-code <code> --holder-type <type> [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--fiscal-year <year>] [--period <p>]
+```
+
+- `--security-code`（必选）：证券代码，如 `600519.SH`
+- `--holder-type`（必选）：`top10` 前十大股东 | `top10Float` 前十大流通股东
+- `--start-date` / `--end-date`：日期格式 `YYYY-MM-DD`，有值时覆盖 `--fiscal-year` 筛选
+- `--fiscal-year` 可重复：`--fiscal-year 2024 --fiscal-year 2025`
+- `--period`：`q1` 一季报 | `interim` 中报 | `q3` 三季报 | `annual` 年报 | `latest` 最新一期（默认）；可重复传多值
+- 返回字段：`reportPeriod` / `rank` / `shareholderName` / `shareholderType` / `holdingNum` / `holdingPct` / `chgNum` / `chgPct` / `shareCategory`
+
+**示例：** 查贵州茅台 2025 年前十大股东
+```bash
+gangtise fundamental top-holders --security-code 600519.SH --holder-type top10 --fiscal-year 2025 --format json
+```
 
 ---
 
@@ -752,5 +774,5 @@ gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'
 | `903301` | 今日调用次数达上限 | 等待次日或升级配额 |
 | `433007` | 数据源不匹配 | 检查 resourceType + sourceId 组合 |
 | `410004` | 数据未找到 | 检查查询条件 |
-| `430007` | 行情查询超出限制 | 必须传 `--security`，不要查全市场 |
+| `430007` | 行情查询超出限制 | 缩短日期范围或减少 `--limit` 值；全市场查询数据量大，注意控制范围 |
 | `10011401` | 白名单权限控制 | 联系管理员开通 |
