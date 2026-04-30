@@ -62,8 +62,21 @@ export class GangtiseClient {
     return accessToken
   }
 
+  private isEnvelope<T>(parsed: unknown): parsed is Envelope<T> {
+    return Boolean(parsed && typeof parsed === 'object' && 'code' in parsed)
+  }
+
+  private throwHttpError(parsed: unknown, statusCode: number): never {
+    if (this.isEnvelope(parsed)) {
+      const code = parsed.code === undefined ? undefined : String(parsed.code)
+      throw new ApiError(parsed.msg || `API request failed (HTTP ${statusCode})`, code, statusCode, parsed)
+    }
+
+    throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed)
+  }
+
   private unwrapEnvelope<T>(parsed: Envelope<T>, statusCode?: number): T {
-    if (!parsed || typeof parsed !== 'object' || !('code' in parsed)) {
+    if (!this.isEnvelope<T>(parsed)) {
       return parsed as T
     }
 
@@ -223,16 +236,19 @@ export class GangtiseClient {
 
     const text = await response.body.text()
 
-    if (response.statusCode >= 500) {
-      throw new ApiError(`Server error (HTTP ${response.statusCode})`, undefined, response.statusCode, text.slice(0, 500))
-    }
-
     let parsed: Envelope<T>
 
     try {
       parsed = JSON.parse(text) as Envelope<T>
     } catch {
-      throw new ApiError('Failed to parse API response', undefined, response.statusCode, text.slice(0, 500))
+      const message = response.statusCode >= 400
+        ? `API request failed (HTTP ${response.statusCode})`
+        : 'Failed to parse API response'
+      throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500))
+    }
+
+    if (response.statusCode >= 400) {
+      this.throwHttpError(parsed, response.statusCode)
     }
 
     return this.unwrapEnvelope(parsed, response.statusCode)
@@ -267,6 +283,10 @@ export class GangtiseClient {
           throw new ApiError('Download failed', undefined, response.statusCode, text)
         }
         return { text, contentType }
+      }
+
+      if (response.statusCode >= 400) {
+        this.throwHttpError(parsed, response.statusCode)
       }
 
       const data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)

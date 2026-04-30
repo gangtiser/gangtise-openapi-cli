@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, maybeArray, splitCsv, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
+import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
   it("splits comma-separated values and trims whitespace", () => {
@@ -35,12 +36,41 @@ describe("collectNumberList", () => {
     expect(collectNumberList("1,2,3")).toEqual([1, 2, 3])
   })
 
-  it("filters NaN values", () => {
-    expect(collectNumberList("1,abc,3")).toEqual([1, 3])
+  it("throws on invalid numeric values", () => {
+    expect(() => collectNumberList("1,abc,3")).toThrow(ValidationError)
   })
 
   it("accumulates with previous", () => {
     expect(collectNumberList("5", [1, 2])).toEqual([1, 2, 5])
+  })
+})
+
+describe("parseNumberOption", () => {
+  it("parses finite numbers", () => {
+    expect(parseNumberOption("12", "--limit")).toBe(12)
+  })
+
+  it("rejects non-finite values", () => {
+    expect(() => parseNumberOption("abc", "--limit")).toThrow(ValidationError)
+  })
+
+  it("enforces integer and minimum constraints", () => {
+    expect(() => parseNumberOption("1.5", "--size", { integer: true })).toThrow(ValidationError)
+    expect(() => parseNumberOption("0", "--size", { min: 1 })).toThrow(ValidationError)
+  })
+})
+
+describe("parseFrom/parseSize", () => {
+  it("parses pagination options", () => {
+    expect(parseFrom(undefined)).toBe(0)
+    expect(parseFrom("10")).toBe(10)
+    expect(parseSize(undefined)).toBeUndefined()
+    expect(parseSize("50")).toBe(50)
+  })
+
+  it("rejects invalid pagination options", () => {
+    expect(() => parseFrom("-1")).toThrow(ValidationError)
+    expect(() => parseSize("0")).toThrow(ValidationError)
   })
 })
 
@@ -97,5 +127,15 @@ describe("toTimestamp13", () => {
 
   it("returns undefined for unparseable strings", () => {
     expect(toTimestamp13("not-a-date")).toBeUndefined()
+  })
+})
+
+describe("parseTimestamp13", () => {
+  it("parses valid date values", () => {
+    expect(parseTimestamp13("2025-04-01", "--start-time")).toBeGreaterThan(1e12)
+  })
+
+  it("throws on invalid date values", () => {
+    expect(() => parseTimestamp13("not-a-date", "--start-time")).toThrow(ValidationError)
   })
 })

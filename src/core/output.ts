@@ -1,6 +1,17 @@
 import fs from "node:fs/promises"
 
 import type { OutputFormat } from "./config.js"
+import { ConfigError } from "./errors.js"
+
+const OUTPUT_FORMATS = ["table", "json", "jsonl", "csv", "markdown"] as const
+
+export function parseOutputFormat(value?: string): OutputFormat {
+  const format = value ?? "table"
+  if ((OUTPUT_FORMATS as readonly string[]).includes(format)) {
+    return format as OutputFormat
+  }
+  throw new ConfigError(`Unsupported format: ${format}`)
+}
 
 function formatScalar(value: unknown): string {
   if (value === null || value === undefined) {

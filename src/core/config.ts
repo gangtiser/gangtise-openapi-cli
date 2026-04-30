@@ -22,7 +22,7 @@ export function loadConfig(): CliConfig {
 
   return {
     baseUrl: process.env.GANGTISE_BASE_URL ?? DEFAULT_BASE_URL,
-    timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS,
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS,
     accessKey: process.env.GANGTISE_ACCESS_KEY,
     secretKey: process.env.GANGTISE_SECRET_KEY,
     token: process.env.GANGTISE_TOKEN,

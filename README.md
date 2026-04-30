@@ -193,6 +193,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **有时间范围时**（传了 `--start-time/--end-time` 或 `--start-date/--end-date`）：**省略 `--size`**，CLI 自动翻页查全
 - **无时间范围时**（未传时间参数）：默认 `--size 200`，防止一次查询数据量过大
 - 如果显式传了 `--size`，则按指定值翻页，直到达到 `size` 或数据取完
+- `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`），同时 stderr 输出 `Total: N, showing: M`
 
@@ -362,10 +363,23 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 
 所有格式均支持 `--output <path>` 输出到文件（自动创建父目录）。
 
+## 参数校验
+
+CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 API：
+
+- `--from`：非负整数
+- `--size` / `--limit` / `--top`：正整数
+- `--file-type` / `--resource-type` 以及数值型列表参数：有限数字
+- 公告 `--start-time` / `--end-time`：可解析的时间字符串或 Unix 时间戳
+
+校验失败会输出 `ValidationError: Invalid ...` 并以非 0 状态退出。
+
 ## 常见错误
 
-| 错误码 | 说明 |
-|--------|------|
+| 错误/错误码 | 说明 |
+|-----------|------|
+| `ValidationError` | 本地参数校验失败，检查 `--size` / `--limit` / `--from` / `--file-type` 等数值参数 |
+| `API error (HTTP 4xx/5xx)` | HTTP 层失败；CLI 会把 4xx/5xx 响应视为错误，即使响应体不是标准 `{code,msg,data}` 信封 |
 | `8000014` | `GANGTISE_ACCESS_KEY` 错误 |
 | `8000015` | `GANGTISE_SECRET_KEY` 错误 |
 | `8000016` | 开发账号状态异常 |

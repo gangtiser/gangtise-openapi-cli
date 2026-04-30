@@ -36,9 +36,9 @@ function jsonResponse(data: unknown) {
   }
 }
 
-function rawJsonResponse(payload: unknown) {
+function rawJsonResponse(payload: unknown, statusCode = 200) {
   return {
-    statusCode: 200,
+    statusCode,
     headers: { "content-type": "application/json" },
     body: {
       text: vi.fn().mockResolvedValue(JSON.stringify(payload)),
@@ -243,5 +243,25 @@ describe("GangtiseClient envelope unwrapping", () => {
 
     const client = createClient()
     await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toBeInstanceOf(ApiError)
+  })
+
+  it("throws ApiError for HTTP 4xx JSON responses without an envelope", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse({ error: "unauthorized" }, 401))
+
+    const client = createClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toMatchObject({
+      statusCode: 401,
+      message: "API request failed (HTTP 401)",
+    })
+  })
+
+  it("throws ApiError for HTTP 4xx JSON download responses without an envelope", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse({ error: "missing file" }, 404))
+
+    const client = createClient()
+    await expect(client.call("insight.research.download", undefined, { reportId: "missing" })).rejects.toMatchObject({
+      statusCode: 404,
+      message: "API request failed (HTTP 404)",
+    })
   })
 })

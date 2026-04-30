@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.10.9"
+version: "0.10.10"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -28,6 +28,7 @@ description: |-
    - 有时间范围 → 省略分页参数，自动翻页查全
    - 无时间范围 → 指定 `--size 200`（Insight）或 `--limit 500`（Quote/Fundamental），避免拉取过量数据
    - `--from` 表示起始偏移量，可与 `--size` 配合实现自定义分页
+   - 数值参数必须合法：`--from` 为非负整数，`--size` / `--limit` / `--top` 为正整数，`--file-type` / `--resource-type` 等为有限数字；不确定时先省略或询问，不要传占位符
 7. **`--field` 可重复传入**：`--field open --field close --field volume`。可用字段见 `references/fields.md`
 
 ## 执行工作流
@@ -42,8 +43,8 @@ description: |-
    - 输出：通过/等待确认
 4. **拼命令** — 加 `--format json`；按核心规则处理时间/分页/多值参数
    - 输出：完整可执行命令
-5. **执行** — 运行命令，检查返回 `code` 字段：`200` 成功，其他查异常处理表
-   - 输出：code + data
+5. **执行** — 运行命令，检查退出码；成功时 stdout 是 CLI 解包后的 JSON/文件路径，失败时 stderr 包含 `ValidationError` 或 `API error (...)`
+   - 输出：stdout 结果或 stderr 错误
 6. **处理结果** — 按响应解析表提取关键字段呈现给用户；空结果时建议扩大范围或换关键词；异步任务按轮询流程处理
    - 输出：用户可读的结果摘要
 
@@ -117,6 +118,8 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 |------|---------|
 | CLI 未安装/命令找不到 | 提示 `npm install -g gangtise-openapi-cli`，不要重试 |
 | 认证 token 过期 | 自动重新登录（AK/SK 模式），无需用户干预；若 AK/SK 也失败则提示检查环境变量 |
+| ValidationError | 本地参数校验失败，检查 `--from` / `--size` / `--limit` / `--file-type` / `--resource-type` 等数值参数，不要重试同一命令 |
+| HTTP 4xx/5xx | 视为 API 调用失败；读取 stderr 中的 `API error (HTTP xxx)`、错误码和提示后再决定是否换参数或提示权限/配额问题 |
 | 网络超时/连接失败 | 最多重试 1 次，仍失败则提示用户检查网络 |
 | 空结果（data 为空数组） | 建议扩大时间范围、换关键词、或去掉部分筛选条件 |
 | 返回结果 >200 条 | 仅展示前 20 条摘要 + 总数，询问用户是否导出全量 |
