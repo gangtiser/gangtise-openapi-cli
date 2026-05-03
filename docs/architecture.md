@@ -1,6 +1,6 @@
 # gangtise-openapi-cli — Technical Architecture
 
-**v0.10.5 · Node ≥20 · ESM**
+**v0.11.0 · Node ≥20 · ESM**
 
 ---
 
@@ -27,7 +27,7 @@
 
 | Commander.js | Argument Parsers |
 |:--|:--|
-| `src/cli.ts` — ~700 lines | `src/core/args.ts` |
+| `src/cli.ts` — ~500 lines | `src/core/args.ts` |
 | All commands, options, action handlers | splitCsv / collectList / collectKeyValue / toTimestamp13 |
 
 ↓
@@ -46,7 +46,7 @@
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| 60 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList+list → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
+| 59 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
 
 ↓
 
@@ -59,7 +59,7 @@
 3. `kind="json"` + pagination
 4. `requestPaginated()` loop · MAX_PAGES=1000 safety limit
 5. HTTP 5xx check → `unwrapEnvelope()` → `.data`
-6. `normalizeRows()` flatten · preserves total/meta
+6. `normalizeRows()` flatten fieldList/list + chatRoomList · preserves total/meta
 7. `renderOutput()` → stdout · `Total: N, showing: M` → stderr
 
 ### DOWNLOAD FLOW `╌╌╌`
@@ -108,10 +108,10 @@
 |:--|:--|:--|
 | **Auth** | `/application/auth/oauth/open/` | loginV2 |
 | **Insight** | `/application/open-insight/` | chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement |
-| **Quote** | `/application/open-quote/` | kline/daily / kline-hk/daily / kline/minute |
-| **Fundamental** | `/application/open-fundamental/` | income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / main-business / valuation-analysis / earning-forecast |
+| **Quote** | `/application/open-quote/` | kline/daily / kline-hk/daily / index/kline/daily / kline/minute |
+| **Fundamental** | `/application/open-fundamental/` | income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / main-business / valuation-analysis / earning-forecast / top-holders |
 | **AI** | `/application/open-ai/` | knowledge-batch / knowledge-resource / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / hot-topic / research-outline / management-discuss / viewpoint-debate |
-| **Vault** | `/application/open-vault/` | drive / record / my-conference |
+| **Vault** | `/application/open-vault/` | drive / record / my-conference / wechatgroupmsg |
 
 ### Local Filesystem
 

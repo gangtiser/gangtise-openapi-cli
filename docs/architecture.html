@@ -409,7 +409,7 @@
         <div class="diagram-title">gangtise-openapi-cli</div>
         <div class="diagram-subtitle">Technical Architecture / Layered Data Flow</div>
       </div>
-      <div class="diagram-version">v0.10.0 &middot; Node &ge;20 &middot; ESM</div>
+      <div class="diagram-version">v0.11.0 &middot; Node &ge;20 &middot; ESM</div>
     </div>
 
     <!-- Flow Legend -->
@@ -465,7 +465,7 @@
       <div class="layer-grid cols-2">
         <div class="comp">
           <div class="comp-label">Commander.js</div>
-          <div class="comp-value">src/cli.ts &mdash; ~700 lines</div>
+          <div class="comp-value">src/cli.ts &mdash; ~500 lines</div>
           <div class="comp-sub">All commands, options, action handlers</div>
         </div>
         <div class="comp">
@@ -509,7 +509,7 @@
         <div class="comp">
           <div class="comp-label">Endpoint Registry</div>
           <div class="comp-value">endpoints.ts</div>
-          <div class="comp-sub">60 endpoints &middot; O(1) lookup</div>
+          <div class="comp-sub">59 endpoints &middot; O(1) lookup</div>
         </div>
         <div class="comp">
           <div class="comp-label">Error Hierarchy</div>
@@ -519,7 +519,7 @@
         <div class="comp">
           <div class="comp-label">Normalization</div>
           <div class="comp-value">normalize.ts</div>
-          <div class="comp-sub">fieldList+list &rarr; flat objects</div>
+          <div class="comp-sub">fieldList/list + chatRoomList &rarr; flat objects</div>
         </div>
         <div class="comp">
           <div class="comp-label">Output Renderer</div>
@@ -547,7 +547,7 @@
             <span>3.</span> kind="json" + pagination<br>
             <span>4.</span> requestPaginated() loop<br>
             <span>5.</span> unwrapEnvelope() &rarr; .data<br>
-            <span>6.</span> normalizeRows() flatten<br>
+            <span>6.</span> normalizeRows() flatten rows<br>
             <span>7.</span> renderOutput() &rarr; stdout
           </div>
         </div>
@@ -616,10 +616,10 @@
             <div class="api-group-items">
               <strong style="color:var(--c-text-main)">Auth</strong> &mdash; /application/auth/oauth/open/loginV2<br>
               <strong style="color:var(--c-text-main)">Insight</strong> &mdash; chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement<br>
-              <strong style="color:var(--c-text-main)">Quote</strong> &mdash; kline/daily / kline-hk/daily / kline/minute<br>
-              <strong style="color:var(--c-text-main)">Fundamental</strong> &mdash; income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / main-business / valuation-analysis / earning-forecast<br>
+              <strong style="color:var(--c-text-main)">Quote</strong> &mdash; kline/daily / kline-hk/daily / index/kline/daily / kline/minute<br>
+              <strong style="color:var(--c-text-main)">Fundamental</strong> &mdash; income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / main-business / valuation-analysis / earning-forecast / top-holders<br>
               <strong style="color:var(--c-text-main)">AI</strong> &mdash; knowledge-batch / knowledge-resource / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / hot-topic / research-outline / management-discuss / viewpoint-debate<br>
-              <strong style="color:var(--c-text-main)">Vault</strong> &mdash; drive / record / my-conference
+              <strong style="color:var(--c-text-main)">Vault</strong> &mdash; drive / record / my-conference / wechatgroupmsg
             </div>
           </div>
         </div>

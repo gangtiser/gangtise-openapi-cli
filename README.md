@@ -255,7 +255,7 @@ gangtise insight roadshow list --institution C100000017
 
 ```bash
 gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
-# 不传 --security 默认返回全市场，不传 --start-date 默认往前一年，不传 --end-date 默认最新
+# 查最近/最新 K 线建议显式传 --start-date/--end-date；只传 --limit 会截取查询窗口开头，不等于最近N条
 gangtise quote day-kline --format json
 # 全市场查询（--security all）
 gangtise quote day-kline --security all --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json

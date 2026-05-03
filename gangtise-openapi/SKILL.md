@@ -26,10 +26,11 @@ description: |-
 6. **分页策略**：
    - Insight/Vault/投研线索 命令用 `--size`，Quote/Fundamental 命令用 `--limit`
    - 有时间范围 → 省略分页参数，自动翻页查全
-   - 无时间范围 → 指定 `--size 200`（Insight）或 `--limit 500`（Quote/Fundamental），避免拉取过量数据
+   - 无时间范围 → 指定 `--size 200`（Insight）；Quote/Fundamental 先按「模糊时间词默认映射」补出 `--start-date`/`--end-date`，再决定是否使用 `--limit`
    - `--from` 表示起始偏移量，可与 `--size` 配合实现自定义分页
    - 数值参数必须合法：`--from` 为非负整数，`--size` / `--limit` / `--top` 为正整数，`--file-type` / `--resource-type` 等为有限数字；不确定时先省略或询问，不要传占位符
 7. **`--field` 可重复传入**：`--field open --field close --field volume`。可用字段见 `references/fields.md`
+8. **K 线最近值必须显式日期**：`quote day-kline` / `day-kline-hk` / `index-day-kline` 的返回通常按日期正序排列；只传 `--limit 20` 会截取查询窗口开头，不等于最近 20 条。用户问"最近/最新/当前"时必须带 `--start-date` 和 `--end-date`，并从结果尾部取最近交易日。
 
 ## 执行工作流
 
@@ -142,7 +143,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 
 | 模糊词 | Insight/Vault/AI 默认 | Quote/Fundamental 默认 |
 |--------|----------------------|----------------------|
-| 最近/近期 | 7 天 | **1 年**（K线/估值需足够数据点） |
+| 最近/近期 | 7 天 | K线 45 天；估值/基本面 1 年 |
 | 最近一周 | 7 天 | 7 天 |
 | 最近一个月 | 30 天 | 30 天 |
 | 过去一年/近一年 | 1 年 | 1 年 |
@@ -150,6 +151,11 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 
 datetime 参数（Insight/Vault/AI）：`--start-time "<日期> 00:00:00"` `--end-time "<日期> 23:59:59"`
 date 参数（Quote/Fundamental）：`--start-date <日期>` `--end-date <日期>`
+
+K线命令额外规则：
+- 查"最近10个交易日"：用 `--start-date <今日往前45天>` `--end-date <今日>`，不要只传 `--limit 10/20`；返回后按 `tradeDate` 取最后 10 个有效交易日。
+- 查"最近20个交易日"：用 `--start-date <今日往前75天>` `--end-date <今日>`，不要只传 `--limit 20`；返回后按 `tradeDate` 取最后 20 个有效交易日。
+- 查"过去一年/近一年K线"：用一整年日期范围，通常省略 `--limit` 或设为足够大（如 500），再按需要取尾部最新行。
 
 同时在支持 `--rank-type` 的洞察命令加 `--rank-type 2`（时间倒序），确保最新结果优先。支持 `--rank-type` 的命令：opinion / summary / research / foreign-report / announcement；**不支持**的命令：roadshow / site-visit / strategy / forum（API 无此参数）。
 
@@ -220,11 +226,21 @@ Step 5: 展示匹配文件列表，用户选择后 → gangtise vault drive-down
 
 ```
 Step 1: 意图路由 → quote day-kline + quote day-kline-hk（跨市场需分别调用）
-Step 2: 比亚迪 A股 → 002594.SZ，港股 → 01211.HK（速查表）；"最近" → Quote 默认1年
+Step 2: 比亚迪 A股 → 002594.SZ，港股 → 01211.HK（速查表）；"最近" → K线默认今日往前45天
 Step 3: 检查点 → 认证OK、代码已知
-Step 4a: gangtise quote day-kline --security 002594.SZ --format json
-Step 4b: gangtise quote day-kline-hk --security 01211.HK --format json
-Step 5: 合并两次结果，表格呈现最近 10 个交易日
+Step 4a: gangtise quote day-kline --security 002594.SZ --start-date 2026-03-19 --end-date 2026-05-03 --format json
+Step 4b: gangtise quote day-kline-hk --security 01211.HK --start-date 2026-03-19 --end-date 2026-05-03 --format json
+Step 5: 合并两次结果，按 tradeDate 取尾部最近 10 个交易日
+```
+
+**用户说："查上证综指最近的指数"**
+
+```
+Step 1: 意图路由 → quote index-day-kline
+Step 2: 上证综指 → 000001.SH；"最近" → K线默认今日往前45天
+Step 3: 检查点 → 认证OK、代码已知；今天 2026-05-03 为周日，end-date 仍填当天，由 API 返回最近交易日
+Step 4: gangtise quote index-day-kline --security 000001.SH --start-date 2026-03-19 --end-date 2026-05-03 --format json
+Step 5: 按 tradeDate 取尾部最近 10 个交易日；不要使用 `--limit 20` 单独查询最近值
 ```
 
 **用户说："搜索一下新能源相关的研报和纪要"**（多资源类型搜索示例）
@@ -430,6 +446,7 @@ gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 
 - 支持 A 股（`.SH` `.SZ` `.BJ`），传 `--security all` 返回全市场数据
 - `--limit` 默认 6000，上限 10000（超过请缩短日期区间分批拉取）
+- 查最近/最新 K 线必须显式传 `--start-date`/`--end-date`；不要只用 `--limit` 取最近条数
 - 常用字段：`open` `high` `low` `close` `pctChange` `volume` `amount`（完整列表见 `references/fields.md`）
 
 ### 日K线（港股）`quote day-kline-hk`
@@ -440,6 +457,7 @@ gangtise quote day-kline-hk [--security <code>] [--start-date <YYYY-MM-DD>] [--e
 
 - 支持港股（`.HK`），传 `--security all` 返回全市场数据
 - `--limit` 默认 6000，上限 10000（超过请缩短日期区间分批拉取）
+- 查最近/最新 K 线必须显式传 `--start-date`/`--end-date`；不要只用 `--limit` 取最近条数
 
 ### 指数日K线（沪深京）`quote index-day-kline`
 
@@ -449,6 +467,7 @@ gangtise quote index-day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [
 
 - 支持沪深京指数（如 `000001.SH`、`399001.SZ`），传 `--security all` 返回全市场指数数据
 - `--limit` 默认 6000，上限 10000（超过请缩短日期区间分批拉取）
+- 查最近/最新指数 K 线必须显式传 `--start-date`/`--end-date`；不要只用 `--limit` 取最近条数
 - 常用字段：`securityCode` `tradeDate` `open` `high` `low` `close` `preClose` `change` `pctChange` `volume` `amount`
 
 ### 分钟K线（A股）`quote minute-kline`
