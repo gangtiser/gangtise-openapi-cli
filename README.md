@@ -112,6 +112,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
 | | `announcement list` / `download` | 公告（含 Markdown 下载） |
 | **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
+| | `index-day-kline` | 沪深京指数日K线 |
 | | `minute-kline` | A股分钟K线 |
 | **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | 三大财务报表（累计） |
 | | `income-statement-quarterly` / `cash-flow-quarterly` | 利润表/现金流量表（单季度） |
@@ -135,6 +136,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | **Vault** | `drive-list` / `drive-download` | 云盘文件列表与下载 |
 | | `record-list` / `record-download` | 录音速记列表与下载 |
 | | `my-conference-list` / `my-conference-download` | 我的会议列表与下载 |
+| | `wechat-message-list` / `wechat-chatroom-list` | 群消息列表与群ID查询 |
 | **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
 
 ## 命令概览
@@ -187,6 +189,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `vault drive-list`
 - `vault record-list`
 - `vault my-conference-list`
+- `vault wechat-message-list`
 - `ai hot-topic`
 
 规则：
@@ -260,6 +263,8 @@ gangtise quote day-kline --security all --start-date 2026-04-01 --end-date 2026-
 gangtise quote day-kline-hk --security 00700.HK --start-date 2026-03-01 --end-date 2026-03-31
 # 港股全市场
 gangtise quote day-kline-hk --security all --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
+# 沪深京指数日K线
+gangtise quote index-day-kline --security 000001.SH --security 399001.SZ --start-date 2024-05-01 --end-date 2024-05-20 --field securityCode --field tradeDate --field close --field volume
 # A股分钟K线
 gangtise quote minute-kline --security 600519.SH --start-time "2026-04-15 09:30:00" --end-time "2026-04-15 15:00:00" --field open --field close --field volume
 ```
@@ -341,6 +346,10 @@ gangtise vault record-download --record-id 49412 --content-type summary
 gangtise vault my-conference-list --keyword AI --category earningsCall --institution C100000027
 # 我的会议下载（--content-type: asr/summary）
 gangtise vault my-conference-download --conference-id 43319 --content-type asr
+
+# 群消息：先按群名称查群ID，再按群ID查消息
+gangtise vault wechat-chatroom-list --room-name "AI学习群,投研分享群" --size 50
+gangtise vault wechat-message-list --keyword AI应用 --wechat-group-id ueKEGyhdjFGkjyebh --category text --category url --tag roadShow --tag meetingSummary --size 50
 ```
 
 ### Raw

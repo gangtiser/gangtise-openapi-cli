@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.10.10"
+version: "0.11.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -54,7 +54,7 @@ description: |-
 |----------|---------|---------|
 | insight list | 表格（≤20 行）+ 总数 | 标题 / 日期 / 机构 / 评级（如有） |
 | insight download | 文件路径 + 文件大小 | — |
-| quote day-kline | 表格（最近 10 个交易日） | 日期 / 收盘 / 涨跌幅 / 成交量 |
+| quote day-kline / index-day-kline | 表格（最近 10 个交易日） | 日期 / 收盘 / 涨跌幅 / 成交量 |
 | fundamental 报表 | 表格（按年度/报告期分行） | 报告期 + 所选字段值 |
 | fundamental valuation | 表格 + 分位点标注 | 日期 / 值 / 分位 |
 | fundamental earning-forecast | 表格（按日期×预测年份） | 预测年份 + 所选指标值 |
@@ -68,6 +68,8 @@ description: |-
 | vault drive-list | 编号列表 | 标题 / 文件类型 / 上传日期 |
 | vault record-list | 编号列表 + 总数 | 标题 / 录音类型 / 创建时间 / 时长 |
 | vault my-conference-list | 编号列表 + 总数 | 标题 / 会议类型 / 机构 / 时间 |
+| vault wechat-message-list | 编号列表 + 总数 | 时间 / 群名称 / 发言人 / 消息内容 / 标签 |
+| vault wechat-chatroom-list | 编号列表 | 群名称 / 群ID |
 
 超过 20 条时仅展示前 20 条 + 总数，询问是否导出全量。
 
@@ -88,7 +90,7 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 |----------|----------|------------|
 | insight list | `{list: [...], total: N}` | `list[].id` / `list[].title` / `list[].publishDate` / `list[].securityCode` / `list[].institutionName` |
 | insight download | 文件路径（stdout） | 解析输出路径字符串 |
-| quote day-kline | `{list: [...]}` | `list[].tradeDate` / `list[].close` / `list[].pctChange` / `list[].volume` |
+| quote day-kline / index-day-kline | `{fieldList, list}` 或 `{list: [...]}` | `tradeDate` / `close` / `pctChange` / `volume` |
 | fundamental 报表 | `{list: [...]}` | `list[].fiscalYear` / `list[].period` + 各 `--field` 字段 |
 | fundamental valuation | `{list: [...]}` | `list[].tradeDate` / `list[].value` / `list[].percentileRank` |
 | fundamental earning-forecast | `{securityCode, securityName, updateList: [...]}` | `updateList[].date` / `updateList[].fieldList[].forecastYear` + 各 consensus 指标 |
@@ -110,6 +112,8 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | vault record-download | 文件路径（stdout） | 解析输出路径字符串 |
 | vault my-conference-list | `{list: [...], total: N}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
 | vault my-conference-download | 文件路径（stdout） | 解析输出路径字符串 |
+| vault wechat-message-list | `{list: [...], total: N}` | `list[].msgId` / `list[].msgContent` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList` |
+| vault wechat-chatroom-list | `{chatRoomList: [...]}` | `chatRoomList[].chatroomName` / `chatRoomList[].chatroomId` |
 | lookup list | `[...]` | `[].id` / `[].name` |
 
 ### 异常处理
@@ -252,6 +256,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 搜索多类文档（研报+纪要等）| `ai knowledge-batch`（用多个 `--resource-type`）|
 | 日K线/行情 | `quote day-kline` |
 | 港股K线 | `quote day-kline-hk` |
+| 指数K线/指数日K线/沪深京指数 | `quote index-day-kline` |
 | 利润表/营收/净利润 | `fundamental income-statement` |
 | 资产负债表 | `fundamental balance-sheet` |
 | 现金流量表 | `fundamental cash-flow` |
@@ -278,6 +283,8 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 录音速记/速记 | `vault record-list` |
 | 我的会议/会议助理/会议/有哪些会议 | `vault my-conference-list` |
 | 业绩会/策略会/基金路演（我的） | `vault my-conference-list --category earningsCall/strategyMeeting/fundRoadshow` |
+| 群消息/微信群消息 | `vault wechat-message-list` |
+| 查群ID/微信群ID/群名称找ID | `vault wechat-chatroom-list` |
 | 下载文件 | `insight <type> download` / `vault drive-download` / `vault record-download` / `vault my-conference-download` |
 
 ## 公司名 → 证券代码
@@ -433,6 +440,16 @@ gangtise quote day-kline-hk [--security <code>] [--start-date <YYYY-MM-DD>] [--e
 
 - 支持港股（`.HK`），传 `--security all` 返回全市场数据
 - `--limit` 默认 6000，上限 10000（超过请缩短日期区间分批拉取）
+
+### 指数日K线（沪深京）`quote index-day-kline`
+
+```bash
+gangtise quote index-day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
+```
+
+- 支持沪深京指数（如 `000001.SH`、`399001.SZ`），传 `--security all` 返回全市场指数数据
+- `--limit` 默认 6000，上限 10000（超过请缩短日期区间分批拉取）
+- 常用字段：`securityCode` `tradeDate` `open` `high` `low` `close` `preClose` `change` `pctChange` `volume` `amount`
 
 ### 分钟K线（A股）`quote minute-kline`
 
@@ -706,6 +723,28 @@ gangtise vault my-conference-download --conference-id <id> --content-type <type>
 - `--content-type`（download 必选）：`asr` 语音识别 | `summary` AI速记
   - 口语映射：「语音识别/转写文本/ASR」→`asr`、「AI速记/智能摘要/会议纪要」→`summary`
 - 返回字段：`conferenceId` / `title` / `publishTime` / `category` / `institution{institutionId, institutionName}` / `security{securityCode, securityName}` / `researchArea{researchAreaId, researchAreaName}` / `guest`
+
+### 群消息 `vault wechat-message-list`
+
+```bash
+gangtise vault wechat-message-list [--keyword <text>] [--wechat-group-id <id>] [--industry <id>] [--category <type>] [--tag <tag>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
+```
+
+- 数据权限：仅用户已绑定并激活群消息助理、且助理已入群的私域群消息
+- `--wechat-group-id`：群ID，先用 `vault wechat-chatroom-list` 查询；可重复传多值
+- `--category`：`text` 文本 | `image` 图片 | `documents` 文档 | `url` 链接（可重复传多值）
+- `--tag`：`roadShow` 路演 | `research` 调研 | `strategyMeeting` 策略会 | `meetingSummary` 会议纪要 | `industryComment` 行业点评 | `companyComment` 公司点评 | `earningsReview` 业绩点评（可重复传多值）
+- 返回字段：`msgId` / `msgContent` / `contentUrl` / `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList`
+
+### 群ID查询 `vault wechat-chatroom-list`
+
+```bash
+gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n>]
+```
+
+- `--room-name`：群名称，多个名称可重复传或用英文逗号分隔
+- `--size` 默认 20，单页最大 50
+- 返回字段：`chatroomName` / `chatroomId`
 
 ---
 

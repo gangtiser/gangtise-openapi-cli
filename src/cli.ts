@@ -4,6 +4,7 @@ import { Command, Option } from "commander"
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
+import { buildQuoteKlineBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult } from "./core/download.js"
 import { ApiError, ConfigError } from "./core/errors.js"
@@ -206,11 +207,15 @@ program.addCommand(insight)
 const quote = new Command("quote").description("Quote APIs")
 quote.command("day-kline").option("--security <code>", "Security code (A-share: .SH/.SZ/.BJ, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("quote.day-kline", { securityList: maybeArray(options.security), startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
+  await printData(await client.call("quote.day-kline", buildQuoteKlineBody(options)), parseOutputFormat(options.format), options.output)
 })
 quote.command("day-kline-hk").option("--security <code>", "Security code (HK stock: .HK, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("quote.day-kline-hk", { securityList: maybeArray(options.security), startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
+  await printData(await client.call("quote.day-kline-hk", buildQuoteKlineBody(options)), parseOutputFormat(options.format), options.output)
+})
+quote.command("index-day-kline").option("--security <code>", "Index code (.SH/.SZ/.BJ, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("quote.index-day-kline", buildQuoteKlineBody(options)), parseOutputFormat(options.format), options.output)
 })
 quote.command("minute-kline").option("--security <code>", "Security code (A-share only: .SH/.SZ/.BJ)").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)").option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)").option("--limit <number>", "Max rows per request (default: 5000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -420,6 +425,14 @@ vault.command("my-conference-download").requiredOption("--conference-id <id>").r
   const result = await client.call("vault.my-conference.download", undefined, { conferenceId: options.conferenceId, contentType: options.contentType })
   const title = options.output ? undefined : await resolveTitle(client, result, "vault.my-conference.list", "conferenceId", options.conferenceId)
   await saveDownloadResult(result, `conference-${options.conferenceId}`, options.output ?? title)
+})
+vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("vault.wechat-message.list", buildWechatMessageListBody(options)), parseOutputFormat(options.format), options.output)
+})
+vault.command("wechat-chatroom-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Rows to return", "20").option("--room-name <name>", "WeChat group name; repeat or comma-separate for multiple names", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("vault.wechat-chatroom.list", buildWechatChatroomListBody(options)), parseOutputFormat(options.format), options.output)
 })
 program.addCommand(vault)
 program.addCommand(ai)

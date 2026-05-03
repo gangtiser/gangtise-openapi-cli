@@ -19,6 +19,17 @@
 | `pctChange` | 涨跌幅(%) | `volume` | 成交量(手) |
 | `amount` | 成交总额(元) | `adjustFactor` | 复权因子 |
 
+### 指数日K线（沪深京 `quote index-day-kline`）
+
+| 字段 | 含义 | 字段 | 含义 |
+|------|------|------|------|
+| `securityCode` | 指数代码 | `tradeDate` | 交易日期 |
+| `open` | 开盘价 | `high` | 最高价 |
+| `low` | 最低价 | `close` | 收盘价 |
+| `preClose` | 昨收价 | `change` | 涨跌额 |
+| `pctChange` | 涨跌幅(%) | `volume` | 成交量(手) |
+| `amount` | 成交总额(元) | | |
+
 ---
 
 ## Fundamental 基本面

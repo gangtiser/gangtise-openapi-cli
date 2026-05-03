@@ -96,6 +96,14 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINT_REGISTRY["quote.day-kline-hk"]).toBeDefined()
   })
 
+  it("includes quote index-day-kline endpoint", () => {
+    expect(ENDPOINT_REGISTRY["quote.index-day-kline"]).toBeDefined()
+    expect(ENDPOINTS.quoteIndexDayKline.key).toBe("quote.index-day-kline")
+    expect(ENDPOINTS.quoteIndexDayKline.method).toBe("POST")
+    expect(ENDPOINTS.quoteIndexDayKline.path).toBe("/application/open-quote/index/kline/daily")
+    expect(ENDPOINTS.quoteIndexDayKline.kind).toBe("json")
+  })
+
   it("A-share day-kline uses /open-quote/kline/daily path", () => {
     expect(ENDPOINTS.quoteDayKline.key).toBe("quote.day-kline")
     expect(ENDPOINTS.quoteDayKline.method).toBe("POST")
@@ -206,5 +214,16 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS.vaultMyConferenceDownload.path).toBe("/application/open-vault/my-conference/download/file")
     expect(ENDPOINTS.vaultMyConferenceDownload.kind).toBe("download")
     expect(ENDPOINTS.vaultMyConferenceDownload.method).toBe("GET")
+  })
+
+  it("vault wechat message endpoints use correct keys and paths", () => {
+    expect(ENDPOINTS.vaultWechatMessageList.key).toBe("vault.wechat-message.list")
+    expect(ENDPOINTS.vaultWechatMessageList.path).toBe("/application/open-vault/wechatgroupmsg/list")
+    expect(ENDPOINTS.vaultWechatMessageList.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+
+    expect(ENDPOINTS.vaultWechatChatroomList.key).toBe("vault.wechat-chatroom.list")
+    expect(ENDPOINTS.vaultWechatChatroomList.path).toBe("/application/open-vault/wechatgroupmsg/chatroomId")
+    expect(ENDPOINTS.vaultWechatChatroomList.kind).toBe("json")
+    expect(ENDPOINTS.vaultWechatChatroomList.method).toBe("POST")
   })
 })

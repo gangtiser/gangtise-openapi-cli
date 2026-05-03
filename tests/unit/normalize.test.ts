@@ -65,6 +65,20 @@ describe("normalizeRows", () => {
     ])
   })
 
+  it("unwraps chatRoomList rows for group ID responses", () => {
+    const result = normalizeRows({
+      chatRoomList: [
+        { chatroomName: "AI学习群", chatroomId: "wvbiijgwgejyeuwp" },
+        { chatroomName: "投研分享群", chatroomId: "wvbiijgwgekdfj" },
+      ],
+    })
+
+    expect(result).toEqual([
+      { chatroomName: "AI学习群", chatroomId: "wvbiijgwgejyeuwp" },
+      { chatroomName: "投研分享群", chatroomId: "wvbiijgwgekdfj" },
+    ])
+  })
+
   it("returns arrays as-is", () => {
     const input = [{ a: 1 }, { a: 2 }]
     expect(normalizeRows(input)).toEqual(input)

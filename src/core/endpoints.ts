@@ -191,6 +191,13 @@ export const ENDPOINTS = {
     kind: "json",
     description: "Query HK stock daily kline (HK)",
   },
+  quoteIndexDayKline: {
+    key: "quote.index-day-kline",
+    method: "POST",
+    path: "/application/open-quote/index/kline/daily",
+    kind: "json",
+    description: "Query SH/SZ/BJ index daily kline",
+  },
   fundamentalIncomeStatement: {
     key: "fundamental.income-statement",
     method: "POST",
@@ -413,6 +420,21 @@ export const ENDPOINTS = {
     path: "/application/open-vault/my-conference/download/file",
     kind: "download",
     description: "Download my conference resource",
+  },
+  vaultWechatMessageList: {
+    key: "vault.wechat-message.list",
+    method: "POST",
+    path: "/application/open-vault/wechatgroupmsg/list",
+    kind: "json",
+    description: "List WeChat group messages",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  vaultWechatChatroomList: {
+    key: "vault.wechat-chatroom.list",
+    method: "POST",
+    path: "/application/open-vault/wechatgroupmsg/chatroomId",
+    kind: "json",
+    description: "List WeChat group chatroom IDs",
   },
 } as const satisfies Record<string, EndpointDefinition>
 
