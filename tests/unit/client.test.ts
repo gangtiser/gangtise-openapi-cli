@@ -229,6 +229,15 @@ describe("GangtiseClient envelope unwrapping", () => {
     expect(result).toEqual({ status: true, items: ["a", "b"] })
   })
 
+  it("passes through a response with only 'code' (business field, not an envelope)", async () => {
+    requestMock.mockResolvedValueOnce(rawJsonResponse({ code: "000001.SH", name: "平安银行" }))
+
+    const client = createClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ code: "000001.SH", name: "平安银行" })
+  })
+
   it("unwraps a standard {code, data} envelope", async () => {
     requestMock.mockResolvedValueOnce(rawJsonResponse({ code: "000000", msg: "ok", data: { answer: 42 } }))
 

@@ -21,10 +21,7 @@ export async function readTokenCache(filePath: string): Promise<TokenCache | nul
       return parsed as TokenCache
     }
     return null
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return null
-    }
+  } catch {
     return null
   }
 }

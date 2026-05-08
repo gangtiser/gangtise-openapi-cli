@@ -7,6 +7,7 @@ import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom,
 import { buildQuoteKlineBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult } from "./core/download.js"
+import { ENDPOINTS } from "./core/endpoints.js"
 import { ApiError, ConfigError } from "./core/errors.js"
 import { normalizeRows } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
@@ -225,26 +226,15 @@ program.addCommand(quote)
 
 const fundamental = new Command("fundamental").description("Fundamental APIs")
 
-fundamental.command("income-statement").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+const addFinancialReport = (name: string, endpointKey: string, periodHelp = "Period") => fundamental.command(name).requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", periodHelp, collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("fundamental.income-statement", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
+  await printData(await client.call(endpointKey, { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
 })
-fundamental.command("income-statement-quarterly").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period: q1/q2/q3/q4/latest", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
-  const client = await createClient()
-  await printData(await client.call("fundamental.income-statement-quarterly", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
-})
-fundamental.command("balance-sheet").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
-  const client = await createClient()
-  await printData(await client.call("fundamental.balance-sheet", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
-})
-fundamental.command("cash-flow").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
-  const client = await createClient()
-  await printData(await client.call("fundamental.cash-flow", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
-})
-fundamental.command("cash-flow-quarterly").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period: q1/q2/q3/q4/latest", collectList, []).option("--report-type <type>", "Report type", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
-  const client = await createClient()
-  await printData(await client.call("fundamental.cash-flow-quarterly", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined, reportType: options.reportType.length ? options.reportType : undefined, fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
-})
+addFinancialReport("income-statement", "fundamental.income-statement")
+addFinancialReport("income-statement-quarterly", "fundamental.income-statement-quarterly", "Period: q1/q2/q3/q4/latest")
+addFinancialReport("balance-sheet", "fundamental.balance-sheet")
+addFinancialReport("cash-flow", "fundamental.cash-flow")
+addFinancialReport("cash-flow-quarterly", "fundamental.cash-flow-quarterly", "Period: q1/q2/q3/q4/latest")
 fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).option("--period <type>", "Period: interim/annual", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
   await printData(await client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, breakdown: options.breakdown, periodList: maybeArray(options.period), fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
@@ -438,6 +428,10 @@ program.addCommand(vault)
 program.addCommand(ai)
 
 program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
+  const endpoint = ENDPOINTS[endpointKey]
+  if (!endpoint) {
+    throw new ConfigError(`Unknown endpoint key: ${endpointKey}`)
+  }
   const client = await createClient()
   let body: unknown
   if (options.body) {
@@ -448,14 +442,40 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
     }
   }
   const data = await client.call(endpointKey, body, options.query)
-  if (data && typeof data === "object" && "data" in (data as Record<string, unknown>) && (data as { data?: unknown }).data instanceof Uint8Array) {
+  if (endpoint.kind === "download") {
     await saveDownloadResult(data, "download.bin", options.output)
     return
   }
   await printData(data, parseOutputFormat(options.format), options.output)
 }))
 
+async function checkForUpdate(timeoutMs = 2000): Promise<void> {
+  const https = await import("node:https")
+  await new Promise<void>((resolve) => {
+    const req = https.get("https://registry.npmjs.org/gangtise-openapi-cli/latest", (res) => {
+      let body = ""
+      res.on("data", (chunk: string) => { body += chunk })
+      res.on("end", () => {
+        try {
+          const latest: string = JSON.parse(body).version
+          if (latest && latest !== CLI_VERSION) {
+            process.stderr.write(`Update available: ${CLI_VERSION} → ${latest}\nRun: npm update -g gangtise-openapi-cli\n`)
+          }
+        } catch { /* ignore */ }
+        resolve()
+      })
+    })
+    req.on("error", () => resolve())
+    req.setTimeout(timeoutMs, () => { req.destroy(); resolve() })
+  })
+}
+
 async function main() {
+  if (process.argv.includes("--version") || process.argv.includes("-V")) {
+    process.stdout.write(`${CLI_VERSION}\n`)
+    await checkForUpdate()
+    return
+  }
   try {
     await program.parseAsync(process.argv)
   } catch (error) {
@@ -476,23 +496,3 @@ async function main() {
 }
 
 void main()
-
-// Background update check on --version
-if (process.argv.includes("--version") || process.argv.includes("-V")) {
-  import("node:https").then((https) => {
-    const req = https.get("https://registry.npmjs.org/gangtise-openapi-cli/latest", (res) => {
-      let body = ""
-      res.on("data", (chunk: string) => { body += chunk })
-      res.on("end", () => {
-        try {
-          const latest: string = JSON.parse(body).version
-          if (latest && latest !== CLI_VERSION) {
-            process.stderr.write(`\nUpdate available: ${CLI_VERSION} → ${latest}\nRun: npm update -g gangtise-openapi-cli\n`)
-          }
-        } catch { /* ignore */ }
-      })
-    })
-    req.on("error", () => { /* ignore */ })
-    req.setTimeout(3000, () => { req.destroy() })
-  }).catch(() => { /* ignore */ })
-}

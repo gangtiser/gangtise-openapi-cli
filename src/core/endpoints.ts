@@ -10,8 +10,9 @@ export interface EndpointDefinition {
   }
 }
 
-export const ENDPOINTS = {
-  authLogin: {
+export const ENDPOINTS: Record<string, EndpointDefinition> = {
+  // ─── auth ───
+  "auth.login": {
     key: "auth.login",
     method: "POST",
     path: "/application/auth/oauth/open/loginV2",
@@ -19,56 +20,57 @@ export const ENDPOINTS = {
     description: "Get access token",
   },
 
-  lookupResearchAreas: {
+  // ─── lookup (served from local data, not HTTP) ───
+  "lookup.research-areas.list": {
     key: "lookup.research-areas.list",
     method: "GET",
     path: "/guide/research-area-local",
     kind: "json",
     description: "List research areas from local docs",
   },
-  lookupBrokerOrgs: {
+  "lookup.broker-orgs.list": {
     key: "lookup.broker-orgs.list",
     method: "GET",
     path: "/guide/broker-orgs-local",
     kind: "json",
     description: "List broker orgs from local docs",
   },
-  lookupMeetingOrgs: {
+  "lookup.meeting-orgs.list": {
     key: "lookup.meeting-orgs.list",
     method: "GET",
     path: "/guide/meeting-orgs-local",
     kind: "json",
     description: "List meeting orgs from local docs",
   },
-  lookupIndustries: {
+  "lookup.industries.list": {
     key: "lookup.industries.list",
     method: "GET",
     path: "/guide/industries-local",
     kind: "json",
     description: "List industries from local docs",
   },
-  lookupRegions: {
+  "lookup.regions.list": {
     key: "lookup.regions.list",
     method: "GET",
     path: "/guide/regions-local",
     kind: "json",
     description: "List regions from local docs",
   },
-  lookupAnnouncementCategories: {
+  "lookup.announcement-categories.list": {
     key: "lookup.announcement-categories.list",
     method: "GET",
     path: "/guide/announcement-categories-local",
     kind: "json",
     description: "List announcement categories from local docs",
   },
-  lookupIndustryCodes: {
+  "lookup.industry-codes.list": {
     key: "lookup.industry-codes.list",
     method: "GET",
     path: "/guide/industry-codes-local",
     kind: "json",
     description: "List Shenwan industry codes from local docs",
   },
-  lookupThemeIds: {
+  "lookup.theme-ids.list": {
     key: "lookup.theme-ids.list",
     method: "GET",
     path: "/guide/theme-ids-local",
@@ -76,7 +78,8 @@ export const ENDPOINTS = {
     description: "List theme IDs from local docs",
   },
 
-  insightOpinionList: {
+  // ─── insight ───
+  "insight.opinion.list": {
     key: "insight.opinion.list",
     method: "POST",
     path: "/application/open-insight/chief-opinion/getList",
@@ -84,7 +87,7 @@ export const ENDPOINTS = {
     description: "List chief opinions",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightSummaryList: {
+  "insight.summary.list": {
     key: "insight.summary.list",
     method: "POST",
     path: "/application/open-insight/summary/v2/getList",
@@ -92,14 +95,14 @@ export const ENDPOINTS = {
     description: "List summaries",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightSummaryDownload: {
+  "insight.summary.download": {
     key: "insight.summary.download",
     method: "GET",
     path: "/application/open-insight/summary/v2/download/file",
     kind: "download",
     description: "Download summary file",
   },
-  insightRoadshowList: {
+  "insight.roadshow.list": {
     key: "insight.roadshow.list",
     method: "POST",
     path: "/application/open-insight/schedule/roadshow/getList",
@@ -107,7 +110,7 @@ export const ENDPOINTS = {
     description: "List roadshows",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightSiteVisitList: {
+  "insight.site-visit.list": {
     key: "insight.site-visit.list",
     method: "POST",
     path: "/application/open-insight/schedule/site-visit/getList",
@@ -115,7 +118,7 @@ export const ENDPOINTS = {
     description: "List site visits",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightStrategyList: {
+  "insight.strategy.list": {
     key: "insight.strategy.list",
     method: "POST",
     path: "/application/open-insight/schedule/strategy-meeting/getList",
@@ -123,7 +126,7 @@ export const ENDPOINTS = {
     description: "List strategy meetings",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightForumList: {
+  "insight.forum.list": {
     key: "insight.forum.list",
     method: "POST",
     path: "/application/open-insight/schedule/forum/getList",
@@ -131,7 +134,7 @@ export const ENDPOINTS = {
     description: "List forums",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightResearchList: {
+  "insight.research.list": {
     key: "insight.research.list",
     method: "POST",
     path: "/application/open-insight/broker-report/getList",
@@ -139,14 +142,14 @@ export const ENDPOINTS = {
     description: "List broker research reports",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightResearchDownload: {
+  "insight.research.download": {
     key: "insight.research.download",
     method: "GET",
     path: "/application/open-insight/broker-report/download/file",
     kind: "download",
     description: "Download broker research report",
   },
-  insightForeignReportList: {
+  "insight.foreign-report.list": {
     key: "insight.foreign-report.list",
     method: "POST",
     path: "/application/open-insight/foreign-report/getList",
@@ -154,14 +157,14 @@ export const ENDPOINTS = {
     description: "List foreign reports",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightForeignReportDownload: {
+  "insight.foreign-report.download": {
     key: "insight.foreign-report.download",
     method: "GET",
     path: "/application/open-insight/foreign-report/download/file",
     kind: "download",
     description: "Download foreign report",
   },
-  insightAnnouncementList: {
+  "insight.announcement.list": {
     key: "insight.announcement.list",
     method: "POST",
     path: "/application/open-insight/announcement/getList",
@@ -169,7 +172,7 @@ export const ENDPOINTS = {
     description: "List announcements",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  insightAnnouncementDownload: {
+  "insight.announcement.download": {
     key: "insight.announcement.download",
     method: "GET",
     path: "/application/open-insight/announcement/download/file",
@@ -177,92 +180,117 @@ export const ENDPOINTS = {
     description: "Download announcement file",
   },
 
-  quoteDayKline: {
+  // ─── quote ───
+  "quote.day-kline": {
     key: "quote.day-kline",
     method: "POST",
     path: "/application/open-quote/kline/daily",
     kind: "json",
     description: "Query A-share daily kline (SH/SZ/BJ)",
   },
-  quoteDayKlineHk: {
+  "quote.day-kline-hk": {
     key: "quote.day-kline-hk",
     method: "POST",
     path: "/application/open-quote/kline-hk/daily",
     kind: "json",
     description: "Query HK stock daily kline (HK)",
   },
-  quoteIndexDayKline: {
+  "quote.index-day-kline": {
     key: "quote.index-day-kline",
     method: "POST",
     path: "/application/open-quote/index/kline/daily",
     kind: "json",
     description: "Query SH/SZ/BJ index daily kline",
   },
-  fundamentalIncomeStatement: {
+  "quote.minute-kline": {
+    key: "quote.minute-kline",
+    method: "POST",
+    path: "/application/open-quote/kline/minute",
+    kind: "json",
+    description: "Query A-share minute kline (SH/SZ/BJ)",
+  },
+
+  // ─── fundamental ───
+  "fundamental.income-statement": {
     key: "fundamental.income-statement",
     method: "POST",
     path: "/application/open-fundamental/financial-report/income-statement/accumulated",
     kind: "json",
     description: "Query income statement (accumulated)",
   },
-  fundamentalBalanceSheet: {
+  "fundamental.income-statement-quarterly": {
+    key: "fundamental.income-statement-quarterly",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/income-statement/quarterly",
+    kind: "json",
+    description: "Query income statement (quarterly)",
+  },
+  "fundamental.balance-sheet": {
     key: "fundamental.balance-sheet",
     method: "POST",
     path: "/application/open-fundamental/financial-report/balance-sheet/accumulated",
     kind: "json",
     description: "Query balance sheet (accumulated)",
   },
-  fundamentalCashFlow: {
+  "fundamental.cash-flow": {
     key: "fundamental.cash-flow",
     method: "POST",
     path: "/application/open-fundamental/financial-report/cash-flow-statement/accumulated",
     kind: "json",
     description: "Query cash flow statement (accumulated)",
   },
-  fundamentalMainBusiness: {
+  "fundamental.cash-flow-quarterly": {
+    key: "fundamental.cash-flow-quarterly",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/cash-flow-statement/quarterly",
+    kind: "json",
+    description: "Query cash flow statement (quarterly)",
+  },
+  "fundamental.main-business": {
     key: "fundamental.main-business",
     method: "POST",
     path: "/application/open-fundamental/main-business",
     kind: "json",
     description: "Query main business composition",
   },
-  fundamentalEarningForecast: {
-    key: "fundamental.earning-forecast",
-    method: "POST",
-    path: "/application/open-fundamental/earning-forecast",
-    kind: "json",
-    description: "Query earning forecast (consensus estimates)",
-  },
-  fundamentalValuationAnalysis: {
+  "fundamental.valuation-analysis": {
     key: "fundamental.valuation-analysis",
     method: "POST",
     path: "/application/open-fundamental/valuation-analysis",
     kind: "json",
     description: "Query valuation analysis",
   },
-  fundamentalTopHolders: {
+  "fundamental.top-holders": {
     key: "fundamental.top-holders",
     method: "POST",
     path: "/application/open-fundamental/capital-structure/top-holders",
     kind: "json",
     description: "Query top holders (top10 / top10 float)",
   },
+  "fundamental.earning-forecast": {
+    key: "fundamental.earning-forecast",
+    method: "POST",
+    path: "/application/open-fundamental/earning-forecast",
+    kind: "json",
+    description: "Query earning forecast (consensus estimates)",
+  },
 
-  aiKnowledgeBatch: {
+  // ─── ai ───
+  "ai.knowledge-batch": {
     key: "ai.knowledge-batch",
     method: "POST",
     path: "/application/open-data/ai/search/knowledge/batch",
     kind: "json",
     description: "Batch knowledge search",
   },
-  aiKnowledgeResource: {
+  "ai.knowledge-resource.download": {
     key: "ai.knowledge-resource.download",
     method: "GET",
     path: "/application/open-data/ai/resource/download",
     kind: "download",
     description: "Download knowledge resource",
   },
-  aiSecurityClue: {
+  "ai.security-clue.list": {
     key: "ai.security-clue.list",
     method: "POST",
     path: "/application/open-ai/security-clue/getList",
@@ -270,56 +298,56 @@ export const ENDPOINTS = {
     description: "List security clues",
     pagination: { enabled: true, maxPageSize: 500 },
   },
-  aiOnePager: {
+  "ai.one-pager": {
     key: "ai.one-pager",
     method: "POST",
     path: "/application/open-ai/agent/one-pager",
     kind: "json",
     description: "Generate one pager",
   },
-  aiInvestmentLogic: {
+  "ai.investment-logic": {
     key: "ai.investment-logic",
     method: "POST",
     path: "/application/open-ai/agent/investment-logic",
     kind: "json",
     description: "Generate investment logic",
   },
-  aiPeerComparison: {
+  "ai.peer-comparison": {
     key: "ai.peer-comparison",
     method: "POST",
     path: "/application/open-ai/agent/peer-comparison",
     kind: "json",
     description: "Generate peer comparison",
   },
-  aiEarningsReviewGetId: {
+  "ai.earnings-review.get-id": {
     key: "ai.earnings-review.get-id",
     method: "POST",
     path: "/application/open-ai/agent/earnings-review-getid",
     kind: "json",
     description: "Get earnings review ID",
   },
-  aiEarningsReviewGetContent: {
+  "ai.earnings-review.get-content": {
     key: "ai.earnings-review.get-content",
     method: "POST",
     path: "/application/open-ai/agent/earnings-review-getcontent",
     kind: "json",
     description: "Get earnings review content",
   },
-  aiThemeTracking: {
+  "ai.theme-tracking": {
     key: "ai.theme-tracking",
     method: "POST",
     path: "/application/open-ai/agent/theme-tracking",
     kind: "json",
     description: "Get theme tracking daily report",
   },
-  aiResearchOutline: {
+  "ai.research-outline": {
     key: "ai.research-outline",
     method: "POST",
     path: "/application/open-ai/agent/research-outline",
     kind: "json",
     description: "Get company research outline",
   },
-  aiHotTopic: {
+  "ai.hot-topic": {
     key: "ai.hot-topic",
     method: "POST",
     path: "/application/open-ai/hot-topic/getList",
@@ -327,56 +355,37 @@ export const ENDPOINTS = {
     description: "List hot topic reports",
     pagination: { enabled: true, maxPageSize: 20 },
   },
-  aiManagementDiscussAnnouncement: {
+  "ai.management-discuss-announcement": {
     key: "ai.management-discuss-announcement",
     method: "POST",
     path: "/application/open-ai/management-discuss/from-announcement",
     kind: "json",
     description: "Management discussion from financial reports (half-year/annual)",
   },
-  aiManagementDiscussEarningsCall: {
+  "ai.management-discuss-earnings-call": {
     key: "ai.management-discuss-earnings-call",
     method: "POST",
     path: "/application/open-ai/management-discuss/from-earningsCall",
     kind: "json",
     description: "Management discussion from earnings calls",
   },
-  aiViewpointDebateGetId: {
+  "ai.viewpoint-debate.get-id": {
     key: "ai.viewpoint-debate.get-id",
     method: "POST",
     path: "/application/open-ai/agent/viewpoint-debate-getid",
     kind: "json",
     description: "Get viewpoint debate ID",
   },
-  aiViewpointDebateGetContent: {
+  "ai.viewpoint-debate.get-content": {
     key: "ai.viewpoint-debate.get-content",
     method: "POST",
     path: "/application/open-ai/agent/viewpoint-debate-getcontent",
     kind: "json",
     description: "Get viewpoint debate content",
   },
-  quoteMinuteKline: {
-    key: "quote.minute-kline",
-    method: "POST",
-    path: "/application/open-quote/kline/minute",
-    kind: "json",
-    description: "Query A-share minute kline (SH/SZ/BJ)",
-  },
-  fundamentalIncomeStatementQuarterly: {
-    key: "fundamental.income-statement-quarterly",
-    method: "POST",
-    path: "/application/open-fundamental/financial-report/income-statement/quarterly",
-    kind: "json",
-    description: "Query income statement (quarterly)",
-  },
-  fundamentalCashFlowQuarterly: {
-    key: "fundamental.cash-flow-quarterly",
-    method: "POST",
-    path: "/application/open-fundamental/financial-report/cash-flow-statement/quarterly",
-    kind: "json",
-    description: "Query cash flow statement (quarterly)",
-  },
-  vaultDriveList: {
+
+  // ─── vault ───
+  "vault.drive.list": {
     key: "vault.drive.list",
     method: "POST",
     path: "/application/open-vault/drive/getList",
@@ -384,14 +393,14 @@ export const ENDPOINTS = {
     description: "List vault drive files",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  vaultDriveDownload: {
+  "vault.drive.download": {
     key: "vault.drive.download",
     method: "GET",
     path: "/application/open-vault/drive/download/file",
     kind: "download",
     description: "Download vault drive file",
   },
-  vaultRecordList: {
+  "vault.record.list": {
     key: "vault.record.list",
     method: "POST",
     path: "/application/open-vault/record/getList",
@@ -399,14 +408,14 @@ export const ENDPOINTS = {
     description: "List voice recording transcriptions",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  vaultRecordDownload: {
+  "vault.record.download": {
     key: "vault.record.download",
     method: "GET",
     path: "/application/open-vault/record/download/file",
     kind: "download",
     description: "Download voice recording transcription file",
   },
-  vaultMyConferenceList: {
+  "vault.my-conference.list": {
     key: "vault.my-conference.list",
     method: "POST",
     path: "/application/open-vault/my-conference/getList",
@@ -414,14 +423,14 @@ export const ENDPOINTS = {
     description: "List my conferences",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  vaultMyConferenceDownload: {
+  "vault.my-conference.download": {
     key: "vault.my-conference.download",
     method: "GET",
     path: "/application/open-vault/my-conference/download/file",
     kind: "download",
     description: "Download my conference resource",
   },
-  vaultWechatMessageList: {
+  "vault.wechat-message.list": {
     key: "vault.wechat-message.list",
     method: "POST",
     path: "/application/open-vault/wechatgroupmsg/list",
@@ -429,16 +438,11 @@ export const ENDPOINTS = {
     description: "List WeChat group messages",
     pagination: { enabled: true, maxPageSize: 50 },
   },
-  vaultWechatChatroomList: {
+  "vault.wechat-chatroom.list": {
     key: "vault.wechat-chatroom.list",
     method: "POST",
     path: "/application/open-vault/wechatgroupmsg/chatroomId",
     kind: "json",
     description: "List WeChat group chatroom IDs",
   },
-} as const satisfies Record<string, EndpointDefinition>
-
-export const ENDPOINT_REGISTRY: Record<string, EndpointDefinition> = Object.values(ENDPOINTS).reduce<Record<string, EndpointDefinition>>((accumulator, endpoint) => {
-  accumulator[endpoint.key] = endpoint
-  return accumulator
-}, {})
+}

@@ -3,7 +3,7 @@ import { request } from "undici"
 import type { CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache } from "./auth.js"
 import { ApiError, ValidationError } from "./errors.js"
-import { ENDPOINTS, ENDPOINT_REGISTRY, type EndpointDefinition } from "./endpoints.js"
+import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
 
 interface Envelope<T> {
@@ -45,7 +45,7 @@ export class GangtiseClient {
       userName?: string
       tenantId?: number
       time: number
-    }>(ENDPOINTS.authLogin, {
+    }>(ENDPOINTS["auth.login"], {
       accessKey: credentials.accessKey,
       secretKey: credentials.secretKey,
     }, false)
@@ -63,7 +63,10 @@ export class GangtiseClient {
   }
 
   private isEnvelope<T>(parsed: unknown): parsed is Envelope<T> {
-    return Boolean(parsed && typeof parsed === 'object' && 'code' in parsed)
+    if (!parsed || typeof parsed !== 'object') return false
+    const obj = parsed as Record<string, unknown>
+    if (!('code' in obj)) return false
+    return 'msg' in obj || 'data' in obj || 'success' in obj || 'status' in obj
   }
 
   private throwHttpError(parsed: unknown, statusCode: number): never {
@@ -325,7 +328,7 @@ export class GangtiseClient {
   }
 
   async call(endpointKey: string, body?: unknown, query?: Record<string, string | number>) {
-    const endpoint = ENDPOINT_REGISTRY[endpointKey]
+    const endpoint = ENDPOINTS[endpointKey]
     if (!endpoint) {
       throw new ApiError(`Unknown endpoint key: ${endpointKey}`)
     }
