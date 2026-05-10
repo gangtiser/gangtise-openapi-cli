@@ -46,7 +46,7 @@ description: |-
 🔴 **需用户确认**：
 - `gangtise auth status` 未登录 → 提示配置 AK/SK 并中止
 - 多个命令同时匹配 → 复述理解让用户挑（如"搜索研报" → research list 还是 knowledge-batch？）
-- 无明确时间范围且预期数据量 >200 → 询问是否只拉前 200 还是全量
+- 用户说"全部 / 全量 / 全市场" → 确认是否真要拉全（默认 `--size 200`）
 - 下载格式或 `--content-type` 未确定 → 询问（详见下方"下载规则"）
 - list→download 用户没指定具体文件 → 展示前 10 条让用户挑
 
@@ -54,7 +54,8 @@ description: |-
 - 公司名 → 先速查表，否则 `reference securities-search`
 - opaque ID → 先 `references/lookup-ids.md`
 - 模糊时间词 → 查"时间词映射"
-- "AI速记"/"原始文件"/"语音识别" 等明确说法 → 直接映射 content-type
+- 无时间范围 → 默认拉前 200 条（不必问）
+- "AI速记/智能摘要/会议纪要"→`summary`、"原始文件/原文件"→`original`、"语音识别/转写文本/ASR"→`asr` — 用户已明示时直接映射 content-type，不必问
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -66,8 +67,8 @@ description: |-
 | `insight summary download` | `--file-type`（可选） | `1` 原始（默认）/ `2` HTML（仅会议平台来源） |
 | `insight independent-opinion download` | `--file-type` **必选** | `1` 原文 HTML / `2` 翻译 HTML |
 | `insight announcement-hk download` | — | 无格式选项 |
-| `vault record-download` | `--content-type` | `original` / `asr` / `summary` |
-| `vault my-conference-download` | `--content-type` | `asr` / `summary` |
+| `vault record-download` | `--content-type` | `original` 原始文件 / `asr` 语音识别 / `summary` AI 速记 |
+| `vault my-conference-download` | `--content-type` | `asr` 语音识别 / `summary` AI 速记 |
 
 省略 `--output` 时 CLI 自动用真实标题做文件名（先读本地 title-cache，未命中则回查 list 接口）。
 
@@ -141,9 +142,9 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 |------|---------|------|------|
 | **列表** | 大多数 `list` | `{list: [...], total: N}` | 遍历 list；CLI 已自动翻页 |
 | **下载** | 各 `download` | stdout = 文件路径字符串 | 直接读 stdout 整行 |
-| **AI 内容** | one-pager / investment-logic / peer-comparison / research-outline / earnings-review-check / viewpoint-debate-check | `{content: "markdown文本"}` | 取 `content` 直接呈现 |
+| **AI 内容** | one-pager / investment-logic / peer-comparison / research-outline | `{content: "markdown文本"}` | 取 `content` 直接呈现 |
 | **K 线** | quote * | `{list: [{tradeDate, ...}]}` | 按 tradeDate 排序，取需要的尾部 |
-| **异步** | earnings-review / viewpoint-debate | 提交 `{dataId}`；check `{status:"pending"}` 或 `{date, content}` | 轮询模式见下 |
+| **异步（含 *-check）** | earnings-review / viewpoint-debate / earnings-review-check / viewpoint-debate-check | 提交 `{dataId}`；check 成功 `{date, content}` / pending `{status:"pending"}` 或抛 `410110` | 见下方"异步任务流程" |
 
 完整字段对照见 `references/response-schema.md`。
 
@@ -165,14 +166,16 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 ## 时间词映射
 
-| 模糊词 | Insight / Vault / AI | Quote / Fundamental |
-|--------|---------------------|--------------------|
-| 最近 / 近期 | 7 天 | K 线 45 天；估值/财报 1 年 |
-| 最近一周 | 7 天 | 7 天 |
-| 最近一个月 | 30 天 | 30 天 |
-| 过去一年 / 近一年 | 1 年 | 1 年 |
-| 今年 | 1/1 至今 | 1/1 至今 |
-| 最新 / 今日（K 线） | — | **45 天范围拉回，从尾部取最近交易日** |
+| 模糊词 | Insight / Vault / AI | Quote K 线 | Fundamental（财报/估值） |
+|--------|---------------------|-----------|----------------------|
+| 最近 / 近期 | 7 天 | 45 天 | 1 年 |
+| 最近一周 | 7 天 | 7 天 | — |
+| 最近一个月 | 30 天 | 30 天 | — |
+| 过去一年 / 近一年 | 1 年 | 1 年 | 1 年 |
+| 今年 | 1/1 至今 | 1/1 至今 | 1/1 至今 |
+| 最新 / 今日 / 当前（K 线） | — | **45 天范围 → 从尾部取最近交易日**，不要只用 `--limit` | — |
+| 最新一期 / 最新报告期（财报） | — | — | 省略 `--fiscal-year`，传 `--period latest`（默认） |
+| 最新观点 / 今日观点 | 1 天范围 + `--rank-type 2` | — | — |
 
 参数命名：Insight/Vault/AI 用 `--start-time` / `--end-time`（datetime）；Quote/Fundamental 用 `--start-date` / `--end-date`（date）。
 
@@ -203,6 +206,46 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 - 空结果（list 为空数组） → 建议扩大时间范围、换关键词、去掉部分筛选
 - 模糊公司名匹配多只（"平安" → 中国平安 / 平安银行 / ...） → 列出让用户选
 - 下载文件路径冲突 → 询问覆盖
+
+## Troubleshooting（常见困境自救）
+
+按问题→诊断顺序依次尝试，第一条解决就停。
+
+**`securities-search` 找不到公司**
+1. 试拼音 / 首字母（如"贵州茅台"试 `gzmt`）
+2. 去掉"股份/有限公司/集团"等后缀重试
+3. 不传 `--category` 查所有分类（可能是 fund / DR）
+4. 还不行 → 请用户提供精确代码
+
+**`list` 全空但参数看着对**
+1. 时间窗太窄 → 扩到 30 天试
+2. `--security` 后缀拼错（如 `300750` 漏了 `.SZ`）
+3. 行业 ID 用错体系：`--industry`（数字 ID）/ `--research-area`（同 industry ID 复用）/ `--gts-code`（申万 `821xxx.SWI`）三套互不通用，详见 `references/commands/reference-and-lookup.md`
+4. `--rating` / `--category` 等枚举值拼错（参考对应命令的 references 文件）
+
+**`8000014` / `8000015` 反复**（CLI 已自动重试一次仍失败）
+1. `echo $GANGTISE_ACCESS_KEY` 验环境变量是否 export
+2. AK 和 SK 是否写反
+3. 账号是否到期 / 异常（`gangtise auth status`）
+
+**异步任务 `410111` 反复**（该报告期数据未生成）
+1. 换更早的 `--period`（如 `2025q3` → `2025interim`）
+2. `report-date` 用已发布的标准期：`xxxx-06-30` / `xxxx-12-31`
+3. 直接告知用户该期数据暂不可用
+
+**K 线返回的不是"最近"几条** → 只用 `--limit` 截的是窗口开头。必须改用 `--start-date`/`--end-date` 拉范围，再从结果尾部按 `tradeDate` 取最近 N 条。
+
+**翻页很慢 / 卡住** → `--verbose` 看哪一页慢；可 `GANGTISE_PAGE_CONCURRENCY=10` 提速，或缩小时间范围。
+
+**`--security all` 报 `430007`** → 单日数据仍超 10K 行（极端情况）→ 临时改用更窄的 `--start-date`/`--end-date`，或改为单只 `--security` 单独拉。
+
+**AI agent 命令（one-pager 等）超时** → 服务端生成耗时长，CLI 默认 30s → `GANGTISE_TIMEOUT_MS=120000` 后重试。
+
+**估值结果出现大量 `null`** → 最新交易日数据未入库 → 加 `--skip-null` 过滤掉 `value` / `percentileRank` 为 null 的行。
+
+**下载文件名乱码 / 截断** → terminal locale 或 shell quoting 问题 → 显式 `--output ./<title>.<ext>` 避开。
+
+**同一公司既是股票又是 DR** → `securities-search` 默认返回所有分类 → 加 `--category stock` 收敛。
 
 ## 详细参数
 
