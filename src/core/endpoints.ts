@@ -84,7 +84,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     method: "POST",
     path: "/application/open-insight/chief-opinion/getList",
     kind: "json",
-    description: "List chief opinions",
+    description: "List domestic institution chief opinions",
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.summary.list": {
@@ -169,7 +169,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     method: "POST",
     path: "/application/open-insight/announcement/getList",
     kind: "json",
-    description: "List announcements",
+    description: "List A-share announcements",
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.announcement.download": {
@@ -177,7 +177,54 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     method: "GET",
     path: "/application/open-insight/announcement/download/file",
     kind: "download",
-    description: "Download announcement file",
+    description: "Download A-share announcement file",
+  },
+  "insight.announcement-hk.list": {
+    key: "insight.announcement-hk.list",
+    method: "POST",
+    path: "/application/open-insight/announcement-hk/getList",
+    kind: "json",
+    description: "List HK announcements",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.announcement-hk.download": {
+    key: "insight.announcement-hk.download",
+    method: "GET",
+    path: "/application/open-insight/announcement-hk/download/file",
+    kind: "download",
+    description: "Download HK announcement file",
+  },
+  "insight.foreign-opinion.list": {
+    key: "insight.foreign-opinion.list",
+    method: "POST",
+    path: "/application/open-insight/foreign-opinion/getList",
+    kind: "json",
+    description: "List foreign institution opinions",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.independent-opinion.list": {
+    key: "insight.independent-opinion.list",
+    method: "POST",
+    path: "/application/open-insight/independent-opinion/getList",
+    kind: "json",
+    description: "List foreign independent analyst opinions",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.independent-opinion.download": {
+    key: "insight.independent-opinion.download",
+    method: "GET",
+    path: "/application/open-insight/independent-opinion/download/file",
+    kind: "download",
+    description: "Download foreign independent opinion file",
+  },
+
+  // ─── reference ───
+  "reference.securities-search": {
+    key: "reference.securities-search",
+    method: "POST",
+    path: "/application/open-reference/securities/search",
+    kind: "json",
+    description: "Search GTS codes (securities)",
   },
 
   // ─── quote ───

@@ -2,6 +2,49 @@
 
 一个可直接调用 Gangtise OpenAPI 获取金融数据的命令行工具，同时提供Agent Skill。
 
+## Changelog
+
+### v0.12.0 — 2026-05-10
+
+**性能 / 架构**
+- 翻页并行化：自动翻页接口拉到首页 `total` 后，剩余页通过 `Promise.all` 并发请求（默认并发 5，`GANGTISE_PAGE_CONCURRENCY` 可调）
+- 共享 `undici.Agent`：所有请求复用连接池（keep-alive 60s，max 16 连接），避免重复 TLS 握手
+- 流式下载：`--output` 指定时二进制响应直接 `pipeline` 到磁盘，不再走内存 `Uint8Array`
+- 流式输出：`--format jsonl/csv --output xxx` 且 ≥1000 行时逐行写盘
+- Token 内存缓存：Token 在进程内不再每次读盘
+- 自动重试：5xx / `ECONNRESET` / `ETIMEDOUT` / `999999` 自动指数退避重试 2 次
+- Token 自愈：8000014/8000015 自动重新登录并重试一次
+- 异步轮询退避：`earnings-review` / `viewpoint-debate` 轮询从固定 15s 改为 5→8→13→20→30s 指数退避
+- K线自动分片：`quote day-kline --security all` 等全市场查询自动按日期切分并发执行
+- 标题缓存：原"读全文→改→写全文"改为内存快照 + 原子写入（temp+rename）
+
+**调试 / 可观测性**
+- 新增 `--verbose` / `GANGTISE_VERBOSE=1`：打印每个请求的耗时、状态码、响应字节数到 stderr
+
+### v0.11.1 — 2026-05-10
+
+**新增接口**
+- `insight announcement-hk list/download` — 查询/下载港股公告
+- `insight foreign-opinion list` — 查询外资机构观点（外资券商）
+- `insight independent-opinion list/download` — 查询/下载外资独立分析师观点
+- `reference securities-search` — GTS Code 搜索（按名称/代码/拼音多维度匹配证券）
+
+**接口变更**
+- `insight summary download` 新增可选 `--file-type`（`1`=原始内容 / `2`=HTML），仅影响来源为会议平台的纪要
+- `insight announcement list/download` 名称调整为"查询A股公告列表/下载A股公告文件"（路径不变）
+- `insight opinion list` 名称调整为"查询内资机构观点列表"（路径不变）
+
+### v0.11.0 — 2026-04-17
+
+- 新增 `ai viewpoint-debate` / `viewpoint-debate-check` — 观点PK（异步）
+- 新增 `ai management-discuss-announcement` / `management-discuss-earnings-call` — 管理层讨论
+
+### v0.10.9 — 2026-04-10
+
+- 修复信封检测、版本更新检查、端点去重
+- 新增 `quote index-day-kline` 指数日K线
+- 新增 `vault wechat-message-list` / `wechat-chatroom-list` 群消息
+
 ## 首次安装
 
 ```bash
@@ -46,9 +89,14 @@ export GANGTISE_ACCESS_KEY="your-ak"
 export GANGTISE_SECRET_KEY="your-sk"
 export GANGTISE_BASE_URL="https://open.gangtise.com"
 export GANGTISE_TOKEN="Bearer xxx"
+
+# 性能/调试可选项
+export GANGTISE_PAGE_CONCURRENCY=5     # 翻页并发数（默认 5）
+export GANGTISE_VERBOSE=1              # 打印每个请求的耗时与字节数
+export GANGTISE_TIMEOUT_MS=30000       # 请求超时（默认 30s）
 ```
 
-如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。
+如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。Token 失效（8000014/8000015）时会自动重新登录并重试一次。
 
 
 ## AI Agent Skill
@@ -102,15 +150,19 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 |------|--------|------|
 | **Auth** | `login` / `status` | 认证登录、状态查询 |
 | **Lookup** | `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list` / `theme-id list` | 枚举速查（内置，无需额外文档） |
-| **Insight** | `opinion list` | 首席观点 |
-| | `summary list` / `download` | 纪要（含下载） |
+| **Insight** | `opinion list` | 内资机构观点 |
+| | `summary list` / `download` | 纪要（含下载，支持 `--file-type` 选原始/HTML） |
 | | `roadshow list` | 路演 |
 | | `site-visit list` | 调研 |
 | | `strategy list` | 策略 |
 | | `forum list` | 论坛 |
 | | `research list` / `download` | 研报（含 Markdown 下载） |
 | | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
-| | `announcement list` / `download` | 公告（含 Markdown 下载） |
+| | `announcement list` / `download` | A股公告（含 Markdown 下载） |
+| | `announcement-hk list` / `download` | 港股公告（含下载） |
+| | `foreign-opinion list` | 外资机构观点 |
+| | `independent-opinion list` / `download` | 外资独立分析师观点（含原文/翻译HTML下载） |
+| **Reference** | `securities-search` | GTS Code 搜索（按名称/代码/拼音匹配） |
 | **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
 | | `index-day-kline` | 沪深京指数日K线 |
 | | `minute-kline` | A股分钟K线 |
@@ -148,6 +200,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 - `gangtise fundamental ...`
 - `gangtise ai ...`
 - `gangtise vault ...`
+- `gangtise reference ...`
 - `gangtise raw call ...`
 
 ## 推荐工作流
@@ -173,6 +226,18 @@ gangtise quote day-kline --security 600519.SH --start-date 2025-03-01 --end-date
 gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 ```
 
+## 性能特性
+
+- **并发翻页**：自动翻页接口的首页拿到 `total` 后，剩余页用 `Promise.all` 并发拉取（默认并发数 5，可通过 `GANGTISE_PAGE_CONCURRENCY` 调整）。20 页查询从串行 ~10s 降到 ~2s。
+- **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
+- **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
+- **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
+- **自动重试**：5xx / `ECONNRESET` / `ETIMEDOUT` / `999999` 系统错误自动指数退避重试 2 次。
+- **Token 自愈**：调用返回 8000014/8000015 时自动强制刷新 Token 并重试一次。
+- **K线自动分片**：`quote day-kline --security all` 等全市场查询自动按日期切分（A股 2 天/片、HK 3 天/片、指数 30 天/片），并发执行后合并结果。
+- **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
+- **`--verbose`**：打印每个请求的方法、路径、状态码、耗时和响应大小到 stderr，方便定位慢查询。
+
 ## 自动翻页
 
 以下列表接口会自动翻页：
@@ -185,6 +250,9 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight research list`
 - `insight foreign-report list`
 - `insight announcement list`
+- `insight announcement-hk list`
+- `insight foreign-opinion list`
+- `insight independent-opinion list`
 - `ai security-clue`
 - `vault drive-list`
 - `vault record-list`
@@ -249,6 +317,31 @@ gangtise insight announcement download --announcement-id 123456 --file-type 2
 gangtise insight research download --report-id 12345 --output ./report.pdf
 
 gangtise insight roadshow list --institution C100000017
+
+# 港股公告
+gangtise insight announcement-hk list --security 01913.HK --rank-type 2 --size 20 --format json
+gangtise insight announcement-hk download --announcement-id ANN2026040200012345
+
+# 外资机构观点
+gangtise insight foreign-opinion list --keyword "自动驾驶" --region us --rank-type 2 --format json
+gangtise insight foreign-opinion list --security APP.O --rating buy --format json
+
+# 外资独立观点
+gangtise insight independent-opinion list --keyword "肿瘤" --industry 104370000 --format json
+gangtise insight independent-opinion download --independent-opinion-id 207051900018372 --file-type 2
+
+# 纪要下载（会议平台来源可选 HTML 格式）
+gangtise insight summary download --summary-id 4906813 --file-type 2
+```
+
+### Reference
+
+```bash
+# GTS Code 搜索：按公司名/代码/拼音查证券代码
+gangtise reference securities-search --keyword "贵州茅台" --category stock
+gangtise reference securities-search --keyword "600519" --category stock
+gangtise reference securities-search --keyword gzmt --top 5
+gangtise reference securities-search --keyword "银行" --category stock --category index
 ```
 
 ### Quote

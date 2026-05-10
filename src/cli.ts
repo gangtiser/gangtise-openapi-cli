@@ -5,6 +5,7 @@ import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/a
 import { readTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildQuoteKlineBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
+import { callKlineWithSharding } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult } from "./core/download.js"
 import { ENDPOINTS } from "./core/endpoints.js"
@@ -19,6 +20,27 @@ async function createClient() {
   return new GangtiseClient(loadConfig())
 }
 
+/**
+ * Run a download. If `output` is set we already know the destination, so the
+ * client streams the body straight to disk (no in-memory Uint8Array copy);
+ * otherwise we buffer and let the caller resolve a friendly title.
+ */
+async function runDownload(
+  client: { call: (k: string, body?: unknown, q?: Record<string, string | number>, o?: { streamTo?: string }) => Promise<unknown> },
+  endpointKey: string,
+  query: Record<string, string | number>,
+  options: { output?: string; fallbackName: string; resolveOutputPath?: (result: unknown) => Promise<string | undefined> },
+): Promise<void> {
+  if (options.output) {
+    const result = await client.call(endpointKey, undefined, query, { streamTo: options.output })
+    await saveDownloadResult(result, options.fallbackName, options.output)
+    return
+  }
+  const result = await client.call(endpointKey, undefined, query)
+  const resolved = options.resolveOutputPath ? await options.resolveOutputPath(result) : undefined
+  await saveDownloadResult(result, options.fallbackName, resolved)
+}
+
 function addTimeFilters(command: Command) {
   return command
     .option("--from <number>", "Starting offset", "0")
@@ -28,11 +50,19 @@ function addTimeFilters(command: Command) {
     .option("--keyword <keyword>", "Keyword")
 }
 
+import { setVerbose } from "./core/transport.js"
 import { CLI_VERSION } from "./version.js"
 
 const program = new Command()
 
-program.name("gangtise").description("Gangtise OpenAPI CLI").version(CLI_VERSION)
+program
+  .name("gangtise")
+  .description("Gangtise OpenAPI CLI")
+  .version(CLI_VERSION)
+  .option("--verbose", "Print per-request timings to stderr (also: GANGTISE_VERBOSE=1)")
+  .hook("preAction", (thisCommand) => {
+    if (thisCommand.opts().verbose) setVerbose(true)
+  })
 
 program
   .command("auth")
@@ -101,6 +131,9 @@ const forum = new Command("forum")
 const research = new Command("research")
 const foreignReport = new Command("foreign-report")
 const announcement = new Command("announcement")
+const announcementHk = new Command("announcement-hk")
+const foreignOpinion = new Command("foreign-opinion")
+const independentOpinion = new Command("independent-opinion")
 
 addTimeFilters(opinion.command("list").option("--rank-type <number>", "Rank type", "1").option("--research-area <id>", "Research area ID", collectList, []).option("--chief <id>", "Chief ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--concept <id>", "Concept ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--source <source>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
   const client = await createClient()
@@ -121,11 +154,15 @@ addTimeFilters(summary.command("list").option("--search-type <number>", "Search 
     categoryList: maybeArray(options.category), marketList: maybeArray(options.market), participantRoleList: maybeArray(options.participantRole),
   }), parseOutputFormat(options.format), options.output, { endpointKey: "insight.summary.list", idField: "summaryId" })
 })
-summary.command("download").requiredOption("--summary-id <id>").option("--output <path>").action(async (options) => {
+summary.command("download").requiredOption("--summary-id <id>").option("--file-type <number>", "File type: 1=original(default) 2=HTML; only affects meeting platform summaries").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("insight.summary.download", undefined, { summaryId: options.summaryId })
-  const title = options.output ? undefined : await resolveTitle(client, result, "insight.summary.list", "summaryId", options.summaryId)
-  await saveDownloadResult(result, `summary-${options.summaryId}`, options.output ?? title)
+  const qp: Record<string, string | number> = { summaryId: options.summaryId }
+  if (options.fileType) qp.fileType = parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 })
+  await runDownload(client, "insight.summary.download", qp, {
+    output: options.output,
+    fallbackName: `summary-${options.summaryId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "insight.summary.list", "summaryId", options.summaryId),
+  })
 })
 
 const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--object <type>", "Object type: company/industry", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
@@ -155,9 +192,11 @@ addTimeFilters(research.command("list").option("--search-type <number>", "Search
 })
 research.command("download").requiredOption("--report-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown", "1").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("insight.research.download", undefined, { reportId: options.reportId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) })
-  const title = options.output ? undefined : await resolveTitle(client, result, "insight.research.list", "reportId", options.reportId)
-  await saveDownloadResult(result, `research-${options.reportId}`, options.output ?? title)
+  await runDownload(client, "insight.research.download", { reportId: options.reportId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
+    output: options.output,
+    fallbackName: `research-${options.reportId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "insight.research.list", "reportId", options.reportId),
+  })
 })
 
 addTimeFilters(foreignReport.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--region <id>", "Region ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
@@ -173,9 +212,11 @@ addTimeFilters(foreignReport.command("list").option("--search-type <number>", "S
 })
 foreignReport.command("download").requiredOption("--report-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", "1").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("insight.foreign-report.download", undefined, { reportId: options.reportId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) })
-  const title = options.output ? undefined : await resolveTitle(client, result, "insight.foreign-report.list", "reportId", options.reportId)
-  await saveDownloadResult(result, `foreign-report-${options.reportId}`, options.output ?? title)
+  await runDownload(client, "insight.foreign-report.download", { reportId: options.reportId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
+    output: options.output,
+    fallbackName: `foreign-report-${options.reportId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "insight.foreign-report.list", "reportId", options.reportId),
+  })
 })
 
 addTimeFilters(announcement.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--announcement-type <type>", "Announcement type", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
@@ -189,9 +230,63 @@ addTimeFilters(announcement.command("list").option("--search-type <number>", "Se
 })
 announcement.command("download").requiredOption("--announcement-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown", "1").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("insight.announcement.download", undefined, { announcementId: options.announcementId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) })
-  const title = options.output ? undefined : await resolveTitle(client, result, "insight.announcement.list", "announcementId", options.announcementId)
-  await saveDownloadResult(result, `announcement-${options.announcementId}`, options.output ?? title)
+  await runDownload(client, "insight.announcement.download", { announcementId: options.announcementId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
+    output: options.output,
+    fallbackName: `announcement-${options.announcementId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "insight.announcement.list", "announcementId", options.announcementId),
+  })
+})
+
+addTimeFilters(announcementHk.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. 01913.HK)", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("insight.announcement-hk.list", {
+    from: parseFrom(options.from), size: parseSize(options.size),
+    startTime: options.startTime, endTime: options.endTime,
+    searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }),
+    rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
+    keyword: options.keyword,
+    securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
+  }), parseOutputFormat(options.format), options.output, { endpointKey: "insight.announcement-hk.list", idField: "announcementId" })
+})
+announcementHk.command("download").requiredOption("--announcement-id <id>").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await runDownload(client, "insight.announcement-hk.download", { announcementId: options.announcementId }, {
+    output: options.output,
+    fallbackName: `announcement-hk-${options.announcementId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "insight.announcement-hk.list", "announcementId", options.announcementId),
+  })
+})
+
+addTimeFilters(foreignOpinion.command("list").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("insight.foreign-opinion.list", {
+    from: parseFrom(options.from), size: parseSize(options.size),
+    startTime: options.startTime, endTime: options.endTime,
+    rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
+    keyword: options.keyword,
+    regionList: maybeArray(options.region), industryList: maybeArray(options.industry),
+    securityList: maybeArray(options.security), brokerList: maybeArray(options.broker),
+    ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
+  }), parseOutputFormat(options.format), options.output)
+})
+
+addTimeFilters(independentOpinion.command("list").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. GSK.N)", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("insight.independent-opinion.list", {
+    from: parseFrom(options.from), size: parseSize(options.size),
+    startTime: options.startTime, endTime: options.endTime,
+    rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
+    keyword: options.keyword,
+    industryList: maybeArray(options.industry), securityList: maybeArray(options.security),
+    ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
+  }), parseOutputFormat(options.format), options.output)
+})
+independentOpinion.command("download").requiredOption("--independent-opinion-id <id>").requiredOption("--file-type <number>", "File type: 1=original HTML 2=CN-translated HTML").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await runDownload(client, "insight.independent-opinion.download", { independentOpinionId: options.independentOpinionId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
+    output: options.output,
+    fallbackName: `independent-opinion-${options.independentOpinionId}`,
+  })
 })
 
 insight.addCommand(opinion)
@@ -203,20 +298,23 @@ insight.addCommand(forum)
 insight.addCommand(research)
 insight.addCommand(foreignReport)
 insight.addCommand(announcement)
+insight.addCommand(announcementHk)
+insight.addCommand(foreignOpinion)
+insight.addCommand(independentOpinion)
 program.addCommand(insight)
 
 const quote = new Command("quote").description("Quote APIs")
 quote.command("day-kline").option("--security <code>", "Security code (A-share: .SH/.SZ/.BJ, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("quote.day-kline", buildQuoteKlineBody(options)), parseOutputFormat(options.format), options.output)
+  await printData(await callKlineWithSharding(client, "quote.day-kline", buildQuoteKlineBody(options), { shardDays: 2 }), parseOutputFormat(options.format), options.output)
 })
 quote.command("day-kline-hk").option("--security <code>", "Security code (HK stock: .HK, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("quote.day-kline-hk", buildQuoteKlineBody(options)), parseOutputFormat(options.format), options.output)
+  await printData(await callKlineWithSharding(client, "quote.day-kline-hk", buildQuoteKlineBody(options), { shardDays: 3 }), parseOutputFormat(options.format), options.output)
 })
 quote.command("index-day-kline").option("--security <code>", "Index code (.SH/.SZ/.BJ, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await client.call("quote.index-day-kline", buildQuoteKlineBody(options)), parseOutputFormat(options.format), options.output)
+  await printData(await callKlineWithSharding(client, "quote.index-day-kline", buildQuoteKlineBody(options), { shardDays: 30 }), parseOutputFormat(options.format), options.output)
 })
 quote.command("minute-kline").option("--security <code>", "Security code (A-share only: .SH/.SZ/.BJ)").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)").option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)").option("--limit <number>", "Max rows per request (default: 5000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -277,7 +375,10 @@ ai.command("knowledge-batch").requiredOption("--query <text>", "Query", collectL
 })
 ai.command("knowledge-resource-download").requiredOption("--resource-type <number>").requiredOption("--source-id <id>").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await saveDownloadResult(await client.call("ai.knowledge-resource.download", undefined, { resourceType: parseNumberOption(options.resourceType, "--resource-type", { integer: true, min: 0 }), sourceId: options.sourceId }), `resource-${options.sourceId}`, options.output)
+  await runDownload(client, "ai.knowledge-resource.download", { resourceType: parseNumberOption(options.resourceType, "--resource-type", { integer: true, min: 0 }), sourceId: options.sourceId }, {
+    output: options.output,
+    fallbackName: `resource-${options.sourceId}`,
+  })
 })
 ai.command("security-clue").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").requiredOption("--start-time <datetime>").requiredOption("--end-time <datetime>").addOption(new Option("--query-mode <mode>").choices(["bySecurity", "byIndustry"]).makeOptionMandatory()).option("--gts-code <code>", "GTS code", collectList, []).option("--source <name>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -385,6 +486,17 @@ ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId fr
   const client = await createClient()
   await checkAsyncContent(client, "ai.viewpoint-debate.get-content", options.dataId, parseOutputFormat(options.format), options.output)
 })
+const reference = new Command("reference").description("Reference data APIs")
+reference.command("securities-search").requiredOption("--keyword <text>", "Search keyword (name/code/pinyin/English)").option("--category <type>", "Category: stock/dr/index/fund", collectList, []).option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("reference.securities-search", {
+    keyword: options.keyword,
+    category: options.category.length ? options.category : undefined,
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+  }), parseOutputFormat(options.format), options.output)
+})
+program.addCommand(reference)
+
 const vault = new Command("vault").description("Vault APIs")
 vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -392,9 +504,11 @@ vault.command("drive-list").option("--from <number>", "Starting offset", "0").op
 })
 vault.command("drive-download").requiredOption("--file-id <id>").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("vault.drive.download", undefined, { fileId: options.fileId })
-  const title = options.output ? undefined : await resolveTitle(client, result, "vault.drive.list", "fileId", options.fileId)
-  await saveDownloadResult(result, `file-${options.fileId}`, options.output ?? title)
+  await runDownload(client, "vault.drive.download", { fileId: options.fileId }, {
+    output: options.output,
+    fallbackName: `file-${options.fileId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "vault.drive.list", "fileId", options.fileId),
+  })
 })
 vault.command("record-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--category <name>", "Recording type: upload/link/mobile/gtNote/pc/share", collectList, []).option("--space-type <number>", "Space type: 1=my records / 2=tenant records", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -402,9 +516,11 @@ vault.command("record-list").option("--from <number>", "Starting offset", "0").o
 })
 vault.command("record-download").requiredOption("--record-id <id>").requiredOption("--content-type <type>", "Content type: original/asr/summary").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("vault.record.download", undefined, { recordId: options.recordId, contentType: options.contentType })
-  const title = options.output ? undefined : await resolveTitle(client, result, "vault.record.list", "recordId", options.recordId)
-  await saveDownloadResult(result, `record-${options.recordId}`, options.output ?? title)
+  await runDownload(client, "vault.record.download", { recordId: options.recordId, contentType: options.contentType }, {
+    output: options.output,
+    fallbackName: `record-${options.recordId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "vault.record.list", "recordId", options.recordId),
+  })
 })
 vault.command("my-conference-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--research-area <id>", "Research area ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -412,9 +528,11 @@ vault.command("my-conference-list").option("--from <number>", "Starting offset",
 })
 vault.command("my-conference-download").requiredOption("--conference-id <id>").requiredOption("--content-type <type>", "Content type: asr/summary").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  const result = await client.call("vault.my-conference.download", undefined, { conferenceId: options.conferenceId, contentType: options.contentType })
-  const title = options.output ? undefined : await resolveTitle(client, result, "vault.my-conference.list", "conferenceId", options.conferenceId)
-  await saveDownloadResult(result, `conference-${options.conferenceId}`, options.output ?? title)
+  await runDownload(client, "vault.my-conference.download", { conferenceId: options.conferenceId, contentType: options.contentType }, {
+    output: options.output,
+    fallbackName: `conference-${options.conferenceId}`,
+    resolveOutputPath: (result) => resolveTitle(client, result, "vault.my-conference.list", "conferenceId", options.conferenceId),
+  })
 })
 vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
@@ -441,11 +559,14 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
       throw new ConfigError(`Invalid JSON in --body: ${options.body}`)
     }
   }
-  const data = await client.call(endpointKey, body, options.query)
   if (endpoint.kind === "download") {
-    await saveDownloadResult(data, "download.bin", options.output)
+    await runDownload(client, endpointKey, options.query as Record<string, string | number>, {
+      output: options.output,
+      fallbackName: "download.bin",
+    })
     return
   }
+  const data = await client.call(endpointKey, body, options.query)
   await printData(data, parseOutputFormat(options.format), options.output)
 }))
 

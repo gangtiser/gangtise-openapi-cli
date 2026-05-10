@@ -19,24 +19,60 @@ export interface TitleCacheConfig {
   titleField?: string
 }
 
-export async function readTitleCache(filePath = DEFAULT_TITLE_CACHE_PATH): Promise<TitleCacheData> {
+// Per-process in-memory snapshot of the cache. We read the file at most once,
+// merge subsequent writes in memory, and flush atomically. This avoids the
+// "read whole file → modify → write whole file" pattern firing on every list
+// command (which got expensive once dozens of endpoints accumulated).
+let memoryCache: TitleCacheData | null = null
+let memoryCachePath: string | null = null
+let pendingWrite: Promise<void> | null = null
+let dirty = false
+
+async function loadInto(filePath: string): Promise<TitleCacheData> {
+  if (memoryCache && memoryCachePath === filePath) return memoryCache
   try {
     const content = await fs.readFile(filePath, "utf8")
     const parsed = JSON.parse(content)
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as TitleCacheData
-    }
+    memoryCache = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as TitleCacheData) : {}
   } catch {
-    return {}
+    memoryCache = {}
   }
-  return {}
+  memoryCachePath = filePath
+  return memoryCache
+}
+
+export async function readTitleCache(filePath = DEFAULT_TITLE_CACHE_PATH): Promise<TitleCacheData> {
+  return loadInto(filePath)
+}
+
+async function flush(filePath: string): Promise<void> {
+  if (!dirty || !memoryCache) return
+  dirty = false
+  const snapshot = JSON.stringify(memoryCache)
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  // Atomic-ish: write to temp file then rename (rename is atomic within a fs).
+  const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`
+  await fs.writeFile(tmp, snapshot, { encoding: "utf8", mode: 0o600 })
+  try {
+    await fs.rename(tmp, filePath)
+  } catch (error) {
+    await fs.unlink(tmp).catch(() => {})
+    throw error
+  }
 }
 
 export async function writeTitleCache(endpoint: string, titles: Record<string, string>, filePath = DEFAULT_TITLE_CACHE_PATH): Promise<void> {
-  const data = await readTitleCache(filePath)
-  data[endpoint] = { titles, ts: Date.now() }
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
-  await fs.writeFile(filePath, JSON.stringify(data), { encoding: "utf8", mode: 0o600 })
+  const data = await loadInto(filePath)
+  const existing = data[endpoint]?.titles ?? {}
+  data[endpoint] = { titles: { ...existing, ...titles }, ts: Date.now() }
+  dirty = true
+
+  // Coalesce concurrent writes: the in-flight flush picks up everything dirty.
+  if (pendingWrite) return pendingWrite
+  pendingWrite = (async () => {
+    try { await flush(filePath) } finally { pendingWrite = null }
+  })()
+  return pendingWrite
 }
 
 export function lookupTitleCache(data: TitleCacheData, endpoint: string, id: string): string | undefined {
@@ -60,4 +96,12 @@ export function extractTitles(items: unknown[], cache: TitleCacheConfig): Record
   }
 
   return titles
+}
+
+/** Test-only hook to reset the in-memory snapshot between cases. */
+export function __resetTitleCacheForTests(): void {
+  memoryCache = null
+  memoryCachePath = null
+  pendingWrite = null
+  dirty = false
 }

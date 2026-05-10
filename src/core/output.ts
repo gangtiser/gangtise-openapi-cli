@@ -121,6 +121,66 @@ export function renderOutput(value: unknown, format: OutputFormat): string {
   }
 }
 
+/** Stream large jsonl/csv output row-by-row to avoid building a full string in memory. */
+export async function streamOutputToFile(value: unknown, format: OutputFormat, outputPath: string): Promise<boolean> {
+  if (format !== "jsonl" && format !== "csv") return false
+
+  const list = pickListForStreaming(value)
+  if (!list) return false
+  // Below this row count the join() approach is cheaper than per-row writes.
+  if (list.length < 1000) return false
+
+  const { dirname } = await import("node:path")
+  const { createWriteStream } = await import("node:fs")
+  await fs.mkdir(dirname(outputPath), { recursive: true })
+
+  const stream = createWriteStream(outputPath, { encoding: "utf8" })
+  try {
+    if (format === "jsonl") {
+      for (const item of list) {
+        await writeLine(stream, JSON.stringify(item))
+      }
+    } else {
+      const objectRows = list.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
+      const columns = Array.from(new Set(objectRows.flatMap((row) => Object.keys(row))))
+      await writeLine(stream, columns.join(","))
+      for (const row of objectRows) {
+        const cells = columns.map((column) => csvEscape(formatScalar(row[column])))
+        await writeLine(stream, cells.join(","))
+      }
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      stream.end((err?: Error | null) => err ? reject(err) : resolve())
+    })
+  }
+  return true
+}
+
+function pickListForStreaming(value: unknown): unknown[] | null {
+  if (Array.isArray(value)) return value
+  if (value && typeof value === "object") {
+    const list = (value as Record<string, unknown>).list
+    if (Array.isArray(list)) return list
+  }
+  return null
+}
+
+function csvEscape(value: string): string {
+  let out = value
+  if (/^[=+\-@\t\r]/.test(out)) out = "'" + out
+  if (/[",\n]/.test(out)) return `"${out.replaceAll("\"", "\"\"")}"`
+  return out
+}
+
+function writeLine(stream: { write(chunk: string, cb?: (err?: Error | null) => void): boolean; once(event: "drain", cb: () => void): unknown }, line: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const ok = stream.write(line + "\n", (err?: Error | null) => err ? reject(err) : undefined)
+    if (ok) resolve()
+    else stream.once("drain", () => resolve())
+  })
+}
+
 export async function saveOutputIfNeeded(content: string | Uint8Array, outputPath?: string): Promise<void> {
   if (!outputPath) {
     return

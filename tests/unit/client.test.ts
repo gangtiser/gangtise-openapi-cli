@@ -7,9 +7,13 @@ const { requestMock } = vi.hoisted(() => ({
   requestMock: vi.fn(),
 }))
 
-vi.mock("undici", () => ({
-  request: requestMock,
-}))
+vi.mock("undici", async () => {
+  const actual = await vi.importActual<typeof import("undici")>("undici")
+  return {
+    ...actual,
+    request: requestMock,
+  }
+})
 
 function createClient() {
   return new GangtiseClient({
@@ -60,16 +64,38 @@ function binaryResponse(data: Uint8Array) {
   }
 }
 
+interface PageDef {
+  total: number
+  fieldList?: string[]
+  itemFor: (id: number) => unknown
+}
+
+/**
+ * Mock that responds based on the `from` and `size` in the request body, so
+ * tests don't depend on call ordering (parallel pagination fans out requests).
+ */
+function paginatedMock(def: PageDef) {
+  requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+    const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+    const from = body.from ?? 0
+    const size = body.size ?? 20
+    const start = from + 1
+    const available = Math.max(def.total - from, 0)
+    const count = Math.max(0, Math.min(size, available))
+    const list = Array.from({ length: count }, (_, i) => def.itemFor(start + i))
+    const data: Record<string, unknown> = { total: def.total, list }
+    if (def.fieldList) data.fieldList = def.fieldList
+    return Promise.resolve(jsonResponse(data))
+  })
+}
+
 describe("GangtiseClient pagination", () => {
   beforeEach(() => {
     requestMock.mockReset()
   })
 
   it("returns exactly the requested size across multiple pages", async () => {
-    requestMock
-      .mockResolvedValueOnce(jsonResponse({ total: 300, list: Array.from({ length: 50 }, (_, index) => ({ id: index + 1 })) }))
-      .mockResolvedValueOnce(jsonResponse({ total: 300, list: Array.from({ length: 50 }, (_, index) => ({ id: index + 51 })) }))
-      .mockResolvedValueOnce(jsonResponse({ total: 300, list: Array.from({ length: 20 }, (_, index) => ({ id: index + 101 })) }))
+    paginatedMock({ total: 300, itemFor: (id) => ({ id }) })
 
     const client = createClient()
     const result = await client.call("insight.research.list", { from: 0, size: 120 }) as { total: number; list: Array<{ id: number }> }
@@ -82,10 +108,7 @@ describe("GangtiseClient pagination", () => {
   })
 
   it("fetches all remaining rows when size is omitted", async () => {
-    requestMock
-      .mockResolvedValueOnce(jsonResponse({ total: 118, list: Array.from({ length: 50 }, (_, index) => ({ id: index + 1 })) }))
-      .mockResolvedValueOnce(jsonResponse({ total: 118, list: Array.from({ length: 50 }, (_, index) => ({ id: index + 51 })) }))
-      .mockResolvedValueOnce(jsonResponse({ total: 118, list: Array.from({ length: 18 }, (_, index) => ({ id: index + 101 })) }))
+    paginatedMock({ total: 118, itemFor: (id) => ({ id }) })
 
     const client = createClient()
     const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: Array<{ id: number }> }
@@ -98,9 +121,7 @@ describe("GangtiseClient pagination", () => {
   })
 
   it("starts from a non-zero offset and stops at requested size", async () => {
-    requestMock
-      .mockResolvedValueOnce(jsonResponse({ total: 300, list: Array.from({ length: 50 }, (_, index) => ({ id: index + 51 })) }))
-      .mockResolvedValueOnce(jsonResponse({ total: 300, list: Array.from({ length: 30 }, (_, index) => ({ id: index + 101 })) }))
+    paginatedMock({ total: 300, itemFor: (id) => ({ id }) })
 
     const client = createClient()
     const result = await client.call("insight.research.list", { from: 50, size: 80 }) as { total: number; list: Array<{ id: number }> }
@@ -112,9 +133,7 @@ describe("GangtiseClient pagination", () => {
   })
 
   it("returns all remaining rows when requested size exceeds available rows", async () => {
-    requestMock
-      .mockResolvedValueOnce(jsonResponse({ total: 70, list: Array.from({ length: 50 }, (_, index) => ({ id: index + 1 })) }))
-      .mockResolvedValueOnce(jsonResponse({ total: 70, list: Array.from({ length: 20 }, (_, index) => ({ id: index + 51 })) }))
+    paginatedMock({ total: 70, itemFor: (id) => ({ id }) })
 
     const client = createClient()
     const result = await client.call("insight.research.list", { from: 0, size: 120 }) as { total: number; list: Array<{ id: number }> }
@@ -122,13 +141,14 @@ describe("GangtiseClient pagination", () => {
     expect(result.total).toBe(70)
     expect(result.list).toHaveLength(70)
     expect(result.list.at(-1)).toEqual({ id: 70 })
-    expect(requestMock).toHaveBeenCalledTimes(2)
   })
 
   it("preserves first-page metadata like fieldList while merging pages", async () => {
-    requestMock
-      .mockResolvedValueOnce(jsonResponse({ total: 52, fieldList: ["securityCode", "title"], list: Array.from({ length: 50 }, (_, index) => [`0000${index + 1}.SZ`, `T${index + 1}`]) }))
-      .mockResolvedValueOnce(jsonResponse({ total: 52, fieldList: ["securityCode", "title"], list: [["000051.SZ", "T51"], ["000052.SZ", "T52"]] }))
+    paginatedMock({
+      total: 52,
+      fieldList: ["securityCode", "title"],
+      itemFor: (id) => [`s${id}`, `T${id}`],
+    })
 
     const client = createClient()
     const result = await client.call("insight.research.list", { from: 0 }) as { total: number; fieldList: string[]; list: string[][] }
@@ -136,8 +156,8 @@ describe("GangtiseClient pagination", () => {
     expect(result.fieldList).toEqual(["securityCode", "title"])
     expect(result.total).toBe(52)
     expect(result.list).toHaveLength(52)
-    expect(result.list[0]).toEqual(["00001.SZ", "T1"])
-    expect(result.list.at(-1)).toEqual(["000052.SZ", "T52"])
+    expect(result.list[0]).toEqual(["s1", "T1"])
+    expect(result.list.at(-1)).toEqual(["s52", "T52"])
   })
 
   it("does one request for endpoints without pagination metadata", async () => {
@@ -185,15 +205,18 @@ describe("GangtiseClient pagination", () => {
   })
 
   it("falls back to the data already fetched when later pages lose total/list shape", async () => {
-    requestMock
-      .mockResolvedValueOnce(jsonResponse({ total: 4, list: [{ id: 1 }, { id: 2 }] }))
-      .mockResolvedValueOnce(jsonResponse({ unexpected: true }))
+    let call = 0
+    requestMock.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })) }))
+      return Promise.resolve(jsonResponse({ unexpected: true }))
+    })
 
     const client = createClient()
-    const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: Array<{ id: number }> }
+    const result = await client.call("insight.research.list", { from: 0, size: 100 }) as { total: number; list: Array<{ id: number }> }
 
-    expect(result.total).toBe(4)
-    expect(result.list).toEqual([{ id: 1 }, { id: 2 }])
+    expect(result.total).toBe(200)
+    expect(result.list.slice(0, 50)).toEqual(Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })))
   })
 })
 

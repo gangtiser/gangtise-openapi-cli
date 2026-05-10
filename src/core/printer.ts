@@ -1,6 +1,6 @@
 import type { OutputFormat } from "./config.js"
 import { normalizeRows } from "./normalize.js"
-import { renderOutput, saveOutputIfNeeded } from "./output.js"
+import { renderOutput, saveOutputIfNeeded, streamOutputToFile } from "./output.js"
 import { extractTitles, type TitleCacheConfig, writeTitleCache } from "./titleCache.js"
 
 export async function printData(data: unknown, format: OutputFormat, output?: string, cache?: TitleCacheConfig): Promise<void> {
@@ -27,11 +27,15 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
     }
   }
 
-  const content = renderOutput(normalized, format)
   if (output) {
+    if (await streamOutputToFile(normalized, format, output)) {
+      process.stdout.write(`${output}\n`)
+      return
+    }
+    const content = renderOutput(normalized, format)
     await saveOutputIfNeeded(content, output)
     process.stdout.write(`${output}\n`)
     return
   }
-  process.stdout.write(`${content}\n`)
+  process.stdout.write(`${renderOutput(normalized, format)}\n`)
 }

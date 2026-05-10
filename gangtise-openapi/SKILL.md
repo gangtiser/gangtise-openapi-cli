@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.11.1"
+version: "0.12.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -71,6 +71,12 @@ description: |-
 | vault my-conference-list | 编号列表 + 总数 | 标题 / 会议类型 / 机构 / 时间 |
 | vault wechat-message-list | 编号列表 + 总数 | 时间 / 群名称 / 发言人 / 消息内容 / 标签 |
 | vault wechat-chatroom-list | 编号列表 | 群名称 / 群ID |
+| insight announcement-hk list | 表格（≤20 行）+ 总数 | 标题 / 日期 / 证券代码 / 一级分类 |
+| insight announcement-hk download | 文件路径 + 文件大小 | — |
+| insight foreign-opinion list | 表格（≤20 行）+ 总数 | 标题译文 / 日期 / 券商名 / 评级 |
+| insight independent-opinion list | 表格（≤20 行）+ 总数 | 标题译文 / 日期 / 分析师名 / 评级 |
+| insight independent-opinion download | 文件路径 + 文件大小 | — |
+| reference securities-search | 表格 | gtsCode / 名称 / 分类 / 匹配度 |
 
 超过 20 条时仅展示前 20 条 + 总数，询问是否导出全量。
 
@@ -80,7 +86,7 @@ description: |-
 
 1. 先执行 `list` 获取结果
 2. 展示前 10 条，让用户选择（🔴 确认）
-3. 🔴 确认下载格式（仅 research / foreign-report / announcement download 支持 `--file-type`；summary download 不支持，无需确认；vault record-download 需确认 `--content-type`，但用户已明确说明"AI速记"/"原始文件"/"语音识别"时直接映射无需确认；vault my-conference-download 同理）
+3. 🔴 确认下载格式（以下 download 命令支持 `--file-type`：research/foreign-report/announcement；summary download 可选 `--file-type`（`1`原始内容/`2`HTML）仅影响会议平台纪要；independent-opinion download 必须指定 `--file-type`（`1`原文HTML/`2`翻译HTML）；vault record-download 需确认 `--content-type`，用户已明确说明时直接映射；vault my-conference-download 同理）
 4. 执行 `download`
 
 ### 响应解析
@@ -115,6 +121,12 @@ CLI 自动处理信封格式：当响应含 `code` 字段时，按 `{code, msg, 
 | vault my-conference-download | 文件路径（stdout） | 解析输出路径字符串 |
 | vault wechat-message-list | `{list: [...], total: N}` | `list[].msgId` / `list[].msgContent` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList` |
 | vault wechat-chatroom-list | `{chatRoomList: [...]}` | `chatRoomList[].chatroomName` / `chatRoomList[].chatroomId` |
+| insight announcement-hk list | `{list: [...], total: N}` | `list[].announcementId` / `list[].title` / `list[].titleTranslate` / `list[].publishTime` / `list[].securityCode` / `list[].primaryCategory.categoryName` |
+| insight announcement-hk download | 文件路径（stdout） | 解析输出路径字符串 |
+| insight foreign-opinion list | `{list: [...], total: N}` | `list[].foreignOpinionId` / `list[].titleTranslate` / `list[].publishTime` / `list[].publisher.brokerName` / `list[].securityList[].rating` |
+| insight independent-opinion list | `{list: [...], total: N}` | `list[].independentOpinionId` / `list[].titleTranslate` / `list[].briefTranslate` / `list[].publishTime` / `list[].analyst.analystName` |
+| insight independent-opinion download | 文件路径（stdout） | 解析输出路径字符串 |
+| reference securities-search | `{returnedCount: N, list: [...]}` | `list[].gtsCode` / `list[].gtsName` / `list[].category` / `list[].matchScore` / `list[].matchType` |
 | lookup list | `[...]` | `[].id` / `[].name` |
 
 ### 异常处理
@@ -261,13 +273,17 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 |----------|------|
 | 研报/券商报告 | `insight research list` |
 | 外资研报 | `insight foreign-report list` |
-| 首席观点/分析师观点 | `insight opinion list` |
+| 首席观点/分析师观点/内资机构观点 | `insight opinion list` |
 | 纪要/会议纪要 | `insight summary list` |
 | 路演 | `insight roadshow list` |
 | 调研 | `insight site-visit list` |
 | 策略会 | `insight strategy list` |
 | 论坛 | `insight forum list` |
-| 公告 | `insight announcement list` |
+| A股公告/公告 | `insight announcement list` |
+| 港股公告/HK公告 | `insight announcement-hk list` |
+| 外资机构观点/外资观点/外资券商观点 | `insight foreign-opinion list` |
+| 外资独立观点/独立分析师观点 | `insight independent-opinion list` |
+| GTS代码/gtsCode搜索/证券代码搜索 | `reference securities-search` |
 | 搜索/语义搜索 | `ai knowledge-batch` |
 | 搜索多类文档（研报+纪要等）| `ai knowledge-batch`（用多个 `--resource-type`）|
 | 日K线/行情 | `quote day-kline` |
@@ -302,6 +318,8 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 | 群消息/微信群消息 | `vault wechat-message-list` |
 | 查群ID/微信群ID/群名称找ID | `vault wechat-chatroom-list` |
 | 下载文件 | `insight <type> download` / `vault drive-download` / `vault record-download` / `vault my-conference-download` |
+| 下载港股公告 | `insight announcement-hk download` |
+| 下载外资独立观点 | `insight independent-opinion download` |
 
 ## 公司名 → 证券代码
 
@@ -325,7 +343,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
    | 小米集团 | — | `01810.HK` |
    | 网易 | — | `09999.HK` |
 
-2. **不确定时**：用 `gangtise-data-client` skill 查证券详情（如果可用），或用 `gangtise ai knowledge-batch --query <公司名>` 搜索，从返回 data.list[].securityCode 提取代码
+2. **不确定时**：用 `gangtise reference securities-search --keyword <公司名>` 查询，从返回 `data.list[].gtsCode` 提取证券代码（gtsCode 格式与 securityCode 一致，如 `600519.SH`）；可通过 `--category stock` 缩小范围
 
 3. **交易所后缀规则**：`.SH` 上交所（6开头）| `.SZ` 深交所（0/3开头）| `.BJ` 北交所 | `.HK` 港股
 4. **跨市场**：用户同时需要 A 股+港股数据时，需分别调对应命令（如 `quote day-kline` + `quote day-kline-hk`），不能合并为一次调用
@@ -341,7 +359,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
    - 不确定 → 先 `gangtise lookup <type> list`，**绝不猜测**
 4. 🟡 **证券代码** — 用户只给公司名（如"茅台"）→ 须补交易所后缀 `600519.SH`；不确定时先搜索确认，不要用错后缀
 5. 🔴 **数据量** — 无明确时间范围时默认 `--size 200`，若用户要求全量则先询问确认
-6. 🔴 **下载格式** — 仅以下 download 命令支持 `--file-type`，需确认格式：research download（`1`PDF/`2`MD）、foreign-report download（`1`PDF/`2`MD/`3`翻译PDF/`4`翻译MD）、announcement download（`1`PDF/`2`MD）；**summary download 不支持 `--file-type`**，无需确认格式；vault record-download 需确认 `--content-type`（`original`/`asr`/`summary`）——用户明确说了"AI速记"/"原始文件"/"语音识别"时可直接映射，无需确认；vault my-conference-download 需确认 `--content-type`（`asr`/`summary`）——同上
+6. 🔴 **下载格式** — 以下 download 命令需确认 `--file-type`：research（`1`PDF/`2`MD）、foreign-report（`1`PDF/`2`MD/`3`翻译PDF/`4`翻译MD）、announcement（`1`PDF/`2`MD）、independent-opinion（`1`原文HTML/`2`翻译HTML，**必选**）；summary download 可选 `--file-type`（`1`原始内容/`2`HTML，仅影响会议平台纪要，省略默认 1）；vault record-download 需确认 `--content-type`（`original`/`asr`/`summary`）——用户明确说了"AI速记"/"原始文件"/"语音识别"时可直接映射；vault my-conference-download 需确认 `--content-type`（`asr`/`summary`）——同上；announcement-hk download 无 `--file-type`
 7. 🔴 **异步任务** — `ai earnings-review` / `ai viewpoint-debate` 默认立即返回 dataId，需告知用户等待流程：调一次 → 等 2min → `*-check` → 若 pending 再等
 8. 🔴 **文件选择** — list→download 流程中，展示结果让用户选择具体文件后再下载
 9. 🟡 **耗时提醒** — AI 命令（one-pager/investment-logic/peer-comparison/earnings-review）可能耗时较长，首次调用时告知用户
@@ -352,7 +370,7 @@ Step 5: 提取 data.list[].title / resourceType / summary，编号列表呈现
 
 所有 insight list 共享：`--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`
 
-### 首席观点 `insight opinion list`
+### 内资机构观点 `insight opinion list`
 
 ```bash
 gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--llm-tag <tag>] [--source <src>] [--rank-type <n>]
@@ -366,8 +384,10 @@ gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief
 
 ```bash
 gangtise insight summary list [--search-type <n>] [--rank-type <n>] [--source <n>] [--research-area <id>] [--security <code>] [--institution <id>] [--category <name>] [--market <name>] [--participant-role <name>]
-gangtise insight summary download --summary-id <id> [--output <path>]
+gangtise insight summary download --summary-id <id> [--file-type <n>] [--output <path>]
 ```
+
+- `--file-type`（download 可选）：`1` 原始内容（默认）| `2` HTML 格式；**仅影响来源为会议平台的纪要**，其他来源无需填写
 
 - `--search-type`：`1` 标题搜索（默认，速度快）| `2` 全文搜索（更全面，适合精确查找）
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
@@ -423,7 +443,7 @@ gangtise insight foreign-report download --report-id <id> [--file-type <n>] [--o
 - `--category` / `--llm-tag` / `--rating` / `--rating-change`：同研报
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown | `3` 中文翻译PDF | `4` 中文翻译Markdown
 
-### 公告 `insight announcement list/download`
+### A股公告 `insight announcement list/download`
 
 ```bash
 gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--security <code>] [--announcement-type <id>] [--category <id>]
@@ -433,6 +453,46 @@ gangtise insight announcement download --announcement-id <id> [--file-type <n>] 
 - `--announcement-type`：公告类型 ID，用 `lookup announcement-category list` 查
 - `--category`：栏目 ID。常用：`103910200` 财务报告、`103910700` 股权股本、`103910201` 业绩预告、`103910703` 质押冻结、`103910803` 股权激励、`103910818` 股份增减持、`103910823` 问询函。完整列表见 `references/lookup-ids.md`
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown
+
+### 港股公告 `insight announcement-hk list/download`
+
+```bash
+gangtise insight announcement-hk list [--search-type <n>] [--rank-type <n>] [--security <code>] [--category <id>]
+gangtise insight announcement-hk download --announcement-id <id> [--output <path>]
+```
+
+- `--security`：港股证券代码，格式如 `01913.HK`（注意两位数字前缀需补零）
+- `--category`：港股公告类型 ID，完整列表见 `references/lookup-ids.md`
+- `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索
+- `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
+- download 无 `--file-type`，直接下载原始文件
+
+### 外资机构观点 `insight foreign-opinion list`
+
+```bash
+gangtise insight foreign-opinion list [--rank-type <n>] [--security <code>] [--region <code>] [--industry <id>] [--broker <id>] [--rating <name>] [--rating-change <name>]
+```
+
+- `--security`：境外证券代码，格式如 `UBER.N`；境外股票代码格式规范见 `references/lookup-ids.md`
+- `--region`：`cn` 中国 | `cnHk` 中国香港 | `cnTw` 中国台湾 | `us` 美国 | `jp` 日本 | `uk` 英国
+- `--industry`：行业 ID，查阅 `lookup industry list`
+- `--broker`：外资券商 ID，查阅 `references/lookup-ids.md`
+- `--rating`：`buy` | `overweight` | `neutral` | `underweight` | `sell`
+- `--rating-change`：`upgrade` | `maintain` | `downgrade` | `initiate`
+- 返回字段：`foreignOpinionId` / `title` / `titleTranslate` / `content` / `contentTranslate` / `publishTime` / `publisher{brokerId, brokerName}` / `securityList[]{securityCode, rating, targetPrice, currency}` / `region`
+
+### 外资独立观点 `insight independent-opinion list/download`
+
+```bash
+gangtise insight independent-opinion list [--rank-type <n>] [--security <code>] [--industry <id>] [--rating <name>] [--rating-change <name>]
+gangtise insight independent-opinion download --independent-opinion-id <id> --file-type <n> [--output <path>]
+```
+
+- `--security`：境外证券代码，格式如 `GSK.N`
+- `--industry`：行业 ID，查阅 `lookup industry list`
+- `--rating` / `--rating-change`：同外资机构观点
+- `--file-type`（download **必选**）：`1` 原文 HTML | `2` 中文翻译 HTML
+- 返回字段：`independentOpinionId` / `title` / `titleTranslate` / `brief` / `briefTranslate` / `publishTime` / `analyst{analystId, analystName}` / `securityList[]` / `industryList[]`
 
 ---
 
@@ -767,6 +827,23 @@ gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n
 
 ---
 
+## Reference 命令
+
+### 证券代码搜索 `reference securities-search`
+
+```bash
+gangtise reference securities-search --keyword <text> [--category <type>] [--top <n>]
+```
+
+- 搜索 Gangtise 投研系统支持的 gtsCode，用于 `ai security-clue --gts-code` 等需要 gtsCode 的接口前查询
+- `--keyword`（必选）：支持多维度匹配：中文名称/简称、证券代码、拼音/首字母、英文名称、曾用名
+- `--category`（可重复）：`stock` 股票 | `dr` 存托凭证 | `index` 指数 | `fund` 基金（不传则查所有分类）
+- `--top`：返回最多条数（默认 10，上限 10）
+- 返回字段：`gtsCode` / `gtsName` / `category` / `matchScore` / `matchType`
+  - `matchType`：`code` 代码命中 | `abbr` 简称命中 | `pinyin` 拼音命中 | `prev` 曾用名命中 | `engName` 英文名命中
+
+---
+
 ## Lookup 命令
 
 ID 不确定时先查枚举，避免无效调用：
@@ -816,7 +893,7 @@ gangtise lookup theme-id list             # 主题 ID（theme-tracking 用）
 gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'
 ```
 
-- endpoint key 格式：`<命令组>.<子命令>.<操作>`，如 `insight.opinion.list`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch`
+- endpoint key 格式：`<命令组>.<子命令>.<操作>`，如 `insight.opinion.list`、`insight.announcement-hk.list`、`insight.foreign-opinion.list`、`insight.independent-opinion.list`、`reference.securities-search`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch`
 - `--body` 传 JSON 字符串，自动翻页的 endpoint 会复用 client 翻页逻辑
 - 返回格式与封装命令一致：`{code, msg, success, data}`
 

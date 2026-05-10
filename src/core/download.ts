@@ -10,6 +10,8 @@ export interface DownloadResult {
   url?: string
   filename?: string
   contentType?: string
+  /** Set by the client when the body was streamed straight to disk. */
+  savedPath?: string
 }
 
 interface TitleLookupClient {
@@ -95,6 +97,11 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   }
 
   const file = result as DownloadResult
+
+  if (typeof file.savedPath === "string") {
+    process.stdout.write(`${file.savedPath}\n`)
+    return
+  }
 
   if (file.data instanceof Uint8Array) {
     const outputPath = output ?? file.filename ?? (fallbackName + extFromContentType(file.contentType))
