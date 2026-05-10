@@ -83,9 +83,17 @@ gangtise ai viewpoint-debate-check --data-id <id>
 gangtise ai theme-tracking --theme-id <id> --date <yyyy-MM-dd> [--type <name>]
 ```
 
-- `--theme-id`（**必选**）：用 `lookup theme-id list` 查
+- `--theme-id`（**必选**）：用 `gangtise lookup theme-id list` 查；返回字段是 `id` / `name`（**不是** `themeId`）
 - `--date`：支持近 30 天
 - `--type`：`morning` 晨报 | `night` 晚报（不传返回两者）
+- **返回**：`[{type, date, content}, ...]` — 列表，每个元素是一份报告。某主题在指定日期可能只有一种类型（如只有晚报）或两种都没（空列表）。空结果不代表接口出错，建议换主题或换日期再试
+
+**示例：**
+```bash
+# 查"核电"主题 2026-05-09 的晚报
+gangtise ai theme-tracking --theme-id 121000002 --date 2026-05-09 --type night --format json
+# 返回 [{"type":"night","date":"2026-05-09","content":"..."}]
+```
 
 ## 热点话题 `ai hot-topic`
 
