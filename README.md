@@ -111,10 +111,19 @@ Skill 目录结构：
 
 ```
 gangtise-openapi/
-├── SKILL.md                    # 主 skill 文件（命令参考、参数枚举、使用规则）
+├── SKILL.md                          # 主 skill 文件（必备规则、速查表、按需引用 references）
 └── references/
-    ├── fields.md               # 字段中英文对照速查表
-    └── lookup-ids.md           # 常用 ID 速查表（行业/券商/机构/公告分类等）
+    ├── commands/                     # 按命令组拆分的详细参数文档（agent 按需 Read）
+    │   ├── ai.md                     #   AI 能力命令（one-pager / earnings-review / viewpoint-debate 等）
+    │   ├── fundamental.md            #   财务数据命令（三大报表 / 估值 / 盈利预测 / 股东）
+    │   ├── insight.md                #   投研内容命令（研报 / 观点 / 纪要 / 公告 / 外资）
+    │   ├── quote.md                  #   行情命令（A股/港股/指数 K 线）
+    │   ├── reference-and-lookup.md   #   GTS Code 搜索与枚举速查
+    │   └── vault.md                  #   云盘/录音/会议/群消息
+    ├── examples.md                   # 典型场景的端到端示例
+    ├── fields.md                     # K线/财务字段中英文对照速查表
+    ├── lookup-ids.md                 # 常用 ID 速查表（行业/券商/机构/公告分类等）
+    └── response-schema.md            # 各接口响应字段说明
 ```
 
 安装：
