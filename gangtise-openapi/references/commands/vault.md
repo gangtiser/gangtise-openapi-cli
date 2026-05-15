@@ -43,14 +43,15 @@ gangtise vault my-conference-download --conference-id <id> --content-type <type>
 ## 群消息 `vault wechat-message-list`
 
 ```bash
-gangtise vault wechat-message-list [--keyword <text>] [--wechat-group-id <id>] [--industry <id>] [--category <type>] [--tag <tag>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
+gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wechat-group-id <id>] [--industry <id>] [--category <type>] [--tag <tag>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
 ```
 
 - 数据权限：仅用户已绑定并激活群消息助理、且助理已入群的群消息
+- `--security`：按证券代码过滤（如 `000001.SZ`），可重复
 - `--wechat-group-id`：先用 `vault wechat-chatroom-list` 查；可重复
 - `--category`：`text` | `image` | `documents` | `url`（可重复）
 - `--tag`：`roadShow` | `research` | `strategyMeeting` | `meetingSummary` | `industryComment` | `companyComment` | `earningsReview`（可重复）
-- 返回字段：`msgId` / `msgContent` / `contentUrl` / `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList`
+- 返回字段：`msgId` / `msgContent` / `contentUrl` / `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList` / `securityList`（含 `securityCode` / `securityName`）
 
 ## 群 ID 查询 `vault wechat-chatroom-list`
 
@@ -61,3 +62,16 @@ gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n
 - `--room-name`：可重复或英文逗号分隔
 - `--size` 默认 20，单页最大 50
 - 返回字段：`chatroomName` / `chatroomId`
+
+## 自选股股票池 `vault stock-pool-list / stock-pool-stocks`
+
+```bash
+gangtise vault stock-pool-list
+gangtise vault stock-pool-stocks [--pool-id <id>]
+```
+
+- `stock-pool-list`：查询当前用户的全部股票池，返回 `poolId` / `poolName`
+- `stock-pool-stocks`：查询股票池中的证券明细
+  - `--pool-id`：股票池 ID，可重复；不传默认 `all`（返回所有池中的非重复证券）
+  - 传入 `--pool-id all` 等同于全量查询，最多返回 10000 只
+  - 返回字段：`securityCode` / `securityName`

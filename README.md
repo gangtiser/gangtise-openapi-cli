@@ -4,6 +4,20 @@
 
 ## Changelog
 
+### v0.13.0 — 2026-05-15
+
+**新增接口**
+- `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` — 港股三大报表（中国会计准则）
+- `alternative edb-search` — 行业指标列表搜索（按关键词匹配指标名称，返回 indicatorId 等元信息）
+- `alternative edb-data` — 行业指标时序数据（批量按 indicatorId 拉取时间序列，最多 10 个指标）
+- `vault stock-pool-list` — 查询用户自选股股票池列表（poolId / poolName）
+- `vault stock-pool-stocks` — 查询股票池证券明细（支持 `--pool-id all` 全量查询）
+
+**接口变更**
+- `fundamental income-statement / balance-sheet / cash-flow / income-statement-quarterly / cash-flow-quarterly` 名称调整为 A股报表（路径不变）
+- `ai management-discuss-announcement` `--dimension` 新增 `all` 选项，返回报告中完整的管理层讨论内容（内容可能较长）
+- `vault wechat-message-list` 新增 `--security <code>` 参数（按证券代码过滤），返回结果增加 `securityList` 字段
+
 ### v0.12.0 — 2026-05-10
 
 **性能 / 架构**

@@ -4,7 +4,7 @@
 
 ---
 
-## 三大报表（累计） `income-statement` / `balance-sheet` / `cash-flow`
+## A股三大报表（累计） `income-statement` / `balance-sheet` / `cash-flow`
 
 ```bash
 gangtise fundamental <income-statement|balance-sheet|cash-flow> --security-code <code> [--start-date <date>] [--end-date <date>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
@@ -21,9 +21,35 @@ gangtise fundamental <income-statement|balance-sheet|cash-flow> --security-code 
 - 资产负债表：`totalAssets` 总资产 | `totalLiab` 总负债 | `totalParentEq` 归母权益 | `monetaryAssets` 货币资金
 - 现金流：`netOpCashFlows` 经营 | `netInvCashFlows` 投资 | `netFinCashFlows` 筹资
 
-## 三大报表（单季度） `income-statement-quarterly` / `cash-flow-quarterly`
+## A股三大报表（单季度） `income-statement-quarterly` / `cash-flow-quarterly`
 
 参数同累计，区别在返回单季度数据。`--period`：`q1` | `q2` | `q3` | `q4` | `latest`（默认）
+
+## 港股三大报表（中国会计准则） `income-statement-hk` / `balance-sheet-hk` / `cash-flow-hk`
+
+```bash
+gangtise fundamental <income-statement-hk|balance-sheet-hk|cash-flow-hk> --security-code <code> [--start-date <date>] [--end-date <date>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
+```
+
+- **股票代码**：港股格式，如 `09992.HK`（5 位代码 + `.HK`）
+- `--period`：`q1` | `h1` 中报 | `q3` | `h2` 下半年报 | `nsd` 不规则跨度 | `annual` | `latest`（默认）
+- 其余参数与 A 股三大报表相同
+- **固定返回字段**：与 A 股相同，其中利润表/现金流增加 `startDate` 字段
+- 报表类型说明：
+  - `consolidated` 合并报表（首次发布原始值，默认）
+  - `consolidatedRestated` 合并报表（调整）：最新报告中对上年同期的修订
+  - `standalone` / `standaloneRestated` 母公司报表（及调整）
+
+**常用字段速查（港股利润表）：**
+- `totalOpRev` 营业总收入 | `opRev` 营业收入 | `netProfit` 净利润 | `netProfitAttrParent` 归母净利润 | `basicEPS` 基本每股收益 | `rdExp` 研发费用
+
+**常用字段速查（港股资产负债表）：**
+- `totalCurrAssets` 流动资产合计 | `totalNonCurrAssets` 非流动资产合计 | `totalAssets` 资产总计
+- `totalCurrLiab` 流动负债合计 | `totalNonCurrLiab` 非流动负债合计 | `totalLiab` 负债合计
+- `totalParentEq` 归母权益合计 | `totalEquity` 所有者权益合计 | `totalLAndE` 负债和权益总计
+
+**常用字段速查（港股现金流）：**
+- `netOpCashFlows` 经营活动现金流量净额 | `netInvCashFlows` 投资活动现金流量净额 | `netFinCashFlows` 筹资活动现金流量净额
 
 ## 主营业务 `fundamental main-business`
 

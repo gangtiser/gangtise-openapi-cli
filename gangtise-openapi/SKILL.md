@@ -98,7 +98,8 @@ description: |-
 | 港股日 K | `quote day-kline-hk` |
 | 指数日 K（沪深京） | `quote index-day-kline` |
 | 分钟 K | `quote minute-kline` |
-| 利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
+| A股利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
+| 港股利润表 / 资产负债 / 现金流 | `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` |
 | 主营业务 / 收入结构 | `fundamental main-business` |
 | 估值 / PE / PB | `fundamental valuation-analysis` |
 | 盈利预测 / 一致预期 | `fundamental earning-forecast` |
@@ -107,6 +108,9 @@ description: |-
 | 录音速记 | `vault record-list / record-download` |
 | 我的会议（业绩会/策略会/路演内部记录） | `vault my-conference-list / my-conference-download` |
 | 微信群消息 | `vault wechat-message-list`（先 `vault wechat-chatroom-list` 拿群 ID） |
+| 自选股股票池 | `vault stock-pool-list / stock-pool-stocks` |
+| 行业指标搜索（EDB） | `alternative edb-search` |
+| 行业指标时序数据（EDB） | `alternative edb-data` |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
 
 **易混淆消歧**：
@@ -255,7 +259,8 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 - 4 个 K 线（A 股 / 港股 / 指数 / 分钟） → `references/commands/quote.md`
 - 三大报表 / 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
 - knowledge-batch / security-clue / AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
-- drive / record / my-conference / wechat → `references/commands/vault.md`
+- drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
+- 行业指标数据库（EDB）→ `references/commands/alternative.md`
 - securities-search / lookup / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 
 跑通流程对照 → `references/examples.md`

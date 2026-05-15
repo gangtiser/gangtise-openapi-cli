@@ -113,7 +113,7 @@ gangtise ai management-discuss-announcement --report-date <date> --security-code
 ```
 
 - `--report-date`（**严格**）：仅接受 `xxxx-06-30`（半年报）/ `xxxx-12-31`（年报）
-- `--dimension`（**必选**）：`businessOperation` 业务经营与行业 | `financialPerformance` 财务与经营成果 | `developmentAndRisk` 发展规划与风险
+- `--dimension`（**必选**）：`businessOperation` 业务经营与行业 | `financialPerformance` 财务与经营成果 | `developmentAndRisk` 发展规划与风险 | `all` 返回报告中完整的管理层讨论内容（内容可能过长，谨慎使用）
 - 返回 `content` 为字符串数组（每段一个元素）
 
 ## 管理层讨论-业绩会 `ai management-discuss-earnings-call`

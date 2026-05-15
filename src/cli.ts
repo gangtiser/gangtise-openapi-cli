@@ -333,6 +333,9 @@ addFinancialReport("income-statement-quarterly", "fundamental.income-statement-q
 addFinancialReport("balance-sheet", "fundamental.balance-sheet")
 addFinancialReport("cash-flow", "fundamental.cash-flow")
 addFinancialReport("cash-flow-quarterly", "fundamental.cash-flow-quarterly", "Period: q1/q2/q3/q4/latest")
+addFinancialReport("income-statement-hk", "fundamental.income-statement-hk", "Period: q1/h1/q3/h2/nsd/annual/latest")
+addFinancialReport("balance-sheet-hk", "fundamental.balance-sheet-hk", "Period: q1/h1/q3/h2/nsd/annual/latest")
+addFinancialReport("cash-flow-hk", "fundamental.cash-flow-hk", "Period: q1/h1/q3/h2/nsd/annual/latest")
 fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).option("--period <type>", "Period: interim/annual", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
   await printData(await client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, breakdown: options.breakdown, periodList: maybeArray(options.period), fieldList: maybeArray(options.field) }), parseOutputFormat(options.format), options.output)
@@ -444,7 +447,7 @@ ai.command("hot-topic").option("--from <number>", "Starting offset", "0").option
     withCloseReading: options.withCloseReading === false ? undefined : true,
   }), parseOutputFormat(options.format), options.output)
 })
-ai.command("management-discuss-announcement").requiredOption("--report-date <date>", "Report date (yyyy-MM-dd, e.g. 2025-06-30)").requiredOption("--security-code <code>", "Security code (e.g. 000001.SZ)").addOption(new Option("--dimension <name>", "Discussion dimension").choices(["businessOperation", "financialPerformance", "developmentAndRisk"]).makeOptionMandatory()).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
+ai.command("management-discuss-announcement").requiredOption("--report-date <date>", "Report date (yyyy-MM-dd, e.g. 2025-06-30)").requiredOption("--security-code <code>", "Security code (e.g. 000001.SZ)").addOption(new Option("--dimension <name>", "Discussion dimension: businessOperation/financialPerformance/developmentAndRisk/all").choices(["businessOperation", "financialPerformance", "developmentAndRisk", "all"]).makeOptionMandatory()).option("--format <format>", "Output format", "json").option("--output <path>").action(async (options) => {
   const client = await createClient()
   await printData(await client.call("ai.management-discuss-announcement", {
     reportDate: options.reportDate,
@@ -534,7 +537,7 @@ vault.command("my-conference-download").requiredOption("--conference-id <id>").r
     resolveOutputPath: (result) => resolveTitle(client, result, "vault.my-conference.list", "conferenceId", options.conferenceId),
   })
 })
-vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
   await printData(await client.call("vault.wechat-message.list", buildWechatMessageListBody(options)), parseOutputFormat(options.format), options.output)
 })
@@ -542,8 +545,45 @@ vault.command("wechat-chatroom-list").option("--from <number>", "Starting offset
   const client = await createClient()
   await printData(await client.call("vault.wechat-chatroom.list", buildWechatChatroomListBody(options)), parseOutputFormat(options.format), options.output)
 })
+vault.command("stock-pool-list").option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("vault.stock-pool.list", {}), parseOutputFormat(options.format), options.output)
+})
+vault.command("stock-pool-stocks").option("--pool-id <id>", "Pool ID; repeat for multiple; use 'all' for all pools", collectList, ["all"]).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("vault.stock-pool.stocks", { poolIdList: options.poolId }), parseOutputFormat(options.format), options.output)
+})
 program.addCommand(vault)
 program.addCommand(ai)
+
+const alternative = new Command("alternative").description("Alternative data APIs")
+alternative.command("edb-search").requiredOption("--keyword <text>", "Search keyword (e.g. '空调')").option("--limit <number>", "Max results (default: 100, max: 200)", "100").option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  await printData(await client.call("alternative.edb-search", {
+    keyword: options.keyword,
+    limit: parseNumberOption(options.limit, "--limit", { integer: true, min: 1 }),
+  }), parseOutputFormat(options.format), options.output)
+})
+alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (repeat, max 10)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)").requiredOption("--end-date <date>", "End date (yyyy-MM-dd)").option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  const client = await createClient()
+  const raw = await client.call("alternative.edb-data", {
+    indicatorIdList: options.indicatorId,
+    startDate: options.startDate,
+    endDate: options.endDate,
+  }) as { fieldList?: string[], dataList?: unknown[][] } | null
+  let data: unknown = raw
+  if (raw && Array.isArray(raw.fieldList) && Array.isArray(raw.dataList)) {
+    const list = raw.dataList.map((row) =>
+      (raw.fieldList as string[]).reduce<Record<string, unknown>>((acc, field, i) => {
+        acc[field] = row[i]
+        return acc
+      }, {}),
+    )
+    data = { list, total: list.length }
+  }
+  await printData(data, parseOutputFormat(options.format), options.output)
+})
+program.addCommand(alternative)
 
 program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
   const endpoint = ENDPOINTS[endpointKey]

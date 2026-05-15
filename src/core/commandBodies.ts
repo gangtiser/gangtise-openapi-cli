@@ -14,6 +14,7 @@ interface WechatMessageListOptions {
   startTime?: string
   endTime?: string
   keyword?: string
+  security: string[]
   wechatGroupId: string[]
   industry: string[]
   category: string[]
@@ -43,6 +44,7 @@ export function buildWechatMessageListBody(options: WechatMessageListOptions) {
     startTime: options.startTime,
     endTime: options.endTime,
     keyword: options.keyword,
+    securityList: maybeArray(options.security),
     wechatGroupIdList: maybeArray(options.wechatGroupId),
     industryIdList: maybeArray(options.industry),
     categoryList: maybeArray(options.category),
