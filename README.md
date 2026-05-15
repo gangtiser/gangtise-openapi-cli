@@ -129,11 +129,12 @@ gangtise-openapi/
 └── references/
     ├── commands/                     # 按命令组拆分的详细参数文档（agent 按需 Read）
     │   ├── ai.md                     #   AI 能力命令（one-pager / earnings-review / viewpoint-debate 等）
-    │   ├── fundamental.md            #   财务数据命令（三大报表 / 估值 / 盈利预测 / 股东）
+    │   ├── alternative.md            #   行业指标数据库（EDB search / EDB data）
+    │   ├── fundamental.md            #   财务数据命令（A股/港股三大报表 / 估值 / 盈利预测 / 股东）
     │   ├── insight.md                #   投研内容命令（研报 / 观点 / 纪要 / 公告 / 外资）
     │   ├── quote.md                  #   行情命令（A股/港股/指数 K 线）
     │   ├── reference-and-lookup.md   #   GTS Code 搜索与枚举速查
-    │   └── vault.md                  #   云盘/录音/会议/群消息
+    │   └── vault.md                  #   云盘/录音/会议/群消息/股票池
     ├── examples.md                   # 典型场景的端到端示例
     ├── fields.md                     # K线/财务字段中英文对照速查表
     ├── lookup-ids.md                 # 常用 ID 速查表（行业/券商/机构/公告分类等）
@@ -189,8 +190,9 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
 | | `index-day-kline` | 沪深京指数日K线 |
 | | `minute-kline` | A股分钟K线 |
-| **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | 三大财务报表（累计） |
-| | `income-statement-quarterly` / `cash-flow-quarterly` | 利润表/现金流量表（单季度） |
+| **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | A股三大财务报表（累计） |
+| | `income-statement-quarterly` / `cash-flow-quarterly` | A股利润表/现金流量表（单季度） |
+| | `income-statement-hk` / `balance-sheet-hk` / `cash-flow-hk` | 港股三大财务报表（中国会计准则） |
 | | `main-business` | 主营构成（按地区/产品拆分） |
 | | `valuation-analysis` | 估值分析 |
 | | `earning-forecast` | 盈利预测（一致预期） |
@@ -212,6 +214,9 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `record-list` / `record-download` | 录音速记列表与下载 |
 | | `my-conference-list` / `my-conference-download` | 我的会议列表与下载 |
 | | `wechat-message-list` / `wechat-chatroom-list` | 群消息列表与群ID查询 |
+| | `stock-pool-list` / `stock-pool-stocks` | 自选股股票池列表与证券明细 |
+| **Alternative** | `edb-search` | 行业指标搜索（按关键词匹配，返回 indicatorId 等元信息） |
+| | `edb-data` | 行业指标时序数据（批量拉取，最多10个指标） |
 | **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
 
 ## 命令概览
@@ -223,6 +228,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 - `gangtise fundamental ...`
 - `gangtise ai ...`
 - `gangtise vault ...`
+- `gangtise alternative ...`
 - `gangtise reference ...`
 - `gangtise raw call ...`
 
@@ -413,6 +419,14 @@ gangtise fundamental cash-flow-quarterly --security-code 600519.SH --fiscal-year
 gangtise fundamental top-holders --security-code 600519.SH --holder-type top10 --fiscal-year 2025 --format json
 # 前十大流通股东（按日期范围）
 gangtise fundamental top-holders --security-code 600519.SH --holder-type top10Float --start-date 2025-01-01 --end-date 2025-12-31 --period q3 --format json
+
+# 港股三大报表（中国会计准则，--security-code 用港股代码）
+gangtise fundamental income-statement-hk --security-code 09992.HK --fiscal-year 2025 --period annual --field netProfit --field basicEPS
+gangtise fundamental income-statement-hk --security-code 09992.HK --fiscal-year 2023 --fiscal-year 2024 --fiscal-year 2025 --period annual --field netProfit
+gangtise fundamental balance-sheet-hk --security-code 09992.HK --fiscal-year 2025 --period h1 --field totalCurrAssets --field totalNonCurrAssets --field totalCurrLiab --field totalNonCurrLiab
+gangtise fundamental cash-flow-hk --security-code 09992.HK --fiscal-year 2025 --period annual --field netOpCashFlows --field netInvCashFlows --field netFinCashFlows
+# 最新一期完整港股利润表
+gangtise fundamental income-statement-hk --security-code 09992.HK --format json
 ```
 
 ### AI
@@ -431,8 +445,11 @@ gangtise ai hot-topic --start-date 2026-03-22 --end-date 2026-03-27 --category m
 # 不传 --category 默认查全部类型（早报+午报+盘中快报+晚报），--with-related-securities 和 --with-close-reading 默认开启，可用 --no-with-related-securities / --no-with-close-reading 关闭
 gangtise ai hot-topic --start-date 2026-04-15 --end-date 2026-04-17
 gangtise ai research-outline --security-code 600519.SH
-# 管理层讨论-财报
+# 管理层讨论-财报（三个细分维度）
 gangtise ai management-discuss-announcement --report-date 2025-06-30 --security-code 000001.SZ --dimension businessOperation
+gangtise ai management-discuss-announcement --report-date 2025-12-31 --security-code 000001.SZ --dimension financialPerformance
+# 传入 all 返回完整管理层讨论内容（内容较长，谨慎使用）
+gangtise ai management-discuss-announcement --report-date 2025-12-31 --security-code 000001.SZ --dimension all
 # 管理层讨论-业绩会
 gangtise ai management-discuss-earnings-call --report-date 2025-06-30 --security-code 000001.SZ --dimension financialPerformance
 # 观点PK（异步，返回 dataId）
@@ -466,6 +483,39 @@ gangtise vault my-conference-download --conference-id 43319 --content-type asr
 # 群消息：先按群名称查群ID，再按群ID查消息
 gangtise vault wechat-chatroom-list --room-name "AI学习群,投研分享群" --size 50
 gangtise vault wechat-message-list --keyword AI应用 --wechat-group-id ueKEGyhdjFGkjyebh --category text --category url --tag roadShow --tag meetingSummary --size 50
+# 按证券代码过滤群消息
+gangtise vault wechat-message-list --security 000001.SZ --security 300750.SZ --size 50
+
+# 自选股股票池
+gangtise vault stock-pool-list
+# 查询指定股票池中的证券
+gangtise vault stock-pool-stocks --pool-id 808477293
+# 查询所有股票池中的全量证券（默认行为）
+gangtise vault stock-pool-stocks
+```
+
+### Alternative（行业指标数据库 EDB）
+
+```bash
+# Step 1：按关键词搜索指标，获取 indicatorId
+gangtise alternative edb-search --keyword 空调 --limit 50 --format table
+gangtise alternative edb-search --keyword "海尔销量"
+
+# Step 2：按 indicatorId 拉取时间序列数据（最多10个指标）
+gangtise alternative edb-data \
+  --indicator-id S14001618 \
+  --indicator-id S14001620 \
+  --start-date 2024-01-01 \
+  --end-date 2024-12-31 \
+  --format table
+
+# 导出为 CSV
+gangtise alternative edb-data \
+  --indicator-id S14001618 \
+  --start-date 2023-01-01 \
+  --end-date 2024-12-31 \
+  --format csv \
+  --output ./indicator.csv
 ```
 
 ### Raw
