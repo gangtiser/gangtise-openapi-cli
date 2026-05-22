@@ -314,7 +314,7 @@ quote.command("day-kline-hk").option("--security <code>", "Security code (HK sto
 })
 quote.command("day-kline-us").option("--security <code>", "Security code (US stock: e.g. AAPL.O, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
-  await printData(await callKlineWithSharding(client, "quote.day-kline-us", buildQuoteKlineBody(options), { shardDays: 2 }), parseOutputFormat(options.format), options.output)
+  await printData(await callKlineWithSharding(client, "quote.day-kline-us", buildQuoteKlineBody(options), { shardDays: 1 }), parseOutputFormat(options.format), options.output)
 })
 quote.command("index-day-kline").option("--security <code>", "Index code (.SH/.SZ/.BJ, or 'all' for full market)", collectList, []).option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: latest)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
   const client = await createClient()
