@@ -9,3 +9,4 @@ coverage/
 .vitest/
 src/version.ts
 CLAUDE.md
+.understand-anything/
