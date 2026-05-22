@@ -20,6 +20,10 @@ interface KlineClient {
 }
 
 const DAY_MS = 86_400_000
+/** API-side row cap (per docs). Used to lift the default 6000-row cap on
+ * `--security all` queries so a 2-day A-share shard (~11K rows) isn't
+ * silently truncated. Single-security queries are untouched. */
+const ALL_MARKET_LIMIT = 10_000
 
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.
@@ -65,15 +69,19 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     return client.call(endpointKey, body)
   }
 
+  // `--security all` returns thousands of rows per day; lift the default 6000-row
+  // cap to the API max so single-shard requests aren't silently truncated.
+  const allMarketBody: KlineBody = { ...body, limit: body.limit ?? ALL_MARKET_LIMIT }
+
   const start = parseDate(body.startDate)
   const end = parseDate(body.endDate)
   if (!start || !end || end < start) {
-    return client.call(endpointKey, body)
+    return client.call(endpointKey, allMarketBody)
   }
 
   const totalDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
   if (totalDays <= config.shardDays) {
-    return client.call(endpointKey, body)
+    return client.call(endpointKey, allMarketBody)
   }
 
   const shards = buildShards(start, end, config.shardDays)
@@ -82,7 +90,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   const results = await runWithConcurrency(shards, config.concurrency ?? 5, async (shard) => {
-    return client.call(endpointKey, { ...body, startDate: shard.startDate, endDate: shard.endDate })
+    return client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
   })
 
   let fieldList: unknown[] | undefined

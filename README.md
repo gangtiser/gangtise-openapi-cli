@@ -4,6 +4,13 @@
 
 ## Changelog
 
+### v0.14.2 — 2026-05-22
+
+**Bug fix（A 股 / HK 全市场 K 线同源问题）**
+- `quote day-kline --security all` 由 2 天/片改为 **1 天/片**（A 股全市场单日约 5500 行）
+- `quote day-kline-hk --security all` 由 3 天/片改为 **2 天/片**（港股全市场单日约 2770 行）
+- 根治性修复：`callKlineWithSharding` 在 `--security all` 路径上，若用户未显式传 `--limit`，强制写入 `limit: 10000`（API 上限），不再走默认 6000——这样即便分片日数估算偏大，每个 shard 也能拿满 10K 行。用户自己传的 `--limit` 仍然保留生效。
+
 ### v0.14.1 — 2026-05-22
 
 **Bug fix**
@@ -279,7 +286,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
 - **自动重试**：5xx / `ECONNRESET` / `ETIMEDOUT` / `999999` 系统错误自动指数退避重试 2 次。
 - **Token 自愈**：调用返回 8000014/8000015 时自动强制刷新 Token 并重试一次。
-- **K线自动分片**：`quote day-kline --security all` 等全市场查询自动按日期切分（A股 2 天/片、美股 1 天/片、HK 3 天/片、指数 30 天/片），并发执行后合并结果。
+- **K线自动分片**：`quote day-kline --security all` 等全市场查询自动按日期切分（A股 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
 - **`--verbose`**：打印每个请求的方法、路径、状态码、耗时和响应大小到 stderr，方便定位慢查询。
 

@@ -54,6 +54,44 @@ describe("callKlineWithSharding", () => {
     expect(call).toHaveBeenCalledTimes(1)
   })
 
+  it("injects API-max limit (10000) for --security all when user didn't set --limit", async () => {
+    const seenBodies: Array<Record<string, unknown>> = []
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      seenBodies.push(body)
+      return { list: [] }
+    })
+
+    await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+    }, { shardDays: 1 })
+
+    expect(seenBodies.length).toBeGreaterThan(0)
+    for (const b of seenBodies) {
+      expect(b.limit, "all-market sharded body should default limit to 10000").toBe(10_000)
+    }
+  })
+
+  it("preserves a user-supplied --limit instead of overriding it", async () => {
+    const seenBodies: Array<Record<string, unknown>> = []
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      seenBodies.push(body)
+      return { list: [] }
+    })
+
+    await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      limit: 500,
+    }, { shardDays: 1 })
+
+    for (const b of seenBodies) {
+      expect(b.limit).toBe(500)
+    }
+  })
+
   it("emits non-overlapping shards covering the whole range", async () => {
     const seenRanges: Array<{ startDate: string; endDate: string }> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string; endDate: string }) => {
