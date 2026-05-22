@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.13.1"
+version: "0.14.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -27,6 +27,7 @@ description: |-
 4. **时间格式**：datetime `"YYYY-MM-DD HH:mm:ss"`（引号包裹），date `YYYY-MM-DD`。
 5. **多值参数**：重复传，不要逗号分隔。`--security 600519.SH --security 000858.SZ`。
 6. **K 线"最近 N 条"**：必须用 `--start-date`/`--end-date` 拉日期范围，从结果按 `tradeDate` 取尾部最近 N 条。**不要只用 `--limit N`**（截取的是窗口开头）。
+6.1. **日 K 仅历史**：`day-kline` / `day-kline-hk` / `day-kline-us` **不返回盘中实时数据**。当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00（北京时间）。需要盘中快照请走 `quote realtime`。
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
@@ -94,10 +95,12 @@ description: |-
 | 热点话题 / 早午晚报 | `ai hot-topic` |
 | 管理层讨论（财报） | `ai management-discuss-announcement` |
 | 管理层讨论（业绩会） | `ai management-discuss-earnings-call` |
-| A 股日 K | `quote day-kline` |
-| 港股日 K | `quote day-kline-hk` |
+| A 股日 K（历史） | `quote day-kline` |
+| 港股日 K（历史） | `quote day-kline-hk` |
+| 美股日 K（历史） | `quote day-kline-us` |
 | 指数日 K（沪深京） | `quote index-day-kline` |
-| 分钟 K | `quote minute-kline` |
+| 分钟 K（A 股） | `quote minute-kline` |
+| 实时行情（A / 港 / 美） | `quote realtime` |
 | A股利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
 | 港股利润表 / 资产负债 / 现金流 | `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` |
 | 主营业务 / 收入结构 | `fundamental main-business` |
@@ -122,13 +125,15 @@ description: |-
 
 **速查表**（仅 mega-cap，命中率不高的一律走 securities-search）：
 
-| 公司 | A 股 | 港股 |
-|------|------|------|
-| 贵州茅台 | `600519.SH` | — |
-| 宁德时代 | `300750.SZ` | — |
-| 比亚迪 | `002594.SZ` | `01211.HK` |
-| 中国平安 | `601318.SH` | `02318.HK` |
-| 腾讯控股 | — | `00700.HK` |
+| 公司 | A 股 | 港股 | 美股 |
+|------|------|------|------|
+| 贵州茅台 | `600519.SH` | — | — |
+| 宁德时代 | `300750.SZ` | — | — |
+| 比亚迪 | `002594.SZ` | `01211.HK` | — |
+| 中国平安 | `601318.SH` | `02318.HK` | — |
+| 腾讯控股 | — | `00700.HK` | — |
+| 苹果 Apple | — | — | `AAPL.O` |
+| 微软 Microsoft | — | — | `MSFT.O` |
 
 **其余一律**：
 ```bash
@@ -136,9 +141,9 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 ```
 取 `data.list[0].gtsCode`。matchScore < 0.5 时让用户从前 3 条选。
 
-**交易所后缀**：`.SH` 上交所（6 开头）｜ `.SZ` 深交所（0/3 开头）｜ `.BJ` 北交所 ｜ `.HK` 港股 ｜ `.N`/`.O` 等境外。
+**交易所后缀**：`.SH` 上交所（6 开头）｜ `.SZ` 深交所（0/3 开头）｜ `.BJ` 北交所 ｜ `.HK` 港股 ｜ `.O` 纳斯达克 ｜ `.N` 纽交所 ｜ `.A` AMEX。
 
-**跨市场**：A 股+港股需分别调对应命令（`quote day-kline` + `quote day-kline-hk`），不能合并。
+**跨市场**：日 K 线需分别调对应命令（`day-kline` / `day-kline-hk` / `day-kline-us`）。**实时行情可一次混合**：`quote realtime --security 600519.SH --security 00700.HK --security AAPL.O` 单接口同时返回。
 
 ## 响应解析骨架（5 类通用模式）
 
@@ -256,7 +261,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 按需 Read 对应文件：
 
 - 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 外资观点 / 独立观点 → `references/commands/insight.md`
-- 4 个 K 线（A 股 / 港股 / 指数 / 分钟） → `references/commands/quote.md`
+- 行情命令（A 股 / 港股 / 美股日 K / 指数日 K / 分钟 K / 实时行情） → `references/commands/quote.md`
 - 三大报表 / 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
 - knowledge-batch / security-clue / AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`

@@ -233,14 +233,21 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     method: "POST",
     path: "/application/open-quote/kline/daily",
     kind: "json",
-    description: "Query A-share daily kline (SH/SZ/BJ)",
+    description: "Query A-share historical daily kline (SH/SZ/BJ)",
   },
   "quote.day-kline-hk": {
     key: "quote.day-kline-hk",
     method: "POST",
     path: "/application/open-quote/kline-hk/daily",
     kind: "json",
-    description: "Query HK stock daily kline (HK)",
+    description: "Query HK stock historical daily kline (HK)",
+  },
+  "quote.day-kline-us": {
+    key: "quote.day-kline-us",
+    method: "POST",
+    path: "/application/open-quote/kline-us/daily",
+    kind: "json",
+    description: "Query US stock historical daily kline (NYSE/NASDAQ/AMEX)",
   },
   "quote.index-day-kline": {
     key: "quote.index-day-kline",
@@ -255,6 +262,13 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/kline/minute",
     kind: "json",
     description: "Query A-share minute kline (SH/SZ/BJ)",
+  },
+  "quote.realtime": {
+    key: "quote.realtime",
+    method: "POST",
+    path: "/application/open-quote/quote/realtime",
+    kind: "json",
+    description: "Query realtime quote snapshot (A-share / HK / US)",
   },
 
   // ─── fundamental ───

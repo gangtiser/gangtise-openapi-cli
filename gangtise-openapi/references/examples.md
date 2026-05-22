@@ -137,7 +137,37 @@
        --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --format json
 ```
 
-## 例 10：异步任务（业绩点评）
+## 例 10：实时行情（盘中快照，跨市场）
+
+**用户**："茅台、腾讯、苹果现在的最新价"
+
+```
+1. 路由 → quote realtime（A/港/美都走同一个接口）
+2. 茅台 600519.SH（速查表）/ 腾讯 00700.HK（速查表）/ 苹果 AAPL.O
+3. Pre-flight：用户只关心几个核心字段 → 用 --field 精简返回
+4. gangtise quote realtime \
+     --security 600519.SH --security 00700.HK --security AAPL.O \
+     --field securityCode --field tradeTime --field latestPrice --field pctChange --field volume \
+     --format json
+5. 返回最新时刻快照；非交易时间返回最近一个交易日的收盘快照
+   注意：日 K 线（day-kline）不返回盘中数据，问"现在/此刻"必须走 realtime
+```
+
+## 例 11：美股日 K 线（历史）
+
+**用户**："苹果过去一个月的日 K 线"
+
+```
+1. 路由 → quote day-kline-us（仅历史；盘中数据走 realtime）
+2. 苹果 AAPL.O；"过去一个月" → 今日往前 30 天
+3. Pre-flight：认证 OK；当日数据约 07:00（北京时间）入库
+4. gangtise quote day-kline-us --security AAPL.O \
+     --start-date 2026-04-22 --end-date 2026-05-22 \
+     --field tradeDate --field open --field close --field volume --field pctChange --format json
+5. 按 tradeDate 排序展示
+```
+
+## 例 12：异步任务（业绩点评）
 
 **用户**："给贵州茅台写一份 2025Q3 业绩点评"
 

@@ -6,9 +6,9 @@
 
 ## Quote 行情
 
-### 日K线（A股 `quote day-kline` / 港股 `quote day-kline-hk`）
+### 日K线（A股 `quote day-kline` / 港股 `quote day-kline-hk` / 美股 `quote day-kline-us`）
 
-两者字段相同：
+三者字段相同（货币单位随市场：A股=元、港股=港元、美股=美元）：
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|
@@ -16,8 +16,20 @@
 | `open` | 开盘价 | `high` | 最高价 |
 | `low` | 最低价 | `close` | 收盘价 |
 | `preClose` | 昨收价 | `change` | 涨跌额 |
-| `pctChange` | 涨跌幅(%) | `volume` | 成交量(手) |
-| `amount` | 成交总额(元) | `adjustFactor` | 复权因子 |
+| `pctChange` | 涨跌幅(%) | `volume` | 成交量(股) |
+| `amount` | 成交总额 | `adjustFactor` | 复权因子 |
+
+### 实时行情（`quote realtime`，A股/港股/美股）
+
+| 字段 | 含义 | 字段 | 含义 |
+|------|------|------|------|
+| `securityCode` | 证券代码 | `exchange` | 交易所代码（SH/SZ/BJ/HK/NYSE/NASDAQ/AMEX） |
+| `tradeDate` | 交易日期 | `tradeTime` | 最新行情时间 HH:mm:ss |
+| `latestPrice` | 最新价 | `preClose` | 昨收价 |
+| `open` | 开盘价 | `high` | 最高价 |
+| `low` | 最低价 | `change` | 涨跌额 |
+| `pctChange` | 涨跌幅(%) | `volume` | 成交量(股，当日累计) |
+| `amount` | 成交总额(当日累计) | `amplitude` | 振幅(%) |
 
 ### 指数日K线（沪深京 `quote index-day-kline`）
 
@@ -151,6 +163,4 @@
 |------|------|------|------|
 | `value` | 原始值 | `percentileRank` | 分位点 |
 | `average` | 平均值 | `median` | 中位数 |
-| `p10` | 10分位 | `p25` | 25分位 |
-| `p75` | 75分位 | `p90` | 90分位 |
 | `upper1Std` | +1标准差 | `lower1Std` | -1标准差 |

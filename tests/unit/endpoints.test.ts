@@ -95,6 +95,22 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS["quote.day-kline-hk"]).toBeDefined()
   })
 
+  it("includes quote day-kline-us endpoint", () => {
+    const ep = ENDPOINTS["quote.day-kline-us"]
+    expect(ep).toBeDefined()
+    expect(ep.method).toBe("POST")
+    expect(ep.path).toBe("/application/open-quote/kline-us/daily")
+    expect(ep.kind).toBe("json")
+  })
+
+  it("includes quote realtime endpoint", () => {
+    const ep = ENDPOINTS["quote.realtime"]
+    expect(ep).toBeDefined()
+    expect(ep.method).toBe("POST")
+    expect(ep.path).toBe("/application/open-quote/quote/realtime")
+    expect(ep.kind).toBe("json")
+  })
+
   it("includes quote index-day-kline endpoint", () => {
     const ep = ENDPOINTS["quote.index-day-kline"]
     expect(ep).toBeDefined()

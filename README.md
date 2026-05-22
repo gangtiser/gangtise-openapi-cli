@@ -4,6 +4,16 @@
 
 ## Changelog
 
+### v0.14.0 — 2026-05-22
+
+**新增接口**
+- `quote realtime` — 个股实时行情快照，单接口同时覆盖 A 股 / 港股 / 美股；支持代码混合传入或市场关键字（`aShares` / `hkStocks` / `usStocks`）批量查询全市场
+- `quote day-kline-us` — 美股历史日 K 线，数据范围 NYSE / NASDAQ / AMEX；支持 `--security all` 全市场（CLI 自动按 2 天/片切分并发拉取）
+
+**接口变更**
+- `quote day-kline` / `quote day-kline-hk` 明确仅返回**历史**日 K 线，不包含盘中实时数据；当日数据入库时间：A 股 ~15:30 / 港股 ~16:30（北京时间）。盘中实时请走 `quote realtime`
+- `fundamental valuation-analysis` 返回字段移除 `p10` / `p25` / `p75` / `p90`（仍保留 `value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`）
+
 ### v0.13.0 — 2026-05-15
 
 **新增接口**
@@ -187,9 +197,10 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `foreign-opinion list` | 外资机构观点 |
 | | `independent-opinion list` / `download` | 外资独立分析师观点（含原文/翻译HTML下载） |
 | **Reference** | `securities-search` | GTS Code 搜索（按名称/代码/拼音匹配） |
-| **Quote** | `day-kline` / `day-kline-hk` | A股/港股日K线 |
+| **Quote** | `day-kline` / `day-kline-hk` / `day-kline-us` | A股/港股/美股历史日K线 |
 | | `index-day-kline` | 沪深京指数日K线 |
 | | `minute-kline` | A股分钟K线 |
+| | `realtime` | 个股实时行情快照（A股/港股/美股） |
 | **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | A股三大财务报表（累计） |
 | | `income-statement-quarterly` / `cash-flow-quarterly` | A股利润表/现金流量表（单季度） |
 | | `income-statement-hk` / `balance-sheet-hk` / `cash-flow-hk` | 港股三大财务报表（中国会计准则） |
@@ -263,7 +274,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
 - **自动重试**：5xx / `ECONNRESET` / `ETIMEDOUT` / `999999` 系统错误自动指数退避重试 2 次。
 - **Token 自愈**：调用返回 8000014/8000015 时自动强制刷新 Token 并重试一次。
-- **K线自动分片**：`quote day-kline --security all` 等全市场查询自动按日期切分（A股 2 天/片、HK 3 天/片、指数 30 天/片），并发执行后合并结果。
+- **K线自动分片**：`quote day-kline --security all` 等全市场查询自动按日期切分（A股 / 美股 2 天/片、HK 3 天/片、指数 30 天/片），并发执行后合并结果。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
 - **`--verbose`**：打印每个请求的方法、路径、状态码、耗时和响应大小到 stderr，方便定位慢查询。
 
@@ -385,11 +396,21 @@ gangtise quote day-kline --security all --start-date 2026-04-01 --end-date 2026-
 gangtise quote day-kline-hk --security 00700.HK --start-date 2026-03-01 --end-date 2026-03-31
 # 港股全市场
 gangtise quote day-kline-hk --security all --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
+# 美股日K线（NASDAQ/NYSE/AMEX，历史）
+gangtise quote day-kline-us --security AAPL.O --security MSFT.O --start-date 2026-04-22 --end-date 2026-05-22 --field tradeDate --field open --field close --field volume
+# 美股全市场（自动分片）
+gangtise quote day-kline-us --security all --start-date 2026-04-01 --end-date 2026-04-02 --field securityCode --field close --format json
 # 沪深京指数日K线
 gangtise quote index-day-kline --security 000001.SH --security 399001.SZ --start-date 2024-05-01 --end-date 2024-05-20 --field securityCode --field tradeDate --field close --field volume
 # A股分钟K线
 gangtise quote minute-kline --security 600519.SH --start-time "2026-04-15 09:30:00" --end-time "2026-04-15 15:00:00" --field open --field close --field volume
+# 实时行情：三大市场混合查询
+gangtise quote realtime --security 600519.SH --security 00700.HK --security AAPL.O --field securityCode --field tradeTime --field latestPrice --field pctChange --field volume --format json
+# 实时行情：全市场批量（建议配合 --field 精简字段）
+gangtise quote realtime --security aShares --field securityCode --field latestPrice --field pctChange --field volume --format json
 ```
+
+> **历史 vs 实时**：`day-kline*` 仅返回历史数据（当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00 北京时间）。盘中需要最新成交价、振幅等实时字段必须走 `quote realtime`。
 
 ### Fundamental
 
