@@ -84,24 +84,14 @@ function renderCsv(rows: Array<Record<string, unknown>>): string {
   }
 
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
-  const escape = (value: string) => {
-    if (/^[=+\-@\t\r]/.test(value)) {
-      value = "'" + value
-    }
-    if (/[",\n]/.test(value)) {
-      return `"${value.replaceAll("\"", "\"\"")}"`
-    }
-    return value
-  }
-
   const header = columns.join(",")
-  const body = rows.map((row) => columns.map((column) => escape(formatScalar(row[column]))).join(","))
+  const body = rows.map((row) => columns.map((column) => csvEscape(formatScalar(row[column]))).join(","))
   return [header, ...body].join("\n")
 }
 
 export function renderOutput(value: unknown, format: OutputFormat): string {
-  const rows = toRows(value)
-
+  // toRows is computed lazily per branch: json never needs it, and jsonl only
+  // falls back to it when the value isn't already a {list}/array.
   switch (format) {
     case "json":
       return JSON.stringify(value, null, 2)
@@ -109,15 +99,15 @@ export function renderOutput(value: unknown, format: OutputFormat): string {
       const items = value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as Record<string, unknown>).list)
         ? (value as Record<string, unknown>).list as unknown[]
         : null
-      return (items ?? rows).map((item) => JSON.stringify(item)).join("\n")
+      return (items ?? toRows(value)).map((item) => JSON.stringify(item)).join("\n")
     }
     case "csv":
-      return renderCsv(rows)
+      return renderCsv(toRows(value))
     case "markdown":
-      return renderMarkdown(rows)
+      return renderMarkdown(toRows(value))
     case "table":
     default:
-      return renderTable(rows)
+      return renderTable(toRows(value))
   }
 }
 

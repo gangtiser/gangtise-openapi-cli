@@ -23,6 +23,13 @@ describe("renderOutput", () => {
     expect(result).toContain("bar")
   })
 
+  it("csv escapes formula-injection prefixes and quotes special chars", () => {
+    const result = renderOutput([{ a: "=cmd", b: "x,y", c: 'he"llo' }], "csv")
+    const lines = result.split("\n")
+    expect(lines[0]).toBe("a,b,c")
+    expect(lines[1]).toBe(`'=cmd,"x,y","he""llo"`)
+  })
+
   describe("list wrapper { total, list }", () => {
     const wrapped = {
       total: 100,
