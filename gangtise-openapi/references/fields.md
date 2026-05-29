@@ -35,12 +35,12 @@
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|
-| `securityCode` | 指数代码 | `tradeDate` | 交易日期 |
-| `open` | 开盘价 | `high` | 最高价 |
-| `low` | 最低价 | `close` | 收盘价 |
-| `preClose` | 昨收价 | `change` | 涨跌额 |
-| `pctChange` | 涨跌幅(%) | `volume` | 成交量(手) |
-| `amount` | 成交总额(元) | | |
+| `securityCode` | 指数代码 | `securityName` | 指数名称（如 上证指数，v0.15.0 起） |
+| `tradeDate` | 交易日期 | `open` | 开盘价 |
+| `high` | 最高价 | `low` | 最低价 |
+| `close` | 收盘价 | `preClose` | 昨收价 |
+| `change` | 涨跌额 | `pctChange` | 涨跌幅(%) |
+| `volume` | 成交量(手) | `amount` | 成交总额(元) |
 
 ---
 

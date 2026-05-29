@@ -4,6 +4,30 @@
 
 ## Changelog
 
+### v0.15.0 — 2026-05-29
+
+**新增接口**
+- `alternative concept-info` — 题材指数基本信息：返回题材整体画像（定义 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件）。按 `--concept-id` 查询，仅返回最新截面数据，不支持历史回溯
+- `alternative concept-securities` — 题材指数成分股（题材深度 F8）：按分组结构返回当前成分股，每只含是否重点个股 `isKey` 与纳入理由 `inclusionReason`。按 `--concept-id` 查询
+
+**接口变更**
+- `quote index-day-kline` 返回字段新增 `securityName`（指数名称，如"上证指数"）
+
+> `--concept-id` 与主题跟踪 `ai theme-tracking --theme-id` 共用同一套题材 ID 体系，可用 `gangtise lookup theme-id list` 按名称查询（如 机器人 → `121000130`）。
+
+### v0.14.4 — 2026-05-29
+
+**Bug fix（全市场 K 线分片容错）**
+- `quote day-kline --security all` 等全市场查询的日期分片改为容错：部分分片失败时返回已成功分片的数据并标记 `partial: true` + `failedShards`（失败的日期区间），同时向 stderr 告警；只有全部分片失败才抛错。此前为 fail-fast，单片失败会让整次查询失败，或在异常路径上被误判为空结果。
+
+### v0.14.3 — 2026-05-29
+
+**性能 / 健壮性**
+- 标题缓存按端点封顶（5000 条/端点）并清理过期项，修复 `title-cache.json` 无上限增长（曾达 ~58MB）拖慢启动的问题
+- 下载接口遇鉴权失效（`8000014` / `8000015`）自动刷新 token 并重试一次（此前仅普通 JSON 调用具备 token 自愈）
+- CLI handler 抽出 `emit` / `withClient` 公共封装去除重复样板；CSV 转义逻辑去重；翻页与 K 线分片统一走 `GANGTISE_PAGE_CONCURRENCY` 并发控制
+- 补齐多个 core 模块的单元测试
+
 ### v0.14.2 — 2026-05-22
 
 **Bug fix（A 股 / HK 全市场 K 线同源问题）**
@@ -240,6 +264,8 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `stock-pool-list` / `stock-pool-stocks` | 自选股股票池列表与证券明细 |
 | **Alternative** | `edb-search` | 行业指标搜索（按关键词匹配，返回 indicatorId 等元信息） |
 | | `edb-data` | 行业指标时序数据（批量拉取，最多10个指标） |
+| | `concept-info` | 题材指数基本信息（投资逻辑/行业空间/竞争格局/催化事件） |
+| | `concept-securities` | 题材指数成分股（题材深度F8，按分组，标记重点个股） |
 | **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
 
 ## 命令概览
@@ -549,6 +575,12 @@ gangtise alternative edb-data \
   --end-date 2024-12-31 \
   --format csv \
   --output ./indicator.csv
+
+# 题材指数：先查 conceptId（与 theme-id 共用 ID 体系），再拉画像 / 成分股
+gangtise lookup theme-id list | grep 机器人        # → 121000130
+gangtise alternative concept-info --concept-id 121000130 --format json
+# 题材成分股（题材深度 F8，按分组返回，标记重点个股）
+gangtise alternative concept-securities --concept-id 121000130 --format json
 ```
 
 ### Raw

@@ -250,6 +250,22 @@ describe("ENDPOINTS", () => {
     expect(download.method).toBe("GET")
   })
 
+  it("alternative concept endpoints use correct keys and paths", () => {
+    const info = ENDPOINTS["alternative.concept-info"]
+    expect(info).toBeDefined()
+    expect(info.key).toBe("alternative.concept-info")
+    expect(info.method).toBe("POST")
+    expect(info.path).toBe("/application/open-alternative/concept/info")
+    expect(info.kind).toBe("json")
+
+    const securities = ENDPOINTS["alternative.concept-securities"]
+    expect(securities).toBeDefined()
+    expect(securities.key).toBe("alternative.concept-securities")
+    expect(securities.method).toBe("POST")
+    expect(securities.path).toBe("/application/open-alternative/concept/securities")
+    expect(securities.kind).toBe("json")
+  })
+
   it("vault wechat message endpoints use correct keys and paths", () => {
     const message = ENDPOINTS["vault.wechat-message.list"]
     expect(message.key).toBe("vault.wechat-message.list")

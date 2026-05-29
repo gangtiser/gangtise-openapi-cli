@@ -183,3 +183,23 @@
    - 若 {date, content} → 取 content 呈现
    - 若 410111 → 终态失败，告知用户重试
 ```
+
+## 例 13：题材画像 ＋ 成分股（先查 ID 再拉两接口）
+
+**用户**："机器人这个题材现在的逻辑和龙头股"
+
+```
+1. 路由 → alternative concept-info（投资逻辑/行业空间/竞争格局）
+          + alternative concept-securities（成分股，按分组）
+2. "机器人" → concept-id：题材与主题共用 ID 体系，查 lookup theme-id list
+     gangtise lookup theme-id list | grep 机器人   → 121000130
+   注意：concept-id 不在速查表，**绝不猜测**，必须查 lookup
+3. Pre-flight：认证 OK；两接口都仅返回最新截面，无历史回溯
+4. gangtise alternative concept-info --concept-id 121000130 --format json
+     → 单对象 {conceptName, definition, investmentLogic, industrySpace,
+              competitiveLandscape, keyEvents:[{date,content}]}
+   gangtise alternative concept-securities --concept-id 121000130 --format json
+     → 单对象 {securityCount, securityDetail:[{groupName, securityList:[...]}]}
+5. 呈现：concept-info 各文本字段直接展示（含 null 则跳过）；
+   成分股按 groupName 分组列出，isKey=true 标记为「重点」
+```

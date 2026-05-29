@@ -60,7 +60,8 @@ gangtise quote index-day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [
 
 - 沪深京指数：如 `000001.SH` 上证综指、`399001.SZ` 深成指；`--security all` 全市场指数
 - `--limit` 默认 6000，上限 10000
-- 常用字段：`securityCode` `tradeDate` `open` `high` `low` `close` `preClose` `change` `pctChange` `volume` `amount`
+- 常用字段：`securityCode` `securityName` `tradeDate` `open` `high` `low` `close` `preClose` `change` `pctChange` `volume` `amount`
+- `securityName` 为指数名称（如 `上证指数`），v0.15.0 起返回
 
 ## 分钟 K 线（A 股） `quote minute-kline`
 

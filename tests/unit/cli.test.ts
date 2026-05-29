@@ -51,6 +51,14 @@ describe("cli smoke", () => {
     }
   }, 30_000)
 
+  it("lists alternative subcommands", async () => {
+    const { code, out } = await cli(["alternative", "--help"])
+    expect(code).toBe(0)
+    for (const sub of ["edb-search", "edb-data", "concept-info", "concept-securities"]) {
+      expect(out).toContain(sub)
+    }
+  }, 30_000)
+
   it("rejects an invalid enum choice at the commander layer", async () => {
     const { code, out } = await cli(["fundamental", "top-holders", "--security-code", "600519.SH", "--holder-type", "WRONG"])
     expect(code).not.toBe(0)

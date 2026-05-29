@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.14.4"
+version: "0.15.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -114,6 +114,8 @@ description: |-
 | 自选股股票池 | `vault stock-pool-list / stock-pool-stocks` |
 | 行业指标搜索（EDB） | `alternative edb-search` |
 | 行业指标时序数据（EDB） | `alternative edb-data` |
+| 题材画像 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件 | `alternative concept-info`（前置：`lookup theme-id list` 拿 `concept-id`） |
+| 题材成分股 / 题材深度 F8 / 题材龙头 | `alternative concept-securities`（前置：`lookup theme-id list` 拿 `concept-id`） |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
 
 **易混淆消歧**：
@@ -265,7 +267,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 - 三大报表 / 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
 - knowledge-batch / security-clue / AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
-- 行业指标数据库（EDB）→ `references/commands/alternative.md`
+- 行业指标数据库（EDB）/ 题材指数画像与成分股（concept-info / concept-securities）→ `references/commands/alternative.md`
 - securities-search / lookup / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 
 跑通流程对照 → `references/examples.md`

@@ -557,4 +557,18 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Get industry indicator time-series data by indicator ID list",
   },
+  "alternative.concept-info": {
+    key: "alternative.concept-info",
+    method: "POST",
+    path: "/application/open-alternative/concept/info",
+    kind: "json",
+    description: "Query latest concept (theme index) profile by conceptId",
+  },
+  "alternative.concept-securities": {
+    key: "alternative.concept-securities",
+    method: "POST",
+    path: "/application/open-alternative/concept/securities",
+    kind: "json",
+    description: "Query concept (theme index) constituent securities, grouped",
+  },
 }
