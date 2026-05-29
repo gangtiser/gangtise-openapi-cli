@@ -92,8 +92,20 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
   }
 
+  // Per-shard fault tolerance: a failing shard is recorded and skipped (returns a
+  // null sentinel) instead of rejecting, so the surviving shards still complete.
+  // runWithConcurrency uses Promise.all under the hood, which would otherwise abort
+  // every shard on the first rejection.
+  const failedShards: Array<{ startDate: string; endDate: string }> = []
+  let firstError: unknown = null
   const results = await runWithConcurrency(shards, config.concurrency ?? SHARD_CONCURRENCY, async (shard) => {
-    return client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
+    try {
+      return await client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
+    } catch (error) {
+      if (!firstError) firstError = error
+      failedShards.push(shard)
+      return null
+    }
   })
 
   let fieldList: unknown[] | undefined
@@ -107,8 +119,19 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     if (Array.isArray(rec.list)) merged.push(...(rec.list as unknown[]))
   }
 
+  // Every shard failed → surface the error loudly (non-zero exit) rather than
+  // masking a total outage as an empty success.
+  if (failedShards.length === shards.length) {
+    throw firstError ?? new Error(`All ${shards.length} kline shards failed`)
+  }
+
   if (!header) return { list: [] }
   const out: Record<string, unknown> = { ...header, list: merged }
   if (fieldList) out.fieldList = fieldList
+  if (failedShards.length > 0) {
+    out.partial = true
+    out.failedShards = failedShards
+    process.stderr.write(`[gangtise] warning: ${failedShards.length}/${shards.length} shards failed; results are partial (see failedShards)\n`)
+  }
   return out
 }

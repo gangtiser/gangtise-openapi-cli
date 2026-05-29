@@ -115,4 +115,35 @@ describe("callKlineWithSharding", () => {
       expect(currStart - prevEnd).toBe(86_400_000)
     }
   })
+
+  it("tolerates a failed shard: returns surviving data with partial/failedShards markers", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    // shards (shardDays 2): [04-01..04-02], [04-03..04-04], [04-05..04-06]; fail the middle one
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string; endDate: string }) => {
+      if (body.startDate === "2026-04-03") throw new Error("shard boom")
+      return { fieldList: ["securityCode", "tradeDate"], list: [[`SH-${body.startDate}`, body.startDate]] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-06",
+    }, { shardDays: 2 }) as { list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
+
+    expect(call).toHaveBeenCalledTimes(3)
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-04" }])
+    expect(result.list).toHaveLength(2) // 2 surviving shards × 1 row each
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("partial")
+    errSpy.mockRestore()
+  })
+
+  it("throws when every shard fails instead of returning a silent empty success", async () => {
+    const call = vi.fn().mockRejectedValue(new Error("all down"))
+    await expect(callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-06",
+    }, { shardDays: 2 })).rejects.toThrow("all down")
+  })
 })
