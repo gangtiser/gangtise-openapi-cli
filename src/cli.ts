@@ -289,7 +289,7 @@ fundamental.command("main-business").requiredOption("--security-code <code>").op
 fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--skip-null", "Drop rows where value or percentileRank is null").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList: maybeArray(options.field) })
   if (options.skipNull) {
-    const normalized = await normalizeRows(data)
+    const normalized = normalizeRows(data)
     if (normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
       const rec = normalized as Record<string, unknown>
       if (Array.isArray(rec.list)) {

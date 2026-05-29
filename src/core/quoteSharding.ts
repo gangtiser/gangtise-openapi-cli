@@ -24,6 +24,9 @@ const DAY_MS = 86_400_000
  * `--security all` queries so a 2-day A-share shard (~11K rows) isn't
  * silently truncated. Single-security queries are untouched. */
 const ALL_MARKET_LIMIT = 10_000
+/** Shard fan-out concurrency. Shares the GANGTISE_PAGE_CONCURRENCY knob with
+ * pagination (see transport/client) so one env var tunes all request fan-out. */
+const SHARD_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
 
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.
@@ -89,7 +92,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
   }
 
-  const results = await runWithConcurrency(shards, config.concurrency ?? 5, async (shard) => {
+  const results = await runWithConcurrency(shards, config.concurrency ?? SHARD_CONCURRENCY, async (shard) => {
     return client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
   })
 
