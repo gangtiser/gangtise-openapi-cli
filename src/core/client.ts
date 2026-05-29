@@ -86,6 +86,30 @@ export class GangtiseClient {
     return accessToken
   }
 
+  /**
+   * On a recoverable auth error (expired/invalid token codes), force a one-time
+   * token refresh and re-throw as retryable so withRetry replays the request.
+   * Otherwise — or once we've already retried this request — it's a no-op and
+   * the caller re-throws the original error. `authState` persists across the
+   * withRetry attempts so we only refresh once per logical request.
+   */
+  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean }): Promise<void> {
+    if (
+      useAuth
+      && !authState.retried
+      && error instanceof ApiError
+      && error.code
+      && AUTH_RETRY_CODES.has(error.code)
+      && this.config.accessKey
+      && this.config.secretKey
+    ) {
+      authState.retried = true
+      this.memoCache = null
+      await this.getAuthorizationHeader(true)
+      throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
+    }
+  }
+
   private isEnvelope<T>(parsed: unknown): parsed is Envelope<T> {
     if (!parsed || typeof parsed !== 'object') return false
     const obj = parsed as Record<string, unknown>
@@ -265,7 +289,7 @@ export class GangtiseClient {
 
     const dispatcher = getDispatcher()
     const url = new URL(endpoint.path, this.config.baseUrl)
-    let authRetried = false
+    const authState = { retried: false }
 
     return withRetry(async () => {
       const headers: Record<string, string> = {
@@ -304,20 +328,7 @@ export class GangtiseClient {
       try {
         return this.unwrapEnvelope(parsed, response.statusCode)
       } catch (error) {
-        // Auto-recover from auth errors by forcing a token refresh once.
-        if (
-          useAuth
-          && !authRetried
-          && error instanceof ApiError
-          && error.code
-          && AUTH_RETRY_CODES.has(error.code)
-          && (this.config.accessKey && this.config.secretKey)
-        ) {
-          authRetried = true
-          this.memoCache = null
-          await this.getAuthorizationHeader(true)
-          throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
-        }
+        await this.refreshAuthIfRecoverable(error, useAuth, authState)
         throw error
       }
     }, {
@@ -335,6 +346,7 @@ export class GangtiseClient {
     Object.entries(query).forEach(([key, value]) => {
       url.searchParams.set(key, String(value))
     })
+    const authState = { retried: false }
 
     return withRetry(async () => {
       const authorization = await this.getAuthorizationHeader()
@@ -366,7 +378,13 @@ export class GangtiseClient {
           this.throwHttpError(parsed, response.statusCode)
         }
 
-        const data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
+        let data: unknown
+        try {
+          data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
+        } catch (error) {
+          await this.refreshAuthIfRecoverable(error, true, authState)
+          throw error
+        }
         if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {
           return { url: String((data as Record<string, unknown>).url), contentType }
         }
