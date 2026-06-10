@@ -5,13 +5,16 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/gangtiser/gangtise-openapi-cli.git"
+    "url": "git+https://github.com/gangtiser/gangtise-openapi-cli.git"
   },
   "bugs": {
     "url": "https://github.com/gangtiser/gangtise-openapi-cli/issues"
   },
   "homepage": "https://github.com/gangtiser/gangtise-openapi-cli#readme",
   "type": "module",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "bin": {
     "gangtise": "dist/src/cli.js"
   },

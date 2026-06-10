@@ -125,6 +125,22 @@ cd gangtise-openapi-cli
 npm install
 npm run dev -- --help
 ```
+
+## 发布
+
+npm 发版通过 GitHub Actions Trusted Publishing 完成，不需要 `NPM_TOKEN`。npm 包设置里的 Trusted Publisher 需要匹配本仓库和 workflow 文件名 `publish.yml`。
+
+```bash
+npm version patch --no-git-tag-version
+npm run prepare
+VERSION=$(node -p "require('./package.json').version")
+git commit -am "chore: release v$VERSION"
+git tag "v$VERSION"
+git push --follow-tags
+```
+
+推送 `v*` tag 后，`.github/workflows/publish.yml` 会在 GitHub-hosted runner 上使用 OIDC 发布到 `https://registry.npmjs.org/`。也可以从 GitHub Actions 页面手动运行该 workflow。
+
 ## 版本更新
 
 查看当前版本（自动与线上版本比对）：
