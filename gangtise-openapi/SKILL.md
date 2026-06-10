@@ -4,7 +4,7 @@ version: "0.15.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
-  **触发词**：调接口 / CLI / openapi / 导出 / 下载研报 / 批量查 / 拉数据 / 跑一下
+  **触发词**：调接口 / CLI / openapi / 导出 / 下载研报 / 批量查 / 拉数据 / 跑一下 / 钢尼斯 / gtIC（Gangtise 语音误识别）
 
   **适用**：原始数据导出、批量 jsonl/csv、下载 PDF/MD、行情 K 线、财务报表、估值指标、AI 能力（一页通/投资逻辑/同业对比/线索/业绩点评/主题跟踪/调研提纲/知识库搜索）、云盘文件管理（Vault）
 
@@ -207,7 +207,9 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `433007` | 数据源不匹配 | — | 检查 `resourceType + sourceId` 组合 |
 | `410004` | 数据未找到 | — | 检查查询条件 |
 | `430007` | 行情查询超出限制 | — | 缩短日期范围；全市场场景应已自动分片 |
+| `430004` | 研报下载报错（官方未文档化，实测出现于 download） | — | 确认 reportId 有效；换 `--file-type` 或换一篇验证 |
 | `900001` | 请求参数缺失 | — | 检查必填项（如 `--breakdown` / `--indicator`） |
+| `900002` | 请求缺少 uid | — | `gangtise auth status` 查登录状态，重登后重试 |
 | `10011401` | 白名单未开通 | — | 联系管理员 |
 | HTTP 5xx / `ECONNRESET` / 超时 | 网络/服务端 | **自动指数退避重试 ×2** | 仍失败提示用户 |
 | `ValidationError` | 本地参数校验失败 | — | 检查 `--from` / `--size` / `--limit` 数值，**不要重试同命令** |

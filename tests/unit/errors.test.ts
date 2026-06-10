@@ -16,6 +16,11 @@ describe("ApiError", () => {
     expect(err.hint).toContain("ACCESS_KEY")
   })
 
+  it("provides hints for codes documented in the skill error table", () => {
+    expect(new ApiError("quote range", "430007").hint).toContain("日期范围")
+    expect(new ApiError("download", "430004").hint).toContain("file-type")
+  })
+
   it("has no hint for unknown error codes", () => {
     const err = new ApiError("unknown", "999999999")
     expect(err.hint).toBeUndefined()

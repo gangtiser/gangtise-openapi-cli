@@ -20,9 +20,9 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight summary list | `{list, total}` | `list[].summaryId` / `list[].title` / `list[].publishTime` |
 | insight summary download | 文件路径（stdout） | — |
 | insight roadshow / site-visit / strategy / forum list | `{list, total}` | `list[].id` / `list[].title` / `list[].publishTime` / `list[].institution.institutionName` |
-| insight research list | `{list, total}` | `list[].reportId` / `list[].title` / `list[].publishDate` / `list[].brokerName` / `list[].rating` |
+| insight research list | `{list, total}` | `list[].reportId` / `list[].title` / `list[].brief`（全文摘要） / `list[].publishTime` / `list[].publisher.brokerName` / `list[].securityList[].rating` |
 | insight research download | 文件路径（stdout） | — |
-| insight foreign-report list | `{list, total}` | `list[].reportId` / `list[].title` / `list[].publishDate` / `list[].brokerName` |
+| insight foreign-report list | `{list, total}` | `list[].reportId` / `list[].title` / `list[].titleTranslate` / `list[].brief` / `list[].briefTranslate`（中译全文摘要） / `list[].publishTime` / `list[].publisher.brokerName` |
 | insight foreign-report download | 文件路径（stdout） | — |
 | insight announcement list | `{list, total}` | `list[].announcementId` / `list[].title` / `list[].publishTime` / `list[].securityCode` |
 | insight announcement download | 文件路径（stdout） | — |
