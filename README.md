@@ -135,7 +135,7 @@ npm version patch --no-git-tag-version
 npm run prepare
 VERSION=$(node -p "require('./package.json').version")
 git commit -am "chore: release v$VERSION"
-git tag "v$VERSION"
+git tag -a "v$VERSION" -m "v$VERSION"   # 必须 annotated：--follow-tags 不推 lightweight tag
 git push --follow-tags
 ```
 
