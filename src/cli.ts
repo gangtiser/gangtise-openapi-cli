@@ -63,6 +63,40 @@ async function runDownload(
   await saveDownloadResult(result, options.fallbackName, resolved)
 }
 
+/**
+ * Register a download subcommand. All download commands share one shape: a
+ * required id option, optionally --file-type / --content-type, then --output.
+ * `idField` doubles as the commander option key and the query/title-cache
+ * field, so it must stay the camelCase twin of `idOption`.
+ */
+function addDownloadCommand(parent: Command, spec: {
+  endpointKey: string
+  idOption: string
+  idField: string
+  fallbackPrefix: string
+  name?: string
+  fileType?: { description: string; default?: string; required?: boolean }
+  contentTypeDescription?: string
+  titleListEndpoint?: string
+}) {
+  const cmd = parent.command(spec.name ?? "download").requiredOption(`${spec.idOption} <id>`)
+  if (spec.fileType?.required) cmd.requiredOption("--file-type <number>", spec.fileType.description)
+  else if (spec.fileType) cmd.option("--file-type <number>", spec.fileType.description, spec.fileType.default)
+  if (spec.contentTypeDescription) cmd.requiredOption("--content-type <type>", spec.contentTypeDescription)
+  cmd.option("--output <path>").action((options) => withClient(async (client) => {
+    const id = options[spec.idField] as string
+    const qp: Record<string, string | number> = { [spec.idField]: id }
+    if (spec.fileType && options.fileType) qp.fileType = parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 })
+    if (spec.contentTypeDescription) qp.contentType = options.contentType as string
+    const titleList = spec.titleListEndpoint
+    await runDownload(client, spec.endpointKey, qp, {
+      output: options.output,
+      fallbackName: `${spec.fallbackPrefix}-${id}`,
+      resolveOutputPath: titleList ? (result) => resolveTitle(client, result, titleList, spec.idField, id) : undefined,
+    })
+  }))
+}
+
 function addTimeFilters(command: Command) {
   return command
     .option("--from <number>", "Starting offset", "0")
@@ -105,15 +139,19 @@ program
   )
 
 const lookup = new Command("lookup").description("Lookup helper APIs")
-lookup
-  .addCommand(new Command("research-area").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.research-areas.list")))))
-  .addCommand(new Command("broker-org").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.broker-orgs.list")))))
-  .addCommand(new Command("meeting-org").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.meeting-orgs.list")))))
-  .addCommand(new Command("industry").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.industries.list")))))
-  .addCommand(new Command("region").description("Foreign report region codes").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.regions.list")))))
-  .addCommand(new Command("announcement-category").description("Announcement category codes").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.announcement-categories.list")))))
-  .addCommand(new Command("industry-code").description("Shenwan industry codes for security-clue --gts-code").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.industry-codes.list")))))
-  .addCommand(new Command("theme-id").description("Theme IDs for theme-tracking --theme-id").addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call("lookup.theme-ids.list")))))
+const addLookupList = (name: string, endpointKey: string, description?: string) => {
+  const cmd = new Command(name)
+  if (description) cmd.description(description)
+  lookup.addCommand(cmd.addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call(endpointKey)))))
+}
+addLookupList("research-area", "lookup.research-areas.list")
+addLookupList("broker-org", "lookup.broker-orgs.list")
+addLookupList("meeting-org", "lookup.meeting-orgs.list")
+addLookupList("industry", "lookup.industries.list")
+addLookupList("region", "lookup.regions.list", "Foreign report region codes")
+addLookupList("announcement-category", "lookup.announcement-categories.list", "Announcement category codes")
+addLookupList("industry-code", "lookup.industry-codes.list", "Shenwan industry codes for security-clue --gts-code")
+addLookupList("theme-id", "lookup.theme-ids.list", "Theme IDs for theme-tracking --theme-id")
 program.addCommand(lookup)
 
 const insight = new Command("insight").description("Insight APIs")
@@ -143,15 +181,7 @@ addTimeFilters(summary.command("list").option("--search-type <number>", "Search 
     researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution),
     categoryList: maybeArray(options.category), marketList: maybeArray(options.market), participantRoleList: maybeArray(options.participantRole),
   }), { endpointKey: "insight.summary.list", idField: "summaryId" }))
-summary.command("download").requiredOption("--summary-id <id>").option("--file-type <number>", "File type: 1=original(default) 2=HTML; only affects meeting platform summaries").option("--output <path>").action((options) => withClient(async (client) => {
-  const qp: Record<string, string | number> = { summaryId: options.summaryId }
-  if (options.fileType) qp.fileType = parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 })
-  await runDownload(client, "insight.summary.download", qp, {
-    output: options.output,
-    fallbackName: `summary-${options.summaryId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "insight.summary.list", "summaryId", options.summaryId),
-  })
-}))
+addDownloadCommand(summary, { endpointKey: "insight.summary.download", idOption: "--summary-id", idField: "summaryId", fallbackPrefix: "summary", fileType: { description: "File type: 1=original(default) 2=HTML; only affects meeting platform summaries" }, titleListEndpoint: "insight.summary.list" })
 
 const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--object <type>", "Object type: company/industry", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call(endpointKey, {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
@@ -172,13 +202,7 @@ addTimeFilters(research.command("list").option("--search-type <number>", "Search
     ratingChangeList: maybeArray(options.ratingChange), minReportPages: parseOptionalNumberOption(options.minPages, "--min-pages", { integer: true, min: 0 }),
     maxReportPages: parseOptionalNumberOption(options.maxPages, "--max-pages", { integer: true, min: 0 }), sourceList: maybeArray(options.source),
   }), { endpointKey: "insight.research.list", idField: "reportId" }))
-research.command("download").requiredOption("--report-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown", "1").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "insight.research.download", { reportId: options.reportId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
-    output: options.output,
-    fallbackName: `research-${options.reportId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "insight.research.list", "reportId", options.reportId),
-  })
-}))
+addDownloadCommand(research, { endpointKey: "insight.research.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "research", fileType: { description: "File type: 1=PDF 2=Markdown", default: "1" }, titleListEndpoint: "insight.research.list" })
 
 addTimeFilters(foreignReport.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--region <id>", "Region ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-report.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
@@ -188,13 +212,7 @@ addTimeFilters(foreignReport.command("list").option("--search-type <number>", "S
     ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
     minReportPages: parseOptionalNumberOption(options.minPages, "--min-pages", { integer: true, min: 0 }), maxReportPages: parseOptionalNumberOption(options.maxPages, "--max-pages", { integer: true, min: 0 }),
   }), { endpointKey: "insight.foreign-report.list", idField: "reportId" }))
-foreignReport.command("download").requiredOption("--report-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", "1").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "insight.foreign-report.download", { reportId: options.reportId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
-    output: options.output,
-    fallbackName: `foreign-report-${options.reportId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "insight.foreign-report.list", "reportId", options.reportId),
-  })
-}))
+addDownloadCommand(foreignReport, { endpointKey: "insight.foreign-report.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "foreign-report", fileType: { description: "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", default: "1" }, titleListEndpoint: "insight.foreign-report.list" })
 
 addTimeFilters(announcement.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--announcement-type <type>", "Announcement type", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
@@ -202,13 +220,7 @@ addTimeFilters(announcement.command("list").option("--search-type <number>", "Se
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }), rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }), keyword: options.keyword,
     securityList: maybeArray(options.security), announcementTypeList: maybeArray(options.announcementType), categoryList: maybeArray(options.category),
   }), { endpointKey: "insight.announcement.list", idField: "announcementId" }))
-announcement.command("download").requiredOption("--announcement-id <id>").option("--file-type <number>", "File type: 1=PDF 2=Markdown", "1").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "insight.announcement.download", { announcementId: options.announcementId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
-    output: options.output,
-    fallbackName: `announcement-${options.announcementId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "insight.announcement.list", "announcementId", options.announcementId),
-  })
-}))
+addDownloadCommand(announcement, { endpointKey: "insight.announcement.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement", fileType: { description: "File type: 1=PDF 2=Markdown", default: "1" }, titleListEndpoint: "insight.announcement.list" })
 
 addTimeFilters(announcementHk.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. 01913.HK)", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement-hk.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
@@ -218,13 +230,7 @@ addTimeFilters(announcementHk.command("list").option("--search-type <number>", "
     keyword: options.keyword,
     securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
   }), { endpointKey: "insight.announcement-hk.list", idField: "announcementId" }))
-announcementHk.command("download").requiredOption("--announcement-id <id>").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "insight.announcement-hk.download", { announcementId: options.announcementId }, {
-    output: options.output,
-    fallbackName: `announcement-hk-${options.announcementId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "insight.announcement-hk.list", "announcementId", options.announcementId),
-  })
-}))
+addDownloadCommand(announcementHk, { endpointKey: "insight.announcement-hk.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-hk", titleListEndpoint: "insight.announcement-hk.list" })
 
 addTimeFilters(foreignOpinion.command("list").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
@@ -244,12 +250,7 @@ addTimeFilters(independentOpinion.command("list").option("--rank-type <number>",
     industryList: maybeArray(options.industry), securityList: maybeArray(options.security),
     ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
   })))
-independentOpinion.command("download").requiredOption("--independent-opinion-id <id>").requiredOption("--file-type <number>", "File type: 1=original HTML 2=CN-translated HTML").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "insight.independent-opinion.download", { independentOpinionId: options.independentOpinionId, fileType: parseNumberOption(options.fileType, "--file-type", { integer: true, min: 1 }) }, {
-    output: options.output,
-    fallbackName: `independent-opinion-${options.independentOpinionId}`,
-  })
-}))
+addDownloadCommand(independentOpinion, { endpointKey: "insight.independent-opinion.download", idOption: "--independent-opinion-id", idField: "independentOpinionId", fallbackPrefix: "independent-opinion", fileType: { description: "File type: 1=original HTML 2=CN-translated HTML", required: true } })
 
 insight.addCommand(opinion)
 insight.addCommand(summary)
@@ -405,29 +406,11 @@ program.addCommand(reference)
 
 const vault = new Command("vault").description("Vault APIs")
 vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.drive.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, fileTypeList: options.fileType.length ? options.fileType : undefined, spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), { endpointKey: "vault.drive.list", idField: "fileId" }))
-vault.command("drive-download").requiredOption("--file-id <id>").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "vault.drive.download", { fileId: options.fileId }, {
-    output: options.output,
-    fallbackName: `file-${options.fileId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "vault.drive.list", "fileId", options.fileId),
-  })
-}))
+addDownloadCommand(vault, { endpointKey: "vault.drive.download", name: "drive-download", idOption: "--file-id", idField: "fileId", fallbackPrefix: "file", titleListEndpoint: "vault.drive.list" })
 vault.command("record-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--category <name>", "Recording type: upload/link/mobile/gtNote/pc/share", collectList, []).option("--space-type <number>", "Space type: 1=my records / 2=tenant records", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.record.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, categoryList: maybeArray(options.category), spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), { endpointKey: "vault.record.list", idField: "recordId" }))
-vault.command("record-download").requiredOption("--record-id <id>").requiredOption("--content-type <type>", "Content type: original/asr/summary").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "vault.record.download", { recordId: options.recordId, contentType: options.contentType }, {
-    output: options.output,
-    fallbackName: `record-${options.recordId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "vault.record.list", "recordId", options.recordId),
-  })
-}))
+addDownloadCommand(vault, { endpointKey: "vault.record.download", name: "record-download", idOption: "--record-id", idField: "recordId", fallbackPrefix: "record", contentTypeDescription: "Content type: original/asr/summary", titleListEndpoint: "vault.record.list" })
 vault.command("my-conference-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--research-area <id>", "Research area ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.my-conference.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution), categoryList: maybeArray(options.category) }), { endpointKey: "vault.my-conference.list", idField: "conferenceId" }))
-vault.command("my-conference-download").requiredOption("--conference-id <id>").requiredOption("--content-type <type>", "Content type: asr/summary").option("--output <path>").action((options) => withClient(async (client) => {
-  await runDownload(client, "vault.my-conference.download", { conferenceId: options.conferenceId, contentType: options.contentType }, {
-    output: options.output,
-    fallbackName: `conference-${options.conferenceId}`,
-    resolveOutputPath: (result) => resolveTitle(client, result, "vault.my-conference.list", "conferenceId", options.conferenceId),
-  })
-}))
+addDownloadCommand(vault, { endpointKey: "vault.my-conference.download", name: "my-conference-download", idOption: "--conference-id", idField: "conferenceId", fallbackPrefix: "conference", contentTypeDescription: "Content type: asr/summary", titleListEndpoint: "vault.my-conference.list" })
 vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-message.list", buildWechatMessageListBody(options))))
 vault.command("wechat-chatroom-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Rows to return", "20").option("--room-name <name>", "WeChat group name; repeat or comma-separate for multiple names", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-chatroom.list", buildWechatChatroomListBody(options))))
 vault.command("stock-pool-list").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.stock-pool.list", {})))
