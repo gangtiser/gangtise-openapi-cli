@@ -4,6 +4,20 @@
 
 ## Changelog
 
+### v0.16.0 — 2026-06-12
+
+**新增接口（参考数据 · 常量查询，均免积分）**
+- `reference constant-category` — 查询常量分类：全量导出常量分类及各分类适用于哪些接口的哪些参数（7 个分类：中信/申万/Gangtise 行业、国内城市、A股/港股公告分类、区域）
+- `reference constant-list --category <code>` — 查询常量值：按分类导出全量常量（`constantId` / `constantName`，树形分类含 `children` 嵌套）
+- `reference concept-search --keyword <kw>` — 查询题材 ID：按名称/拼音/分组名搜索，返回 `conceptId`（供 `alternative concept-info / concept-securities`、`ai theme-tracking` 使用）
+- `reference sector-search --keyword <kw>` — 查询板块 ID：返回 `sectorId` + `hierarchy` 层级路径
+- `reference sector-constituents --sector-id <id>` — 查询板块成分股：返回该板块全量成分股（`gtsCode` / `gtsName`）；注意 sectorId 必须来自 sector-search，题材 conceptId 查不到成分
+
+**接口变更（Breaking）**
+- 移除已被常量 API 覆盖的 5 个本地 lookup 子命令及静态数据：`lookup research-area / industry / region / announcement-category / theme-id list`，请改用 `reference constant-list` / `reference concept-search`
+- `lookup` 仅保留 3 个 API 未覆盖的本地表：`broker-org` / `meeting-org` / `industry-code`
+- 路演/调研/策略会/论坛 list 新增 `--location <id>` 按城市过滤（domesticCity 常量 ID；实测 2026-06-12 服务端过滤暂未生效）
+
 ### v0.15.0 — 2026-05-29
 
 **新增接口**
@@ -235,7 +249,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | 模块 | 子命令 | 说明 |
 |------|--------|------|
 | **Auth** | `login` / `status` | 认证登录、状态查询 |
-| **Lookup** | `research-area list` / `broker-org list` / `meeting-org list` / `industry list` / `industry-code list` / `region list` / `announcement-category list` / `theme-id list` | 枚举速查（内置，无需额外文档） |
+| **Lookup** | `broker-org list` / `meeting-org list` / `industry-code list` | 本地枚举表（常量 API 未覆盖的部分；行业/区域/公告分类/题材改用 Reference 常量接口） |
 | **Insight** | `opinion list` | 内资机构观点 |
 | | `summary list` / `download` | 纪要（含下载，支持 `--file-type` 选原始/HTML） |
 | | `roadshow list` | 路演 |
@@ -249,6 +263,11 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `foreign-opinion list` | 外资机构观点 |
 | | `independent-opinion list` / `download` | 外资独立分析师观点（含原文/翻译HTML下载） |
 | **Reference** | `securities-search` | GTS Code 搜索（按名称/代码/拼音匹配） |
+| | `constant-category` | 常量分类列表（含各分类适用的接口与参数） |
+| | `constant-list` | 按分类导出常量值全量列表（行业/城市/公告分类/区域等） |
+| | `concept-search` | 题材 ID 搜索（名称/拼音/分组名匹配） |
+| | `sector-search` | 板块 ID 搜索（返回层级路径） |
+| | `sector-constituents` | 板块成分股查询 |
 | **Quote** | `day-kline` / `day-kline-hk` / `day-kline-us` | A股/港股/美股历史日K线 |
 | | `index-day-kline` | 沪深京指数日K线 |
 | | `minute-kline` | A股分钟K线 |
@@ -302,13 +321,14 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 先查枚举/参数：
 
 ```bash
-gangtise lookup research-area list
-gangtise lookup broker-org list
-gangtise lookup meeting-org list
-gangtise lookup industry list
-gangtise lookup region list              # 外资研报区域
-gangtise lookup announcement-category list  # 公告分类
-gangtise lookup industry-code list   # 申万行业代码（用于 security-clue --gts-code）
+gangtise reference constant-category                              # 有哪些常量分类、各用于哪些参数
+gangtise reference constant-list --category citicIndustry         # 中信行业（--industry / --research-area）
+gangtise reference constant-list --category swIndustry            # 申万行业
+gangtise reference constant-list --category regionCategory        # 外资研报区域
+gangtise reference constant-list --category aShareAnnouncementCategory  # A股公告分类（树形）
+gangtise lookup broker-org list      # 券商机构（本地表）
+gangtise lookup meeting-org list     # 会议机构（本地表）
+gangtise lookup industry-code list   # 申万行业代码（用于 security-clue --gts-code，本地表）
 ```
 
 再调用业务命令：
@@ -436,6 +456,19 @@ gangtise reference securities-search --keyword "贵州茅台" --category stock
 gangtise reference securities-search --keyword "600519" --category stock
 gangtise reference securities-search --keyword gzmt --top 5
 gangtise reference securities-search --keyword "银行" --category stock --category index
+
+# 常量查询：先看分类，再按分类导出全量常量值
+gangtise reference constant-category --format json
+gangtise reference constant-list --category citicIndustry --format json
+gangtise reference constant-list --category aShareAnnouncementCategory --format json   # 树形，含 children
+
+# 题材 ID 搜索（供 concept-info / concept-securities / theme-tracking 使用）
+gangtise reference concept-search --keyword 机器人 --top 3 --format json
+gangtise reference concept-search --keyword jqr   # 拼音首字母
+
+# 板块：先搜板块 ID，再查成分股（sectorId 必须来自 sector-search）
+gangtise reference sector-search --keyword 半导体设备 --format json
+gangtise reference sector-constituents --sector-id 1000001005 --format json
 ```
 
 ### Quote
@@ -593,7 +626,7 @@ gangtise alternative edb-data \
   --output ./indicator.csv
 
 # 题材指数：先查 conceptId（与 theme-id 共用 ID 体系），再拉画像 / 成分股
-gangtise lookup theme-id list | grep 机器人        # → 121000130
+gangtise reference concept-search --keyword 机器人 --format json   # → 121000130
 gangtise alternative concept-info --concept-id 121000130 --format json
 # 题材成分股（题材深度 F8，按分组返回，标记重点个股）
 gangtise alternative concept-securities --concept-id 121000130 --format json

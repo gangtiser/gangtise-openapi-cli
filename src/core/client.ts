@@ -147,14 +147,9 @@ export class GangtiseClient {
 
   private async readLocalLookup(endpoint: EndpointDefinition) {
     const keyMapping: Record<string, Parameters<typeof getLookupData>[0]> = {
-      "lookup.research-areas.list": "research-areas",
       "lookup.broker-orgs.list": "broker-orgs",
       "lookup.meeting-orgs.list": "meeting-orgs",
-      "lookup.industries.list": "industries",
-      "lookup.regions.list": "regions",
-      "lookup.announcement-categories.list": "announcement-categories",
       "lookup.industry-codes.list": "industry-codes",
-      "lookup.theme-ids.list": "theme-ids",
     }
 
     const lookupKey = keyMapping[endpoint.key]

@@ -56,7 +56,7 @@ gangtise alternative concept-info --concept-id <id>
 ```
 
 - `--concept-id`（**必选**）：题材指数 ID，如 `121000130`（机器人）
-- **如何拿 ID**：题材指数与主题（`ai theme-tracking --theme-id`）共用同一套 ID 体系，用 `gangtise lookup theme-id list` 按名称查（如 机器人 → `121000130`）。**绝不猜测**
+- **如何拿 ID**：题材指数与主题（`ai theme-tracking --theme-id`）共用同一套 ID 体系，用 `gangtise reference concept-search --keyword <名称>` 查，取 `conceptId`（如 机器人 → `121000130`）。**绝不猜测**
 - 仅返回**最新截面**画像，不支持历史回溯
 - 默认 `--format json`（含大段文本，建议直接读字段）
 - 返回字段（单对象，非列表）：
@@ -71,7 +71,7 @@ gangtise alternative concept-info --concept-id <id>
 **示例：**
 ```bash
 # 先查 ID
-gangtise lookup theme-id list | grep 机器人
+gangtise reference concept-search --keyword 机器人 --format json
 # 再拉题材画像
 gangtise alternative concept-info --concept-id 121000130 --format json
 ```
@@ -82,7 +82,7 @@ gangtise alternative concept-info --concept-id 121000130 --format json
 gangtise alternative concept-securities --concept-id <id>
 ```
 
-- `--concept-id`（**必选**）：题材指数 ID，同上（`lookup theme-id list` 查）
+- `--concept-id`（**必选**）：题材指数 ID，同上（`reference concept-search` 查）
 - 返回当前成分股，**按分组结构**组织（题材深度 F8）；仅最新截面，不支持历史回溯
 - 默认 `--format json`：成分股是 `securityDetail[].securityList[]` 两层嵌套，`table` / `csv` / `markdown` / `jsonl` 不会展开成逐只成分股（会把整个 `securityDetail` 压成单格/单行）；要逐只数据请用 json 自行解析分组
 - 返回字段（单对象）：

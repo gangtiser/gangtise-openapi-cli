@@ -20,20 +20,100 @@ gangtise reference securities-search --keyword 600519
 gangtise reference securities-search --keyword gzmt
 ```
 
-## Lookup 命令
-
-ID 不确定时优先读 `references/lookup-ids.md`（高频 ID 速查表），找不到再调 lookup 命令：
+## 常量分类 `reference constant-category`
 
 ```bash
-gangtise lookup research-area list        # 研究方向
-gangtise lookup broker-org list           # 券商机构
-gangtise lookup meeting-org list          # 会议机构
-gangtise lookup industry list             # 行业
-gangtise lookup region list               # 外资研报区域
-gangtise lookup announcement-category list # 公告分类
-gangtise lookup industry-code list        # 申万行业代码（security-clue --gts-code 用）
-gangtise lookup theme-id list             # 主题 ID（theme-tracking 用）
+gangtise reference constant-category [--format json]
 ```
+
+- 用途：全量导出常量分类及每个分类适用于哪些接口的哪些参数（无需传参，免积分）
+- 返回 `{total, list}`，`list[]` 字段：`category`（分类代码）/ `categoryName` / `structureType`（`flat` 平铺 | `tree` 树形）/ `maxLevel` / `usageScopes[]`（`apiName` + `paramName`）
+- 当前 7 个分类：
+
+| category | 名称 | 结构 | 用于参数 |
+|----------|------|------|---------|
+| `citicIndustry` | 中信一级行业 | flat | `--industry` / `--research-area`（opinion / research / foreign-report / summary / 日程类） |
+| `swIndustry` | 申万一级行业 | flat | `--industry`（opinion / foreign-opinion / independent-opinion / research / foreign-report 等） |
+| `gangtiseIndustry` | Gangtise 行业（含宏观/策略等方向） | flat | `--research-area`（summary / opinion / 日程类） |
+| `domesticCity` | 国内城市（省级 ID） | flat | `--location`（roadshow / site-visit / strategy / forum） |
+| `aShareAnnouncementCategory` | A股公告分类 | tree（2 级） | `insight announcement --category` |
+| `hkShareAnnouncementCategory` | 港股公告分类 | tree（2 级） | `insight announcement-hk --category` |
+| `regionCategory` | 区域分类 | flat | `insight foreign-report --region` |
+
+## 常量值 `reference constant-list`
+
+```bash
+gangtise reference constant-list --category <code> [--format json]
+```
+
+- `--category`（**必选**）：分类代码，见上表
+- 返回 `{category, structureType, maxLevel, constantCount, list}`（CLI 把 API 的 `constants` 规范化为 `list`）
+- `list[]` 字段：`constantId` / `constantName` / `level`；树形分类的父节点含 `children[]`（结构同父节点，可继续嵌套）
+- 树形分类（公告分类）用 `--format json` 自行递归 `children`；`table` 不会展开子节点
+
+**示例：**
+```bash
+gangtise reference constant-list --category citicIndustry --format json
+gangtise reference constant-list --category aShareAnnouncementCategory --format json   # 树形，含 children
+```
+
+## 题材 ID 搜索 `reference concept-search`
+
+```bash
+gangtise reference concept-search --keyword <text> [--top <n>]
+```
+
+- 用途：查题材 ID，供 `alternative concept-info / concept-securities --concept-id` 和 `ai theme-tracking --theme-id` 使用（三者共用同一套 ID）
+- `--keyword`（**必选**）：中文题材名/简称、拼音/首字母（`jqr`）、分组名（如 灵巧手）
+- `--top`：默认 10，**上限 10**；搜索型接口，**非全量导出**
+- 返回 `{returnedCount, list}`，`list[]`：`conceptId` / `conceptName` / `matchScore`（0~1，降序）
+
+**示例：**
+```bash
+gangtise reference concept-search --keyword 机器人 --top 3 --format json   # → 121000130
+gangtise reference concept-search --keyword jqr
+```
+
+## 板块 ID 搜索 `reference sector-search`
+
+```bash
+gangtise reference sector-search [--keyword <text>] [--top <n>]
+```
+
+- 用途：查板块 ID（行业/概念/指数成份等分类树节点），供 `sector-constituents` 使用
+- `--keyword`：中文板块名/简称、拼音/首字母
+- `--top`：默认 10，**上限 10**
+- 返回 `{returnedCount, list}`，`list[]`：`sectorId` / `sectorName` / `hierarchy`（层级路径，如 `中国内地股票-概念类-科技-半导体设备`）/ `matchScore`
+- 同名板块可能出现在多个层级（概念类 vs 指数成份类），用 `hierarchy` 区分
+
+## 板块成分股 `reference sector-constituents`
+
+```bash
+gangtise reference sector-constituents --sector-id <id>
+```
+
+- `--sector-id`（**必选**）：板块 ID，**必须来自 `reference sector-search`**
+- 返回 `{total, list}`，`list[]`：`gtsCode` / `gtsName`（全量成分股，纯名单）
+- **返回 0 条** → sectorId 不对：题材 `conceptId` 与板块 `sectorId` 是两套 ID，不通用；先 `sector-search` 确认
+- 与 `alternative concept-securities` 的区别：后者是题材深度 F8（按分组、含 `isKey` / `inclusionReason`），本接口是板块树节点的纯成分股名单
+
+**示例：**
+```bash
+gangtise reference sector-search --keyword 半导体 --top 3 --format json   # → 1000001005 半导体设备
+gangtise reference sector-constituents --sector-id 1000001005 --format json
+```
+
+## Lookup 本地表（仅剩 3 个）
+
+常量 API 未覆盖的 ID 仍走本地表：
+
+```bash
+gangtise lookup broker-org list           # 券商机构（--broker 用）
+gangtise lookup meeting-org list          # 会议机构（--institution 用）
+gangtise lookup industry-code list        # 申万行业代码 821xxx.SWI（仅 ai security-clue --gts-code 用）
+```
+
+行业 / 区域 / 公告分类 / 研究方向 / 题材 ID 已改用 API：`reference constant-list` / `reference concept-search`（v0.16.0 起移除对应 lookup 子命令）。
 
 ### 常见行业别名映射
 
@@ -62,6 +142,6 @@ gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'
 
 - endpoint key 格式：`<命令组>.<子命令>.<操作>`，如：
   - `insight.opinion.list`、`insight.announcement-hk.list`、`insight.foreign-opinion.list`、`insight.independent-opinion.list`
-  - `reference.securities-search`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch`
+  - `reference.securities-search`、`reference.constant-list`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch`
 - `--body` 传 JSON 字符串
 - 自动翻页 / 重试 / Agent 复用与封装命令一致

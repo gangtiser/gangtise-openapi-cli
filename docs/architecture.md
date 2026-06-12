@@ -46,7 +46,7 @@
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| 71 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
+| 75 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
 
 ↓
 
@@ -59,7 +59,7 @@
 3. `kind="json"` + pagination
 4. `requestPaginated()` loop · MAX_PAGES=1000 safety limit
 5. HTTP 5xx check → `unwrapEnvelope()` → `.data`
-6. `normalizeRows()` flatten fieldList/list + chatRoomList · preserves total/meta
+6. `normalizeRows()` flatten fieldList/list + chatRoomList + constants · preserves total/meta
 7. `renderOutput()` → stdout · `Total: N, showing: M` → stderr
 
 ### DOWNLOAD FLOW `╌╌╌`
@@ -91,12 +91,11 @@
 3. Return `lookupData.ts` directly
 
 **Static data:**
-- 52 research areas
 - 100+ broker orgs
 - 100+ meeting orgs
-- 31 industries / codes
-- 19 regions / 80+ categories
-- 8 theme IDs
+- 31 Shenwan industry codes
+
+(industries / regions / announcement categories / research areas / theme IDs moved to the `reference constant-*` / `concept-search` APIs in v0.16.0)
 
 ↓
 

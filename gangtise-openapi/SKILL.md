@@ -22,7 +22,7 @@ description: |-
 ## 必备规则
 
 1. **`--format json`**：列表/数据类必加。AI 内容生成（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `*-check`）也加 json，但呈现时**直接取 `content` 字段**，不要展示 JSON 包装层。
-2. **opaque ID**：先读 `references/lookup-ids.md`；找不到再调 `gangtise lookup <type> list`。**绝不猜测**。
+2. **opaque ID**：先读 `references/lookup-ids.md`；找不到再按类型查：行业/区域/公告分类/城市 → `reference constant-list --category <分类>`（分类代码用 `reference constant-category` 查）；题材 → `reference concept-search --keyword <名>`；板块 → `reference sector-search --keyword <名>`；券商/会议机构/申万 `--gts-code` 代码 → `gangtise lookup <type> list`（仅剩 broker-org / meeting-org / industry-code 三个本地表）。**绝不猜测**。
 3. **公司名 → 证券代码**：先查下方速查表（5 只 mega-cap），其余一律 `gangtise reference securities-search --keyword <名> --category stock` 取 `list[0].gtsCode`。
 4. **时间格式**：datetime `"YYYY-MM-DD HH:mm:ss"`（引号包裹），date `YYYY-MM-DD`。
 5. **多值参数**：重复传，不要逗号分隔。`--security 600519.SH --security 000858.SZ`。
@@ -91,7 +91,7 @@ description: |-
 | 业绩点评（异步） | `ai earnings-review` |
 | 观点 PK / 多空辩论（异步） | `ai viewpoint-debate` |
 | 投研线索 | `ai security-clue`（前置：`reference securities-search` 拿 `gts-code`） |
-| 主题跟踪 | `ai theme-tracking` |
+| 主题跟踪 | `ai theme-tracking`（前置：`reference concept-search` 拿 `theme-id`） |
 | 热点话题 / 早午晚报 | `ai hot-topic` |
 | 管理层讨论（财报） | `ai management-discuss-announcement` |
 | 管理层讨论（业绩会） | `ai management-discuss-earnings-call` |
@@ -114,14 +114,19 @@ description: |-
 | 自选股股票池 | `vault stock-pool-list / stock-pool-stocks` |
 | 行业指标搜索（EDB） | `alternative edb-search` |
 | 行业指标时序数据（EDB） | `alternative edb-data` |
-| 题材画像 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件 | `alternative concept-info`（前置：`lookup theme-id list` 拿 `concept-id`） |
-| 题材成分股 / 题材深度 F8 / 题材龙头 | `alternative concept-securities`（前置：`lookup theme-id list` 拿 `concept-id`） |
+| 题材画像 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件 | `alternative concept-info`（前置：`reference concept-search` 拿 `concept-id`） |
+| 题材成分股 / 题材深度 F8 / 题材龙头 | `alternative concept-securities`（前置：`reference concept-search` 拿 `concept-id`） |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
+| 常量/枚举 ID（行业/城市/公告分类/区域） | `reference constant-list --category <code>`（分类代码用 `reference constant-category` 查） |
+| 题材 ID 搜索 | `reference concept-search` |
+| 板块 ID 搜索 | `reference sector-search` |
+| 板块成分股 | `reference sector-constituents`（前置：`reference sector-search` 拿 `sector-id`） |
 
 **易混淆消歧**：
 - "纪要" → 外部信息走 `insight summary`；公司内部录音/会议走 `vault my-conference`
 - "搜索 X" → 数据维度精确（按行业/券商）走对应 `insight ... list`；跨类型语义搜索走 `ai knowledge-batch`
 - 港股代码用在 `insight foreign-opinion --security` 还是 `quote day-kline-hk --security`？前者要"境外"格式（`UBER.N`），后者要 `.HK`
+- "成分股" → 题材深度（分组/重点标记/纳入理由）走 `alternative concept-securities`；板块（行业/概念分类树，纯代码名单）走 `reference sector-constituents`
 
 ## 公司名 → 证券代码
 
@@ -260,6 +265,8 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 **同一公司既是股票又是 DR** → `securities-search` 默认返回所有分类 → 加 `--category stock` 收敛。
 
+**`sector-constituents` 返回 0 条** → sectorId 不对（题材 conceptId 与板块 sectorId 是两套 ID，不通用）→ 先 `reference sector-search --keyword <名>` 拿 `sectorId` 重试。
+
 ## 详细参数
 
 按需 Read 对应文件：
@@ -270,6 +277,6 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 - knowledge-batch / security-clue / AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
 - 行业指标数据库（EDB）/ 题材指数画像与成分股（concept-info / concept-securities）→ `references/commands/alternative.md`
-- securities-search / lookup / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
+- securities-search / 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 
 跑通流程对照 → `references/examples.md`

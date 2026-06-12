@@ -138,20 +138,15 @@ program
       }),
   )
 
-const lookup = new Command("lookup").description("Lookup helper APIs")
+const lookup = new Command("lookup").description("Local lookup tables (IDs not covered by 'reference constant-list')")
 const addLookupList = (name: string, endpointKey: string, description?: string) => {
   const cmd = new Command(name)
   if (description) cmd.description(description)
   lookup.addCommand(cmd.addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call(endpointKey)))))
 }
-addLookupList("research-area", "lookup.research-areas.list")
 addLookupList("broker-org", "lookup.broker-orgs.list")
 addLookupList("meeting-org", "lookup.meeting-orgs.list")
-addLookupList("industry", "lookup.industries.list")
-addLookupList("region", "lookup.regions.list", "Foreign report region codes")
-addLookupList("announcement-category", "lookup.announcement-categories.list", "Announcement category codes")
 addLookupList("industry-code", "lookup.industry-codes.list", "Shenwan industry codes for security-clue --gts-code")
-addLookupList("theme-id", "lookup.theme-ids.list", "Theme IDs for theme-tracking --theme-id")
 program.addCommand(lookup)
 
 const insight = new Command("insight").description("Insight APIs")
@@ -183,11 +178,12 @@ addTimeFilters(summary.command("list").option("--search-type <number>", "Search 
   }), { endpointKey: "insight.summary.list", idField: "summaryId" }))
 addDownloadCommand(summary, { endpointKey: "insight.summary.download", idOption: "--summary-id", idField: "summaryId", fallbackPrefix: "summary", fileType: { description: "File type: 1=original(default) 2=HTML; only affects meeting platform summaries" }, titleListEndpoint: "insight.summary.list" })
 
-const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--object <type>", "Object type: company/industry", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call(endpointKey, {
+const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--object <type>", "Object type: company/industry", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--location <id>", "Location ID (domesticCity constant, via 'reference constant-list')", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call(endpointKey, {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
     researchAreaList: maybeArray(options.researchArea), institutionList: maybeArray(options.institution), securityList: maybeArray(options.security),
     categoryList: maybeArray(options.category), marketList: maybeArray(options.market), participantRoleList: maybeArray(options.participantRole),
     brokerTypeList: maybeArray(options.brokerType), objectList: maybeArray(options.object), permission: options.permission.length ? options.permission : undefined,
+    locationList: maybeArray(options.location),
   })))
 addScheduleList(roadshow, "insight.roadshow.list")
 addScheduleList(siteVisit, "insight.site-visit.list")
@@ -347,7 +343,7 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
   }
 }))
 ai.command("earnings-review-check").requiredOption("--data-id <id>", "dataId from earnings-review").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient((client) => checkAsyncContent(client, "ai.earnings-review.get-content", options.dataId, parseOutputFormat(options.format), options.output)))
-ai.command("theme-tracking").requiredOption("--theme-id <id>", "Theme ID (use lookup theme-id list)").requiredOption("--date <date>", "Date (yyyy-MM-dd)").option("--type <name>", "Report type: morning/night", collectList, []).option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => {
+ai.command("theme-tracking").requiredOption("--theme-id <id>", "Theme ID (use 'reference concept-search')").requiredOption("--date <date>", "Date (yyyy-MM-dd)").option("--type <name>", "Report type: morning/night", collectList, []).option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => {
   const typeList = options.type.length ? options.type : undefined
   return client.call("ai.theme-tracking", { themeId: options.themeId, date: options.date, type: typeList })
 }))
@@ -402,6 +398,17 @@ reference.command("securities-search").requiredOption("--keyword <text>", "Searc
     category: options.category.length ? options.category : undefined,
     top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
   })))
+reference.command("constant-category").description("List constant categories and which API params accept them").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.constant-category")))
+reference.command("constant-list").requiredOption("--category <code>", "Category code from 'reference constant-category' (e.g. citicIndustry/swIndustry/regionCategory)").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.constant-list", { category: options.category })))
+reference.command("concept-search").requiredOption("--keyword <text>", "Search keyword (name/pinyin/group name)").option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.concept-search", {
+    keyword: options.keyword,
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+  })))
+reference.command("sector-search").option("--keyword <text>", "Search keyword (name/pinyin)").option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.sector-search", {
+    keyword: options.keyword,
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+  })))
+reference.command("sector-constituents").requiredOption("--sector-id <id>", "Sector ID from 'reference sector-search'").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.sector-constituents", { sectorId: options.sectorId })))
 program.addCommand(reference)
 
 const vault = new Command("vault").description("Vault APIs")
@@ -441,8 +448,8 @@ alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (rep
   }
   await printData(data, parseOutputFormat(options.format), options.output)
 }))
-alternative.command("concept-info").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise lookup theme-id list'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-info", { conceptId: options.conceptId })))
-alternative.command("concept-securities").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise lookup theme-id list'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-securities", { conceptId: options.conceptId })))
+alternative.command("concept-info").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-info", { conceptId: options.conceptId })))
+alternative.command("concept-securities").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-securities", { conceptId: options.conceptId })))
 program.addCommand(alternative)
 
 program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {

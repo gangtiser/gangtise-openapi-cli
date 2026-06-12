@@ -34,5 +34,11 @@ export function normalizeRows(value: unknown): unknown {
     return hasMeta ? { ...meta, list: chatRoomList } : chatRoomList
   }
 
+  if (Array.isArray(record.constants)) {
+    const { constants, ...meta } = record
+    const hasMeta = Object.keys(meta).length > 0
+    return hasMeta ? { ...meta, list: constants } : constants
+  }
+
   return value
 }

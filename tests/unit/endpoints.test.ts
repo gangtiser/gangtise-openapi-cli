@@ -266,6 +266,38 @@ describe("ENDPOINTS", () => {
     expect(securities.kind).toBe("json")
   })
 
+  it("reference constant/concept/sector endpoints use correct keys and paths", () => {
+    const category = ENDPOINTS["reference.constant-category"]
+    expect(category.method).toBe("GET")
+    expect(category.path).toBe("/application/open-reference/constants/category")
+    expect(category.kind).toBe("json")
+
+    const constants = ENDPOINTS["reference.constant-list"]
+    expect(constants.method).toBe("POST")
+    expect(constants.path).toBe("/application/open-reference/constants/getList")
+
+    const concepts = ENDPOINTS["reference.concept-search"]
+    expect(concepts.method).toBe("POST")
+    expect(concepts.path).toBe("/application/open-reference/concepts/search")
+
+    const sectors = ENDPOINTS["reference.sector-search"]
+    expect(sectors.method).toBe("POST")
+    expect(sectors.path).toBe("/application/open-reference/sectors/search")
+
+    const constituents = ENDPOINTS["reference.sector-constituents"]
+    expect(constituents.method).toBe("POST")
+    expect(constituents.path).toBe("/application/open-reference/sectors/constituents")
+  })
+
+  it("only local-data lookup endpoints remain (API-covered ones removed)", () => {
+    const lookupKeys = Object.keys(ENDPOINTS).filter((k) => k.startsWith("lookup.")).sort()
+    expect(lookupKeys).toEqual([
+      "lookup.broker-orgs.list",
+      "lookup.industry-codes.list",
+      "lookup.meeting-orgs.list",
+    ])
+  })
+
   it("vault wechat message endpoints use correct keys and paths", () => {
     const message = ENDPOINTS["vault.wechat-message.list"]
     expect(message.key).toBe("vault.wechat-message.list")

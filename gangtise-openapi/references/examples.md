@@ -191,9 +191,10 @@
 ```
 1. 路由 → alternative concept-info（投资逻辑/行业空间/竞争格局）
           + alternative concept-securities（成分股，按分组）
-2. "机器人" → concept-id：题材与主题共用 ID 体系，查 lookup theme-id list
-     gangtise lookup theme-id list | grep 机器人   → 121000130
-   注意：concept-id 不在速查表，**绝不猜测**，必须查 lookup
+2. "机器人" → concept-id：题材与主题共用 ID 体系，用 concept-search 查
+     gangtise reference concept-search --keyword 机器人 --top 5 --format json
+       → list[0].conceptId = 121000130
+   注意：concept-id 不在速查表，**绝不猜测**，必须查 concept-search
 3. Pre-flight：认证 OK；两接口都仅返回最新截面，无历史回溯
 4. gangtise alternative concept-info --concept-id 121000130 --format json
      → 单对象 {conceptName, definition, investmentLogic, industrySpace,
@@ -202,4 +203,20 @@
      → 单对象 {securityCount, securityDetail:[{groupName, securityList:[...]}]}
 5. 呈现：concept-info 各文本字段直接展示（含 null 则跳过）；
    成分股按 groupName 分组列出，isKey=true 标记为「重点」
+
+## 例 14：板块成分股（sector-search → sector-constituents 两步）
+
+**用户**："半导体设备板块现在有哪些股票"
+
+```
+1. 路由 → reference sector-search + sector-constituents
+   （用户要的是板块名单，不是题材深度 F8 → 不走 alternative concept-securities）
+2. gangtise reference sector-search --keyword 半导体设备 --top 5 --format json
+     → 同名板块可能出现在多个层级，用 hierarchy 区分：
+       中国内地股票-概念类-科技-半导体设备 → sectorId 1000001005
+3. gangtise reference sector-constituents --sector-id 1000001005 --format json
+     → {total: 59, list: [{gtsCode, gtsName}, ...]}
+4. 陷阱：sectorId 必须来自 sector-search；拿题材 conceptId（如 121000130）来查会返回 0 条
+5. 呈现：total + 前 20 只列表
+```
 ```

@@ -32,6 +32,11 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight independent-opinion list | `{list, total}` | `list[].independentOpinionId` / `list[].titleTranslate` / `list[].briefTranslate` / `list[].publishTime` / `list[].analyst.analystName` |
 | insight independent-opinion download | 文件路径（stdout） | — |
 | reference securities-search | `{returnedCount, list}` | `list[].gtsCode` / `list[].gtsName` / `list[].category` / `list[].matchScore` / `list[].matchType` |
+| reference constant-category | `{total, list}` | `list[].category` / `list[].categoryName` / `list[].structureType`（flat/tree） / `list[].maxLevel` / `list[].usageScopes[].apiName` / `.paramName` |
+| reference constant-list | `{category, structureType, maxLevel, constantCount, list}`（CLI 把 `constants` 规范化为 `list`） | `list[].constantId` / `list[].constantName` / `list[].level`；树形分类父节点含 `list[].children[]`（递归同构） |
+| reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
+| reference sector-search | `{returnedCount, list}` | `list[].sectorId` / `list[].sectorName` / `list[].hierarchy`（层级路径） / `list[].matchScore` |
+| reference sector-constituents | `{total, list}` | `list[].gtsCode` / `list[].gtsName`；total=0 说明 sectorId 不对（先 sector-search 确认） |
 | quote day-kline / day-kline-hk / day-kline-us / index-day-kline | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume`；index 另含 `securityName`（指数名称，v0.15.0 起） |
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `latestPrice` / `pctChange` / `volume` / `amount` / `amplitude` |
@@ -58,4 +63,5 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault wechat-chatroom-list | `{chatRoomList: [...]}` | `chatRoomList[].chatroomName` / `chatRoomList[].chatroomId` |
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |
 | alternative concept-securities | `{conceptId, conceptName, securityCount, securityDetail}`（单对象，分组） | `securityCount` / `securityDetail[].groupName` / `securityDetail[].securityList[].securityCode` / `.securityName` / `.isKey` / `.inclusionReason`；无成分股时 `securityDetail` 为 `null` |
-| lookup *.list | `[...]` | `[].id` / `[].name` |
+| lookup broker-org / meeting-org list | `[...]` | `[].id` / `[].name` |
+| lookup industry-code list | `[...]` | `[].name` / `[].code`（`821xxx.SWI`） |

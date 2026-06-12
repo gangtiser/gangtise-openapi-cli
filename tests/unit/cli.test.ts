@@ -59,6 +59,25 @@ describe("cli smoke", () => {
     }
   }, 30_000)
 
+  it("lists reference subcommands", async () => {
+    const { code, out } = await cli(["reference", "--help"])
+    expect(code).toBe(0)
+    for (const sub of ["securities-search", "constant-category", "constant-list", "concept-search", "sector-search", "sector-constituents"]) {
+      expect(out).toContain(sub)
+    }
+  }, 30_000)
+
+  it("lookup keeps only local-data subcommands", async () => {
+    const { code, out } = await cli(["lookup", "--help"])
+    expect(code).toBe(0)
+    for (const sub of ["broker-org", "meeting-org", "industry-code"]) {
+      expect(out).toContain(sub)
+    }
+    for (const removed of ["research-area", "theme-id", "announcement-category"]) {
+      expect(out).not.toContain(removed)
+    }
+  }, 30_000)
+
   it("rejects an invalid enum choice at the commander layer", async () => {
     const { code, out } = await cli(["fundamental", "top-holders", "--security-code", "600519.SH", "--holder-type", "WRONG"])
     expect(code).not.toBe(0)

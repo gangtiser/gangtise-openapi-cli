@@ -194,15 +194,13 @@ describe("GangtiseClient pagination", () => {
   it("returns built-in lookup data without making HTTP requests", async () => {
     const client = createClient()
 
-    const researchAreas = await client.call("lookup.research-areas.list") as Array<{ id: string; name: string }>
     const brokerOrgs = await client.call("lookup.broker-orgs.list") as Array<{ id: string; name: string }>
     const meetingOrgs = await client.call("lookup.meeting-orgs.list") as Array<{ id: string; name: string }>
-    const industries = await client.call("lookup.industries.list") as Array<{ id: string; name: string; taxonomy: string }>
+    const industryCodes = await client.call("lookup.industry-codes.list") as Array<{ name: string; code: string }>
 
-    expect(researchAreas[0]).toEqual({ id: "122000001", name: "宏观" })
     expect(brokerOrgs[0]).toEqual({ id: "C800150015", name: "野村证券" })
     expect(meetingOrgs[0]).toEqual({ id: "C000000000", name: "公司自发" })
-    expect(industries[0]).toEqual({ id: "104410000", name: "公用事业", taxonomy: "sw" })
+    expect(industryCodes[0].code).toMatch(/\.SWI$/)
     expect(requestMock).not.toHaveBeenCalled()
   })
 

@@ -83,7 +83,7 @@ gangtise ai viewpoint-debate-check --data-id <id>
 gangtise ai theme-tracking --theme-id <id> --date <yyyy-MM-dd> [--type <name>]
 ```
 
-- `--theme-id`（**必选**）：用 `gangtise lookup theme-id list` 查；返回字段是 `id` / `name`（**不是** `themeId`）
+- `--theme-id`（**必选**）：用 `gangtise reference concept-search --keyword <主题名>` 查，取 `conceptId`（题材与主题共用 ID 体系）
 - `--date`：支持近 30 天
 - `--type`：`morning` 晨报 | `night` 晚报（不传返回两者）
 - **返回**：`[{type, date, content}, ...]` — 列表，每个元素是一份报告。某主题在指定日期可能只有一种类型（如只有晚报）或两种都没（空列表）。空结果不代表接口出错，建议换主题或换日期再试

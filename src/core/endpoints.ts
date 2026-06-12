@@ -21,13 +21,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
   },
 
   // ─── lookup (served from local data, not HTTP) ───
-  "lookup.research-areas.list": {
-    key: "lookup.research-areas.list",
-    method: "GET",
-    path: "/guide/research-area-local",
-    kind: "json",
-    description: "List research areas from local docs",
-  },
   "lookup.broker-orgs.list": {
     key: "lookup.broker-orgs.list",
     method: "GET",
@@ -42,40 +35,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List meeting orgs from local docs",
   },
-  "lookup.industries.list": {
-    key: "lookup.industries.list",
-    method: "GET",
-    path: "/guide/industries-local",
-    kind: "json",
-    description: "List industries from local docs",
-  },
-  "lookup.regions.list": {
-    key: "lookup.regions.list",
-    method: "GET",
-    path: "/guide/regions-local",
-    kind: "json",
-    description: "List regions from local docs",
-  },
-  "lookup.announcement-categories.list": {
-    key: "lookup.announcement-categories.list",
-    method: "GET",
-    path: "/guide/announcement-categories-local",
-    kind: "json",
-    description: "List announcement categories from local docs",
-  },
   "lookup.industry-codes.list": {
     key: "lookup.industry-codes.list",
     method: "GET",
     path: "/guide/industry-codes-local",
     kind: "json",
     description: "List Shenwan industry codes from local docs",
-  },
-  "lookup.theme-ids.list": {
-    key: "lookup.theme-ids.list",
-    method: "GET",
-    path: "/guide/theme-ids-local",
-    kind: "json",
-    description: "List theme IDs from local docs",
   },
 
   // ─── insight ───
@@ -225,6 +190,41 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-reference/securities/search",
     kind: "json",
     description: "Search GTS codes (securities)",
+  },
+  "reference.constant-category": {
+    key: "reference.constant-category",
+    method: "GET",
+    path: "/application/open-reference/constants/category",
+    kind: "json",
+    description: "List constant categories and their API usage scopes",
+  },
+  "reference.constant-list": {
+    key: "reference.constant-list",
+    method: "POST",
+    path: "/application/open-reference/constants/getList",
+    kind: "json",
+    description: "List all constant values of a category",
+  },
+  "reference.concept-search": {
+    key: "reference.concept-search",
+    method: "POST",
+    path: "/application/open-reference/concepts/search",
+    kind: "json",
+    description: "Search concept (theme) IDs by keyword",
+  },
+  "reference.sector-search": {
+    key: "reference.sector-search",
+    method: "POST",
+    path: "/application/open-reference/sectors/search",
+    kind: "json",
+    description: "Search sector IDs by keyword",
+  },
+  "reference.sector-constituents": {
+    key: "reference.sector-constituents",
+    method: "POST",
+    path: "/application/open-reference/sectors/constituents",
+    kind: "json",
+    description: "List constituent securities of a sector",
   },
 
   // ─── quote ───

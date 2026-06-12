@@ -37,13 +37,14 @@ gangtise insight summary download --summary-id <id> [--file-type <n>] [--output 
 ## 路演 / 调研 / 策略会 / 论坛
 
 ```bash
-gangtise insight roadshow list   [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>]
-gangtise insight site-visit list [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--broker-type <name>] [--permission <n>] [--object <name>]
-gangtise insight strategy list   [--institution <id>]
-gangtise insight forum list      [--security <code>] [--research-area <id>]
+gangtise insight roadshow list   [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--location <id>]
+gangtise insight site-visit list [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--broker-type <name>] [--permission <n>] [--object <name>] [--location <id>]
+gangtise insight strategy list   [--institution <id>] [--location <id>]
+gangtise insight forum list      [--security <code>] [--research-area <id>] [--location <id>]
 ```
 
-- 共用：`--keyword` `--start-time` `--end-time` `--from` `--size`
+- 共用：`--keyword` `--start-time` `--end-time` `--from` `--size` `--location`
+- `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。注：实测（2026-06-12）服务端过滤暂未生效，传入不报错但结果不变
 - 路演 `--category`：`earningsCall` | `strategyMeeting` | `companyAnalysis` | `industryAnalysis` | `fundRoadshow`
 - 调研 `--category`：`single` 单场 | `series` 系列
 - 调研 `--object`：`company` | `industry`
@@ -85,7 +86,7 @@ gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--secu
 gangtise insight announcement download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- `--announcement-type`：公告类型 ID，用 `lookup announcement-category list` 查
+- `--announcement-type`：公告类型 ID，用 `reference constant-list --category aShareAnnouncementCategory` 查
 - `--category`：栏目 ID。常用：`103910200` 财务报告、`103910700` 股权股本、`103910201` 业绩预告、`103910703` 质押冻结、`103910803` 股权激励、`103910818` 股份增减持、`103910823` 问询函（完整列表见 `references/lookup-ids.md`）
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown
 

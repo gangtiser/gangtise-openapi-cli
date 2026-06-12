@@ -6,7 +6,7 @@
 
 ## 中信行业分类（--industry 参数）
 
-完整列表用 `lookup industry list`
+完整列表用 `reference constant-list --category citicIndustry`
 
 | ID | 行业 | ID | 行业 |
 |----|------|----|------|
@@ -30,7 +30,7 @@
 
 ## 申万行业（--industry 参数）
 
-完整列表用 `lookup industry list`
+完整列表用 `reference constant-list --category swIndustry`
 
 | ID | 行业 | ID | 行业 | ID | 行业 |
 |----|------|----|------|----|------|
@@ -107,7 +107,7 @@
 
 ## 常用研究方向（--research-area 参数）
 
-完整列表用 `lookup research-area list`
+完整列表用 `reference constant-list --category gangtiseIndustry`（含宏观/策略等方向），中信/申万行业 ID 也可直接复用
 
 | ID | 方向 | ID | 方向 |
 |----|------|----|------|
@@ -171,7 +171,7 @@
 
 ## 外资研报区域（--region 参数）
 
-完整列表用 `lookup region list`
+完整列表用 `reference constant-list --category regionCategory`
 
 | ID | 区域 | ID | 区域 | ID | 区域 |
 |----|------|----|------|----|------|
@@ -187,7 +187,7 @@
 
 ## 公告分类
 
-完整列表用 `lookup announcement-category list`，支持一级和二级分类。
+完整列表用 `reference constant-list --category aShareAnnouncementCategory`（港股用 `hkShareAnnouncementCategory`），树形结构含一级和二级分类。
 
 ### 一级分类
 

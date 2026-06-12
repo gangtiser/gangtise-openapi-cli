@@ -79,6 +79,30 @@ describe("normalizeRows", () => {
     ])
   })
 
+  it("unwraps constants rows preserving category metadata", () => {
+    const result = normalizeRows({
+      category: "citicIndustry",
+      structureType: "flat",
+      maxLevel: 1,
+      constantCount: 2,
+      constants: [
+        { constantId: "100800121", constantName: "银行" },
+        { constantId: "100800122", constantName: "房地产" },
+      ],
+    })
+
+    expect(result).toEqual({
+      category: "citicIndustry",
+      structureType: "flat",
+      maxLevel: 1,
+      constantCount: 2,
+      list: [
+        { constantId: "100800121", constantName: "银行" },
+        { constantId: "100800122", constantName: "房地产" },
+      ],
+    })
+  })
+
   it("returns arrays as-is", () => {
     const input = [{ a: 1 }, { a: 2 }]
     expect(normalizeRows(input)).toEqual(input)
