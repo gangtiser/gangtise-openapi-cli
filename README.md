@@ -14,8 +14,8 @@
 - `reference sector-constituents --sector-id <id>` — 查询板块成分股：返回该板块全量成分股（`gtsCode` / `gtsName`）；注意 sectorId 必须来自 sector-search，题材 conceptId 查不到成分
 
 **接口变更（Breaking）**
-- 移除已被常量 API 覆盖的 5 个本地 lookup 子命令及静态数据：`lookup research-area / industry / region / announcement-category / theme-id list`，请改用 `reference constant-list` / `reference concept-search`
-- `lookup` 仅保留 3 个 API 未覆盖的本地表：`broker-org` / `meeting-org` / `industry-code`
+- 移除已被新 API 覆盖的 6 个本地 lookup 子命令及静态数据：`lookup research-area / industry / region / announcement-category / theme-id / industry-code list`，请改用 `reference constant-list` / `reference concept-search` / `reference sector-constituents`（申万行业代码 `821xxx.SWI` 全量：`sector-constituents --sector-id 2000000014`，即申万一级行业指数板块）
+- `lookup` 仅保留 2 个 API 未覆盖的本地表：`broker-org` / `meeting-org`
 - 路演/调研/策略会/论坛 list 新增 `--location <id>` 按城市过滤（domesticCity 常量 ID；实测 2026-06-12 服务端过滤暂未生效）
 
 ### v0.15.0 — 2026-05-29
@@ -249,7 +249,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | 模块 | 子命令 | 说明 |
 |------|--------|------|
 | **Auth** | `login` / `status` | 认证登录、状态查询 |
-| **Lookup** | `broker-org list` / `meeting-org list` / `industry-code list` | 本地枚举表（常量 API 未覆盖的部分；行业/区域/公告分类/题材改用 Reference 常量接口） |
+| **Lookup** | `broker-org list` / `meeting-org list` | 本地枚举表（API 未覆盖的部分；行业/区域/公告分类/题材/申万行业代码改用 Reference 接口） |
 | **Insight** | `opinion list` | 内资机构观点 |
 | | `summary list` / `download` | 纪要（含下载，支持 `--file-type` 选原始/HTML） |
 | | `roadshow list` | 路演 |
@@ -326,9 +326,9 @@ gangtise reference constant-list --category citicIndustry         # 中信行业
 gangtise reference constant-list --category swIndustry            # 申万行业
 gangtise reference constant-list --category regionCategory        # 外资研报区域
 gangtise reference constant-list --category aShareAnnouncementCategory  # A股公告分类（树形）
+gangtise reference sector-constituents --sector-id 2000000014   # 申万行业代码 821xxx.SWI 全量（security-clue --gts-code 用）
 gangtise lookup broker-org list      # 券商机构（本地表）
 gangtise lookup meeting-org list     # 会议机构（本地表）
-gangtise lookup industry-code list   # 申万行业代码（用于 security-clue --gts-code，本地表）
 ```
 
 再调用业务命令：

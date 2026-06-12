@@ -46,7 +46,7 @@
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| 75 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
+| 74 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
 
 ↓
 
@@ -93,9 +93,8 @@
 **Static data:**
 - 100+ broker orgs
 - 100+ meeting orgs
-- 31 Shenwan industry codes
 
-(industries / regions / announcement categories / research areas / theme IDs moved to the `reference constant-*` / `concept-search` APIs in v0.16.0)
+(industries / regions / announcement categories / research areas / theme IDs / Shenwan industry codes moved to the `reference constant-*` / `concept-search` / `sector-*` APIs in v0.16.0)
 
 ↓
 

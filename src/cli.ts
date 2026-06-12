@@ -146,7 +146,6 @@ const addLookupList = (name: string, endpointKey: string, description?: string) 
 }
 addLookupList("broker-org", "lookup.broker-orgs.list")
 addLookupList("meeting-org", "lookup.meeting-orgs.list")
-addLookupList("industry-code", "lookup.industry-codes.list", "Shenwan industry codes for security-clue --gts-code")
 program.addCommand(lookup)
 
 const insight = new Command("insight").description("Insight APIs")

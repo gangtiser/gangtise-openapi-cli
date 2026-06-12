@@ -17,23 +17,16 @@ describe("getLookupData (lazy JSON loader)", () => {
     expect(data.length).toBeGreaterThan(50)
   })
 
-  it("loads industry-codes with code field", async () => {
-    const data = await getLookupData("industry-codes") as Array<{ name: string; code: string }>
-    expect(data.length).toBeGreaterThan(0)
-    expect(data[0]).toHaveProperty("code")
-    expect(data[0].code).toMatch(/\.SWI$/)
-  })
-
   it("caches data — second call returns same reference", async () => {
-    const first = await getLookupData("industry-codes")
-    const second = await getLookupData("industry-codes")
+    const first = await getLookupData("meeting-orgs")
+    const second = await getLookupData("meeting-orgs")
     expect(first).toBe(second) // same reference
   })
 
   it("each lookup type loads independently", async () => {
     const brokers = await getLookupData("broker-orgs")
-    const codes = await getLookupData("industry-codes")
-    expect(brokers).not.toBe(codes)
-    expect(brokers.length).not.toBe(codes.length)
+    const meetings = await getLookupData("meeting-orgs")
+    expect(brokers).not.toBe(meetings)
+    expect(brokers.length).not.toBe(meetings.length)
   })
 })

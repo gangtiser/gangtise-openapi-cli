@@ -196,11 +196,9 @@ describe("GangtiseClient pagination", () => {
 
     const brokerOrgs = await client.call("lookup.broker-orgs.list") as Array<{ id: string; name: string }>
     const meetingOrgs = await client.call("lookup.meeting-orgs.list") as Array<{ id: string; name: string }>
-    const industryCodes = await client.call("lookup.industry-codes.list") as Array<{ name: string; code: string }>
 
     expect(brokerOrgs[0]).toEqual({ id: "C800150015", name: "野村证券" })
     expect(meetingOrgs[0]).toEqual({ id: "C000000000", name: "公司自发" })
-    expect(industryCodes[0].code).toMatch(/\.SWI$/)
     expect(requestMock).not.toHaveBeenCalled()
   })
 

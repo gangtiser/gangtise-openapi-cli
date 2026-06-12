@@ -70,10 +70,10 @@ describe("cli smoke", () => {
   it("lookup keeps only local-data subcommands", async () => {
     const { code, out } = await cli(["lookup", "--help"])
     expect(code).toBe(0)
-    for (const sub of ["broker-org", "meeting-org", "industry-code"]) {
+    for (const sub of ["broker-org", "meeting-org"]) {
       expect(out).toContain(sub)
     }
-    for (const removed of ["research-area", "theme-id", "announcement-category"]) {
+    for (const removed of ["research-area", "theme-id", "announcement-category", "industry-code"]) {
       expect(out).not.toContain(removed)
     }
   }, 30_000)

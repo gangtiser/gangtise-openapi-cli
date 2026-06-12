@@ -30,7 +30,7 @@ gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-
 ```
 
 - `--query-mode`（**必选**）：`bySecurity` 按证券 | `byIndustry` 按行业
-- `--gts-code`（**必选**）：个股代码（如 `600519.SH`）或申万行业代码（如 `821035.SWI`）。**先用 `reference securities-search` 查个股，或读 `references/lookup-ids.md` 查行业**
+- `--gts-code`（**必选**）：个股代码（如 `600519.SH`）或申万行业代码（如 `821035.SWI`）。**先用 `reference securities-search` 查个股，或读 `references/lookup-ids.md` 查行业**（全量行业代码：`reference sector-constituents --sector-id 2000000014`）
 - `--source`：`researchReport` | `conference` | `announcement` | `view`
 
 ## 一页通 / 投资逻辑 / 同业对比

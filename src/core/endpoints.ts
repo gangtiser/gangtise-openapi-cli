@@ -35,13 +35,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List meeting orgs from local docs",
   },
-  "lookup.industry-codes.list": {
-    key: "lookup.industry-codes.list",
-    method: "GET",
-    path: "/guide/industry-codes-local",
-    kind: "json",
-    description: "List Shenwan industry codes from local docs",
-  },
 
   // ─── insight ───
   "insight.opinion.list": {

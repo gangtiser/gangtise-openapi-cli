@@ -50,6 +50,8 @@
 
 ## 申万行业代码（--gts-code 参数，用于 ai security-clue）
 
+完整列表用 `reference sector-search --keyword 申万一级行业指数`（取「指数数据板块」层级的 sectorId，即 `2000000014`）+ `reference sector-constituents --sector-id 2000000014`
+
 | 代码 | 行业 | 代码 | 行业 | 代码 | 行业 |
 |------|------|------|------|------|------|
 | 821031.SWI | 农林牧渔 | 821032.SWI | 基础化工 | 821033.SWI | 钢铁 |

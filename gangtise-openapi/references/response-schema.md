@@ -64,4 +64,3 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |
 | alternative concept-securities | `{conceptId, conceptName, securityCount, securityDetail}`（单对象，分组） | `securityCount` / `securityDetail[].groupName` / `securityDetail[].securityList[].securityCode` / `.securityName` / `.isKey` / `.inclusionReason`；无成分股时 `securityDetail` 为 `null` |
 | lookup broker-org / meeting-org list | `[...]` | `[].id` / `[].name` |
-| lookup industry-code list | `[...]` | `[].name` / `[].code`（`821xxx.SWI`） |

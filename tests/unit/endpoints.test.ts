@@ -293,7 +293,6 @@ describe("ENDPOINTS", () => {
     const lookupKeys = Object.keys(ENDPOINTS).filter((k) => k.startsWith("lookup.")).sort()
     expect(lookupKeys).toEqual([
       "lookup.broker-orgs.list",
-      "lookup.industry-codes.list",
       "lookup.meeting-orgs.list",
     ])
   })

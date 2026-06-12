@@ -149,7 +149,6 @@ export class GangtiseClient {
     const keyMapping: Record<string, Parameters<typeof getLookupData>[0]> = {
       "lookup.broker-orgs.list": "broker-orgs",
       "lookup.meeting-orgs.list": "meeting-orgs",
-      "lookup.industry-codes.list": "industry-codes",
     }
 
     const lookupKey = keyMapping[endpoint.key]
