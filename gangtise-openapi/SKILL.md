@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.16.0"
+version: "0.17.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -238,7 +238,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 **`list` 全空但参数看着对**
 1. 时间窗太窄 → 扩到 30 天试
 2. `--security` 后缀拼错（如 `300750` 漏了 `.SZ`）
-3. 行业 ID 用错体系：`--industry`（数字 ID）/ `--research-area`（同 industry ID 复用）/ `--gts-code`（申万 `821xxx.SWI`）三套互不通用，详见 `references/commands/reference-and-lookup.md`
+3. 行业 ID 用错体系：`--industry`（用 `citicIndustry` 码 `1008001xx`）/ `--research-area`（用 `gangtiseIndustry`：行业 `1008001xx` + 方向 `122000xxx`）/ `--gts-code`（申万 `821xxx.SWI`）——三套体系不同，详见 `references/commands/reference-and-lookup.md`
 4. `--rating` / `--category` 等枚举值拼错（参考对应命令的 references 文件）
 
 **`8000014` / `8000015` 反复**（CLI 已自动重试一次仍失败）

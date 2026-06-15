@@ -32,13 +32,17 @@ gangtise reference constant-category [--format json]
 
 | category | 名称 | 结构 | 用于参数 |
 |----------|------|------|---------|
-| `citicIndustry` | 中信一级行业 | flat | `--industry` / `--research-area`（opinion / research / foreign-report / summary / 日程类） |
-| `swIndustry` | 申万一级行业 | flat | `--industry`（opinion / foreign-opinion / independent-opinion / research / foreign-report 等） |
-| `gangtiseIndustry` | Gangtise 行业（含宏观/策略等方向） | flat | `--research-area`（summary / opinion / 日程类） |
-| `domesticCity` | 国内城市（省级 ID） | flat | `--location`（roadshow / site-visit / strategy / forum） |
+| `citicIndustry` | 中信一级行业（30，`1008001xx`） | flat | `--industry` 全命令通用首选（见下方说明） |
+| `swIndustry` | 申万一级行业（31，`104xxx`） | flat | `--industry`（仅 5 个 insight list；wechat 静默忽略，见下方说明） |
+| `gangtiseIndustry` | Gangtise 行业（30 行业 `1008001xx` + 6 方向 `122000xxx`） | flat | `--research-area` 首选（含宏观/策略等方向，见下方说明） |
+| `domesticCity` | 国内城市（省级 ID） | flat | `--location`（roadshow / site-visit / strategy / forum）|
 | `aShareAnnouncementCategory` | A股公告分类 | tree（2 级） | `insight announcement --category` |
 | `hkShareAnnouncementCategory` | 港股公告分类 | tree（2 级） | `insight announcement-hk --category` |
 | `regionCategory` | 区域分类 | flat | `insight foreign-report --region` |
+
+> **行业 / 研究方向过滤——选哪套 category（实测 + spec，2026-06-15）：**
+> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / foreign-opinion / independent-opinion / wechat-message 全部正确过滤。`swIndustry`（`104xxx`）在 5 个 insight list 上等效（spec 多数命令写 citic+sw），但 **`vault wechat-message-list` 只认中信码、传申万码会静默返回全量** → 统一用中信码最稳。
+> - **`--research-area`（researchAreaList）→ 用 `gangtiseIndustry`**：完整研究方向分类 = 30 个行业（`1008001xx`，与 citicIndustry 相同）+ 6 个方向（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`）。行业码与方向码均已实测正确过滤（opinion / summary / roadshow / site-visit / forum）。`citicIndustry` 也能用但只含行业、无方向；`swIndustry`（`104xxx`）除 summary / my-conference 外返 0，勿用。
 
 ## 常量值 `reference constant-list`
 
@@ -141,7 +145,7 @@ gangtise lookup meeting-org list          # 会议机构（--institution 用）
 | 银行 / 银行股 | 银行 | `104480000` | `821047.SWI` |
 | 汽车 / 新车 | 汽车 | `104280000` | `821036.SWI` |
 
-> **参数名选择**：`--industry` 用于 opinion / research / foreign-report；`--research-area` 用于 roadshow / site-visit / forum / summary（ID 值与 industry 相同可复用）；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）
+> **参数名选择**：`--industry`（industryList，用 `citicIndustry` 码 `1008001xx`）用于 opinion / research / foreign-report / foreign-opinion / independent-opinion / wechat-message；`--research-area`（researchAreaList，用 `gangtiseIndustry` 码 = 行业 `1008001xx` + 方向 `122000xxx`）用于 opinion / summary / roadshow / site-visit / forum / my-conference；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）。注意 strategy（线下策略会）无 `--research-area`，只按 `--institution` / `--location` 筛。
 
 > **"消费"歧义**：用户说"消费/大消费"覆盖多个子行业（食品饮料 `104340000` / 商贸零售 `104450000` / 社会服务 `104460000` / 家电 `104330000` / 纺织服饰 `104350000` / 美容护理 `104770000`），需向用户确认具体方向，或用 `--keyword 消费` 做宽泛搜索。
 

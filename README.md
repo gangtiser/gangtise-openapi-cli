@@ -4,6 +4,16 @@
 
 ## Changelog
 
+### v0.17.0 — 2026-06-15
+
+**接口变更（Breaking）**
+- 日程类命令（`roadshow` / `site-visit` / `strategy` / `forum` list）改为各自只暴露 API spec 支持的筛选选项，移除原先一刀切多出的无效选项：`strategy` 仅保留 `--institution` / `--location`；`forum` 仅保留 `--research-area` / `--location`；`site-visit` 移除 `--participant-role` / `--broker-type`；`roadshow` 移除 `--object`。传不支持的选项现由 commander 直接报 `unknown option`（此前会静默发送、服务端返回空结果）
+- `insight announcement list` 移除无效的 `--announcement-type`（服务端忽略、恒返全量）；A 股公告分类筛选用 `--category`（`aShareAnnouncementCategory` 常量 ID）
+
+**说明 / 修正**
+- `--industry` 用 `citicIndustry` 码（`1008001xx`，全命令通用）；`--research-area` 用 `gangtiseIndustry` 码（行业 `1008001xx` + 宏观/策略/固收/金工/海外等方向 `122000xxx`）。详见 `gangtise-openapi/references/commands/reference-and-lookup.md`
+- 日程类 `--location`（domesticCity）服务端过滤已生效（v0.16.0 时曾未生效）
+
 ### v0.16.0 — 2026-06-12
 
 **新增接口（参考数据 · 常量查询，均免积分）**
@@ -16,7 +26,7 @@
 **接口变更（Breaking）**
 - 移除已被新 API 覆盖的 6 个本地 lookup 子命令及静态数据：`lookup research-area / industry / region / announcement-category / theme-id / industry-code list`，请改用 `reference constant-list` / `reference concept-search` / `reference sector-constituents`（申万行业代码 `821xxx.SWI` 全量：`sector-constituents --sector-id 2000000014`，即申万一级行业指数板块）
 - `lookup` 仅保留 2 个 API 未覆盖的本地表：`broker-org` / `meeting-org`
-- 路演/调研/策略会/论坛 list 新增 `--location <id>` 按城市过滤（domesticCity 常量 ID；实测 2026-06-12 服务端过滤暂未生效）
+- 路演/调研/策略会/论坛 list 新增 `--location <id>` 按城市过滤（domesticCity 常量 ID；服务端过滤 v0.17.0 起已生效）
 
 ### v0.15.0 — 2026-05-29
 
@@ -322,7 +332,8 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 
 ```bash
 gangtise reference constant-category                              # 有哪些常量分类、各用于哪些参数
-gangtise reference constant-list --category citicIndustry         # 中信行业（--industry / --research-area）
+gangtise reference constant-list --category citicIndustry         # 中信行业（--industry 通用）
+gangtise reference constant-list --category gangtiseIndustry      # Gangtise 行业 + 方向（--research-area 用）
 gangtise reference constant-list --category swIndustry            # 申万行业
 gangtise reference constant-list --category regionCategory        # 外资研报区域
 gangtise reference constant-list --category aShareAnnouncementCategory  # A股公告分类（树形）
@@ -334,7 +345,7 @@ gangtise lookup meeting-org list     # 会议机构（本地表）
 再调用业务命令：
 
 ```bash
-gangtise insight opinion list --industry 104710000
+gangtise insight opinion list --industry 100800128
 gangtise insight summary list --institution C100000017
 gangtise quote day-kline --security 600519.SH --start-date 2025-03-01 --end-date 2025-03-12
 gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
@@ -408,10 +419,10 @@ gangtise auth status
 gangtise insight research list --start-time "2026-04-01 00:00:00" --end-time "2026-04-09 23:59:59"
 
 # 无时间范围 → 默认 --size 200
-gangtise insight research list --industry 104270000 --category company --llm-tag inDepth --rating buy
+gangtise insight research list --industry 100800126 --category company --llm-tag inDepth --rating buy
 
 # 多值 List 模式：一次查多家券商 + 多个行业 + 多个评级
-gangtise insight research list --broker C100000027 --broker C100000014 --industry 104340000 --industry 104370000 --rating buy --rating overweight --format json
+gangtise insight research list --broker C100000027 --broker C100000014 --industry 100800119 --industry 100800118 --rating buy --rating overweight --format json
 
 gangtise insight opinion list --keyword AI
 gangtise insight summary list --keyword 算力
@@ -441,7 +452,7 @@ gangtise insight foreign-opinion list --keyword "自动驾驶" --region us --ran
 gangtise insight foreign-opinion list --security APP.O --rating buy --format json
 
 # 外资独立观点
-gangtise insight independent-opinion list --keyword "肿瘤" --industry 104370000 --format json
+gangtise insight independent-opinion list --keyword "肿瘤" --industry 100800118 --format json
 gangtise insight independent-opinion download --independent-opinion-id 207051900018372 --file-type 2
 
 # 纪要下载（会议平台来源可选 HTML 格式）

@@ -36,7 +36,7 @@ gangtise vault my-conference-download --conference-id <id> --content-type <type>
 ```
 
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`（可重复）
-- `--keyword` vs `--research-area`：用户说"关于AI的"用 `--keyword AI`；说"电子行业的会议"用 `--research-area 104270000`
+- `--keyword` vs `--research-area`：用户说"关于AI的"用 `--keyword AI`；说"电子行业的会议"用 `--research-area 100800126`（research-area 用 `gangtiseIndustry` 码 `1008001xx` + 方向 `122000xxx`，**不要用申万码 `104xxx`**）
 - `--content-type`（download **必选**）：`asr` 语音识别 | `summary` AI 速记
 - 返回字段：`conferenceId` / `title` / `publishTime` / `category` / `institution{...}` / `security{...}` / `researchArea{...}` / `guest`
 
@@ -48,6 +48,7 @@ gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wec
 
 - 数据权限：仅用户已绑定并激活群消息助理、且助理已入群的群消息
 - `--security`：按证券代码过滤（如 `000001.SZ`），可重复
+- `--industry`：行业 ID，**必须用中信码 `citicIndustry`（`1008001xx`）**；实测传申万码 `104xxx` 会被静默忽略、返回全量
 - `--wechat-group-id`：先用 `vault wechat-chatroom-list` 查；可重复
 - `--category`：`text` | `image` | `documents` | `url`（可重复）
 - `--tag`：`roadShow` | `research` | `strategyMeeting` | `meetingSummary` | `industryComment` | `companyComment` | `earningsReview`（可重复）

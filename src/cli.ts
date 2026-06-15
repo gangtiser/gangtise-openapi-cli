@@ -177,17 +177,64 @@ addTimeFilters(summary.command("list").option("--search-type <number>", "Search 
   }), { endpointKey: "insight.summary.list", idField: "summaryId" }))
 addDownloadCommand(summary, { endpointKey: "insight.summary.download", idOption: "--summary-id", idField: "summaryId", fallbackPrefix: "summary", fileType: { description: "File type: 1=original(default) 2=HTML; only affects meeting platform summaries" }, titleListEndpoint: "insight.summary.list" })
 
-const addScheduleList = (command: Command, endpointKey: string) => addTimeFilters(command.command("list").option("--research-area <id>", "Research area", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--broker-type <name>", "Broker type", collectList, []).option("--object <type>", "Object type: company/industry", collectList, []).option("--permission <number>", "Permission", collectNumberList, []).option("--location <id>", "Location ID (domesticCity constant, via 'reference constant-list')", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call(endpointKey, {
+// Each schedule endpoint accepts a different subset of filters (see API spec);
+// the blanket helper used to expose all of them, so an unsupported flag (e.g.
+// strategy --research-area) silently returned 0. Each command now advertises
+// only the fields its endpoint supports. `category`/`market` carry per-command
+// help because their valid values differ (roadshow type vs site-visit form).
+type ScheduleFields = {
+  researchArea?: boolean
+  institution?: boolean
+  security?: boolean
+  object?: boolean
+  category?: string
+  market?: string
+  participantRole?: boolean
+  brokerType?: boolean
+  permission?: boolean
+  location?: boolean
+}
+const addScheduleList = (command: Command, endpointKey: string, fields: ScheduleFields) => {
+  const list = command.command("list")
+  if (fields.researchArea) list.option("--research-area <id>", "Research area ID (constant-list category gangtiseIndustry: 1008001xx industries + 122000xxx macro/strategy/fixed-income/quant/overseas directions)", collectList, [])
+  if (fields.institution) list.option("--institution <id>", "Lead institution ID", collectList, [])
+  if (fields.security) list.option("--security <code>", "Security code", collectList, [])
+  if (fields.object) list.option("--object <type>", "Object type: company/industry", collectList, [])
+  if (fields.category) list.option("--category <name>", fields.category, collectList, [])
+  if (fields.market) list.option("--market <name>", fields.market, collectList, [])
+  if (fields.participantRole) list.option("--participant-role <name>", "Participant role: management/expert", collectList, [])
+  if (fields.brokerType) list.option("--broker-type <name>", "Lead broker type: cnBroker/otherBroker", collectList, [])
+  if (fields.permission) list.option("--permission <number>", "Permission: 1=public 2=private", collectNumberList, [])
+  if (fields.location) list.option("--location <id>", "Location ID (domesticCity constant, via 'reference constant-list')", collectList, [])
+  list.option("--format <format>", "Output format", "table").option("--output <path>", "Output path")
+  addTimeFilters(list).action((options) => emit(options, (client) => client.call(endpointKey, {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
-    researchAreaList: maybeArray(options.researchArea), institutionList: maybeArray(options.institution), securityList: maybeArray(options.security),
-    categoryList: maybeArray(options.category), marketList: maybeArray(options.market), participantRoleList: maybeArray(options.participantRole),
-    brokerTypeList: maybeArray(options.brokerType), objectList: maybeArray(options.object), permission: options.permission.length ? options.permission : undefined,
-    locationList: maybeArray(options.location),
+    researchAreaList: fields.researchArea ? maybeArray(options.researchArea) : undefined,
+    institutionList: fields.institution ? maybeArray(options.institution) : undefined,
+    securityList: fields.security ? maybeArray(options.security) : undefined,
+    objectList: fields.object ? maybeArray(options.object) : undefined,
+    categoryList: fields.category ? maybeArray(options.category) : undefined,
+    marketList: fields.market ? maybeArray(options.market) : undefined,
+    participantRoleList: fields.participantRole ? maybeArray(options.participantRole) : undefined,
+    brokerTypeList: fields.brokerType ? maybeArray(options.brokerType) : undefined,
+    permission: fields.permission && options.permission?.length ? options.permission : undefined,
+    locationList: fields.location ? maybeArray(options.location) : undefined,
   })))
-addScheduleList(roadshow, "insight.roadshow.list")
-addScheduleList(siteVisit, "insight.site-visit.list")
-addScheduleList(strategy, "insight.strategy.list")
-addScheduleList(forum, "insight.forum.list")
+}
+addScheduleList(roadshow, "insight.roadshow.list", {
+  researchArea: true, institution: true, security: true, location: true,
+  category: "Roadshow type: earningsCall/strategyMeeting/companyAnalysis/industryAnalysis/fundRoadshow",
+  market: "Market: aShares/hkStocks/usChinaConcept/usStocks",
+  participantRole: true, brokerType: true, permission: true,
+})
+addScheduleList(siteVisit, "insight.site-visit.list", {
+  researchArea: true, institution: true, security: true, location: true, object: true,
+  category: "Site-visit form: single/series",
+  market: "Market: aShares/hkStocks/usChinaConcept",
+  permission: true,
+})
+addScheduleList(strategy, "insight.strategy.list", { institution: true, location: true })
+addScheduleList(forum, "insight.forum.list", { researchArea: true, location: true })
 
 addTimeFilters(research.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--broker <id>", "Broker ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--source <type>", "Source type", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.research.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
@@ -209,11 +256,11 @@ addTimeFilters(foreignReport.command("list").option("--search-type <number>", "S
   }), { endpointKey: "insight.foreign-report.list", idField: "reportId" }))
 addDownloadCommand(foreignReport, { endpointKey: "insight.foreign-report.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "foreign-report", fileType: { description: "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", default: "1" }, titleListEndpoint: "insight.foreign-report.list" })
 
-addTimeFilters(announcement.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--announcement-type <type>", "Announcement type", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement.list", {
+addTimeFilters(announcement.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: parseTimestamp13(options.startTime, "--start-time"), endTime: parseTimestamp13(options.endTime, "--end-time"),
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }), rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }), keyword: options.keyword,
-    securityList: maybeArray(options.security), announcementTypeList: maybeArray(options.announcementType), categoryList: maybeArray(options.category),
+    securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
   }), { endpointKey: "insight.announcement.list", idField: "announcementId" }))
 addDownloadCommand(announcement, { endpointKey: "insight.announcement.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement", fileType: { description: "File type: 1=PDF 2=Markdown", default: "1" }, titleListEndpoint: "insight.announcement.list" })
 

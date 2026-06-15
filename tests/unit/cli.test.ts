@@ -95,4 +95,49 @@ describe("cli smoke", () => {
     expect(code).toBe(1)
     expect(out).toContain("Unknown endpoint key")
   }, 30_000)
+
+  // Each schedule endpoint accepts a different filter subset (per API spec); the
+  // CLI must advertise only the supported flags so an unsupported one is rejected
+  // up front instead of being sent and silently returning 0.
+  it("schedule commands expose only spec-supported filters", async () => {
+    const strategy = await cli(["insight", "strategy", "list", "--help"])
+    expect(strategy.out).toContain("--institution")
+    expect(strategy.out).toContain("--location")
+    for (const absent of ["--research-area", "--security", "--category", "--market", "--participant-role", "--broker-type", "--object", "--permission"]) {
+      expect(strategy.out).not.toContain(absent)
+    }
+
+    const forum = await cli(["insight", "forum", "list", "--help"])
+    expect(forum.out).toContain("--research-area")
+    expect(forum.out).toContain("--location")
+    expect(forum.out).not.toContain("--institution")
+
+    const siteVisit = await cli(["insight", "site-visit", "list", "--help"])
+    expect(siteVisit.out).toContain("--object")
+    expect(siteVisit.out).not.toContain("--participant-role")
+    expect(siteVisit.out).not.toContain("--broker-type")
+
+    const roadshow = await cli(["insight", "roadshow", "list", "--help"])
+    expect(roadshow.out).toContain("--participant-role")
+    expect(roadshow.out).toContain("--broker-type")
+    expect(roadshow.out).not.toContain("--object")
+  }, 30_000)
+
+  it("rejects an unsupported schedule filter at the commander layer", async () => {
+    const { code, out } = await cli(["insight", "strategy", "list", "--research-area", "122000001"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("unknown option")
+  }, 30_000)
+
+  // A-share announcement only supports --category + --security (per spec); the
+  // dropped --announcement-type was silently ignored server-side, so a user who
+  // relied on it got the full unfiltered list.
+  it("announcement list drops the unsupported --announcement-type", async () => {
+    const help = await cli(["insight", "announcement", "list", "--help"])
+    expect(help.out).toContain("--category")
+    expect(help.out).not.toContain("--announcement-type")
+    const { code, out } = await cli(["insight", "announcement", "list", "--announcement-type", "103910200"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("unknown option")
+  }, 30_000)
 })

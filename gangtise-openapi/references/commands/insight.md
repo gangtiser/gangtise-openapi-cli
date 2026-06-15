@@ -19,6 +19,7 @@ gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief
 
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
 - `--source`：`realTime` 实时 | `openSource` 开放来源
+- `--industry`：用 `citicIndustry` 码 `1008001xx`（申万码 `104xxx` 也等效）；`--research-area`：用 `gangtiseIndustry` 码（行业 `1008001xx` + 方向 `122000xxx`，申万码返 0）。详见 `reference-and-lookup.md`
 
 ## 纪要 `insight summary list/download`
 
@@ -29,6 +30,7 @@ gangtise insight summary download --summary-id <id> [--file-type <n>] [--output 
 
 - `--search-type`：`1` 标题搜索（默认，速度快）| `2` 全文搜索
 - `--source`：`1` 实时 | `2` 开放来源
+- `--research-area`：用 `gangtiseIndustry` 码（行业 `1008001xx` + 方向 `122000xxx`）；summary 的 spec 额外接受 citic/sw，但统一用 gangtise 最稳
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
 - `--participant-role`：`management` 管理层 | `expert` 专家
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`
@@ -37,21 +39,22 @@ gangtise insight summary download --summary-id <id> [--file-type <n>] [--output 
 ## 路演 / 调研 / 策略会 / 论坛
 
 ```bash
-gangtise insight roadshow list   [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--location <id>]
-gangtise insight site-visit list [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--broker-type <name>] [--permission <n>] [--object <name>] [--location <id>]
+gangtise insight roadshow list   [--security <code>] [--institution <id>] [--research-area <id>] [--category <name>] [--market <name>] [--participant-role <name>] [--broker-type <name>] [--permission <n>] [--location <id>]
+gangtise insight site-visit list [--security <code>] [--institution <id>] [--research-area <id>] [--object <name>] [--category <name>] [--market <name>] [--permission <n>] [--location <id>]
 gangtise insight strategy list   [--institution <id>] [--location <id>]
-gangtise insight forum list      [--security <code>] [--research-area <id>] [--location <id>]
+gangtise insight forum list      [--research-area <id>] [--location <id>]
 ```
 
 - 共用：`--keyword` `--start-time` `--end-time` `--from` `--size` `--location`
-- `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。注：实测（2026-06-12）服务端过滤暂未生效，传入不报错但结果不变
+- `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。实测（2026-06-15）服务端过滤已生效，按省份正确命中
 - 路演 `--category`：`earningsCall` | `strategyMeeting` | `companyAnalysis` | `industryAnalysis` | `fundRoadshow`
 - 调研 `--category`：`single` 单场 | `series` 系列
-- 调研 `--object`：`company` | `industry`
-- `--broker-type`（调研）：`cnBroker` 内资 | `otherBroker` 外资
-- `--permission`（调研）：`1` 公开 | `2` 私密
-- `--market`（路演/调研）：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
-- `--participant-role`：`management` | `expert`
+- 调研 `--object`（仅调研）：`company` | `industry`
+- `--broker-type`（仅路演）：`cnBroker` 内资 | `otherBroker` 外资
+- `--participant-role`（仅路演）：`management` | `expert`
+- `--permission`（路演/调研）：`1` 公开 | `2` 私密
+- `--market`：路演 `aShares`｜`hkStocks`｜`usChinaConcept`｜`usStocks`；调研 `aShares`｜`hkStocks`｜`usChinaConcept`（无 usStocks）
+- `--research-area`（路演/调研/论坛）：用 `gangtiseIndustry` 码（行业 `1008001xx` + 方向 `122000xxx`，见 `reference-and-lookup.md`）。**strategy 无 `--research-area`，只按 `--institution`/`--location` 筛**
 
 ## 研报 `insight research list/download`
 
@@ -82,12 +85,11 @@ gangtise insight foreign-report download --report-id <id> [--file-type <n>] [--o
 ## A 股公告 `insight announcement list/download`
 
 ```bash
-gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--security <code>] [--announcement-type <id>] [--category <id>]
+gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--security <code>] [--category <id>]
 gangtise insight announcement download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- `--announcement-type`：公告类型 ID，用 `reference constant-list --category aShareAnnouncementCategory` 查
-- `--category`：栏目 ID。常用：`103910200` 财务报告、`103910700` 股权股本、`103910201` 业绩预告、`103910703` 质押冻结、`103910803` 股权激励、`103910818` 股份增减持、`103910823` 问询函（完整列表见 `references/lookup-ids.md`）
+- `--category`：公告分类 ID，用 `reference constant-list --category aShareAnnouncementCategory` 查。常用：`103910200` 财务报告、`103910700` 股权股本、`103910201` 业绩预告、`103910703` 质押冻结、`103910803` 股权激励、`103910818` 股份增减持、`103910823` 问询函（完整列表见 `references/lookup-ids.md`）
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown
 
 ## 港股公告 `insight announcement-hk list/download`
