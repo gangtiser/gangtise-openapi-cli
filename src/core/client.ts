@@ -21,7 +21,10 @@ interface Envelope<T> {
 }
 
 const PAGINATION_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
-const AUTH_RETRY_CODES = new Set(["8000014", "8000015"])
+// Auth errors that warrant a forced re-login + one replay. 8000014/8000015 are
+// AK/SK errors; 0000001008 is a server-side token invalidation (the token still
+// looks valid by local expiry, so only a forced refresh recovers it).
+const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008"])
 
 export interface DownloadResponse {
   data?: Uint8Array

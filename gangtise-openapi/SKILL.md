@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.17.1"
+version: "0.17.2"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -32,7 +32,7 @@ description: |-
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
    - 5xx / 网络错误 / `999999` → 自动指数退避重试
-   - Token 失效（`8000014` / `8000015`）→ 自动重新登录并重试
+   - Token 失效（`0000001008` 服务端失效 / `8000014` / `8000015` AK/SK 错误）→ 自动重新登录并重试一次
 8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`。
 9. **调试**：`--verbose` 或 `GANGTISE_VERBOSE=1` 打印每个请求的耗时/字节数到 stderr。
 
@@ -204,6 +204,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `999999` | 系统错误 | **自动重试 ×2** | 仍失败再告知用户 |
 | `410110` | 异步生成中 | 异步轮询逻辑视为 pending | 继续等 |
 | `410111` | 异步生成失败 | 终态 | **不重试**，建议换参数 |
+| `0000001008` | Token 服务端失效（他处登录挤掉） | **强制重新登录并重试一次** | 无 AK/SK 时无法自愈，提示重新登录 |
 | `8000014` / `8000015` | AK/SK 错误 | **自动刷新 token 并重试一次** | 再失败提示检查 env |
 | `8000016` / `8000018` | 账号异常 / 到期 | — | 提示联系管理员 |
 | `999997` | 未开通权限 | — | 联系管理员 |

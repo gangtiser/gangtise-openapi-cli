@@ -336,6 +336,24 @@ describe("GangtiseClient auth recovery", () => {
     expect(listCalls).toBe(2) // initial 8000014 + retry after refresh
   })
 
+  it("auto-recovers when the server invalidates the token (code 0000001008)", async () => {
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      if (listCalls === 1) return Promise.resolve(rawJsonResponse({ code: "0000001008", msg: "token is invalid" }))
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    const client = loginClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ answer: 42 })
+    expect(listCalls).toBe(2) // initial 0000001008 + retry after forced re-login
+  })
+
   it("auto-recovers a download from an auth error by refreshing the token once", async () => {
     const bytes = new Uint8Array([7, 8, 9])
     let downloadCalls = 0
