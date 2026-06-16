@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import path from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import { ENDPOINTS, type EndpointDefinition } from "../../src/core/endpoints.js"
@@ -308,5 +311,27 @@ describe("ENDPOINTS", () => {
     expect(chatroom.path).toBe("/application/open-vault/wechatgroupmsg/chatroomId")
     expect(chatroom.kind).toBe("json")
     expect(chatroom.method).toBe("POST")
+  })
+
+  // Endpoint keys appear as bare string literals throughout cli.ts
+  // (client.call("..."), addDownloadCommand({ endpointKey: "..." }), addKlineCommand(...)).
+  // A typo only surfaces at runtime as "Unknown endpoint key"; this catches it at
+  // test time. The regex matches a whole literal that is a lowercase dotted key
+  // like "insight.research.list"; import paths ("./core/x.js") and code samples
+  // ("000001.SZ") begin with "." or a digit and are excluded.
+  it("every endpoint key referenced in cli.ts is registered", () => {
+    const src = readFileSync(path.resolve(process.cwd(), "src/cli.ts"), "utf8")
+    const groups = new Set(Object.keys(ENDPOINTS).map((key) => key.split(".")[0]))
+    const KEY = /^[a-z][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+$/
+    const referenced = new Set<string>()
+    for (const m of src.matchAll(/"([^"]*)"/g)) {
+      // Require the first segment to be a real command group, so file-name
+      // literals like "download.bin" don't masquerade as endpoint keys.
+      if (KEY.test(m[1]) && groups.has(m[1].split(".")[0])) referenced.add(m[1])
+    }
+
+    expect(referenced.size).toBeGreaterThan(20) // sanity: the regex actually matched keys
+    const missing = [...referenced].filter((key) => !(key in ENDPOINTS))
+    expect(missing).toEqual([])
   })
 })

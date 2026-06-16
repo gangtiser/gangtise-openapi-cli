@@ -1,4 +1,5 @@
 import fs from "node:fs/promises"
+import { Readable } from "node:stream"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -370,5 +371,60 @@ describe("GangtiseClient auth recovery", () => {
     })
     await expect(client.call("insight.research.download", undefined, { reportId: "123" })).rejects.toMatchObject({ code: "8000015" })
     expect(downloadCalls).toBe(1)
+  })
+})
+
+describe("GangtiseClient streaming download", () => {
+  const streamTo = `/tmp/gangtise-stream-${process.pid}.bin`
+
+  beforeEach(() => {
+    requestMock.mockReset()
+  })
+
+  afterEach(async () => {
+    await fs.unlink(streamTo).catch(() => {})
+  })
+
+  it("removes the partial file when the stream fails mid-download", async () => {
+    function* boom() {
+      yield Buffer.from("partial bytes")
+      throw new Error("stream boom")
+    }
+    requestMock.mockResolvedValueOnce({
+      statusCode: 200,
+      headers: { "content-type": "application/octet-stream" },
+      body: Readable.from(boom()),
+    })
+
+    const client = createClient()
+    await expect(
+      client.call("insight.research.download", undefined, { reportId: "1" }, { streamTo }),
+    ).rejects.toThrow("stream boom")
+
+    // a failed download must not leave a truncated file behind
+    await expect(fs.access(streamTo)).rejects.toThrow()
+  })
+})
+
+describe("GangtiseClient pagination cap", () => {
+  beforeEach(() => {
+    requestMock.mockReset()
+  })
+
+  it("caps at 1000 pages and warns when more rows exist", async () => {
+    // maxPageSize is 50, so 50_001 rows would need 1001 pages — one past the cap.
+    paginatedMock({ total: 50_001, itemFor: (id) => ({ id }) })
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+
+    try {
+      const client = createClient()
+      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[] }
+
+      expect(result.total).toBe(50_001)
+      expect(result.list).toHaveLength(50_000) // 1000 pages × 50 rows
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("safety cap"))
+    } finally {
+      errSpy.mockRestore()
+    }
   })
 })

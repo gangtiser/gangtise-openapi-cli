@@ -228,8 +228,10 @@ export class GangtiseClient {
     }
 
     const MAX_PAGES = 1000
+    let truncatedByPageCap = false
     if (pageRequests.length + 1 > MAX_PAGES) {
       pageRequests.length = MAX_PAGES - 1
+      truncatedByPageCap = true
     }
 
     let unexpectedShape = false
@@ -258,6 +260,12 @@ export class GangtiseClient {
     }
     if (totalDrift && isVerbose()) {
       process.stderr.write(`[gangtise] warning: 'total' changed across pages (data shifted during fetch)\n`)
+    }
+    // Always surface a cap-induced truncation (not gated on verbose): the user
+    // asked for everything and is silently getting a subset, mirroring the
+    // partial-result warning in quoteSharding.
+    if (truncatedByPageCap) {
+      process.stderr.write(`[gangtise] warning: hit the ${MAX_PAGES}-page safety cap; fetched ${collected.length} of ${total} rows. Narrow the query (e.g. a shorter date range) or pass --size to fetch a bounded subset.\n`)
     }
 
     return {
@@ -408,7 +416,15 @@ export class GangtiseClient {
       // Stream directly to disk when caller already knows the destination
       if (options?.streamTo) {
         await fs.mkdir(path.dirname(options.streamTo), { recursive: true })
-        await pipeline(response.body, createWriteStream(options.streamTo))
+        try {
+          await pipeline(response.body, createWriteStream(options.streamTo))
+        } catch (error) {
+          // A mid-stream failure leaves a truncated file on disk; remove it so a
+          // failed download never looks like a complete one. withRetry may still
+          // replay the request (the next attempt re-creates the file).
+          await fs.unlink(options.streamTo).catch(() => {})
+          throw error
+        }
         logTiming(`GET ${endpoint.path} (stream)`, Date.now() - startedAt, `${response.statusCode}`)
         return { contentType, filename, savedPath: options.streamTo }
       }
