@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.17.2"
+version: "0.18.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -68,6 +68,7 @@ description: |-
 | `insight summary download` | `--file-type`（可选） | `1` 原始（默认）/ `2` HTML（仅会议平台来源） |
 | `insight independent-opinion download` | `--file-type` **必选** | `1` 原文 HTML / `2` 翻译 HTML |
 | `insight announcement-hk download` | — | 无格式选项 |
+| `insight official-account download` | `--file-type` | `1` txt（默认）/ `2` HTML |
 | `vault record-download` | `--content-type` | `original` 原始文件 / `asr` 语音识别 / `summary` AI 速记 |
 | `vault my-conference-download` | `--content-type` | `asr` 语音识别 / `summary` AI 速记 |
 
@@ -86,6 +87,7 @@ description: |-
 | 路演 / 调研 / 策略会 / 论坛 | `insight roadshow / site-visit / strategy / forum list` |
 | A 股公告 / 公告 | `insight announcement list` |
 | 港股公告 / HK 公告 | `insight announcement-hk list` |
+| 公众号资讯 / 产业资讯 / 公众号文章 | `insight official-account list` |
 | 跨类型语义搜索（研报+纪要+...） | `ai knowledge-batch`（多个 `--resource-type`） |
 | 一页通 / 投资逻辑 / 同业对比 / 调研提纲 | `ai one-pager / investment-logic / peer-comparison / research-outline` |
 | 业绩点评（异步） | `ai earnings-review` |
@@ -195,7 +197,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 参数命名：Insight/Vault/AI 用 `--start-time` / `--end-time`（datetime）；Quote/Fundamental 用 `--start-date` / `--end-date`（date）。
 
-支持时间倒序的命令加 `--rank-type 2`：opinion / summary / research / foreign-report / announcement / announcement-hk / foreign-opinion / independent-opinion。其他 list 命令按 API 默认排序。
+支持时间倒序的命令加 `--rank-type 2`：opinion / summary / research / foreign-report / announcement / announcement-hk / foreign-opinion / independent-opinion / official-account。其他 list 命令按 API 默认排序。
 
 ## 异常处理
 

@@ -269,6 +269,23 @@ describe("ENDPOINTS", () => {
     expect(securities.kind).toBe("json")
   })
 
+  it("official-account endpoints use correct keys and paths", () => {
+    const list = ENDPOINTS["insight.official-account.list"]
+    expect(list).toBeDefined()
+    expect(list.key).toBe("insight.official-account.list")
+    expect(list.method).toBe("POST")
+    expect(list.path).toBe("/application/open-insight/officialAccount/getList")
+    expect(list.kind).toBe("json")
+    expect(list.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+
+    const download = ENDPOINTS["insight.official-account.download"]
+    expect(download).toBeDefined()
+    expect(download.key).toBe("insight.official-account.download")
+    expect(download.method).toBe("GET")
+    expect(download.path).toBe("/application/open-insight/officialAccount/download/file")
+    expect(download.kind).toBe("download")
+  })
+
   it("reference constant/concept/sector endpoints use correct keys and paths", () => {
     const category = ENDPOINTS["reference.constant-category"]
     expect(category.method).toBe("GET")

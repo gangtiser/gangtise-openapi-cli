@@ -161,6 +161,7 @@ const announcement = new Command("announcement")
 const announcementHk = new Command("announcement-hk")
 const foreignOpinion = new Command("foreign-opinion")
 const independentOpinion = new Command("independent-opinion")
+const officialAccount = new Command("official-account")
 
 addTimeFilters(opinion.command("list").option("--rank-type <number>", "Rank type", "1").option("--research-area <id>", "Research area ID", collectList, []).option("--chief <id>", "Chief ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--concept <id>", "Concept ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--source <source>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime,
@@ -294,6 +295,17 @@ addTimeFilters(independentOpinion.command("list").option("--rank-type <number>",
   })))
 addDownloadCommand(independentOpinion, { endpointKey: "insight.independent-opinion.download", idOption: "--independent-opinion-id", idField: "independentOpinionId", fallbackPrefix: "independent-opinion", fileType: { description: "File type: 1=original HTML 2=CN-translated HTML", required: true } })
 
+addTimeFilters(officialAccount.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--account-id <id>", "Official account ID", collectList, []).option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--category <type>", "Article type: news/law/report/view/data/event/meeting/notice/recruit/investEdu/brand/notes/other", collectList, []).option("--industry <id>", "Industry ID (constant-list citicIndustry/swIndustry)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.official-account.list", {
+    from: parseFrom(options.from), size: parseSize(options.size),
+    startTime: options.startTime, endTime: options.endTime,
+    searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }),
+    rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
+    keyword: options.keyword,
+    accountIdList: maybeArray(options.accountId), securityList: maybeArray(options.security),
+    categoryList: maybeArray(options.category), industryList: maybeArray(options.industry),
+  }), { endpointKey: "insight.official-account.list", idField: "articleId" }))
+addDownloadCommand(officialAccount, { endpointKey: "insight.official-account.download", idOption: "--article-id", idField: "articleId", fallbackPrefix: "official-account", fileType: { description: "File type: 1=txt(default) 2=HTML", default: "1" }, titleListEndpoint: "insight.official-account.list" })
+
 insight.addCommand(opinion)
 insight.addCommand(summary)
 insight.addCommand(roadshow)
@@ -306,6 +318,7 @@ insight.addCommand(announcement)
 insight.addCommand(announcementHk)
 insight.addCommand(foreignOpinion)
 insight.addCommand(independentOpinion)
+insight.addCommand(officialAccount)
 program.addCommand(insight)
 
 const quote = new Command("quote").description("Quote APIs")

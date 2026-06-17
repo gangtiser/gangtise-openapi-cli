@@ -4,7 +4,7 @@
 
 时间格式：`"YYYY-MM-DD HH:mm:ss"`（datetime，需引号）。
 
-支持 `--rank-type` 的命令：opinion / summary / research / foreign-report / announcement / announcement-hk / foreign-opinion / independent-opinion。
+支持 `--rank-type` 的命令：opinion / summary / research / foreign-report / announcement / announcement-hk / foreign-opinion / independent-opinion / official-account。
 **不支持** `--rank-type` 的命令：roadshow / site-visit / strategy / forum（API 无此参数）。
 
 `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
@@ -126,3 +126,18 @@ gangtise insight independent-opinion download --independent-opinion-id <id> --fi
 - `--rating` / `--rating-change`：同外资观点
 - `--file-type`（download **必选**）：`1` 原文 HTML | `2` 中文翻译 HTML
 - 返回字段：`independentOpinionId` / `title` / `titleTranslate` / `brief` / `briefTranslate` / `publishTime` / `analyst{analystId, analystName}` / `securityList[]` / `industryList[]`
+
+## 产业公众号资讯 `insight official-account list/download`
+
+```bash
+gangtise insight official-account list [--search-type <n>] [--rank-type <n>] [--account-id <id>] [--security <code>] [--category <type>] [--industry <id>]
+gangtise insight official-account download --article-id <id> [--file-type <n>] [--output <path>]
+```
+
+- `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索
+- `--account-id`：公众号 ID（取自 list 返回的 `accountId`），可多次传入限定账号
+- `--category`：文章类型，可多选——`news` 新闻资讯 | `law` 法律法规 | `report` 报告类 | `view` 个人观点 | `data` 产业数据 | `event` 日程活动 | `meeting` 会议纪要 | `notice` 通知 | `recruit` 招聘 | `investEdu` 投资科普 | `brand` 品牌宣传 | `notes` 个人随笔 | `other` 其他
+- `--industry`：行业 ID，用 `reference constant-list --category citicIndustry`（或 `swIndustry`）查
+- `--keyword`：需用数据中的具体词（如 `泡泡玛特`），不能用整句白话
+- `--file-type`（download）：`1` txt（默认）| `2` HTML
+- 返回字段：`articleId` / `accountId` / `accountName` / `author` / `title` / `publishTime` / `url` / `originalFlag`（`0` 非原创 / `1` 原创）/ `articleCategory` / `summary`（模型摘要）/ `industryList[]{industryId, industryName}` / `conceptList[]{conceptId, conceptName}` / `securityList[]{securityCode, securityName}`

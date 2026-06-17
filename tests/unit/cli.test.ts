@@ -140,4 +140,18 @@ describe("cli smoke", () => {
     expect(code).not.toBe(0)
     expect(out).toContain("unknown option")
   }, 30_000)
+
+  it("official-account list exposes the documented filters", async () => {
+    const { code, out } = await cli(["insight", "official-account", "list", "--help"])
+    expect(code).toBe(0)
+    for (const flag of ["--account-id", "--security", "--category", "--industry", "--search-type", "--rank-type", "--keyword", "--start-time", "--end-time", "--from", "--size"]) {
+      expect(out).toContain(flag)
+    }
+  }, 30_000)
+
+  it("official-account download requires --article-id", async () => {
+    const { code, out } = await cli(["insight", "official-account", "download"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--article-id")
+  }, 30_000)
 })

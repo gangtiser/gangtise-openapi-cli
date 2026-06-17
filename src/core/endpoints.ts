@@ -175,6 +175,21 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "download",
     description: "Download foreign independent opinion file",
   },
+  "insight.official-account.list": {
+    key: "insight.official-account.list",
+    method: "POST",
+    path: "/application/open-insight/officialAccount/getList",
+    kind: "json",
+    description: "List WeChat official account articles",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.official-account.download": {
+    key: "insight.official-account.download",
+    method: "GET",
+    path: "/application/open-insight/officialAccount/download/file",
+    kind: "download",
+    description: "Download WeChat official account article (txt/HTML)",
+  },
 
   // ─── reference ───
   "reference.securities-search": {
