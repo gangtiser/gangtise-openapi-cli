@@ -4,6 +4,12 @@
 
 ## Changelog
 
+### v0.18.0 — 2026-06-17
+
+**新增接口（Insight · 产业公众号资讯）**
+- `insight official-account list` — 查询公众号资讯列表：支持 `--keyword`（需用数据中的具体词，非整句白话）/ `--account-id`（公众号 ID）/ `--security` / `--category`（文章类型枚举：`news`/`law`/`report`/`view`/`data`/`event`/`meeting`/`notice`/`recruit`/`investEdu`/`brand`/`notes`/`other`）/ `--industry`（`citicIndustry`/`swIndustry` 行业 ID）/ `--search-type`（`1` 标题 / `2` 全文）/ `--rank-type`（`1` 综合 / `2` 时间倒序）；返回含模型生成摘要 `summary` 及关联行业/题材/证券列表
+- `insight official-account download --article-id <id>` — 下载公众号文章：`--file-type 1` txt（默认）/ `2` HTML
+
 ### v0.17.0 — 2026-06-15
 
 **接口变更（Breaking）**
@@ -272,6 +278,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `announcement-hk list` / `download` | 港股公告（含下载） |
 | | `foreign-opinion list` | 外资机构观点 |
 | | `independent-opinion list` / `download` | 外资独立分析师观点（含原文/翻译HTML下载） |
+| | `official-account list` / `download` | 产业公众号资讯（含 txt/HTML 下载） |
 | **Reference** | `securities-search` | GTS Code 搜索（按名称/代码/拼音匹配） |
 | | `constant-category` | 常量分类列表（含各分类适用的接口与参数） |
 | | `constant-list` | 按分类导出常量值全量列表（行业/城市/公告分类/区域等） |
@@ -378,6 +385,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight announcement-hk list`
 - `insight foreign-opinion list`
 - `insight independent-opinion list`
+- `insight official-account list`
 - `ai security-clue`
 - `vault drive-list`
 - `vault record-list`
@@ -395,7 +403,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 
 ## 智能文件命名
 
-下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
+下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`official-account download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
 
 1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
 2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
@@ -454,6 +462,10 @@ gangtise insight foreign-opinion list --security APP.O --rating buy --format jso
 # 外资独立观点
 gangtise insight independent-opinion list --keyword "肿瘤" --industry 100800118 --format json
 gangtise insight independent-opinion download --independent-opinion-id 207051900018372 --file-type 2
+
+# 产业公众号资讯
+gangtise insight official-account list --keyword 泡泡玛特 --rank-type 2 --size 20 --format json
+gangtise insight official-account download --article-id 7286248 --file-type 2
 
 # 纪要下载（会议平台来源可选 HTML 格式）
 gangtise insight summary download --summary-id 4906813 --file-type 2
