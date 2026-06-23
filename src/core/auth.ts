@@ -46,7 +46,14 @@ export function normalizeToken(token: string): string {
 
 export function requireAccessCredentials(accessKey?: string, secretKey?: string): { accessKey: string; secretKey: string } {
   if (!accessKey || !secretKey) {
-    throw new ConfigError("Missing GANGTISE_ACCESS_KEY or GANGTISE_SECRET_KEY")
+    const missing = [!accessKey && "GANGTISE_ACCESS_KEY", !secretKey && "GANGTISE_SECRET_KEY"].filter(Boolean).join(", ")
+    throw new ConfigError(
+      `缺少环境变量: ${missing}（未导出到当前进程环境）\n`
+      + `注意：在 shell 里赋值还不够，必须"导出"，子进程才读得到：\n`
+      + `  bash/zsh:  export GANGTISE_ACCESS_KEY=... GANGTISE_SECRET_KEY=...\n`
+      + `  fish:      set -gx GANGTISE_ACCESS_KEY ...; set -gx GANGTISE_SECRET_KEY ...\n`
+      + `验证：env | grep GANGTISE（能列出对应行才算导出成功）`,
+    )
   }
 
   return { accessKey, secretKey }
