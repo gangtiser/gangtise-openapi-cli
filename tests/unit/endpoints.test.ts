@@ -330,6 +330,33 @@ describe("ENDPOINTS", () => {
     expect(chatroom.method).toBe("POST")
   })
 
+  it("indicator (EDE) endpoints use correct keys and paths and are unpaginated", () => {
+    const search = ENDPOINTS["indicator.search"]
+    expect(search).toBeDefined()
+    expect(search.key).toBe("indicator.search")
+    expect(search.method).toBe("POST")
+    expect(search.path).toBe("/application/open-indicator/EDE/search")
+    expect(search.kind).toBe("json")
+
+    const crossSection = ENDPOINTS["indicator.cross-section"]
+    expect(crossSection).toBeDefined()
+    expect(crossSection.key).toBe("indicator.cross-section")
+    expect(crossSection.method).toBe("POST")
+    expect(crossSection.path).toBe("/application/open-indicator/EDE/cross-section")
+    expect(crossSection.kind).toBe("json")
+
+    const timeSeries = ENDPOINTS["indicator.time-series"]
+    expect(timeSeries).toBeDefined()
+    expect(timeSeries.key).toBe("indicator.time-series")
+    expect(timeSeries.method).toBe("POST")
+    expect(timeSeries.path).toBe("/application/open-indicator/EDE/time-series")
+    expect(timeSeries.kind).toBe("json")
+
+    for (const ep of [search, crossSection, timeSeries]) {
+      expect(ep.pagination, `${ep.key}.pagination`).toBeUndefined()
+    }
+  })
+
   // Endpoint keys appear as bare string literals throughout cli.ts
   // (client.call("..."), addDownloadCommand({ endpointKey: "..." }), addKlineCommand(...)).
   // A typo only surfaces at runtime as "Unknown endpoint key"; this catches it at

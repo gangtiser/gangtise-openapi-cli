@@ -2,6 +2,8 @@
 
 CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"` 解包，stdout 直接是 `data`。无 envelope 的响应原样透传。
 
+> 例外：`indicator`（EDE）三个接口成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`），且原始字段名是 `securityCode/indicators/indicatorName`、截面 `values` 为 `[指标×证券][1]` 扁平数组。`indicator` 子命令已在客户端二次解包并拍平成宽表；但直接 `raw call indicator.*` 只会剥外层，需自行处理内层。
+
 ## 通用模式（5 类）
 
 | 模式 | 结构 | 提取方式 |
@@ -65,4 +67,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault wechat-chatroom-list | `{chatRoomList: [...]}` | `chatRoomList[].chatroomName` / `chatRoomList[].chatroomId` |
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |
 | alternative concept-securities | `{conceptId, conceptName, securityCount, securityDetail}`（单对象，分组） | `securityCount` / `securityDetail[].groupName` / `securityDetail[].securityList[].securityCode` / `.securityName` / `.isKey` / `.inclusionReason`；无成分股时 `securityDetail` 为 `null` |
+| indicator search | `[{indicatorCode, indicatorName, ...}]`（列表） | `indicatorCode` / `indicatorName` / `description` / `scope` / `parameterList[].paramKey` / `.enumList[].value`（专属参数及枚举） / `score` |
+| indicator cross-section | CLI 拍平为宽表 `{list, total}` | `list[].date` / `list[].security` / `list[].name` + 每个指标名一列；**单日多指标 × 多证券**，每行一只证券 |
+| indicator time-series | CLI 拍平为宽表 `{list, total}` | `list[].date` + 序列列：单证券时列=各指标、多证券时列=各证券；每行一个日期 |
 | lookup broker-org / meeting-org list | `[...]` | `[].id` / `[].name` |

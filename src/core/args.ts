@@ -95,3 +95,34 @@ export function parseTimestamp13(value: string | undefined, optionName: string):
   }
   return parsed
 }
+
+export interface IndicatorParamGroup {
+  indicatorCode: string
+  parameters: { paramKey: string; paramValue: string }[]
+}
+
+// Parse repeatable `--indicator-param "code:key=value"` specs into the nested
+// indicatorParamList the EDE cross-section / time-series endpoints expect.
+// Multiple specs for the same code accumulate into one group, first-seen order.
+export function parseIndicatorParams(specs: string[]): IndicatorParamGroup[] | undefined {
+  if (specs.length === 0) return undefined
+  const groups = new Map<string, IndicatorParamGroup>()
+  for (const spec of specs) {
+    const colon = spec.indexOf(":")
+    const rest = colon === -1 ? "" : spec.slice(colon + 1)
+    const eq = rest.indexOf("=")
+    const code = colon === -1 ? "" : spec.slice(0, colon).trim()
+    const paramKey = eq === -1 ? "" : rest.slice(0, eq).trim()
+    const paramValue = eq === -1 ? "" : rest.slice(eq + 1).trim()
+    if (!code || !paramKey) {
+      throw new ValidationError(`Invalid --indicator-param: expected "code:key=value", got "${spec}"`)
+    }
+    let group = groups.get(code)
+    if (!group) {
+      group = { indicatorCode: code, parameters: [] }
+      groups.set(code, group)
+    }
+    group.parameters.push({ paramKey, paramValue })
+  }
+  return [...groups.values()]
+}

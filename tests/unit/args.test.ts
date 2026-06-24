@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -137,5 +137,46 @@ describe("parseTimestamp13", () => {
 
   it("throws on invalid date values", () => {
     expect(() => parseTimestamp13("not-a-date", "--start-time")).toThrow(ValidationError)
+  })
+})
+
+describe("parseIndicatorParams", () => {
+  it("returns undefined when there are no specs", () => {
+    expect(parseIndicatorParams([])).toBeUndefined()
+  })
+
+  it("parses a single code:key=value spec", () => {
+    expect(parseIndicatorParams(["qte_close:adjustmentType=1"])).toEqual([
+      { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustmentType", paramValue: "1" }] },
+    ])
+  })
+
+  it("merges multiple params for the same indicator code", () => {
+    expect(parseIndicatorParams(["qte_vol:currency=DFT", "qte_vol:scale=4"])).toEqual([
+      {
+        indicatorCode: "qte_vol",
+        parameters: [
+          { paramKey: "currency", paramValue: "DFT" },
+          { paramKey: "scale", paramValue: "4" },
+        ],
+      },
+    ])
+  })
+
+  it("keeps distinct codes as separate groups in first-seen order", () => {
+    expect(parseIndicatorParams(["qte_close:adjustmentType=1", "qte_vol:scale=4"])).toEqual([
+      { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustmentType", paramValue: "1" }] },
+      { indicatorCode: "qte_vol", parameters: [{ paramKey: "scale", paramValue: "4" }] },
+    ])
+  })
+
+  it("throws when a spec is missing the ':' or '=' separator", () => {
+    expect(() => parseIndicatorParams(["qte_close"])).toThrow(ValidationError)
+    expect(() => parseIndicatorParams(["qte_close:adjustmentType"])).toThrow(ValidationError)
+  })
+
+  it("throws when the code or key is empty", () => {
+    expect(() => parseIndicatorParams([":adjustmentType=1"])).toThrow(ValidationError)
+    expect(() => parseIndicatorParams(["qte_close:=1"])).toThrow(ValidationError)
   })
 })

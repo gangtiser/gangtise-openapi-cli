@@ -219,4 +219,36 @@
 4. 陷阱：sectorId 必须来自 sector-search；拿题材 conceptId（如 121000130）来查会返回 0 条
 5. 呈现：total + 前 20 只列表
 ```
+
+## 例 15：指标取数（search → cross-section / time-series）
+
+**用户**："茅台和泡泡玛特上周的收盘价、成交量对比一下"
+
+```
+1. 路由 → indicator（证券级指标，需证券代码 → EDE，不是 alternative edb）
+2. 先拿 indicatorCode（绝不猜）：
+     gangtise indicator search --keyword 收盘价 --format table   → qte_close
+     gangtise indicator search --keyword 成交量 --format table   → qte_vol
+3. 取数二选一：
+   - 单日横向对比 → cross-section（多指标 × 多证券）：
+       gangtise indicator cross-section \
+         --indicator qte_close --indicator qte_vol \
+         --security 600519.SH --security 09992.HK \
+         --date 2026-05-22 --format table
+       → 每行一只证券，列 = date/security/name/日收盘价/成交量
+   - 一段区间走势 → time-series（这里两只证券 → 只能单指标 × 多证券）：
+       gangtise indicator time-series --indicator qte_close \
+         --security 600519.SH --security 09992.HK \
+         --start-date 2026-05-18 --end-date 2026-05-22 --format table
+       → 每行一个日期，列 = date/贵州茅台/泡泡玛特
+4. 复权：要前复权收盘价加 --indicator-param "qte_close:adjustmentType=2"
+   （参数 key 以 indicator search --format json 的 parameterList 为准）
+5. 陷阱：time-series 不能多指标 × 多证券同时（报 410001），那种情况用 cross-section
+6. 必填参数：很多指标默认调用报 410106（缺必填参数）→ 先看 parameterList 的 required，补
+   periodNum（N期统计）/startDate（区间周期类，如 qte_amp_mo）/fiscalYear（年度分红）：
+     gangtise indicator cross-section --indicator finc_roe_avg_avg --security 600519.SH \
+       --date 2026-03-31 --indicator-param "finc_roe_avg_avg:periodNum=4"
+7. 无数据：999999 多为"该公司类型/报告期无此科目"而非故障 → 财务用报告期末、现金流附注用年报
+   日期(2025-12-31)、行情用交易日；银行/券商/保险科目不同，换对公司类型。详见 commands/indicator.md
+```
 ```

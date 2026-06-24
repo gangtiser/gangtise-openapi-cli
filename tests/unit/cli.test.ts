@@ -30,7 +30,7 @@ describe("cli smoke", () => {
   it("prints top-level help listing every command group", async () => {
     const { code, out } = await cli(["--help"])
     expect(code).toBe(0)
-    for (const group of ["auth", "lookup", "insight", "quote", "fundamental", "ai", "reference", "vault", "alternative", "raw"]) {
+    for (const group of ["auth", "lookup", "insight", "quote", "fundamental", "ai", "reference", "vault", "alternative", "indicator", "raw"]) {
       expect(out).toContain(group)
     }
   }, 30_000)
@@ -153,5 +153,35 @@ describe("cli smoke", () => {
     const { code, out } = await cli(["insight", "official-account", "download"])
     expect(code).not.toBe(0)
     expect(out).toContain("--article-id")
+  }, 30_000)
+
+  it("lists indicator subcommands", async () => {
+    const { code, out } = await cli(["indicator", "--help"])
+    expect(code).toBe(0)
+    for (const sub of ["search", "cross-section", "time-series"]) {
+      expect(out).toContain(sub)
+    }
+  }, 30_000)
+
+  it("indicator search requires --keyword", async () => {
+    const { code, out } = await cli(["indicator", "search"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--keyword")
+  }, 30_000)
+
+  it("indicator cross-section exposes the documented flags", async () => {
+    const { code, out } = await cli(["indicator", "cross-section", "--help"])
+    expect(code).toBe(0)
+    for (const flag of ["--indicator", "--security", "--date", "--currency", "--scale", "--indicator-param"]) {
+      expect(out).toContain(flag)
+    }
+  }, 30_000)
+
+  it("indicator time-series exposes the documented flags", async () => {
+    const { code, out } = await cli(["indicator", "time-series", "--help"])
+    expect(code).toBe(0)
+    for (const flag of ["--indicator", "--security", "--start-date", "--end-date", "--calendar-type", "--currency", "--scale", "--indicator-param"]) {
+      expect(out).toContain(flag)
+    }
   }, 30_000)
 })

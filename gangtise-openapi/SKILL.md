@@ -118,6 +118,9 @@ description: |-
 | 行业指标时序数据（EDB） | `alternative edb-data` |
 | 题材画像 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件 | `alternative concept-info`（前置：`reference concept-search` 拿 `concept-id`） |
 | 题材成分股 / 题材深度 F8 / 题材龙头 | `alternative concept-securities`（前置：`reference concept-search` 拿 `concept-id`） |
+| 指标搜索 / 找指标编码（收盘价/成交量/总市值/财务指标的 code） | `indicator search` |
+| 指标截面数据（多指标 × 多证券，单日快照） | `indicator cross-section`（前置：`indicator search` 拿 indicatorCode） |
+| 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间） | `indicator time-series`（前置：`indicator search` 拿 indicatorCode） |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
 | 常量/枚举 ID（行业/城市/公告分类/区域） | `reference constant-list --category <code>`（分类代码用 `reference constant-category` 查） |
 | 题材 ID 搜索 | `reference concept-search` |
@@ -129,6 +132,9 @@ description: |-
 - "搜索 X" → 数据维度精确（按行业/券商）走对应 `insight ... list`；跨类型语义搜索走 `ai knowledge-batch`
 - 港股代码用在 `insight foreign-opinion --security` 还是 `quote day-kline-hk --security`？前者要"境外"格式（`UBER.N`），后者要 `.HK`
 - "成分股" → 题材深度（分组/重点标记/纳入理由）走 `alternative concept-securities`；板块（行业/概念分类树，纯代码名单）走 `reference sector-constituents`
+- "指标" → 证券级指标（个股收盘价/成交量/总市值/财务指标，需 `--security` 证券代码）走 `indicator`（EDE）；行业/宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），两套接口不同
+- `indicator` 取数二选一：单日多标的横向对比 → `cross-section`；时间区间纵向走势 → `time-series`（且 `time-series` 不能多指标 × 多证券同时，截面才可以）
+- `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报 `410106`；`999999` 多为"该证券公司类型/报告期无数据"而非故障，换公司类型或年报日期、或改用 `time-series`。详见 `references/commands/indicator.md`
 
 ## 公司名 → 证券代码
 
@@ -203,9 +209,10 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 | 错误码 | 含义 | CLI 行为 | Agent 是否介入 |
 |--------|------|---------|--------------|
-| `999999` | 系统错误 | **自动重试 ×2** | 仍失败再告知用户 |
+| `999999` | 系统错误（部分接口如 `indicator` 表示**无数据/不适用**） | **自动重试 ×2** | 仍失败再告知用户；indicator 场景换证券公司类型/报告期或改用 `time-series` |
 | `410110` | 异步生成中 | 异步轮询逻辑视为 pending | 继续等 |
 | `410111` | 异步生成失败 | 终态 | **不重试**，建议换参数 |
+| `410106` | 查询指标异常（实为 `indicator` **缺必填参数**） | — | 读 `indicator search --format json` 的 `parameterList`，补 `required:true` 参数（periodNum/startDate/fiscalYear） |
 | `0000001008` | Token 服务端失效（他处登录挤掉） | **强制重新登录并重试一次** | 无 AK/SK 时无法自愈，提示重新登录 |
 | `8000014` / `8000015` | AK/SK 错误 | **自动刷新 token 并重试一次** | 再失败提示检查 env |
 | `8000016` / `8000018` | 账号异常 / 到期 | — | 提示联系管理员 |
@@ -280,6 +287,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 - knowledge-batch / security-clue / AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
 - 行业指标数据库（EDB）/ 题材指数画像与成分股（concept-info / concept-securities）→ `references/commands/alternative.md`
+- 数据指标（EDE：search / cross-section / time-series，证券级指标截面与时序）→ `references/commands/indicator.md`
 - securities-search / 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 
 跑通流程对照 → `references/examples.md`

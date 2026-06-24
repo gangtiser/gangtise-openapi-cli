@@ -1,4 +1,4 @@
-import { maybeArray, parseFrom, parseOptionalNumberOption, parseSize } from "./args.js"
+import { maybeArray, parseFrom, parseIndicatorParams, parseOptionalNumberOption, parseSize } from "./args.js"
 
 interface QuoteKlineOptions {
   security: string[]
@@ -25,6 +25,30 @@ interface WechatChatroomListOptions {
   from?: string | number
   size?: string | number
   roomName: string[]
+}
+
+interface StockPoolStocksOptions {
+  poolId?: string[]
+}
+
+interface IndicatorCrossSectionOptions {
+  indicator: string[]
+  security: string[]
+  date: string
+  currency?: string
+  scale?: string
+  indicatorParam: string[]
+}
+
+interface IndicatorTimeSeriesOptions {
+  indicator: string[]
+  security: string[]
+  startDate: string
+  endDate: string
+  calendarType?: string
+  currency?: string
+  scale?: string
+  indicatorParam: string[]
 }
 
 export function buildQuoteKlineBody(options: QuoteKlineOptions) {
@@ -57,5 +81,35 @@ export function buildWechatChatroomListBody(options: WechatChatroomListOptions) 
     from: parseFrom(options.from),
     size: parseSize(options.size),
     roomName: options.roomName.length > 0 ? options.roomName.join(",") : undefined,
+  }
+}
+
+export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
+  return {
+    poolIdList: options.poolId?.length ? options.poolId : ["all"],
+  }
+}
+
+export function buildIndicatorCrossSectionBody(options: IndicatorCrossSectionOptions) {
+  return {
+    indicatorCodeList: maybeArray(options.indicator),
+    securityCodeList: maybeArray(options.security),
+    date: options.date,
+    currency: options.currency,
+    scale: options.scale,
+    indicatorParamList: parseIndicatorParams(options.indicatorParam),
+  }
+}
+
+export function buildIndicatorTimeSeriesBody(options: IndicatorTimeSeriesOptions) {
+  return {
+    indicatorCodeList: maybeArray(options.indicator),
+    securityCodeList: maybeArray(options.security),
+    startDate: options.startDate,
+    endDate: options.endDate,
+    calendarType: options.calendarType,
+    currency: options.currency,
+    scale: options.scale,
+    indicatorParamList: parseIndicatorParams(options.indicatorParam),
   }
 }

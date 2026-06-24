@@ -579,4 +579,27 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Query concept (theme index) constituent securities, grouped",
   },
+
+  // ─── indicator (EDE: security-level data indicators) ───
+  "indicator.search": {
+    key: "indicator.search",
+    method: "POST",
+    path: "/application/open-indicator/EDE/search",
+    kind: "json",
+    description: "Search data indicators by keyword (returns indicatorCode + params)",
+  },
+  "indicator.cross-section": {
+    key: "indicator.cross-section",
+    method: "POST",
+    path: "/application/open-indicator/EDE/cross-section",
+    kind: "json",
+    description: "Get cross-section data (multi-indicator x multi-security, single date)",
+  },
+  "indicator.time-series": {
+    key: "indicator.time-series",
+    method: "POST",
+    path: "/application/open-indicator/EDE/time-series",
+    kind: "json",
+    description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
+  },
 }

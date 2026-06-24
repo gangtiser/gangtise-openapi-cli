@@ -223,6 +223,7 @@ gangtise-openapi/
     │   ├── ai.md                     #   AI 能力命令（one-pager / earnings-review / viewpoint-debate 等）
     │   ├── alternative.md            #   行业指标数据库（EDB search / EDB data）
     │   ├── fundamental.md            #   财务数据命令（A股/港股三大报表 / 估值 / 盈利预测 / 股东）
+    │   ├── indicator.md              #   证券级数据指标 EDE（search / 截面 / 时序）
     │   ├── insight.md                #   投研内容命令（研报 / 观点 / 纪要 / 公告 / 外资）
     │   ├── quote.md                  #   行情命令（A股/港股/指数 K 线）
     │   ├── reference-and-lookup.md   #   GTS Code 搜索与枚举速查
@@ -314,6 +315,9 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `my-conference-list` / `my-conference-download` | 我的会议列表与下载 |
 | | `wechat-message-list` / `wechat-chatroom-list` | 群消息列表与群ID查询 |
 | | `stock-pool-list` / `stock-pool-stocks` | 自选股股票池列表与证券明细 |
+| **Indicator** | `search` | 证券级数据指标搜索（按名称匹配，返回 indicatorCode 及可传参数 parameterList） |
+| | `cross-section` | 指标截面数据（多指标 × 多证券，单日快照；前置 `search` 拿 code） |
+| | `time-series` | 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间） |
 | **Alternative** | `edb-search` | 行业指标搜索（按关键词匹配，返回 indicatorId 等元信息） |
 | | `edb-data` | 行业指标时序数据（批量拉取，最多10个指标） |
 | | `concept-info` | 题材指数基本信息（投资逻辑/行业空间/竞争格局/催化事件） |
@@ -623,6 +627,34 @@ gangtise vault stock-pool-list
 gangtise vault stock-pool-stocks --pool-id 808477293
 # 查询所有股票池中的全量证券（默认行为）
 gangtise vault stock-pool-stocks
+```
+
+### Indicator（证券级数据指标 EDE）
+
+```bash
+# Step 1：按名称搜索，拿 indicatorCode（绝不猜编码）；--format json 看可传参数 parameterList 及 required
+gangtise indicator search --keyword 收盘价 --format table             # → qte_close
+gangtise indicator search --keyword 平均ROE --limit 5 --format json    # 看 parameterList
+
+# 截面：多指标 × 多证券，单日快照（行情类用交易日；财务类用报告期末，如 2026-03-31）
+gangtise indicator cross-section \
+  --indicator qte_close --indicator qte_vol --indicator qte_mkt_cptl \
+  --security 600519.SH --security 09992.HK \
+  --date 2026-05-18 --format table
+
+# 时间序列：多指标 × 单证券 或 单指标 × 多证券（不能多 × 多，否则报 410001）
+gangtise indicator time-series --indicator qte_close \
+  --security 600519.SH --security 09992.HK \
+  --start-date 2026-05-12 --end-date 2026-05-18 --format table
+
+# 复权 / 指标专属参数用 --indicator-param "code:key=value"，参数 key 以 search 的 parameterList 为准
+gangtise indicator cross-section --indicator qte_close --security 600519.SH \
+  --date 2026-05-18 --indicator-param "qte_close:adjustmentType=3"   # 1不复权/2前复权/3后复权
+
+# 必填参数：很多指标默认调用报 410106（缺必填参数），按 parameterList 的 required 补齐再取：
+#   N 期统计补 periodNum、区间/周期类（如 qte_amp_mo 月振幅）补 startDate、年度/分红类补 fiscalYear
+gangtise indicator cross-section --indicator finc_roe_avg_avg --security 600519.SH \
+  --date 2026-03-31 --indicator-param "finc_roe_avg_avg:periodNum=4"
 ```
 
 ### Alternative（行业指标数据库 EDB）
