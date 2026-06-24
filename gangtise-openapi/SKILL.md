@@ -6,11 +6,11 @@ description: |-
 
   **触发词**：调接口 / CLI / openapi / 导出 / 下载研报 / 批量查 / 拉数据 / 跑一下 / 钢尼斯 / gtIC（Gangtise 语音误识别）
 
-  **适用**：原始数据导出、批量 jsonl/csv、下载 PDF/MD、行情 K 线、财务报表、估值指标、AI 能力（一页通/投资逻辑/同业对比/线索/业绩点评/主题跟踪/调研提纲/知识库搜索）、云盘文件管理（Vault）
+  **适用**：原始数据导出、批量 jsonl/csv、下载 PDF/MD、行情 K 线、财务报表、估值指标、证券级数据指标（EDE 截面/时序）、AI 能力（一页通/投资逻辑/同业对比/线索/业绩点评/主题跟踪/调研提纲/知识库搜索）、云盘文件管理（Vault）
 
-  **不适用**：个股研究→gangtise-stock-research；观点总结/PK→gangtise-opinion-*；证券详情/板块/股东元数据→gangtise-data-client
+  **不适用**：不做研究报告撰写、观点总结/多空 PK 等内容生成式二次加工——本 skill 只从 OpenAPI 取原始数据与文件
 
-  **协作**：本 skill 是底层数据通道。其他 gangtise skill 需要 CLI 数据时也通过本 skill 调用。CLI 不可用时不要替代为 gangtise-data-client / gangtise-file-client，应提示用户安装 CLI（`npm install -g gangtise-openapi-cli`）。
+  **前置**：依赖 gangtise CLI，未安装时提示用户 `npm install -g gangtise-openapi-cli`
 ---
 
 # Gangtise OpenAPI CLI
