@@ -4,6 +4,22 @@
 
 ## Changelog
 
+### v0.19.0 — 2026-06-24
+
+**新增接口（Indicator · 证券级数据指标 EDE）**
+- `indicator search` — 按名称搜索证券级数据指标，返回 `indicatorCode` 及可传参数 `parameterList`（含 `required` 必填标记与枚举）；取数前必先 search 拿 code，绝不猜编码
+- `indicator cross-section` — 指标截面数据（多指标 × 多证券，单日快照）：`--indicator` / `--security`（均可重复）/ `--date` / `--currency` / `--scale` / `--indicator-param`
+- `indicator time-series` — 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）：另有 `--start-date` / `--end-date` / `--calendar-type`（`ND`/`TD`/`WD`）
+- 复权等指标专属参数用 `--indicator-param "code:key=value"`，参数 key 与取值以 search 的 `parameterList` 为准（行情复权键为 `adjustmentType`：`1` 不复权 / `2` 前复权 / `3` 后复权）
+- 很多指标有必填参数，默认调用会报 `410106`（缺必填参数）：N 期统计补 `periodNum`、区间/周期类补 `startDate`、年度/分红类补 `fiscalYear`；`999999` 多为「该证券公司类型/报告期无数据」而非系统故障。详见 `gangtise-openapi/references/commands/indicator.md`
+
+**修复**
+- `vault stock-pool-stocks --pool-id <id>` 过滤失效：此前因选项默认值 `["all"]` 泄漏，传具体 pool id 仍返回全部股票池证券；现已修复——传 id 精确过滤，省略则默认全量
+- `auth` 缺凭证报错补充跨 shell（bash/zsh/fish）的 `export` 提示
+
+**文档**
+- README / SKILL 补充 indicator 命令组与取数最佳实践；`official-account` 命令文档补全
+
 ### v0.18.0 — 2026-06-17
 
 **新增接口（Insight · 产业公众号资讯）**
