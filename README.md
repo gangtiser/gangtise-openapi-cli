@@ -131,6 +131,7 @@ export GANGTISE_TIMEOUT_MS=30000       # 请求超时（默认 30s）
 本项目包含 Skill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。支持以下 AI 编程助手：
 
 - [Claude Code](https://claude.ai/claude-code) — `~/.claude/skills/`
+- [Codex](https://github.com/openai/codex) — `~/.codex/skills/`
 - [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/skills/`
 - [Hermes](https://github.com/nicepkg/hermes) — `~/.hermes/skills/`
 
@@ -160,6 +161,9 @@ gangtise-openapi/
 ```bash
 # Claude Code
 cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
+
+# Codex
+cp -r gangtise-openapi ~/.codex/skills/gangtise-openapi
 
 # OpenClaw
 cp -r gangtise-openapi ~/.openclaw/skills/gangtise-openapi
