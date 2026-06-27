@@ -10,7 +10,7 @@
 gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>]
 ```
 
-- `--query` 可重复（**最多 5 个**）
+- `--query`（**必选**，可重复，最多 5 个）：缺失时本地报错，不发空请求
 - `--top` 默认 10，最大 20
 - `--resource-type`：`10` 券商研报 | `11` 外资研报 | `20` 内部报告 | `40` 首席观点 | `50` 公司公告 | `51` 港股公告 | `60` 会议平台纪要 | `70` 调研纪要公告 | `80` 网络资源纪要 | `90` 产业公众号
 - `--knowledge-name`：`system_knowledge_doc` 系统知识库 | `tenant_knowledge_doc` 机构知识库
@@ -44,6 +44,24 @@ gangtise ai peer-comparison  --security-code <code>
 - 都支持 A 股 / 港股
 - 返回 `{content: "markdown"}` — 直接呈现 content
 - 首次调用可能耗时数十秒，告知用户
+
+## 个股看点 `ai stock-summary`
+
+```bash
+gangtise ai stock-summary --security <code> [--security <code2> ...]
+gangtise ai stock-summary --security <aShares|hkStocks>
+```
+
+- `--security`（**必选**，可重复）：证券代码，单次最多 6000 个；**或**传市场关键词 `aShares`（全部 A 股）/ `hkStocks`（全部港股）
+- **仅支持 A 股和港股**
+- **积分**：`3`/条；个股若无看点总结则不在返回列表中，也不扣分
+- 返回字段：`securityCode` / `securityName` / `summary`（精炼投研总结）/ `date`（更新日期 `yyyy-MM-dd`）
+
+**示例：**
+```bash
+gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json   # 茅台 / 腾讯看点
+gangtise ai stock-summary --security hkStocks --format json                        # 全部港股，total 2662
+```
 
 ## 调研提纲 `ai research-outline`
 
@@ -103,7 +121,7 @@ gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <nam
 
 - 结构化数据：驱动事件 / 投资逻辑 / 核心标的 / 话题精读
 - `--category`：`morningBriefing` 早报 | `noonBriefing` 午报 | `afternoonFlash` 盘中快报 | `eveningBriefing` 晚报（可重复，默认全部）
-- `--with-related-securities` / `--with-close-reading`：默认开启
+- `--with-related-securities` / `--with-close-reading`：默认开启；`--no-with-related-securities` / `--no-with-close-reading` 显式排除（响应里相应字段置空）
 - 自动翻页，单页最大 20
 
 ## 管理层讨论-财报 `ai management-discuss-announcement`

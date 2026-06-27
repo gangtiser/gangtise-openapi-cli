@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "../../src/core/auth.js"
+import { isTokenCacheValid, normalizeToken, readTokenCache, redactTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "../../src/core/auth.js"
 import { ConfigError } from "../../src/core/errors.js"
 
 const nowSec = () => Math.floor(Date.now() / 1000)
@@ -88,5 +88,39 @@ describe("readTokenCache / writeTokenCache", () => {
 
     await fs.writeFile(file, JSON.stringify({ accessToken: 123 }))
     expect(await readTokenCache(file)).toBeNull()
+  })
+})
+
+describe("redactTokenCache", () => {
+  it("returns null for a null cache", () => {
+    expect(redactTokenCache(null)).toBeNull()
+  })
+
+  it("masks the access token but keeps non-sensitive metadata", () => {
+    const value = cache({ accessToken: "super-secret-bearer", uid: 42, userName: "alice" })
+    const red = redactTokenCache(value)!
+    expect(red.accessToken).toBe("<redacted>")
+    expect(JSON.stringify(red)).not.toContain("super-secret-bearer")
+    expect(red.expiresAt).toBe(value.expiresAt)
+    expect(red.uid).toBe(42)
+    expect(red.userName).toBe("alice")
+  })
+
+  it("preserves unknown non-sensitive fields the cache file may carry (e.g. productCode)", () => {
+    const value = { ...cache(), productCode: 10018 } as TokenCache & { productCode: number }
+    const red = redactTokenCache(value)!
+    expect(red.productCode).toBe(10018)
+  })
+
+  it("masks any credential-looking field, including apiKey/privateKey/clientKey", () => {
+    const value = { ...cache(), refreshToken: "rt-leak", secretKey: "sk-leak", accessKey: "ak-leak", apiKey: "api-leak", privateKey: "pk-leak", clientKey: "ck-leak", credentials: "cred-leak" } as unknown as TokenCache
+    const red = redactTokenCache(value)!
+    const dumped = JSON.stringify(red)
+    for (const secret of ["rt-leak", "sk-leak", "ak-leak", "api-leak", "pk-leak", "ck-leak", "cred-leak"]) {
+      expect(dumped, `leaked ${secret}`).not.toContain(secret)
+    }
+    for (const key of ["refreshToken", "secretKey", "accessKey", "apiKey", "privateKey", "clientKey", "credentials"]) {
+      expect((red as Record<string, unknown>)[key], key).toBe("<redacted>")
+    }
   })
 })

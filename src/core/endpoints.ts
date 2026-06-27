@@ -152,6 +152,21 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "download",
     description: "Download HK announcement file",
   },
+  "insight.announcement-us.list": {
+    key: "insight.announcement-us.list",
+    method: "POST",
+    path: "/application/open-insight/announcement-us/getList",
+    kind: "json",
+    description: "List US announcements",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.announcement-us.download": {
+    key: "insight.announcement-us.download",
+    method: "GET",
+    path: "/application/open-insight/announcement-us/download/file",
+    kind: "download",
+    description: "Download US announcement file",
+  },
   "insight.foreign-opinion.list": {
     key: "insight.foreign-opinion.list",
     method: "POST",
@@ -198,6 +213,13 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-reference/securities/search",
     kind: "json",
     description: "Search GTS codes (securities)",
+  },
+  "reference.chiefs-search": {
+    key: "reference.chiefs-search",
+    method: "POST",
+    path: "/application/open-reference/chiefs/search",
+    kind: "json",
+    description: "Search chief analyst IDs by name / institution / team",
   },
   "reference.constant-category": {
     key: "reference.constant-category",
@@ -336,6 +358,27 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Query HK cash flow statement (China GAAP)",
   },
+  "fundamental.income-statement-us": {
+    key: "fundamental.income-statement-us",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/income-statement/us",
+    kind: "json",
+    description: "Query US income statement",
+  },
+  "fundamental.balance-sheet-us": {
+    key: "fundamental.balance-sheet-us",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/balance-sheet/us",
+    kind: "json",
+    description: "Query US balance sheet",
+  },
+  "fundamental.cash-flow-us": {
+    key: "fundamental.cash-flow-us",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/cash-flow-statement/us",
+    kind: "json",
+    description: "Query US cash flow statement",
+  },
   "fundamental.main-business": {
     key: "fundamental.main-business",
     method: "POST",
@@ -366,6 +409,13 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
   },
 
   // ─── ai ───
+  "ai.stock-summary.list": {
+    key: "ai.stock-summary.list",
+    method: "POST",
+    path: "/application/open-ai/stock-summary/getList",
+    kind: "json",
+    description: "Stock highlights (refined research summary per security)",
+  },
   "ai.knowledge-batch": {
     key: "ai.knowledge-batch",
     method: "POST",

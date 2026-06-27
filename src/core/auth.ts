@@ -26,6 +26,23 @@ export async function readTokenCache(filePath: string): Promise<TokenCache | nul
   }
 }
 
+/**
+ * Return a display-safe copy of a token cache for `auth status`: any field whose
+ * name matches a credential pattern (token / key / secret / password / credential)
+ * is replaced with "<redacted>" so the raw bearer token — or any unknown credential
+ * field the cache file might carry (apiKey, privateKey, …) — is never printed; all
+ * other metadata (expiresAt, userName, productCode, …) is preserved.
+ */
+export function redactTokenCache(cache: TokenCache | null): Record<string, unknown> | null {
+  if (!cache) return null
+  const SENSITIVE = /token|secret|password|credential|key/i
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(cache)) {
+    out[key] = SENSITIVE.test(key) ? "<redacted>" : value
+  }
+  return out
+}
+
 export async function writeTokenCache(filePath: string, cache: TokenCache): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   await fs.writeFile(filePath, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 0o600 })

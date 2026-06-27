@@ -4,7 +4,7 @@
 
 时间格式：`"YYYY-MM-DD HH:mm:ss"`（datetime，需引号）。
 
-支持 `--rank-type` 的命令：opinion / summary / research / foreign-report / announcement / announcement-hk / foreign-opinion / independent-opinion / official-account。
+支持 `--rank-type` 的命令：opinion / summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。
 **不支持** `--rank-type` 的命令：roadshow / site-visit / strategy / forum（API 无此参数）。
 
 `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
@@ -96,12 +96,25 @@ gangtise insight announcement download --announcement-id <id> [--file-type <n>] 
 
 ```bash
 gangtise insight announcement-hk list [--search-type <n>] [--rank-type <n>] [--security <code>] [--category <id>]
-gangtise insight announcement-hk download --announcement-id <id> [--output <path>]
+gangtise insight announcement-hk download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
 
 - `--security`：港股代码，如 `01913.HK`（两位数字前缀需补零）
 - `--category`：港股公告类型 ID（见 `references/lookup-ids.md`）
-- download 无 `--file-type`，直接下载原始文件
+- `--file-type`（download）：`1` 原始（默认）| `2` Markdown
+
+## 美股公告 `insight announcement-us list/download`
+
+```bash
+gangtise insight announcement-us list [--search-type <n>] [--rank-type <n>] [--security <code>] [--category <id>]
+gangtise insight announcement-us download --announcement-id <id> [--file-type <n>] [--output <path>]
+```
+
+- `--security`：美股代码，如 `TSLA.O`（可重复）
+- `--category`：美股公告分类 ID，用 `reference constant-list --category usShareAnnouncementCategory` 查（美股独立的 `103980xxx` 段，7 个一级分类：财务报告 / 证券发行 / 重大事项 / 交易提示 / 股本股东 / 股东大会 / 一般公告）
+- `--file-type`（download）：`1` 原始PDF（默认）| `2` Markdown
+- **积分**：list 0.1/条；download 20/篇
+- 实测 `--security TSLA.O` 返回的 `sourceName` 为「美国证券交易委员会」
 
 ## 外资机构观点 `insight foreign-opinion list`
 

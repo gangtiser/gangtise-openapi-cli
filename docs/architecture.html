@@ -409,7 +409,7 @@
         <div class="diagram-title">gangtise-openapi-cli</div>
         <div class="diagram-subtitle">Technical Architecture / Layered Data Flow</div>
       </div>
-      <div class="diagram-version">v0.13.0 &middot; Node &ge;20 &middot; ESM</div>
+      <div class="diagram-version">v0.20.0 &middot; Node &ge;20 &middot; ESM</div>
     </div>
 
     <!-- Flow Legend -->
@@ -465,13 +465,13 @@
       <div class="layer-grid cols-2">
         <div class="comp">
           <div class="comp-label">Commander.js</div>
-          <div class="comp-value">src/cli.ts &mdash; ~650 lines</div>
+          <div class="comp-value">src/cli.ts &mdash; ~652 lines</div>
           <div class="comp-sub">All commands, options, action handlers</div>
         </div>
         <div class="comp">
           <div class="comp-label">Argument Parsers</div>
           <div class="comp-value">src/core/args.ts</div>
-          <div class="comp-sub">splitCsv / collectList / collectKeyValue / toTimestamp13</div>
+          <div class="comp-sub">splitCsv / collectList / collectKeyValue / parseTimestamp13 / parseIndicatorParams</div>
         </div>
       </div>
     </div>
@@ -509,7 +509,7 @@
         <div class="comp">
           <div class="comp-label">Endpoint Registry</div>
           <div class="comp-value">endpoints.ts</div>
-          <div class="comp-sub">71 endpoints &middot; O(1) lookup</div>
+          <div class="comp-sub">86 endpoints &middot; O(1) lookup</div>
         </div>
         <div class="comp">
           <div class="comp-label">Error Hierarchy</div>
@@ -519,12 +519,46 @@
         <div class="comp">
           <div class="comp-label">Normalization</div>
           <div class="comp-value">normalize.ts</div>
-          <div class="comp-sub">fieldList/list + chatRoomList &rarr; flat objects</div>
+          <div class="comp-sub">fieldList/list + chatRoomList + constants &rarr; flat objects</div>
         </div>
         <div class="comp">
           <div class="comp-label">Output Renderer</div>
           <div class="comp-value">output.ts</div>
           <div class="comp-sub">table / json / jsonl / csv / markdown</div>
+        </div>
+      </div>
+
+      <!-- Helper row: Request and Content Helpers -->
+      <div class="layer-grid cols-3" style="margin-top: 12px;">
+        <div class="comp">
+          <div class="comp-label">Command Bodies</div>
+          <div class="comp-value">commandBodies.ts</div>
+          <div class="comp-sub">kline / stock-pool / wechat group body construction</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Quote Sharding</div>
+          <div class="comp-value">quoteSharding.ts</div>
+          <div class="comp-sub">--security all date-sharded &middot; partial-failure tolerance</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Indicator Matrix</div>
+          <div class="comp-value">indicatorMatrix.ts</div>
+          <div class="comp-sub">EDE double-envelope unwrap &middot; values matrix flatten</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Printer</div>
+          <div class="comp-value">printer.ts</div>
+          <div class="comp-sub">printData &middot; normalize + render + title-cache writeback</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Title Cache</div>
+          <div class="comp-value">titleCache.ts</div>
+          <div class="comp-sub">download filename cache &middot; per-endpoint cap + 24h TTL</div>
+        </div>
+        <div class="comp">
+          <div class="comp-label">Async Content</div>
+          <div class="comp-value">asyncContent.ts</div>
+          <div class="comp-sub">pollAsyncContent / checkAsyncContent &middot; 410110 / 410111</div>
         </div>
       </div>
     </div>
@@ -573,7 +607,7 @@
             <span>1.</span> client.call(get-id, params)<br>
             <span>2.</span> &rarr; { dataId }<br>
             <span>3.</span> Non-blocking: return dataId<br>
-            <span>4.</span> Blocking (--wait): poll every 15s<br>
+            <span>4.</span> Blocking (--wait): poll 5s&rarr;30s backoff &middot; ~14 attempts<br>
             <span>5.</span> Handle 410110 as pending<br>
             <span>6.</span> Handle 410111 as terminal failure<br>
             <span>7.</span> On success: printData()<br>
@@ -589,12 +623,10 @@
             <span>3.</span> Return lookupData.ts directly<br>
             <br>
             <span>Static data:</span><br>
-            &middot; 52 research areas<br>
             &middot; 100+ broker orgs<br>
             &middot; 100+ meeting orgs<br>
-            &middot; 31 industries / codes<br>
-            &middot; 19 regions / 80+ categories<br>
-            &middot; 8 theme IDs
+            <br>
+            industries / regions / categories / themes moved to reference constant-* / concept / sector API (v0.16.0)
           </div>
         </div>
       </div>
@@ -615,12 +647,14 @@
             <div class="api-group-title">Gangtise OpenAPI &middot; https://open.gangtise.com</div>
             <div class="api-group-items">
               <strong style="color:var(--c-text-main)">Auth</strong> &mdash; /application/auth/oauth/open/loginV2<br>
-              <strong style="color:var(--c-text-main)">Insight</strong> &mdash; chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement<br>
-              <strong style="color:var(--c-text-main)">Quote</strong> &mdash; kline/daily / kline-hk/daily / index/kline/daily / kline/minute<br>
-              <strong style="color:var(--c-text-main)">Fundamental</strong> &mdash; income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / main-business / valuation-analysis / earning-forecast / top-holders / income-statement-hk / balance-sheet-hk / cash-flow-hk<br>
-              <strong style="color:var(--c-text-main)">AI</strong> &mdash; knowledge-batch / knowledge-resource / security-clue / one-pager / investment-logic / peer-comparison / earnings-review / theme-tracking / hot-topic / research-outline / management-discuss / viewpoint-debate<br>
+              <strong style="color:var(--c-text-main)">Insight</strong> &mdash; chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account<br>
+              <strong style="color:var(--c-text-main)">Reference</strong> &mdash; securities/search / chiefs/search / constants/category / constants/getList / concepts/search / sectors/search / sectors/constituents<br>
+              <strong style="color:var(--c-text-main)">Quote</strong> &mdash; kline/daily / kline-hk/daily / kline-us/daily / index/kline/daily / kline/minute / quote/realtime<br>
+              <strong style="color:var(--c-text-main)">Fundamental</strong> &mdash; income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / income-statement-hk / balance-sheet-hk / cash-flow-hk / income-statement-us / balance-sheet-us / cash-flow-us / main-business / valuation-analysis / top-holders / earning-forecast<br>
+              <strong style="color:var(--c-text-main)">Indicator</strong> &mdash; EDE/search / EDE/cross-section / EDE/time-series<br>
+              <strong style="color:var(--c-text-main)">AI</strong> &mdash; stock-summary / knowledge-batch / knowledge-resource / security-clue / hot-topic / one-pager / investment-logic / peer-comparison / earnings-review / viewpoint-debate / theme-tracking / research-outline / management-discuss<br>
               <strong style="color:var(--c-text-main)">Vault</strong> &mdash; drive / record / my-conference / wechatgroupmsg / stock-pool<br>
-              <strong style="color:var(--c-text-main)">Alternative</strong> &mdash; EDB/search / EDB/getData
+              <strong style="color:var(--c-text-main)">Alternative</strong> &mdash; EDB/search / EDB/getData / concept/info / concept/securities
             </div>
           </div>
         </div>
@@ -677,8 +711,16 @@
             <div class="pattern-desc">Transparent multi-page &middot; maxPageSize per endpoint</div>
           </div>
           <div class="pattern-item">
+            <div class="pattern-name">Partial-Result Tolerance</div>
+            <div class="pattern-desc">Pagination / sharding keep fetched rows + partial / failedShards markers, don't discard on error</div>
+          </div>
+          <div class="pattern-item">
             <div class="pattern-name">Envelope Unwrapping</div>
             <div class="pattern-desc">Detects code field &middot; unwraps {code, msg, data} envelope</div>
+          </div>
+          <div class="pattern-item">
+            <div class="pattern-name">EDE Double-Envelope + Matrix Flatten</div>
+            <div class="pattern-desc">unwrapIndicatorData peels inner envelope &middot; values matrix &rarr; wide rows</div>
           </div>
           <div class="pattern-item">
             <div class="pattern-name">Smart Title Cache</div>

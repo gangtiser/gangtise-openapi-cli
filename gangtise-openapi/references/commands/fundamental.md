@@ -51,6 +51,20 @@ gangtise fundamental <income-statement-hk|balance-sheet-hk|cash-flow-hk> --secur
 **常用字段速查（港股现金流）：**
 - `netOpCashFlows` 经营活动现金流量净额 | `netInvCashFlows` 投资活动现金流量净额 | `netFinCashFlows` 筹资活动现金流量净额
 
+## 美股三大报表 `income-statement-us` / `balance-sheet-us` / `cash-flow-us`
+
+```bash
+gangtise fundamental <income-statement-us|balance-sheet-us|cash-flow-us> --security-code <code> [--start-date <date>] [--end-date <date>] [--fiscal-year <year>] [--period <p>] [--report-type <type>] [--field <name>]
+```
+
+- **股票代码**：美股格式，如 `TSLA.O`
+- `--period`：`q1` | `h1` 中报 | `q3` | `nsd` 不规则跨度 | `annual` | `latest`（默认），可重复——**美股无 `h2`**（区别于港股）
+- `--report-type`：`consolidated`（默认）| `consolidatedRestated` | `standalone` | `standaloneRestated`
+- `--field` 可重复，指定科目；留空返回完整报表
+- 其余参数（`--start-date` / `--end-date` / `--fiscal-year`）与 A 股三大报表相同
+- **不消耗积分**
+- 返回 `{total, list}`：每行一个报告期；留空 `--field` 返回完整报表，指定 `--field` 时只返回基础字段和所选科目；`companyType` 为企业类型名称，如 `一般企业` / `银行` / `保险` / `证券` / `REIT` / `其他`
+
 ## 主营业务 `fundamental main-business`
 
 ```bash

@@ -62,7 +62,7 @@ describe("cli smoke", () => {
   it("lists reference subcommands", async () => {
     const { code, out } = await cli(["reference", "--help"])
     expect(code).toBe(0)
-    for (const sub of ["securities-search", "constant-category", "constant-list", "concept-search", "sector-search", "sector-constituents"]) {
+    for (const sub of ["securities-search", "chiefs-search", "constant-category", "constant-list", "concept-search", "sector-search", "sector-constituents"]) {
       expect(out).toContain(sub)
     }
   }, 30_000)
@@ -182,6 +182,54 @@ describe("cli smoke", () => {
     expect(code).toBe(0)
     for (const flag of ["--indicator", "--security", "--start-date", "--end-date", "--calendar-type", "--currency", "--scale", "--indicator-param"]) {
       expect(out).toContain(flag)
+    }
+  }, 30_000)
+
+  it("lists insight announcement subcommands including announcement-us", async () => {
+    const { code, out } = await cli(["insight", "--help"])
+    expect(code).toBe(0)
+    for (const sub of ["announcement", "announcement-hk", "announcement-us", "official-account"]) {
+      expect(out).toContain(sub)
+    }
+  }, 30_000)
+
+  it("lists US financial report subcommands", async () => {
+    const { code, out } = await cli(["fundamental", "--help"])
+    expect(code).toBe(0)
+    for (const sub of ["income-statement-us", "balance-sheet-us", "cash-flow-us"]) {
+      expect(out).toContain(sub)
+    }
+  }, 30_000)
+
+  it("exposes ai stock-summary subcommand", async () => {
+    const { code, out } = await cli(["ai", "--help"])
+    expect(code).toBe(0)
+    expect(out).toContain("stock-summary")
+  }, 30_000)
+
+  it("ai stock-summary requires --security (guards against accidental all-market spend)", async () => {
+    const { code, out } = await cli(["ai", "stock-summary"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--security")
+  }, 30_000)
+
+  it("ai knowledge-batch requires --query", async () => {
+    const { code, out } = await cli(["ai", "knowledge-batch"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--query")
+  }, 30_000)
+
+  it("auth login exposes --show-token (token redacted by default)", async () => {
+    const { code, out } = await cli(["auth", "login", "--help"])
+    expect(code).toBe(0)
+    expect(out).toContain("--show-token")
+  }, 30_000)
+
+  it("HK and US announcement downloads expose --file-type", async () => {
+    for (const market of ["announcement-hk", "announcement-us"]) {
+      const { code, out } = await cli(["insight", market, "download", "--help"])
+      expect(code).toBe(0)
+      expect(out, market).toContain("--file-type")
     }
   }, 30_000)
 })

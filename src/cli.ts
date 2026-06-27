@@ -2,7 +2,7 @@
 import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
-import { readTokenCache } from "./core/auth.js"
+import { readTokenCache, redactTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "./core/indicatorMatrix.js"
@@ -10,7 +10,7 @@ import { callKlineWithSharding } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult } from "./core/download.js"
 import { ENDPOINTS } from "./core/endpoints.js"
-import { ApiError, ConfigError } from "./core/errors.js"
+import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
 import { normalizeRows } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
@@ -126,8 +126,12 @@ program
   .description("Authentication commands")
   .addCommand(
     new Command("login")
+      .option("--show-token", "Show the raw access token (default: redacted)")
       .option("--format <format>", "Output format", "json")
-      .action((options) => emit(options, (client) => client.login())),
+      .action((options) => emit(options, async (client) => {
+        const result = await client.login()
+        return options.showToken ? result : { authorization: "<redacted>", cache: redactTokenCache(result.cache) }
+      })),
   )
   .addCommand(
     new Command("status")
@@ -135,7 +139,7 @@ program
       .action(async (options) => {
         const config = loadConfig()
         const cache = await readTokenCache(config.tokenCachePath)
-        await printData({ hasEnvToken: Boolean(config.token), hasCachedToken: Boolean(cache?.accessToken), cache }, parseOutputFormat(options.format))
+        await printData({ hasEnvToken: Boolean(config.token), hasCachedToken: Boolean(cache?.accessToken), cache: redactTokenCache(cache) }, parseOutputFormat(options.format))
       }),
   )
 
@@ -160,6 +164,7 @@ const research = new Command("research")
 const foreignReport = new Command("foreign-report")
 const announcement = new Command("announcement")
 const announcementHk = new Command("announcement-hk")
+const announcementUs = new Command("announcement-us")
 const foreignOpinion = new Command("foreign-opinion")
 const independentOpinion = new Command("independent-opinion")
 const officialAccount = new Command("official-account")
@@ -258,6 +263,12 @@ addTimeFilters(foreignReport.command("list").option("--search-type <number>", "S
   }), { endpointKey: "insight.foreign-report.list", idField: "reportId" }))
 addDownloadCommand(foreignReport, { endpointKey: "insight.foreign-report.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "foreign-report", fileType: { description: "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", default: "1" }, titleListEndpoint: "insight.foreign-report.list" })
 
+// Contract: A-share announcement startTime/endTime go out as 13-digit epoch millis
+// (parseTimestamp13), while HK/US announcement and every other insight list send the
+// datetime string straight through. All three filter correctly — verified live against
+// a narrow past window (each returns in-window rows). A-share's API also accepts the
+// string form, but the 13-digit conversion is kept as the historical spec contract;
+// don't "unify" it away without re-confirming the A-share announcement spec.
 addTimeFilters(announcement.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: parseTimestamp13(options.startTime, "--start-time"), endTime: parseTimestamp13(options.endTime, "--end-time"),
@@ -274,7 +285,17 @@ addTimeFilters(announcementHk.command("list").option("--search-type <number>", "
     keyword: options.keyword,
     securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
   }), { endpointKey: "insight.announcement-hk.list", idField: "announcementId" }))
-addDownloadCommand(announcementHk, { endpointKey: "insight.announcement-hk.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-hk", titleListEndpoint: "insight.announcement-hk.list" })
+addDownloadCommand(announcementHk, { endpointKey: "insight.announcement-hk.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-hk", fileType: { description: "File type: 1=original 2=Markdown", default: "1" }, titleListEndpoint: "insight.announcement-hk.list" })
+
+addTimeFilters(announcementUs.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. TSLA.O)", collectList, []).option("--category <id>", "Category ID (constant-list usShareAnnouncementCategory)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement-us.list", {
+    from: parseFrom(options.from), size: parseSize(options.size),
+    startTime: options.startTime, endTime: options.endTime,
+    searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }),
+    rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
+    keyword: options.keyword,
+    securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
+  }), { endpointKey: "insight.announcement-us.list", idField: "announcementId" }))
+addDownloadCommand(announcementUs, { endpointKey: "insight.announcement-us.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-us", fileType: { description: "File type: 1=original PDF 2=Markdown", default: "1" }, titleListEndpoint: "insight.announcement-us.list" })
 
 addTimeFilters(foreignOpinion.command("list").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
@@ -317,6 +338,7 @@ insight.addCommand(research)
 insight.addCommand(foreignReport)
 insight.addCommand(announcement)
 insight.addCommand(announcementHk)
+insight.addCommand(announcementUs)
 insight.addCommand(foreignOpinion)
 insight.addCommand(independentOpinion)
 insight.addCommand(officialAccount)
@@ -352,6 +374,9 @@ addFinancialReport("cash-flow-quarterly", "fundamental.cash-flow-quarterly", "Pe
 addFinancialReport("income-statement-hk", "fundamental.income-statement-hk", "Period: q1/h1/q3/h2/nsd/annual/latest")
 addFinancialReport("balance-sheet-hk", "fundamental.balance-sheet-hk", "Period: q1/h1/q3/h2/nsd/annual/latest")
 addFinancialReport("cash-flow-hk", "fundamental.cash-flow-hk", "Period: q1/h1/q3/h2/nsd/annual/latest")
+addFinancialReport("income-statement-us", "fundamental.income-statement-us", "Period: q1/h1/q3/nsd/annual/latest")
+addFinancialReport("balance-sheet-us", "fundamental.balance-sheet-us", "Period: q1/h1/q3/nsd/annual/latest")
+addFinancialReport("cash-flow-us", "fundamental.cash-flow-us", "Period: q1/h1/q3/nsd/annual/latest")
 fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).option("--period <type>", "Period: interim/annual", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, breakdown: options.breakdown, periodList: maybeArray(options.period), fieldList: maybeArray(options.field) })))
 fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--skip-null", "Drop rows where value or percentileRank is null").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList: maybeArray(options.field) })
@@ -380,7 +405,10 @@ fundamental.command("earning-forecast").requiredOption("--security-code <code>")
 program.addCommand(fundamental)
 
 const ai = new Command("ai").description("AI APIs")
-ai.command("knowledge-batch").requiredOption("--query <text>", "Query", collectList, []).option("--top <number>", "Top", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <ms>").option("--end-time <ms>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("ai.knowledge-batch", { queries: options.query, top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }), resourceTypes: options.resourceType.length ? options.resourceType : undefined, knowledgeNames: maybeArray(options.knowledgeName), startTime: parseOptionalNumberOption(options.startTime, "--start-time", { integer: true, min: 0 }), endTime: parseOptionalNumberOption(options.endTime, "--end-time", { integer: true, min: 0 }) })))
+ai.command("knowledge-batch").option("--query <text>", "Query", collectList, []).option("--top <number>", "Top", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <ms>").option("--end-time <ms>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => {
+  if (!options.query.length) throw new ValidationError("--query is required: pass at least one --query")
+  return emit(options, (client) => client.call("ai.knowledge-batch", { queries: options.query, top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }), resourceTypes: options.resourceType.length ? options.resourceType : undefined, knowledgeNames: maybeArray(options.knowledgeName), startTime: parseOptionalNumberOption(options.startTime, "--start-time", { integer: true, min: 0 }), endTime: parseOptionalNumberOption(options.endTime, "--end-time", { integer: true, min: 0 }) }))
+})
 ai.command("knowledge-resource-download").requiredOption("--resource-type <number>").requiredOption("--source-id <id>").option("--output <path>").action((options) => withClient(async (client) => {
   await runDownload(client, "ai.knowledge-resource.download", { resourceType: parseNumberOption(options.resourceType, "--resource-type", { integer: true, min: 0 }), sourceId: options.sourceId }, {
     output: options.output,
@@ -426,8 +454,8 @@ ai.command("hot-topic").option("--from <number>", "Starting offset", "0").option
     startDate: options.startDate,
     endDate: options.endDate,
     categoryList: options.category.length > 0 ? options.category : ALL_CATEGORIES,
-    withRelatedSecurities: options.withRelatedSecurities === false ? undefined : true,
-    withCloseReading: options.withCloseReading === false ? undefined : true,
+    withRelatedSecurities: options.withRelatedSecurities !== false,
+    withCloseReading: options.withCloseReading !== false,
   })
 }))
 ai.command("management-discuss-announcement").requiredOption("--report-date <date>", "Report date (yyyy-MM-dd, e.g. 2025-06-30)").requiredOption("--security-code <code>", "Security code (e.g. 000001.SZ)").addOption(new Option("--dimension <name>", "Discussion dimension: businessOperation/financialPerformance/developmentAndRisk/all").choices(["businessOperation", "financialPerformance", "developmentAndRisk", "all"]).makeOptionMandatory()).option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("ai.management-discuss-announcement", {
@@ -462,6 +490,12 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   }
 }))
 ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient((client) => checkAsyncContent(client, "ai.viewpoint-debate.get-content", options.dataId, parseOutputFormat(options.format), options.output)))
+ai.command("stock-summary").description("Stock highlights: refined research summary per security (A-share / HK)").option("--security <code>", "Security code (e.g. 600519.SH / 00700.HK), or market keyword: aShares / hkStocks; max 6000", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+  // Guard against an empty --security: omitting it would send securityList:undefined,
+  // which the backend may treat as all-market (3 credits/row × thousands of rows).
+  if (!options.security.length) throw new ValidationError("--security is required: pass security code(s) or a market keyword (aShares / hkStocks)")
+  return emit(options, (client) => client.call("ai.stock-summary.list", { securityList: maybeArray(options.security) }))
+})
 const reference = new Command("reference").description("Reference data APIs")
 reference.command("securities-search").requiredOption("--keyword <text>", "Search keyword (name/code/pinyin/English)").option("--category <type>", "Category: stock/dr/index/fund", collectList, []).option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.securities-search", {
     keyword: options.keyword,
@@ -479,6 +513,10 @@ reference.command("sector-search").option("--keyword <text>", "Search keyword (n
     top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
   })))
 reference.command("sector-constituents").requiredOption("--sector-id <id>", "Sector ID from 'reference sector-search'").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.sector-constituents", { sectorId: options.sectorId })))
+reference.command("chiefs-search").requiredOption("--keyword <text>", "Search keyword (chief name / institution / team)").option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.chiefs-search", {
+    keyword: options.keyword,
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+  })))
 program.addCommand(reference)
 
 const vault = new Command("vault").description("Vault APIs")

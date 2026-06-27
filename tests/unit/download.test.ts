@@ -98,6 +98,20 @@ describe("saveDownloadResult", () => {
     }
   })
 
+  it("sanitizes a server-provided filename containing path separators", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      await saveDownloadResult({ data: new Uint8Array([7]), contentType: "application/pdf", filename: "a/b:c.pdf" }, "fallback")
+      // `/` and `:` replaced with `_` → one flat file, can't escape the intended dir
+      expect(stdout().trim()).toBe("a_b_c.pdf")
+      expect(new Uint8Array(await fs.readFile(path.join(dir, "a_b_c.pdf")))).toEqual(new Uint8Array([7]))
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
   it("writes text content to a .txt fallback", async () => {
     const out = path.join(dir, "note.txt")
     await saveDownloadResult({ text: "hello" }, "fallback", out)

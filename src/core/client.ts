@@ -39,11 +39,14 @@ export interface DownloadResponse {
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
   private memoCache: TokenCache | null = null
+  // After an injected env token (GANGTISE_TOKEN) is rejected and we self-heal via
+  // login, stop preferring that now-stale token so the retry uses the fresh one.
+  private envTokenInvalidated = false
 
   constructor(private readonly config: CliConfig) {}
 
   private async getAuthorizationHeader(forceRefresh = false): Promise<string> {
-    if (this.config.token && !forceRefresh) {
+    if (this.config.token && !this.envTokenInvalidated && !forceRefresh) {
       return normalizeToken(this.config.token)
     }
 
@@ -108,6 +111,7 @@ export class GangtiseClient {
     ) {
       authState.retried = true
       this.memoCache = null
+      this.envTokenInvalidated = true
       await this.getAuthorizationHeader(true)
       throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
     }
@@ -239,18 +243,37 @@ export class GangtiseClient {
 
     let unexpectedShape = false
     let totalDrift = false
+    // Fail-soft fan-out: a hard page failure (rate-limit 903301, no-perm, retries
+    // exhausted) must NOT discard the pages already fetched. Catch per page, record
+    // it, and stop starting new requests so we don't keep burning quota into a rate
+    // limit. Mirrors quoteSharding's partial-result tolerance — but firstPage already
+    // succeeded to get here, so unlike sharding there's no total-failure case.
+    const failedPages: PageReq[] = []
+    let firstError: unknown = null
+    let aborted = false
     const pages = await runWithConcurrency(pageRequests, PAGINATION_CONCURRENCY, async (req) => {
-      const page = await this.requestJson<Record<string, unknown>>(endpoint, {
-        ...initialBody,
-        from: req.from,
-        size: req.size,
-      })
-      if (!this.isPaginatedListResponse(page)) {
-        unexpectedShape = true
+      if (aborted) {
+        failedPages.push(req)
         return [] as unknown[]
       }
-      if (page.total !== total) totalDrift = true
-      return page.list
+      try {
+        const page = await this.requestJson<Record<string, unknown>>(endpoint, {
+          ...initialBody,
+          from: req.from,
+          size: req.size,
+        })
+        if (!this.isPaginatedListResponse(page)) {
+          unexpectedShape = true
+          return [] as unknown[]
+        }
+        if (page.total !== total) totalDrift = true
+        return page.list
+      } catch (error) {
+        if (!firstError) firstError = error
+        aborted = true
+        failedPages.push(req)
+        return [] as unknown[]
+      }
     })
 
     for (const list of pages) {
@@ -271,11 +294,18 @@ export class GangtiseClient {
       process.stderr.write(`[gangtise] warning: hit the ${MAX_PAGES}-page safety cap; fetched ${collected.length} of ${total} rows. Narrow the query (e.g. a shorter date range) or pass --size to fetch a bounded subset.\n`)
     }
 
-    return {
+    const out: Record<string, unknown> = {
       ...firstPage,
       total,
       list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
     }
+    if (failedPages.length > 0) {
+      out.partial = true
+      out.failedPages = failedPages.map((p) => ({ from: p.from, size: p.size }))
+      const detail = firstError instanceof Error ? `: ${firstError.message}` : ""
+      process.stderr.write(`[gangtise] warning: ${failedPages.length}/${pageRequests.length} pages not fetched${detail}; results are partial — got ${collected.length}/${total} rows (see failedPages). A page hit a non-retryable error (e.g. rate limit); remaining pages were skipped.\n`)
+    }
+    return out
   }
 
   async login() {

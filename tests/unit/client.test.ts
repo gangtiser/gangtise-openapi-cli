@@ -217,6 +217,30 @@ describe("GangtiseClient pagination", () => {
     expect(result.total).toBe(200)
     expect(result.list.slice(0, 50)).toEqual(Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })))
   })
+
+  it("returns partial data (first + fetched pages) when a later page hard-fails", async () => {
+    // total 200 → first page (serial) + remaining pages fanned out. A non-retryable
+    // error (rate limit 903301) on a later page must not discard the rows already
+    // fetched — the result is marked partial with the unfetched pages listed.
+    let call = 0
+    requestMock.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })) }))
+      if (call === 2) return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: 50 }, (_, i) => ({ id: i + 51 })) }))
+      // rawJsonResponse: a real error envelope (outer code != 000000) → non-retryable ApiError
+      return Promise.resolve(rawJsonResponse({ code: "903301", msg: "rate limited", status: false }))
+    })
+
+    const client = createClient()
+    const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: Array<{ id: number }>; partial?: boolean; failedPages?: Array<{ from: number; size: number }> }
+
+    expect(result.total).toBe(200)
+    expect(result.partial).toBe(true)
+    expect(result.failedPages?.length).toBeGreaterThan(0)
+    // first page (and any page that succeeded before the failure) survives, not discarded
+    expect(result.list.length).toBeGreaterThanOrEqual(50)
+    expect(result.list[0]).toEqual({ id: 1 })
+  })
 })
 
 describe("GangtiseClient envelope unwrapping", () => {
@@ -352,6 +376,36 @@ describe("GangtiseClient auth recovery", () => {
 
     expect(result).toEqual({ answer: 42 })
     expect(listCalls).toBe(2) // initial 0000001008 + retry after forced re-login
+  })
+
+  it("does not loop back to a stale injected env token after self-heal (TOKEN + AK/SK)", async () => {
+    // config has BOTH an injected env token (now stale) AND AK/SK. The stale token is
+    // rejected; self-heal logs in for a fresh token and the retry must use THAT, not
+    // short-circuit back to config.token (the #7 bug — a request still carrying the
+    // stale token is rejected here, so a regressed retry would fail the call).
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown, opts: { headers?: Record<string, string> } | undefined) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      const auth = opts?.headers?.Authorization ?? ""
+      if (auth.includes("stale")) return Promise.resolve(rawJsonResponse({ code: "0000001008", msg: "token is invalid" }))
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "stale-injected",
+      accessKey: "ak",
+      secretKey: "sk",
+      tokenCachePath,
+    })
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ answer: 42 }) // retry used the fresh token, not the stale one
+    expect(listCalls).toBe(2) // initial stale-token reject + one successful retry
   })
 
   it("auto-recovers a download from an auth error by refreshing the token once", async () => {

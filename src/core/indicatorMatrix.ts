@@ -6,14 +6,16 @@ import { ApiError } from "./errors.js"
 // (printData → renderOutput) expects: { list, total }.
 
 // Field names match the live EDE response (not the published doc): the real
-// keys are securityCode / securityName / indicators / indicatorName.
+// keys are securityCodeList / securityNameList / indicatorCodeList /
+// indicatorNameList; `values` is a 2D matrix ([indicator][security] for
+// cross-section, [series][date] for time-series).
 interface MatrixData {
   date?: unknown
-  securityCode?: unknown
-  securityName?: unknown
-  indicators?: unknown
-  indicatorName?: unknown
   dates?: unknown
+  securityCodeList?: unknown
+  securityNameList?: unknown
+  indicatorCodeList?: unknown
+  indicatorNameList?: unknown
   values?: unknown
 }
 
@@ -68,23 +70,22 @@ function buildHeaders(names: string[] | undefined, codes: string[] | undefined, 
 }
 
 // Cross-section: one row per security, one column per indicator. The live
-// `values` is a flat [numIndicators * numSecurities][1] array in
-// indicator-major order, so indicator i on security j is values[i*numSec+j][0].
+// `values` is a 2D [numIndicators][numSecurities] matrix in indicator-major
+// order, so indicator i on security j is values[i][j].
 export function flattenCrossSection(data: unknown): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
-  const securityCode = asStringArray(d.securityCode)
-  const indicators = asStringArray(d.indicators)
+  const securityCode = asStringArray(d.securityCodeList)
+  const indicators = asStringArray(d.indicatorCodeList)
   if (!Array.isArray(d.values) || !securityCode || !indicators) return data
 
-  const securityName = asStringArray(d.securityName)
-  const headers = buildHeaders(asStringArray(d.indicatorName), indicators, indicators.length)
-  const numSec = securityCode.length
+  const securityName = asStringArray(d.securityNameList)
+  const headers = buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length)
 
   const list = securityCode.map((code, j) => {
     const row: Record<string, unknown> = { date: d.date, security: code, name: securityName?.[j] }
     for (let i = 0; i < indicators.length; i++) {
-      row[headers[i]] = rowOf(d.values, i * numSec + j)?.[0]
+      row[headers[i]] = rowOf(d.values, i)?.[j]
     }
     return row
   })
@@ -98,14 +99,14 @@ export function flattenTimeSeries(data: unknown): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
   const dates = asStringArray(d.dates)
-  const securityCode = asStringArray(d.securityCode)
-  const indicators = asStringArray(d.indicators)
+  const securityCode = asStringArray(d.securityCodeList)
+  const indicators = asStringArray(d.indicatorCodeList)
   if (!Array.isArray(d.values) || !dates || !securityCode || !indicators) return data
 
   const seriesAreIndicators = securityCode.length <= 1
   const headers = seriesAreIndicators
-    ? buildHeaders(asStringArray(d.indicatorName), indicators, indicators.length)
-    : buildHeaders(asStringArray(d.securityName), securityCode, securityCode.length)
+    ? buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length)
+    : buildHeaders(asStringArray(d.securityNameList), securityCode, securityCode.length)
 
   const list = dates.map((date, k) => {
     const row: Record<string, unknown> = { date }

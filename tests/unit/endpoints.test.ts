@@ -357,6 +357,50 @@ describe("ENDPOINTS", () => {
     }
   })
 
+  it("US announcement endpoints use correct keys and paths", () => {
+    const list = ENDPOINTS["insight.announcement-us.list"]
+    expect(list).toBeDefined()
+    expect(list.key).toBe("insight.announcement-us.list")
+    expect(list.method).toBe("POST")
+    expect(list.path).toBe("/application/open-insight/announcement-us/getList")
+    expect(list.kind).toBe("json")
+    expect(list.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+
+    const download = ENDPOINTS["insight.announcement-us.download"]
+    expect(download).toBeDefined()
+    expect(download.key).toBe("insight.announcement-us.download")
+    expect(download.method).toBe("GET")
+    expect(download.path).toBe("/application/open-insight/announcement-us/download/file")
+    expect(download.kind).toBe("download")
+  })
+
+  it("US financial report endpoints use correct keys and paths", () => {
+    expect(ENDPOINTS["fundamental.income-statement-us"].path).toBe("/application/open-fundamental/financial-report/income-statement/us")
+    expect(ENDPOINTS["fundamental.balance-sheet-us"].path).toBe("/application/open-fundamental/financial-report/balance-sheet/us")
+    expect(ENDPOINTS["fundamental.cash-flow-us"].path).toBe("/application/open-fundamental/financial-report/cash-flow-statement/us")
+    for (const k of ["fundamental.income-statement-us", "fundamental.balance-sheet-us", "fundamental.cash-flow-us"]) {
+      expect(ENDPOINTS[k].method, `${k}.method`).toBe("POST")
+      expect(ENDPOINTS[k].kind, `${k}.kind`).toBe("json")
+    }
+  })
+
+  it("stock-summary endpoint uses open-ai path and is unpaginated", () => {
+    const ep = ENDPOINTS["ai.stock-summary.list"]
+    expect(ep).toBeDefined()
+    expect(ep.method).toBe("POST")
+    expect(ep.path).toBe("/application/open-ai/stock-summary/getList")
+    expect(ep.kind).toBe("json")
+    expect(ep.pagination).toBeUndefined()
+  })
+
+  it("chiefs-search endpoint uses correct key and path", () => {
+    const ep = ENDPOINTS["reference.chiefs-search"]
+    expect(ep).toBeDefined()
+    expect(ep.method).toBe("POST")
+    expect(ep.path).toBe("/application/open-reference/chiefs/search")
+    expect(ep.kind).toBe("json")
+  })
+
   // Endpoint keys appear as bare string literals throughout cli.ts
   // (client.call("..."), addDownloadCommand({ endpointKey: "..." }), addKlineCommand(...)).
   // A typo only surfaces at runtime as "Unknown endpoint key"; this catches it at

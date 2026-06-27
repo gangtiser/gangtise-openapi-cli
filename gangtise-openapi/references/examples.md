@@ -244,11 +244,11 @@
 4. 复权：要前复权收盘价加 --indicator-param "qte_close:adjustmentType=2"
    （参数 key 以 indicator search --format json 的 parameterList 为准）
 5. 陷阱：time-series 不能多指标 × 多证券同时（报 410001），那种情况用 cross-section
-6. 必填参数：很多指标默认调用报 410106（缺必填参数）→ 先看 parameterList 的 required，补
+6. 必填参数：很多指标默认调用会缺参报错（服务端指明缺哪个，如「必填参数 periodNum 不能为空」）→ 先看 parameterList 的 required，补
    periodNum（N期统计）/startDate（区间周期类，如 qte_amp_mo）/fiscalYear（年度分红）：
      gangtise indicator cross-section --indicator finc_roe_avg_avg --security 600519.SH \
        --date 2026-03-31 --indicator-param "finc_roe_avg_avg:periodNum=4"
-7. 无数据：999999 多为"该公司类型/报告期无此科目"而非故障 → 财务用报告期末、现金流附注用年报
+7. 无数据：截面/时序对无此科目的格**返回 null**（不再报 999999、不丢行）→ 财务用报告期末、现金流附注用年报
    日期(2025-12-31)、行情用交易日；银行/券商/保险科目不同，换对公司类型。详见 commands/indicator.md
 ```
 ```

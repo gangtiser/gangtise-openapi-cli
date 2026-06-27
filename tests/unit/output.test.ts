@@ -30,6 +30,14 @@ describe("renderOutput", () => {
     expect(lines[1]).toBe(`'=cmd,"x,y","he""llo"`)
   })
 
+  it("does not formula-escape legitimate numbers (negative / scientific)", () => {
+    const result = renderOutput([{ close: "1323", pctChange: "-3.5", flow: "-1.2e8", calc: "-1+cmd", at: "@x" }], "csv")
+    const lines = result.split("\n")
+    // -3.5 / -1.2e8 stay numeric (Excel/pandas can SUM); only the non-numeric
+    // "-1+cmd" and "@x" still get the formula-injection prefix.
+    expect(lines[1]).toBe("1323,-3.5,-1.2e8,'-1+cmd,'@x")
+  })
+
   describe("list wrapper { total, list }", () => {
     const wrapped = {
       total: 100,

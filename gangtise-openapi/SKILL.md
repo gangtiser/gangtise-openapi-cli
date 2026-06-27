@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.19.0"
+version: "0.20.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -67,7 +67,8 @@ description: |-
 | `insight announcement download` | `--file-type` | `1` PDF / `2` Markdown |
 | `insight summary download` | `--file-type`（可选） | `1` 原始（默认）/ `2` HTML（仅会议平台来源） |
 | `insight independent-opinion download` | `--file-type` **必选** | `1` 原文 HTML / `2` 翻译 HTML |
-| `insight announcement-hk download` | — | 无格式选项 |
+| `insight announcement-hk download` | `--file-type` | `1` 原始（默认）/ `2` Markdown |
+| `insight announcement-us download` | `--file-type` | `1` 原始 PDF（默认）/ `2` Markdown |
 | `insight official-account download` | `--file-type` | `1` txt（默认）/ `2` HTML |
 | `vault record-download` | `--content-type` | `original` 原始文件 / `asr` 语音识别 / `summary` AI 速记 |
 | `vault my-conference-download` | `--content-type` | `asr` 语音识别 / `summary` AI 速记 |
@@ -87,9 +88,11 @@ description: |-
 | 路演 / 调研 / 策略会 / 论坛 | `insight roadshow / site-visit / strategy / forum list` |
 | A 股公告 / 公告 | `insight announcement list` |
 | 港股公告 / HK 公告 | `insight announcement-hk list` |
+| 美股公告 / US 公告 | `insight announcement-us list` |
 | 公众号资讯 / 产业资讯 / 公众号文章 | `insight official-account list` |
 | 跨类型语义搜索（研报+纪要+...） | `ai knowledge-batch`（多个 `--resource-type`） |
 | 一页通 / 投资逻辑 / 同业对比 / 调研提纲 | `ai one-pager / investment-logic / peer-comparison / research-outline` |
+| 个股看点 / 投研总结 / 公司速览 | `ai stock-summary`（`--security` 代码或 `aShares`/`hkStocks` 全市场；仅 A 股/港股） |
 | 业绩点评（异步） | `ai earnings-review` |
 | 观点 PK / 多空辩论（异步） | `ai viewpoint-debate` |
 | 投研线索 | `ai security-clue`（前置：`reference securities-search` 拿 `gts-code`） |
@@ -105,6 +108,7 @@ description: |-
 | 实时行情（A / 港 / 美） | `quote realtime` |
 | A股利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
 | 港股利润表 / 资产负债 / 现金流 | `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` |
+| 美股利润表 / 资产负债 / 现金流 | `fundamental income-statement-us / balance-sheet-us / cash-flow-us` |
 | 主营业务 / 收入结构 | `fundamental main-business` |
 | 估值 / PE / PB | `fundamental valuation-analysis` |
 | 盈利预测 / 一致预期 | `fundamental earning-forecast` |
@@ -122,6 +126,7 @@ description: |-
 | 指标截面数据（多指标 × 多证券，单日快照） | `indicator cross-section`（前置：`indicator search` 拿 indicatorCode） |
 | 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间） | `indicator time-series`（前置：`indicator search` 拿 indicatorCode） |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
+| 首席 ID / 分析师 ID 搜索 | `reference chiefs-search`（按姓名/机构/团队，用于 `insight opinion --chief`） |
 | 常量/枚举 ID（行业/城市/公告分类/区域） | `reference constant-list --category <code>`（分类代码用 `reference constant-category` 查） |
 | 题材 ID 搜索 | `reference concept-search` |
 | 板块 ID 搜索 | `reference sector-search` |
@@ -134,7 +139,7 @@ description: |-
 - "成分股" → 题材深度（分组/重点标记/纳入理由）走 `alternative concept-securities`；板块（行业/概念分类树，纯代码名单）走 `reference sector-constituents`
 - "指标" → 证券级指标（个股收盘价/成交量/总市值/财务指标，需 `--security` 证券代码）走 `indicator`（EDE）；行业/宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），两套接口不同
 - `indicator` 取数二选一：单日多标的横向对比 → `cross-section`；时间区间纵向走势 → `time-series`（且 `time-series` 不能多指标 × 多证券同时，截面才可以）
-- `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报 `410106`；`999999` 多为"该证券公司类型/报告期无数据"而非故障，换公司类型或年报日期、或改用 `time-series`。详见 `references/commands/indicator.md`
+- `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报错（服务端现直接指明「必填参数 X 不能为空」）；**无数据已统一返回 `null`**（截面不再抛 `999999`、不丢行），换公司类型/年报日期可取到对应类型科目的数。详见 `references/commands/indicator.md`
 
 ## 公司名 → 证券代码
 
@@ -203,16 +208,16 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 参数命名：Insight/Vault/AI 用 `--start-time` / `--end-time`（datetime）；Quote/Fundamental 用 `--start-date` / `--end-date`（date）。
 
-支持时间倒序的命令加 `--rank-type 2`：opinion / summary / research / foreign-report / announcement / announcement-hk / foreign-opinion / independent-opinion / official-account。其他 list 命令按 API 默认排序。
+支持时间倒序的命令加 `--rank-type 2`：opinion / summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。其他 list 命令按 API 默认排序。
 
 ## 异常处理
 
 | 错误码 | 含义 | CLI 行为 | Agent 是否介入 |
 |--------|------|---------|--------------|
-| `999999` | 系统错误（部分接口如 `indicator` 表示**无数据/不适用**） | **自动重试 ×2** | 仍失败再告知用户；indicator 场景换证券公司类型/报告期或改用 `time-series` |
+| `999999` | 真系统错误（**`indicator` 无数据已改为返回 `null`，不再用此码**） | **自动重试 ×2** | 仍失败再告知用户 |
 | `410110` | 异步生成中 | 异步轮询逻辑视为 pending | 继续等 |
 | `410111` | 异步生成失败 | 终态 | **不重试**，建议换参数 |
-| `410106` | 查询指标异常（实为 `indicator` **缺必填参数**） | — | 读 `indicator search --format json` 的 `parameterList`，补 `required:true` 参数（periodNum/startDate/fiscalYear） |
+| `410106` / 缺参 | `indicator` **缺必填参数**（服务端现直接指明缺哪个，如「必填参数 periodNum 不能为空」；以 HTTP 500 返回故 CLI 重试 ×2） | **自动重试 ×2** | 读 `indicator search --format json` 的 `parameterList`，补 `required:true` 参数（periodNum/startDate/fiscalYear） |
 | `0000001008` | Token 服务端失效（他处登录挤掉） | **强制重新登录并重试一次** | 无 AK/SK 时无法自愈，提示重新登录 |
 | `8000014` / `8000015` | AK/SK 错误 | **自动刷新 token 并重试一次** | 再失败提示检查 env |
 | `8000016` / `8000018` | 账号异常 / 到期 | — | 提示联系管理员 |
@@ -281,13 +286,13 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 按需 Read 对应文件：
 
-- 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 外资观点 / 独立观点 → `references/commands/insight.md`
+- 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 美股公告 / 外资观点 / 独立观点 → `references/commands/insight.md`
 - 行情命令（A 股 / 港股 / 美股日 K / 指数日 K / 分钟 K / 实时行情） → `references/commands/quote.md`
-- 三大报表 / 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
-- knowledge-batch / security-clue / AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
+- 三大报表（A 股 / 港股 / 美股）/ 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
+- knowledge-batch / security-clue / 个股看点（stock-summary）/ AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
 - 行业指标数据库（EDB）/ 题材指数画像与成分股（concept-info / concept-securities）→ `references/commands/alternative.md`
 - 数据指标（EDE：search / cross-section / time-series，证券级指标截面与时序）→ `references/commands/indicator.md`
-- securities-search / 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
+- securities-search / chiefs-search（首席 ID）/ 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 
 跑通流程对照 → `references/examples.md`

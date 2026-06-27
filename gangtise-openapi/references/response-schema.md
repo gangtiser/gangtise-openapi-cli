@@ -2,7 +2,7 @@
 
 CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"` 解包，stdout 直接是 `data`。无 envelope 的响应原样透传。
 
-> 例外：`indicator`（EDE）三个接口成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`），且原始字段名是 `securityCode/indicators/indicatorName`、截面 `values` 为 `[指标×证券][1]` 扁平数组。`indicator` 子命令已在客户端二次解包并拍平成宽表；但直接 `raw call indicator.*` 只会剥外层，需自行处理内层。
+> 例外：`indicator`（EDE）三个接口成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`），内层字段名为 `securityCodeList/securityNameList/indicatorCodeList/indicatorNameList/dataTypes`，`values` 是 2D 矩阵（截面 `[指标][证券]`、时序 `[序列][日期]`）；无数据为 `null` 单元格。`indicator` 子命令已在客户端二次解包并拍平成宽表；但直接 `raw call indicator.*` 只会剥外层，需自行处理内层。
 
 ## 通用模式（5 类）
 
@@ -30,12 +30,15 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight announcement download | 文件路径（stdout） | — |
 | insight announcement-hk list | `{list, total}` | `list[].announcementId` / `list[].title` / `list[].titleTranslate` / `list[].publishTime` / `list[].securityCode` / `list[].primaryCategory.categoryName` |
 | insight announcement-hk download | 文件路径（stdout） | — |
+| insight announcement-us list | `{list, total}` | `list[].announcementId` / `list[].title` / `list[].publishTime` / `list[].securityList[].securityCode` / `list[].primaryCategory.categoryName` / `list[].sourceName` |
+| insight announcement-us download | 文件路径（stdout） | — |
 | insight foreign-opinion list | `{list, total}` | `list[].foreignOpinionId` / `list[].titleTranslate` / `list[].publishTime` / `list[].publisher.brokerName` / `list[].securityList[].rating` |
 | insight independent-opinion list | `{list, total}` | `list[].independentOpinionId` / `list[].titleTranslate` / `list[].briefTranslate` / `list[].publishTime` / `list[].analyst.analystName` |
 | insight independent-opinion download | 文件路径（stdout） | — |
 | insight official-account list | `{list, total}` | `list[].articleId` / `list[].accountName` / `list[].title` / `list[].publishTime` / `list[].articleCategory` / `list[].summary` / `list[].industryList[].industryName` / `list[].conceptList[].conceptName` / `list[].securityList[].securityCode` |
 | insight official-account download | 文件路径（stdout） | — |
 | reference securities-search | `{returnedCount, list}` | `list[].gtsCode` / `list[].gtsName` / `list[].category` / `list[].matchScore` / `list[].matchType` |
+| reference chiefs-search | `{returnedCount, list}` | `list[].chiefId` / `list[].chiefName` / `list[].institution` / `list[].team` / `list[].matchScore` |
 | reference constant-category | `{total, list}` | `list[].category` / `list[].categoryName` / `list[].structureType`（flat/tree） / `list[].maxLevel` / `list[].usageScopes[].apiName` / `.paramName` |
 | reference constant-list | `{category, structureType, maxLevel, constantCount, list}`（CLI 把 `constants` 规范化为 `list`） | `list[].constantId` / `list[].constantName` / `list[].level`；树形分类父节点含 `list[].children[]`（递归同构） |
 | reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
@@ -44,13 +47,14 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | quote day-kline / day-kline-hk / day-kline-us / index-day-kline | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume`；index 另含 `securityName`（指数名称，v0.15.0 起） |
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `latestPrice` / `pctChange` / `volume` / `amount` / `amplitude` |
-| fundamental income-statement / balance-sheet / cash-flow（含 quarterly） | `{list: [{...}]}` | `fiscalYear` / `period` / `endDate` + 各 `--field` 字段 |
+| fundamental income-statement / balance-sheet / cash-flow（含 quarterly / -hk / -us） | `{total, list: [{...}]}` | `fiscalYear` / `period` / `endDate` / `companyName` / `companyType`（企业类型名称，如 `一般企业`/`银行`）+ 各 `--field` 字段；港股/美股另含 `timeCovered`（不规则跨度） |
 | fundamental main-business | `{list: [{...}]}` | `endDate` / `breakdownName` / `revenue` / `revenueRatio` / `grossProfitRatio` |
 | fundamental valuation-analysis | `{list: [{...}]}` | `tradeDate` / `value` / `percentileRank` |
 | fundamental earning-forecast | `{securityCode, securityName, updateList: [...]}` | `updateList[].date` / `updateList[].fieldList[].forecastYear` + 各 consensus 指标 |
 | fundamental top-holders | `{holderType, list: [{...}]}` | `reportPeriod` / `rank` / `shareholderName` / `holdingNum` / `holdingPct` / `chgNum` / `chgPct` |
 | ai knowledge-batch | `{list: [{...}]}` | `list[].resourceType` / `list[].sourceId` / `list[].title` / `list[].summary` |
 | ai security-clue | `{list, total}` | `list[].securityCode` / `list[].title` / `list[].clueType` / `list[].clueDate` |
+| ai stock-summary | `{list, total}` | `list[].securityCode` / `list[].securityName` / `list[].summary` / `list[].date`；无看点的证券不在 list 中 |
 | ai one-pager / investment-logic / peer-comparison / research-outline | `{content}` | `content` 直接呈现（Markdown） |
 | ai theme-tracking | `[{type, date, content}, ...]`（列表，每元素一份报告） | 遍历筛选 `type === "morning" / "night"`；某主题在该日期可能只有一种类型，或两种都没（空列表） |
 | ai hot-topic | `{list, total}` | `list[].title` / `list[].reportDate` / `list[].category` / `list[].topics[].topicTitle` / `list[].topics[].driverEvent` / `list[].topics[].investLogic` |

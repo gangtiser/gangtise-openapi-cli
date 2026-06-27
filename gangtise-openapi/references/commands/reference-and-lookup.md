@@ -20,6 +20,23 @@ gangtise reference securities-search --keyword 600519
 gangtise reference securities-search --keyword gzmt
 ```
 
+## 首席 ID 搜索 `reference chiefs-search`
+
+```bash
+gangtise reference chiefs-search --keyword <text> [--top <n>]
+```
+
+- 用途：查首席分析师 ID，拿到的 `chiefId` 用于 `insight opinion list --chief <id>` 按首席筛选内资观点
+- `--keyword`（**必选**）：支持中文姓名 / 机构名称 / 所属团队多维匹配
+- `--top`：默认 10，**上限 10**
+- 免费调用
+- 返回字段：`chiefId` / `chiefName` / `institution`（所属证券机构）/ `team`（所属团队）/ `matchScore`（`0~1`）
+
+**示例：**
+```bash
+gangtise reference chiefs-search --keyword 东吴证券 --top 3 --format json   # → 周良玖 / 芦哲 / 陈李，chiefId 如 P100005161
+```
+
 ## 常量分类 `reference constant-category`
 
 ```bash

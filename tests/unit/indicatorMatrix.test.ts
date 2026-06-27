@@ -5,20 +5,24 @@ import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "../
 
 // Field names + value shapes below mirror the LIVE EDE responses (verified
 // against open.gangtise.com), which differ from the published doc: the real
-// keys are securityCode/securityName/indicators/indicatorName/dataType, and
-// cross-section `values` is a flat [numInd*numSec][1] array in indicator-major
-// order while time-series `values` is a 2D [series][date] matrix.
+// keys are securityCodeList/securityNameList/indicatorCodeList/indicatorNameList,
+// and `values` is a 2D matrix — [indicator][security] for cross-section,
+// [series][date] for time-series.
 
 describe("flattenCrossSection", () => {
   const data = {
     date: "2026-05-18",
-    securityCode: ["600519.SH", "09992.HK"],
-    securityName: ["贵州茅台", "泡泡玛特"],
-    indicators: ["qte_close", "qte_vol", "qte_mkt_cptl"],
-    indicatorName: ["收盘价", "成交量", "总市值"],
-    dataType: ["double", "integer", "double"],
-    // indicator-major: [close×茅台, close×泡泡, vol×茅台, vol×泡泡, cap×茅台, cap×泡泡]
-    values: [[1323.0], [150.7], [4966097], [15301079], [165675349444], [20209520.2705]],
+    securityCodeList: ["600519.SH", "09992.HK"],
+    securityNameList: ["贵州茅台", "泡泡玛特"],
+    indicatorCodeList: ["qte_close", "qte_vol", "qte_mkt_cptl"],
+    indicatorNameList: ["收盘价", "成交量", "总市值"],
+    dataTypes: ["double", "integer", "double"],
+    // [indicator][security]: row i = indicator i across [茅台, 泡泡玛特]
+    values: [
+      [1323.0, 150.7],
+      [4966097, 15301079],
+      [165675349444, 20209520.2705],
+    ],
   }
 
   it("emits one row per security with indicator-name columns", () => {
@@ -38,10 +42,10 @@ describe("flattenCrossSection", () => {
   it("disambiguates duplicate indicator names by appending the code", () => {
     const out = flattenCrossSection({
       date: "2026-05-18",
-      securityCode: ["600519.SH"],
-      securityName: ["贵州茅台"],
-      indicators: ["qte_close", "qte_close_adj"],
-      indicatorName: ["收盘价", "收盘价"],
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["qte_close", "qte_close_adj"],
+      indicatorNameList: ["收盘价", "收盘价"],
       values: [[1323.0], [1290.0]],
     }) as { list: Record<string, unknown>[] }
     expect(out.list[0]).toEqual({
@@ -50,6 +54,27 @@ describe("flattenCrossSection", () => {
       name: "贵州茅台",
       收盘价: 1323.0,
       "收盘价 (qte_close_adj)": 1290.0,
+    })
+  })
+
+  it("emits null cells and keeps the security row when the matrix has no data", () => {
+    // Post-fix server behaviour: no-data is null per cell; the security is NOT
+    // dropped and the call does NOT 500 (previously the whole row vanished).
+    const out = flattenCrossSection({
+      date: "2025-12-31",
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["bs_dep_ib", "bs_clnt_dep"],
+      indicatorNameList: ["存放同业款项", "其中:客户资金存款"],
+      values: [[null], [null]],
+    }) as { list: Record<string, unknown>[]; total: number }
+    expect(out.total).toBe(1)
+    expect(out.list[0]).toEqual({
+      date: "2025-12-31",
+      security: "600519.SH",
+      name: "贵州茅台",
+      存放同业款项: null,
+      "其中:客户资金存款": null,
     })
   })
 
@@ -62,11 +87,11 @@ describe("flattenCrossSection", () => {
 describe("flattenTimeSeries", () => {
   it("uses indicator columns when there is a single security", () => {
     const out = flattenTimeSeries({
-      securityCode: ["600519.SH"],
-      securityName: ["贵州茅台"],
-      indicators: ["qte_close", "qte_vol"],
-      indicatorName: ["收盘价", "成交量"],
-      dataType: ["double", "integer"],
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["qte_close", "qte_vol"],
+      indicatorNameList: ["收盘价", "成交量"],
+      dataTypes: ["double", "integer"],
       dates: ["2026-05-18", "2026-05-19", "2026-05-20"],
       values: [
         [1323.0, 1324.3, 1315.0],
@@ -83,10 +108,10 @@ describe("flattenTimeSeries", () => {
 
   it("uses security columns when there are multiple securities", () => {
     const out = flattenTimeSeries({
-      securityCode: ["600519.SH", "09992.HK"],
-      securityName: ["贵州茅台", "泡泡玛特"],
-      indicators: ["qte_close"],
-      indicatorName: ["收盘价"],
+      securityCodeList: ["600519.SH", "09992.HK"],
+      securityNameList: ["贵州茅台", "泡泡玛特"],
+      indicatorCodeList: ["qte_close"],
+      indicatorNameList: ["收盘价"],
       dates: ["2026-05-18", "2026-05-19"],
       values: [
         [1323.0, 1324.3],
@@ -102,11 +127,11 @@ describe("flattenTimeSeries", () => {
 
   it("returns an empty list when the API resolves no rows (no-data range)", () => {
     expect(flattenTimeSeries({
-      securityCode: [],
-      securityName: null,
-      indicators: [],
-      indicatorName: ["收盘价"],
-      dataType: ["double"],
+      securityCodeList: [],
+      securityNameList: null,
+      indicatorCodeList: [],
+      indicatorNameList: ["收盘价"],
+      dataTypes: ["double"],
       dates: [],
       values: [],
     })).toEqual({ list: [], total: 0 })
@@ -126,8 +151,8 @@ describe("unwrapIndicatorData", () => {
       code: "000000",
       msg: "操作成功",
       status: true,
-      data: { securityCode: ["600519.SH"], values: [[1]] },
-    })).toEqual({ securityCode: ["600519.SH"], values: [[1]] })
+      data: { securityCodeList: ["600519.SH"], values: [[1]] },
+    })).toEqual({ securityCodeList: ["600519.SH"], values: [[1]] })
   })
 
   it("peels the inner envelope around a list payload (search)", () => {
@@ -140,7 +165,7 @@ describe("unwrapIndicatorData", () => {
 
   it("returns the value unchanged when it is not an envelope", () => {
     expect(unwrapIndicatorData([{ a: 1 }])).toEqual([{ a: 1 }])
-    expect(unwrapIndicatorData({ securityCode: ["x"], values: [[1]] })).toEqual({ securityCode: ["x"], values: [[1]] })
+    expect(unwrapIndicatorData({ securityCodeList: ["x"], values: [[1]] })).toEqual({ securityCodeList: ["x"], values: [[1]] })
     expect(unwrapIndicatorData(null)).toBeNull()
   })
 

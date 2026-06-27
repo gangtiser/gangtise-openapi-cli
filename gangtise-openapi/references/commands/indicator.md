@@ -14,7 +14,7 @@ gangtise indicator search --keyword <text> [--limit <n>]
 - `--keyword`（**必选**）：按指标名称模糊匹配。用具体词，如 `收盘价` / `成交量` / `营业收入` / `总市值`，**不能用整句白话**（"我想查茅台的收盘价" ✗）
 - `--limit`：返回条数上限，默认 50，最大 100
 - 默认 `--format table`（看 `indicatorCode` / `indicatorName` / `description` 即可）；要看每个指标支持哪些参数（`parameterList`），用 `--format json`
-- 返回字段：`indicatorCode` / `indicatorName` / `scope`（适用市场/品种）/ `description`（算法）/ `parameterList`（可传的 `--indicator-param` 参数及枚举）/ `score`
+- 返回字段：`indicatorCode` / `indicatorName` / `description`（算法）/ `parameterList`（可传的 `--indicator-param` 参数及枚举）/ `score`（`scope` 适用市场/品种字段服务端当前多返 `null`）
 
 ```bash
 gangtise indicator search --keyword 收盘价 --limit 5 --format json   # 看 parameterList
@@ -92,13 +92,13 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 
 ## 必填参数与错误码（取数前必读）
 
-截面/时序对「无数据」与「缺参数」的反馈不直观，先理解这三个码：
+截面/时序**无数据现在统一返回 `null`**（不再报错、不丢行）；取数报错主要是这几个码：
 
 | 错误码 | 实际含义 | 怎么办 |
 | :--- | :--- | :--- |
 | `410001` | 入参错误：没传指标/证券，或 `time-series` 传了「多指标 × 多证券」 | 补齐 `--indicator`/`--security`；多 × 多改用 `cross-section` |
-| `410106` | **缺必填参数**（文案是笼统的「查询指标异常」，别误判成"指标不支持"） | 读 `search --format json` 的 `parameterList`，把 `required:true` 的参数用 `--indicator-param` 补上 |
-| `999999` | **无数据/不适用**，并非真系统故障：该指标在这只证券的公司类型、或这个报告期没有值 | 换对公司类型、换报告期/年报日期，或改用 `time-series`（同场景它返回空行而非报错）。服务端正在调整该码语义 |
+| 缺参报错（曾为 `410106`） | **缺必填参数**：服务端现已直接指明缺哪个，如「指标 X 的必填参数 periodNum(期数) 不能为空」（仍以 HTTP 500 返回，CLI 重试 2 次后透出该消息） | 读 `search --format json` 的 `parameterList`，把 `required:true` 的参数用 `--indicator-param` 补上 |
+| `999999` | 真系统故障才用此码。**无数据已不再报 `999999`**：截面遇无数据现在返回 `null` 单元格（证券行保留、不丢行、不再 500），与时序一致 | 无数据按 `null` 正常返回；真 `999999` 多为瞬时问题，CLI 自动重试 2 次 |
 
 ### 必填参数（`410106` 的根因）
 
@@ -115,14 +115,14 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 ## 取数最佳实践
 
 - **先 search 看 parameterList**：一步拿到 code、必填参数（required）、专属参数枚举（`adjustmentType`/`scale`/`currency` 等）。
-- **公司类型决定有没有这个科目**：财务科目分公司类型——银行有「存放同业」、券商有「客户资金存款」、保险有「预收保费」，一般企业没有。某指标对茅台报 `999999`，换到对应类型证券（招行/中信/平安）可能就有数。
+- **公司类型决定有没有这个科目**：财务科目分公司类型——银行有「存放同业」、券商有「客户资金存款」、保险有「预收保费」，一般企业没有。某指标对茅台返回 `null`（无此科目），换到对应类型证券（招行/中信/平安）就有数。
 - **日期路由**：
   - 财务类（`bs_`/`is_`/`cf_`/`finc_`/`div_`/`shr_` 等）→ 用**报告期末**（Q1 `2026-03-31`、年报 `2025-12-31`）
   - 现金流量表附注/间接法科目（多数 `cf_`）→ **只在年报/半年报披露**，季报日期取不到，改用年报日期 `2025-12-31`
   - 行情/基本资料（`qte_`/`pty_`/`scr_`/`frcst_`）→ 用**交易日**
-- **探索性取数优先 `time-series` + 覆盖报告期的区间**：截面遇无数据抛 `999999`，时序同场景优雅返回空行，更适合"先看有没有数"。
+- **探索性取数**：截面与时序现在对无数据都优雅处理（截面返 `null` 单元格、时序返空行），都适合"先看有没有数"；看趋势仍优先 `time-series` + 覆盖报告期的区间。
 - **名称反查 code 要核对，别取首条**：存在同显示名的兄弟指标——单季 `cf_finc_exp_qtr` 与累计 `cf_finc_exp` 都叫「财务费用」，`bs_fmt`/`cf_fmt`/`is_fmt` 都叫「报表格式」。`search` 按名称模糊匹配，目标 code 高概率在 top1 但不绝对，要看 `indicatorCode` 确认。
-- **批量查询做失败拆分**：截面/时序在某个指标不可查时会整批报错，逐指标单查能定位是哪个指标的问题。
+- **批量查询做失败拆分**：某指标**缺必填参数**或入参错误时会整批报错（无数据不会——按 `null` 返回），逐指标单查能定位是哪个指标缺参/不可查。
 
 ## 通用说明
 

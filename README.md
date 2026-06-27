@@ -1,8 +1,36 @@
 # Gangtise OpenAPI CLI
 
-一个可直接调用 Gangtise OpenAPI 获取金融数据的命令行工具，同时提供Agent Skill。
+一个可直接调用 Gangtise OpenAPI 获取全量金融信息的命令行工具，同时提供Agent Skill。
 
 ## Changelog
+
+### v0.20.0 — 2026-06-26
+
+**新增接口**
+- `insight announcement-us list` / `download` — 美股公司公告列表与下载（`--security TSLA.O`、`--category`〔分类用 `reference constant-list --category usShareAnnouncementCategory`，美股独立的 `103980xxx` 段〕、`--search-type`、`--rank-type`、下载 `--file-type 1` 原始 PDF / `2` Markdown）；自动翻页，单页上限 50
+- `ai stock-summary` — 个股看点（精炼投研总结）：`--security` 传具体代码（A股/港股，可重复，单次最多 6000）或市场关键词 `aShares` / `hkStocks` 拉全市场；无看点的证券不返回、不扣分
+- `fundamental income-statement-us` / `balance-sheet-us` / `cash-flow-us` — 美股三大财务报表（参数同其他财报：`--security-code` / `--period` / `--report-type` / `--fiscal-year` / `--field` 等）
+- `reference chiefs-search` — 首席分析师 ID 搜索（`--keyword` 按姓名/机构/团队匹配，`--top` 默认 10）；用于 `insight opinion list --chief` 的入参
+
+**变更**
+- `insight announcement-hk download` 新增 `--file-type`（`1` 原始（默认）/ `2` Markdown），此前无格式选项
+
+**行为变更（注意）**
+- ⚠️ `auth login` / `auth status` 默认脱敏 access token：`--format json` 输出里 `authorization` 与 `cache.accessToken` 显示为 `<redacted>`，仅保留过期时间 / 用户名 / 产品码 / uid 等非敏感字段。**依赖 `auth login` 原始 token 输出的脚本会拿到 `<redacted>`**，需改用 `auth login --show-token` 获取明文。
+
+**修复（安全）**
+- `auth status` / `auth login` token 脱敏：按凭证字段名模式匹配（`token`/`key`/`secret`/`password`/`credential`），覆盖 `apiKey`/`privateKey`/`refreshToken` 等任何可能携带的凭证字段
+- 自愈守卫：同时设 `GANGTISE_TOKEN` + AK/SK 时，注入 token 失效后重新登录不再被旧 token 短路，重试改用登录拿到的新 token
+
+**修复（数据正确性 / 健壮性）**
+- ⚠️ **CSV 负数不再被破坏**（影响所有 CSV 导出）：此前防公式注入会把负数（如跌幅 `-3.5`）加 `'` 前缀变成文本，Excel/pandas 无法参与计算；现仅对非有限数字的可疑串（`=`/`@`/`-1+cmd` 等）加前缀，合法数字原样输出
+- 自动翻页改为 fail-soft：某页遇不可重试错误（限流 `903301` 等）不再丢弃已取的全部数据，返回已取页 + `partial` / `failedPages` 标记，并在首错后停止继续请求（避免撞限流多烧配额）
+- 下载文件名 fallback（服务端 `Content-Disposition`）补清洗：含 `/`、`:` 等字符的文件名不再写到意外路径
+- `ai stock-summary` / `ai knowledge-batch` 缺 `--security` / `--query` 时本地报错，不再发空请求（stock-summary 借此避免被后台当全市场误扣积分）
+- `ai hot-topic` `--no-with-related-securities` / `--no-with-close-reading` 改为显式发 `false`（语义更明确，不依赖"字段缺失=排除"的隐含约定）
+
+**修复（indicator 适配 EDE 后台新结构）**
+- `indicator cross-section` / `time-series` 适配后台改版的返回结构（字段名加 `List` 后缀 `securityCodeList/indicatorCodeList/…`、截面 `values` 改二维 `[指标][证券]`）：此前后台改结构后 CLI 拍平失配、退化成原始矩阵，现恢复 `{date, security, name, 指标:值}` 宽表。配合后台同步变化——无数据从 `999999` 报错改为返回 `null`（截面不再 500、不丢行），缺必填参数从笼统 `410106` 改为直接指明缺哪个参数
 
 ### v0.19.0 — 2026-06-24
 
@@ -50,106 +78,7 @@
 - `lookup` 仅保留 2 个 API 未覆盖的本地表：`broker-org` / `meeting-org`
 - 路演/调研/策略会/论坛 list 新增 `--location <id>` 按城市过滤（domesticCity 常量 ID；服务端过滤 v0.17.0 起已生效）
 
-### v0.15.0 — 2026-05-29
-
-**新增接口**
-- `alternative concept-info` — 题材指数基本信息：返回题材整体画像（定义 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件）。按 `--concept-id` 查询，仅返回最新截面数据，不支持历史回溯
-- `alternative concept-securities` — 题材指数成分股（题材深度 F8）：按分组结构返回当前成分股，每只含是否重点个股 `isKey` 与纳入理由 `inclusionReason`。按 `--concept-id` 查询
-
-**接口变更**
-- `quote index-day-kline` 返回字段新增 `securityName`（指数名称，如"上证指数"）
-
-> `--concept-id` 与主题跟踪 `ai theme-tracking --theme-id` 共用同一套题材 ID 体系，可用 `gangtise lookup theme-id list` 按名称查询（如 机器人 → `121000130`）。
-
-### v0.14.4 — 2026-05-29
-
-**Bug fix（全市场 K 线分片容错）**
-- `quote day-kline --security all` 等全市场查询的日期分片改为容错：部分分片失败时返回已成功分片的数据并标记 `partial: true` + `failedShards`（失败的日期区间），同时向 stderr 告警；只有全部分片失败才抛错。此前为 fail-fast，单片失败会让整次查询失败，或在异常路径上被误判为空结果。
-
-### v0.14.3 — 2026-05-29
-
-**性能 / 健壮性**
-- 标题缓存按端点封顶（5000 条/端点）并清理过期项，修复 `title-cache.json` 无上限增长（曾达 ~58MB）拖慢启动的问题
-- 下载接口遇鉴权失效（`8000014` / `8000015`）自动刷新 token 并重试一次（此前仅普通 JSON 调用具备 token 自愈）
-- CLI handler 抽出 `emit` / `withClient` 公共封装去除重复样板；CSV 转义逻辑去重；翻页与 K 线分片统一走 `GANGTISE_PAGE_CONCURRENCY` 并发控制
-- 补齐多个 core 模块的单元测试
-
-### v0.14.2 — 2026-05-22
-
-**Bug fix（A 股 / HK 全市场 K 线同源问题）**
-- `quote day-kline --security all` 由 2 天/片改为 **1 天/片**（A 股全市场单日约 5500 行）
-- `quote day-kline-hk --security all` 由 3 天/片改为 **2 天/片**（港股全市场单日约 2770 行）
-- 根治性修复：`callKlineWithSharding` 在 `--security all` 路径上，若用户未显式传 `--limit`，强制写入 `limit: 10000`（API 上限），不再走默认 6000——这样即便分片日数估算偏大，每个 shard 也能拿满 10K 行。用户自己传的 `--limit` 仍然保留生效。
-
-### v0.14.1 — 2026-05-22
-
-**Bug fix**
-- `quote day-kline-us --security all` 分片由 2 天/片改为 **1 天/片**。美股全市场单日约 5800 行，原 2 天/片会在第一个 shard 命中默认 `--limit 6000` 上限，导致 shard 内第二日数据被截断到几百行。改 1 天/片后每个 shard 数据完整。
-
-### v0.14.0 — 2026-05-22
-
-**新增接口**
-- `quote realtime` — 个股实时行情快照，单接口同时覆盖 A 股 / 港股 / 美股；支持代码混合传入或市场关键字（`aShares` / `hkStocks` / `usStocks`）批量查询全市场
-- `quote day-kline-us` — 美股历史日 K 线，数据范围 NYSE / NASDAQ / AMEX；支持 `--security all` 全市场（CLI 自动按 1 天/片切分并发拉取，美股全市场单日约 5800 行）
-
-**接口变更**
-- `quote day-kline` / `quote day-kline-hk` 明确仅返回**历史**日 K 线，不包含盘中实时数据；当日数据入库时间：A 股 ~15:30 / 港股 ~16:30（北京时间）。盘中实时请走 `quote realtime`
-- `fundamental valuation-analysis` 返回字段移除 `p10` / `p25` / `p75` / `p90`（仍保留 `value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`）
-
-### v0.13.0 — 2026-05-15
-
-**新增接口**
-- `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` — 港股三大报表（中国会计准则）
-- `alternative edb-search` — 行业指标列表搜索（按关键词匹配指标名称，返回 indicatorId 等元信息）
-- `alternative edb-data` — 行业指标时序数据（批量按 indicatorId 拉取时间序列，最多 10 个指标）
-- `vault stock-pool-list` — 查询用户自选股股票池列表（poolId / poolName）
-- `vault stock-pool-stocks` — 查询股票池证券明细（支持 `--pool-id all` 全量查询）
-
-**接口变更**
-- `fundamental income-statement / balance-sheet / cash-flow / income-statement-quarterly / cash-flow-quarterly` 名称调整为 A股报表（路径不变）
-- `ai management-discuss-announcement` `--dimension` 新增 `all` 选项，返回报告中完整的管理层讨论内容（内容可能较长）
-- `vault wechat-message-list` 新增 `--security <code>` 参数（按证券代码过滤），返回结果增加 `securityList` 字段
-
-### v0.12.0 — 2026-05-10
-
-**性能 / 架构**
-- 翻页并行化：自动翻页接口拉到首页 `total` 后，剩余页通过 `Promise.all` 并发请求（默认并发 5，`GANGTISE_PAGE_CONCURRENCY` 可调）
-- 共享 `undici.Agent`：所有请求复用连接池（keep-alive 60s，max 16 连接），避免重复 TLS 握手
-- 流式下载：`--output` 指定时二进制响应直接 `pipeline` 到磁盘，不再走内存 `Uint8Array`
-- 流式输出：`--format jsonl/csv --output xxx` 且 ≥1000 行时逐行写盘
-- Token 内存缓存：Token 在进程内不再每次读盘
-- 自动重试：5xx / `ECONNRESET` / `ETIMEDOUT` / `999999` 自动指数退避重试 2 次
-- Token 自愈：8000014/8000015 自动重新登录并重试一次
-- 异步轮询退避：`earnings-review` / `viewpoint-debate` 轮询从固定 15s 改为 5→8→13→20→30s 指数退避
-- K线自动分片：`quote day-kline --security all` 等全市场查询自动按日期切分并发执行
-- 标题缓存：原"读全文→改→写全文"改为内存快照 + 原子写入（temp+rename）
-
-**调试 / 可观测性**
-- 新增 `--verbose` / `GANGTISE_VERBOSE=1`：打印每个请求的耗时、状态码、响应字节数到 stderr
-
-### v0.11.1 — 2026-05-10
-
-**新增接口**
-- `insight announcement-hk list/download` — 查询/下载港股公告
-- `insight foreign-opinion list` — 查询外资机构观点（外资券商）
-- `insight independent-opinion list/download` — 查询/下载外资独立分析师观点
-- `reference securities-search` — GTS Code 搜索（按名称/代码/拼音多维度匹配证券）
-
-**接口变更**
-- `insight summary download` 新增可选 `--file-type`（`1`=原始内容 / `2`=HTML），仅影响来源为会议平台的纪要
-- `insight announcement list/download` 名称调整为"查询A股公告列表/下载A股公告文件"（路径不变）
-- `insight opinion list` 名称调整为"查询内资机构观点列表"（路径不变）
-
-### v0.11.0 — 2026-04-17
-
-- 新增 `ai viewpoint-debate` / `viewpoint-debate-check` — 观点PK（异步）
-- 新增 `ai management-discuss-announcement` / `management-discuss-earnings-call` — 管理层讨论
-
-### v0.10.9 — 2026-04-10
-
-- 修复信封检测、版本更新检查、端点去重
-- 新增 `quote index-day-kline` 指数日K线
-- 新增 `vault wechat-message-list` / `wechat-chatroom-list` 群消息
+> 更早版本（v0.15.0 及之前）的完整更新历史见 [GitHub Releases](https://github.com/gangtiser/gangtise-openapi-cli/releases)。
 
 ## 首次安装
 
@@ -163,6 +92,12 @@ npm install -g gangtise-openapi-cli
 gangtise --help
 ```
 
+更新到最新版（`gangtise --version` 会自动与线上版本比对）：
+
+```bash
+npm update -g gangtise-openapi-cli
+```
+
 本地开发：
 
 ```bash
@@ -171,36 +106,6 @@ cd gangtise-openapi-cli
 npm install
 npm run dev -- --help
 ```
-
-## 发布
-
-npm 发版通过 GitHub Actions Trusted Publishing 完成，不需要 `NPM_TOKEN`。npm 包设置里的 Trusted Publisher 需要匹配本仓库和 workflow 文件名 `publish.yml`。
-
-```bash
-npm version patch --no-git-tag-version
-npm run prepare
-VERSION=$(node -p "require('./package.json').version")
-git commit -am "chore: release v$VERSION"
-git tag -a "v$VERSION" -m "v$VERSION"   # 必须 annotated：--follow-tags 不推 lightweight tag
-git push --follow-tags
-```
-
-推送 `v*` tag 后，`.github/workflows/publish.yml` 会在 GitHub-hosted runner 上使用 OIDC 发布到 `https://registry.npmjs.org/`。也可以从 GitHub Actions 页面手动运行该 workflow。
-
-## 版本更新
-
-查看当前版本（自动与线上版本比对）：
-
-```bash
-gangtise --version
-```
-
-手动更新到最新版：
-
-```bash
-npm update -g gangtise-openapi-cli
-```
-
 
 ## 环境配置
 
@@ -292,11 +197,13 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `research list` / `download` | 研报（含 Markdown 下载） |
 | | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
 | | `announcement list` / `download` | A股公告（含 Markdown 下载） |
-| | `announcement-hk list` / `download` | 港股公告（含下载） |
+| | `announcement-hk list` / `download` | 港股公告（含 PDF/Markdown 下载） |
+| | `announcement-us list` / `download` | 美股公告（含 PDF/Markdown 下载） |
 | | `foreign-opinion list` | 外资机构观点 |
 | | `independent-opinion list` / `download` | 外资独立分析师观点（含原文/翻译HTML下载） |
 | | `official-account list` / `download` | 产业公众号资讯（含 txt/HTML 下载） |
 | **Reference** | `securities-search` | GTS Code 搜索（按名称/代码/拼音匹配） |
+| | `chiefs-search` | 首席分析师 ID 搜索（按姓名/机构/团队匹配） |
 | | `constant-category` | 常量分类列表（含各分类适用的接口与参数） |
 | | `constant-list` | 按分类导出常量值全量列表（行业/城市/公告分类/区域等） |
 | | `concept-search` | 题材 ID 搜索（名称/拼音/分组名匹配） |
@@ -309,6 +216,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | A股三大财务报表（累计） |
 | | `income-statement-quarterly` / `cash-flow-quarterly` | A股利润表/现金流量表（单季度） |
 | | `income-statement-hk` / `balance-sheet-hk` / `cash-flow-hk` | 港股三大财务报表（中国会计准则） |
+| | `income-statement-us` / `balance-sheet-us` / `cash-flow-us` | 美股三大财务报表 |
 | | `main-business` | 主营构成（按地区/产品拆分） |
 | | `valuation-analysis` | 估值分析 |
 | | `earning-forecast` | 盈利预测（一致预期） |
@@ -316,6 +224,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | **AI** | `knowledge-batch` | 知识库批量检索 |
 | | `knowledge-resource-download` | 知识资源下载 |
 | | `security-clue` | 个股线索 |
+| | `stock-summary` | 个股看点（精炼投研总结，按代码或全市场；仅 A 股/港股） |
 | | `one-pager` | 一页通 |
 | | `investment-logic` | 投资逻辑 |
 | | `peer-comparison` | 同业对比 |
@@ -403,6 +312,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight foreign-report list`
 - `insight announcement list`
 - `insight announcement-hk list`
+- `insight announcement-us list`
 - `insight foreign-opinion list`
 - `insight independent-opinion list`
 - `insight official-account list`
@@ -423,7 +333,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 
 ## 智能文件命名
 
-下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`official-account download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
+下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`announcement-hk download`、`announcement-us download`、`official-account download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
 
 1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
 2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
@@ -474,6 +384,11 @@ gangtise insight roadshow list --institution C100000017
 # 港股公告
 gangtise insight announcement-hk list --security 01913.HK --rank-type 2 --size 20 --format json
 gangtise insight announcement-hk download --announcement-id ANN2026040200012345
+gangtise insight announcement-hk download --announcement-id ANN2026040200012345 --file-type 2   # Markdown
+
+# 美股公告（--security 用美股代码；分类用 reference constant-list --category usShareAnnouncementCategory）
+gangtise insight announcement-us list --security TSLA.O --rank-type 2 --size 20 --format json
+gangtise insight announcement-us download --announcement-id 49629029 --file-type 2   # Markdown
 
 # 外资机构观点
 gangtise insight foreign-opinion list --keyword "自动驾驶" --region us --rank-type 2 --format json
@@ -500,10 +415,15 @@ gangtise reference securities-search --keyword "600519" --category stock
 gangtise reference securities-search --keyword gzmt --top 5
 gangtise reference securities-search --keyword "银行" --category stock --category index
 
+# 首席分析师 ID 搜索（按姓名/机构/团队；拿 chiefId 供 insight opinion list --chief 使用）
+gangtise reference chiefs-search --keyword 东吴证券 --top 3 --format json
+gangtise reference chiefs-search --keyword 芦哲 --format json
+
 # 常量查询：先看分类，再按分类导出全量常量值
 gangtise reference constant-category --format json
 gangtise reference constant-list --category citicIndustry --format json
 gangtise reference constant-list --category aShareAnnouncementCategory --format json   # 树形，含 children
+gangtise reference constant-list --category usShareAnnouncementCategory --format json  # 美股公告分类（103980xxx 段）
 
 # 题材 ID 搜索（供 concept-info / concept-securities / theme-tracking 使用）
 gangtise reference concept-search --keyword 机器人 --top 3 --format json
@@ -578,6 +498,11 @@ gangtise fundamental balance-sheet-hk --security-code 09992.HK --fiscal-year 202
 gangtise fundamental cash-flow-hk --security-code 09992.HK --fiscal-year 2025 --period annual --field netOpCashFlows --field netInvCashFlows --field netFinCashFlows
 # 最新一期完整港股利润表
 gangtise fundamental income-statement-hk --security-code 09992.HK --format json
+
+# 美股三大报表（--security-code 用美股代码；period 同港股但无 h2）
+gangtise fundamental income-statement-us --security-code TSLA.O --period latest --format json
+gangtise fundamental balance-sheet-us --security-code TSLA.O --fiscal-year 2025 --period annual --field totalAssets --field totalLiab --field totalEquity
+gangtise fundamental cash-flow-us --security-code TSLA.O --fiscal-year 2024 --fiscal-year 2025 --period annual --field netOpCashFlows
 ```
 
 ### AI
@@ -588,6 +513,9 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 gangtise ai knowledge-batch --query 新能源汽车 --resource-type 10 --resource-type 11 --top 10
 gangtise ai security-clue --start-time "2026-04-01 00:00:00" --end-time "2026-04-09 23:59:59" --query-mode byIndustry --gts-code 821035.SWI --source researchReport --source announcement
 gangtise ai one-pager --security-code 600519.SH
+# 个股看点（精炼投研总结，仅 A 股/港股）：传具体代码，或 aShares/hkStocks 拉全市场
+gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json
+gangtise ai stock-summary --security hkStocks --format json
 gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
 gangtise ai earnings-review --security-code 600519.SH --period 2025q3
@@ -754,3 +682,22 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 | `430007` | 行情查询超出限制（数据量过大，请缩短日期范围或减少 `--limit`） |
 | `410110` | 异步任务生成中（非终态，需继续轮询） |
 | `410111` | 异步任务生成失败（终态，不可重试） |
+
+---
+
+## 发布（维护者）
+
+> 面向仓库维护者的发版流程，普通用户可跳过。
+
+npm 发版通过 GitHub Actions Trusted Publishing 完成，不需要 `NPM_TOKEN`。npm 包设置里的 Trusted Publisher 需要匹配本仓库和 workflow 文件名 `publish.yml`。
+
+```bash
+npm version patch --no-git-tag-version
+npm run prepare
+VERSION=$(node -p "require('./package.json').version")
+git commit -am "chore: release v$VERSION"
+git tag -a "v$VERSION" -m "v$VERSION"   # 必须 annotated：--follow-tags 不推 lightweight tag
+git push --follow-tags
+```
+
+推送 `v*` tag 后，`.github/workflows/publish.yml` 会在 GitHub-hosted runner 上使用 OIDC 发布到 `https://registry.npmjs.org/`。也可以从 GitHub Actions 页面手动运行该 workflow。

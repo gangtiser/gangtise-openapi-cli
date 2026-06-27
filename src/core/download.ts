@@ -4,6 +4,13 @@ import { DownloadError } from "./errors.js"
 import { saveOutputIfNeeded } from "./output.js"
 import { lookupTitleCache, readTitleCache, TITLE_LOOKUP_SIZE } from "./titleCache.js"
 
+/** Replace filesystem-unsafe characters with `_` so a title or a server-supplied
+ * filename can't create stray subdirectories or escape the intended output path.
+ * Shared by title-based naming and the download fallback. */
+function sanitizeFilename(name: string): string {
+  return name.replace(/[/\\:*?"<>|]/g, "_")
+}
+
 export interface DownloadResult {
   data?: Uint8Array
   text?: string
@@ -63,7 +70,7 @@ export async function resolveTitle(
   const serverExt = file.filename ? extname(file.filename) : extFromContentType(file.contentType)
 
   function buildFilename(rawTitle: string): string {
-    let title = rawTitle.replace(/[/\\:*?"<>|]/g, "_").trim()
+    let title = sanitizeFilename(rawTitle).trim()
     if (serverExt && !title.toLowerCase().endsWith(serverExt.toLowerCase())) {
       title += serverExt
     }
@@ -104,7 +111,9 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   }
 
   if (file.data instanceof Uint8Array) {
-    const outputPath = output ?? file.filename ?? (fallbackName + extFromContentType(file.contentType))
+    // Sanitize the server-provided filename so a Content-Disposition value with
+    // / or : can't write outside the intended path (same rule as buildFilename).
+    const outputPath = output ?? (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (fallbackName + extFromContentType(file.contentType))
     await saveOutputIfNeeded(file.data, outputPath)
     process.stdout.write(`${outputPath}\n`)
     return

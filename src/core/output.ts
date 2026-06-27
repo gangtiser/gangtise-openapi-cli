@@ -158,7 +158,10 @@ function pickListForStreaming(value: unknown): unknown[] | null {
 
 function csvEscape(value: string): string {
   let out = value
-  if (/^[=+\-@\t\r]/.test(out)) out = "'" + out
+  // Formula-injection guard, but don't mangle legitimate numbers: a leading
+  // -/+ only needs escaping when the cell isn't a finite number (e.g. "-1+cmd"),
+  // so values like "-3.5" stay numeric for Excel/pandas.
+  if (/^[=@\t\r]/.test(out) || (/^[+\-]/.test(out) && !Number.isFinite(Number(out)))) out = "'" + out
   if (/[",\n]/.test(out)) return `"${out.replaceAll("\"", "\"\"")}"`
   return out
 }
