@@ -78,7 +78,7 @@
 - `lookup` 仅保留 2 个 API 未覆盖的本地表：`broker-org` / `meeting-org`
 - 路演/调研/策略会/论坛 list 新增 `--location <id>` 按城市过滤（domesticCity 常量 ID；服务端过滤 v0.17.0 起已生效）
 
-> 更早版本（v0.15.0 及之前）的完整更新历史见 [GitHub Releases](https://github.com/gangtiser/gangtise-openapi-cli/releases)。
+> 更早版本及完整更新历史见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 首次安装
 
