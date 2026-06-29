@@ -308,6 +308,73 @@ export class GangtiseClient {
     return out
   }
 
+  /**
+   * Sequential pagination for endpoints that page by offset but return NO `total`
+   * and use a non-standard list key (e.g. wechat chatroom's `chatRoomList`). We
+   * can't fan out like requestPaginated (no total ⇒ unknown page count), so page
+   * serially until a short page (fewer rows than requested) signals the end.
+   * Returns `{ [listKey]: rows }` so normalize/printer treat it like any list.
+   */
+  private async requestSequentialPaginated(endpoint: EndpointDefinition, body?: unknown) {
+    const initialBody = body && typeof body === 'object' ? { ...(body as Record<string, unknown>) } : {}
+
+    if ('from' in initialBody && (typeof initialBody.from !== 'number' || !Number.isFinite(initialBody.from) || initialBody.from < 0)) {
+      throw new ValidationError('Invalid from: expected a non-negative number')
+    }
+    if ('size' in initialBody && initialBody.size !== undefined && (typeof initialBody.size !== 'number' || !Number.isFinite(initialBody.size) || initialBody.size <= 0)) {
+      throw new ValidationError('Invalid size: expected a positive number')
+    }
+
+    const listKey = endpoint.pagination?.listKey ?? 'list'
+    const maxPageSize = endpoint.pagination?.maxPageSize ?? 50
+    const startFrom = typeof initialBody.from === 'number' && Number.isFinite(initialBody.from) ? initialBody.from : 0
+    const requestedSize = typeof initialBody.size === 'number' && Number.isFinite(initialBody.size) ? initialBody.size : undefined
+
+    const extractList = (page: unknown): unknown[] | null => {
+      if (!page || typeof page !== 'object') return null
+      const arr = (page as Record<string, unknown>)[listKey]
+      return Array.isArray(arr) ? arr : null
+    }
+
+    const collected: unknown[] = []
+    let firstPage: unknown = null
+    let from = startFrom
+    const MAX_PAGES = 1000
+    let truncatedByPageCap = false
+
+    for (let page = 0; ; page++) {
+      const remaining = requestedSize === undefined ? maxPageSize : requestedSize - collected.length
+      if (requestedSize !== undefined && remaining <= 0) break
+      const size = Math.min(maxPageSize, remaining)
+
+      const pageData = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from, size })
+      if (firstPage === null) firstPage = pageData
+
+      const list = extractList(pageData)
+      if (list === null) {
+        // First response isn't a paginated-list shape → return it untouched. But a
+        // LATER page losing shape must NOT discard the rows already collected (mirrors
+        // requestPaginated's fail-soft fan-out): stop, keep them, and warn loudly.
+        if (page === 0) return firstPage
+        process.stderr.write(`[gangtise] warning: a page response had unexpected shape; results are partial — ${collected.length} rows fetched.\n`)
+        break
+      }
+
+      for (const item of list) collected.push(item)
+
+      if (list.length < size) break // short page ⇒ no more rows
+      if (page + 1 >= MAX_PAGES) { truncatedByPageCap = true; break }
+      from += list.length
+    }
+
+    if (truncatedByPageCap) {
+      process.stderr.write(`[gangtise] warning: hit the ${MAX_PAGES}-page safety cap; fetched ${collected.length} rows. Pass --size to fetch a bounded subset.\n`)
+    }
+
+    const rows = requestedSize === undefined ? collected : collected.slice(0, requestedSize)
+    return { [listKey]: rows }
+  }
+
   async login() {
     const authorization = await this.getAuthorizationHeader()
     const cache = await readTokenCache(this.config.tokenCachePath)
@@ -489,7 +556,9 @@ export class GangtiseClient {
     }
 
     if (endpoint.kind === 'json' && endpoint.pagination?.enabled) {
-      return this.requestPaginated(endpoint, body)
+      return endpoint.pagination.sequential
+        ? this.requestSequentialPaginated(endpoint, body)
+        : this.requestPaginated(endpoint, body)
     }
 
     return this.requestJson(endpoint, body)

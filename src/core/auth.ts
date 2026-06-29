@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
 
@@ -45,7 +46,19 @@ export function redactTokenCache(cache: TokenCache | null): Record<string, unkno
 
 export async function writeTokenCache(filePath: string, cache: TokenCache): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
-  await fs.writeFile(filePath, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 0o600 })
+  // Write to a fresh 0600 temp file then rename over the target. Writing the bearer
+  // token straight to token.json would (a) keep an existing file's lax perms — the
+  // `mode` option only applies on creation, so a follow-up chmod still leaves a brief
+  // world-readable window — and (b) risk a truncated file on crash. A temp file is
+  // 0600 from the first byte and rename is atomic, carrying the 0600 perms over.
+  const tmp = `${filePath}.tmp-${randomUUID()}`
+  await fs.writeFile(tmp, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 0o600 })
+  try {
+    await fs.rename(tmp, filePath)
+  } catch (error) {
+    await fs.unlink(tmp).catch(() => {})
+    throw error
+  }
 }
 
 export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300): boolean {

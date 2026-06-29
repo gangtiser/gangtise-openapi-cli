@@ -38,6 +38,28 @@ describe("renderOutput", () => {
     expect(lines[1]).toBe("1323,-3.5,-1.2e8,'-1+cmd,'@x")
   })
 
+  it("renders a very large table without overflowing the call stack", () => {
+    // renderTable used Math.max(...cellWidths); spreading a per-row array this big
+    // overflows the stack. table is the DEFAULT format for huge results
+    // (e.g. `quote day-kline --security all`), so this must not throw.
+    const rows = Array.from({ length: 200_000 }, (_, i) => ({ id: i, name: `n${i}` }))
+    expect(() => renderOutput(rows, "table")).not.toThrow()
+  })
+
+  it("collapses newlines in table cells so multi-line fields keep alignment", () => {
+    const result = renderOutput([{ brief: "line1\nline2\rline3" }], "table")
+    expect(result).toContain("line1 line2 line3")
+    expect(result).not.toContain("\nline2")
+  })
+
+  it("collapses newlines in markdown cells", () => {
+    expect(renderOutput([{ a: "x\ny" }], "markdown")).toContain("| x y |")
+  })
+
+  it("quotes a csv field containing a carriage return", () => {
+    expect(renderOutput([{ a: "x\ry" }], "csv").split("\n")[1]).toBe('"x\ry"')
+  })
+
   describe("list wrapper { total, list }", () => {
     const wrapped = {
       total: 100,

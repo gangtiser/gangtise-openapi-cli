@@ -2,6 +2,22 @@
 
 本项目完整版本历史。README 顶部仅展示最近几个版本。
 
+### v0.21.0 — 2026-06-29
+
+**行为变更（注意）**
+- ⚠️ `vault wechat-chatroom-list` 省略 `--size` 现在**拉全量**（此前默认只返回 20 条）。该接口不返回 `total`，CLI 改为串行翻页（翻到不满页为止，单页上限 50）；传 `--size N` 仍只取前 N 条。依赖"默认 20 条"的脚本会拿到全部群。
+
+**修复**
+- `quote day-kline --security all` 等大结果集用默认 `table` 格式输出时不再因 `Math.max(...大数组)` 撑爆调用栈崩溃（`RangeError`）；`renderTable` 改用 reduce 计算列宽
+- CSV 导出：含回车符 `\r` 的字段现在正确加引号（RFC 4180）；`table` / `markdown` 的多行字段折叠换行，保持表格对齐
+- 下载文件名剥离控制字符 / NUL，避免 `fs.writeFile` 报错
+
+**修复（安全）**
+- token 缓存文件（`~/.config/gangtise/token.json`）改为临时文件 + 原子 `rename` 写入：从第一字节即 `0600`，消除"旧文件宽松权限残留"与"崩溃截断"两个隐患
+
+**内部 / 工程**
+- 依赖 `vitest` 升级到 3.2.6（修复 dev-only 安全告警）；新增 `npm run typecheck`；测试 257 → 272
+
 ### v0.20.0 — 2026-06-26
 
 **新增接口**

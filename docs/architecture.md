@@ -68,7 +68,7 @@
 1. `client.call(key, params)`
 2. `ENDPOINT_REGISTRY` lookup
 3. `kind="json"` + pagination
-4. `requestPaginated()` loop · MAX_PAGES=1000 safety limit
+4. `requestPaginated()` total-driven fan-out — or `requestSequentialPaginated()` for no-total endpoints (wechat chatroom: page until a short page) · MAX_PAGES=1000 safety limit
 5. HTTP 5xx check → `unwrapEnvelope()` → `.data`
 6. `normalizeRows()` flatten fieldList/list + chatRoomList + constants · preserves total/meta
 7. `renderOutput()` → stdout · `Total: N, showing: M` → stderr

@@ -88,11 +88,11 @@ describe("collectKeyValue", () => {
   })
 
   it("throws on missing equals sign", () => {
-    expect(() => collectKeyValue("noequals")).toThrow()
+    expect(() => collectKeyValue("noequals")).toThrow(ValidationError)
   })
 
   it("throws on empty key", () => {
-    expect(() => collectKeyValue("=value")).toThrow()
+    expect(() => collectKeyValue("=value")).toThrow(ValidationError)
   })
 })
 

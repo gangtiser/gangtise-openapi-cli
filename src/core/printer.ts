@@ -1,16 +1,12 @@
 import type { OutputFormat } from "./config.js"
 import { normalizeRows } from "./normalize.js"
-import { renderOutput, saveOutputIfNeeded, streamOutputToFile } from "./output.js"
+import { pickList, renderOutput, saveOutputIfNeeded, streamOutputToFile } from "./output.js"
 import { extractTitles, type TitleCacheConfig, writeTitleCache } from "./titleCache.js"
 
 export async function printData(data: unknown, format: OutputFormat, output?: string, cache?: TitleCacheConfig): Promise<void> {
   const normalized = normalizeRows(data)
 
-  const items = Array.isArray(normalized)
-    ? normalized
-    : (normalized && typeof normalized === "object" && Array.isArray((normalized as Record<string, unknown>).list))
-      ? (normalized as Record<string, unknown>).list as unknown[]
-      : null
+  const items = pickList(normalized)
 
   if (cache && items) {
     const titles = extractTitles(items, cache)

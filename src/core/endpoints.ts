@@ -7,6 +7,12 @@ export interface EndpointDefinition {
   pagination?: {
     enabled: true
     maxPageSize: number
+    /** Some endpoints paginate by offset but return NO `total` and use a non-standard
+     * list key (e.g. wechat chatroom's `chatRoomList`). For those set `sequential` so
+     * the client pages until a short page signals the end, and `listKey` to the array
+     * field to accumulate. Omit both for the standard total-driven fan-out. */
+    sequential?: true
+    listKey?: string
   }
 }
 
@@ -584,6 +590,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-vault/wechatgroupmsg/chatroomId",
     kind: "json",
     description: "List WeChat group chatroom IDs",
+    // No `total` in the response, list key is `chatRoomList`, server caps size at 50.
+    pagination: { enabled: true, maxPageSize: 50, sequential: true, listKey: "chatRoomList" },
   },
   "vault.stock-pool.list": {
     key: "vault.stock-pool.list",

@@ -77,6 +77,19 @@ describe("readTokenCache / writeTokenCache", () => {
     expect(stat.mode & 0o777).toBe(0o600)
   })
 
+  it("tightens an existing lax-permission file back to 0600 on rewrite", async () => {
+    // A token.json restored from a backup or written by an older CLI may be 0644;
+    // the temp-file + rename write must replace it with a 0600 file.
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(file, "{}")
+    await fs.chmod(file, 0o644)
+    await writeTokenCache(file, cache())
+    const stat = await fs.stat(file)
+    expect(stat.mode & 0o777).toBe(0o600)
+    const read = await readTokenCache(file)
+    expect(read?.accessToken).toBe("abc")
+  })
+
   it("returns null for a missing file", async () => {
     expect(await readTokenCache(path.join(dir, "nope.json"))).toBeNull()
   })

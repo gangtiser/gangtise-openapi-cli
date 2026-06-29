@@ -4,6 +4,22 @@
 
 ## Changelog
 
+### v0.21.0 — 2026-06-29
+
+**行为变更（注意）**
+- ⚠️ `vault wechat-chatroom-list` 省略 `--size` 现在**拉全量**（此前默认只返回 20 条）。该接口不返回 `total`，CLI 改为串行翻页（翻到不满页为止，单页上限 50）；传 `--size N` 仍只取前 N 条。依赖"默认 20 条"的脚本会拿到全部群。
+
+**修复**
+- `quote day-kline --security all` 等大结果集用默认 `table` 格式输出时不再因 `Math.max(...大数组)` 撑爆调用栈崩溃（`RangeError`）；`renderTable` 改用 reduce 计算列宽
+- CSV 导出：含回车符 `\r` 的字段现在正确加引号（RFC 4180）；`table` / `markdown` 的多行字段折叠换行，保持表格对齐
+- 下载文件名剥离控制字符 / NUL，避免 `fs.writeFile` 报错
+
+**修复（安全）**
+- token 缓存文件（`~/.config/gangtise/token.json`）改为临时文件 + 原子 `rename` 写入：从第一字节即 `0600`，消除"旧文件宽松权限残留"与"崩溃截断"两个隐患
+
+**内部 / 工程**
+- 依赖 `vitest` 升级到 3.2.6（修复 dev-only 安全告警）；新增 `npm run typecheck`；测试 257 → 272
+
 ### v0.20.0 — 2026-06-26
 
 **新增接口**
@@ -63,20 +79,6 @@
 **说明 / 修正**
 - `--industry` 用 `citicIndustry` 码（`1008001xx`，全命令通用）；`--research-area` 用 `gangtiseIndustry` 码（行业 `1008001xx` + 宏观/策略/固收/金工/海外等方向 `122000xxx`）。详见 `gangtise-openapi/references/commands/reference-and-lookup.md`
 - 日程类 `--location`（domesticCity）服务端过滤已生效（v0.16.0 时曾未生效）
-
-### v0.16.0 — 2026-06-12
-
-**新增接口（参考数据 · 常量查询，均免积分）**
-- `reference constant-category` — 查询常量分类：全量导出常量分类及各分类适用于哪些接口的哪些参数（7 个分类：中信/申万/Gangtise 行业、国内城市、A股/港股公告分类、区域）
-- `reference constant-list --category <code>` — 查询常量值：按分类导出全量常量（`constantId` / `constantName`，树形分类含 `children` 嵌套）
-- `reference concept-search --keyword <kw>` — 查询题材 ID：按名称/拼音/分组名搜索，返回 `conceptId`（供 `alternative concept-info / concept-securities`、`ai theme-tracking` 使用）
-- `reference sector-search --keyword <kw>` — 查询板块 ID：返回 `sectorId` + `hierarchy` 层级路径
-- `reference sector-constituents --sector-id <id>` — 查询板块成分股：返回该板块全量成分股（`gtsCode` / `gtsName`）；注意 sectorId 必须来自 sector-search，题材 conceptId 查不到成分
-
-**接口变更（Breaking）**
-- 移除已被新 API 覆盖的 6 个本地 lookup 子命令及静态数据：`lookup research-area / industry / region / announcement-category / theme-id / industry-code list`，请改用 `reference constant-list` / `reference concept-search` / `reference sector-constituents`（申万行业代码 `821xxx.SWI` 全量：`sector-constituents --sector-id 2000000014`，即申万一级行业指数板块）
-- `lookup` 仅保留 2 个 API 未覆盖的本地表：`broker-org` / `meeting-org`
-- 路演/调研/策略会/论坛 list 新增 `--location <id>` 按城市过滤（domesticCity 常量 ID；服务端过滤 v0.17.0 起已生效）
 
 > 更早版本及完整更新历史见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -325,6 +327,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `vault record-list`
 - `vault my-conference-list`
 - `vault wechat-message-list`
+- `vault wechat-chatroom-list`（特例：接口无 `total`，CLI 串行翻页）
 - `ai hot-topic`
 
 规则：
@@ -334,6 +337,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`），同时 stderr 输出 `Total: N, showing: M`
+- `vault wechat-chatroom-list` 是特例：接口不返回 `total`，CLI 改为串行翻页——省略 `--size` 拉全量、传 `--size N` 取前 N 条，单页 50，无 `Total:` 提示
 
 ## 智能文件命名
 

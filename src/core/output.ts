@@ -52,16 +52,19 @@ function renderTable(rows: Array<Record<string, unknown>>): string {
   }
 
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
-  const widths = columns.map((column) => {
-    const cellWidths = rows.map((row) => formatScalar(row[column]).length)
-    return Math.max(column.length, ...cellWidths)
-  })
+  // Format every cell once (formatScalar may JSON.stringify objects), collapsing
+  // newlines so multi-line fields don't break alignment. Reuse the matrix for both
+  // width and rendering — and compute widths with reduce, NOT Math.max(...arr):
+  // spreading a per-row array overflows the call stack on large results (table is
+  // the default format, e.g. `quote day-kline --security all`).
+  const matrix = rows.map((row) => columns.map((column) => formatScalar(row[column]).replace(/[\r\n]+/g, " ")))
+  const widths = columns.map((column, c) => matrix.reduce((max, cells) => Math.max(max, cells[c].length), column.length))
 
   const renderLine = (values: string[]) => values.map((value, index) => value.padEnd(widths[index], " ")).join("  ")
 
   const header = renderLine(columns)
   const divider = renderLine(widths.map((width) => "-".repeat(width)))
-  const body = rows.map((row) => renderLine(columns.map((column) => formatScalar(row[column]))))
+  const body = matrix.map((cells) => renderLine(cells))
 
   return [header, divider, ...body].join("\n")
 }
@@ -74,7 +77,7 @@ function renderMarkdown(rows: Array<Record<string, unknown>>): string {
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
   const header = `| ${columns.join(" | ")} |`
   const divider = `| ${columns.map(() => "---").join(" | ")} |`
-  const body = rows.map((row) => `| ${columns.map((column) => formatScalar(row[column]).replaceAll("|", "\\|")).join(" | ")} |`)
+  const body = rows.map((row) => `| ${columns.map((column) => formatScalar(row[column]).replace(/[\r\n]+/g, " ").replaceAll("|", "\\|")).join(" | ")} |`)
   return [header, divider, ...body].join("\n")
 }
 
@@ -115,7 +118,7 @@ export function renderOutput(value: unknown, format: OutputFormat): string {
 export async function streamOutputToFile(value: unknown, format: OutputFormat, outputPath: string): Promise<boolean> {
   if (format !== "jsonl" && format !== "csv") return false
 
-  const list = pickListForStreaming(value)
+  const list = pickList(value)
   if (!list) return false
   // Below this row count the join() approach is cheaper than per-row writes.
   if (list.length < 1000) return false
@@ -147,7 +150,9 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   return true
 }
 
-function pickListForStreaming(value: unknown): unknown[] | null {
+/** Extract a row array from a value: the array itself, or its `.list` property,
+ * else null. Shared by streaming, printer's title-cache, and list detection. */
+export function pickList(value: unknown): unknown[] | null {
   if (Array.isArray(value)) return value
   if (value && typeof value === "object") {
     const list = (value as Record<string, unknown>).list
@@ -162,7 +167,7 @@ function csvEscape(value: string): string {
   // -/+ only needs escaping when the cell isn't a finite number (e.g. "-1+cmd"),
   // so values like "-3.5" stay numeric for Excel/pandas.
   if (/^[=@\t\r]/.test(out) || (/^[+\-]/.test(out) && !Number.isFinite(Number(out)))) out = "'" + out
-  if (/[",\n]/.test(out)) return `"${out.replaceAll("\"", "\"\"")}"`
+  if (/[",\n\r]/.test(out)) return `"${out.replaceAll("\"", "\"\"")}"`
   return out
 }
 
@@ -180,7 +185,7 @@ export async function saveOutputIfNeeded(content: string | Uint8Array, outputPat
   }
 
   const { dirname } = await import("node:path")
-  await (await import("node:fs/promises")).mkdir(dirname(outputPath), { recursive: true })
+  await fs.mkdir(dirname(outputPath), { recursive: true })
 
   if (typeof content === "string") {
     await fs.writeFile(outputPath, content, "utf8")

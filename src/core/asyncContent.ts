@@ -2,11 +2,10 @@ import type { OutputFormat } from "./config.js"
 import { ApiError } from "./errors.js"
 import { printData } from "./printer.js"
 
+// 14 attempts with exponential backoff (5s→30s cap) ≈ 316s total wait budget.
 export const POLL_MAX_ATTEMPTS = 14
 const POLL_INITIAL_DELAY_MS = 5_000
 const POLL_MAX_DELAY_MS = 30_000
-/** Total wait time stays close to the previous 12*15s=180s budget. */
-export const POLL_DELAY_MS = POLL_INITIAL_DELAY_MS
 
 function nextDelayMs(attempt: number): number {
   // 5s, 8s, 13s, 20s, 30s, 30s, ...

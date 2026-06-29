@@ -116,7 +116,9 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     const rec = r as Record<string, unknown>
     if (!header) header = rec
     if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
-    if (Array.isArray(rec.list)) merged.push(...(rec.list as unknown[]))
+    // Append one-by-one rather than push(...list): a future higher row cap could
+    // make a single shard's list large enough to overflow the stack via spread.
+    if (Array.isArray(rec.list)) for (const item of rec.list as unknown[]) merged.push(item)
   }
 
   // Every shard failed → surface the error loudly (non-zero exit) rather than

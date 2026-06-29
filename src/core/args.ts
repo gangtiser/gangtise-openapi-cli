@@ -57,14 +57,14 @@ export function collectNumberList(value: string, previous: number[] = []): numbe
 export function collectKeyValue(value: string, previous: Record<string, string> = {}): Record<string, string> {
   const index = value.indexOf("=")
   if (index === -1) {
-    throw new Error(`Invalid key=value pair: ${value}`)
+    throw new ValidationError(`Invalid key=value pair: ${value}`)
   }
 
   const key = value.slice(0, index).trim()
   const rawValue = value.slice(index + 1).trim()
 
   if (!key) {
-    throw new Error(`Invalid key=value pair: ${value}`)
+    throw new ValidationError(`Invalid key=value pair: ${value}`)
   }
 
   return {

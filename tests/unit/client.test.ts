@@ -319,6 +319,33 @@ describe("GangtiseClient envelope unwrapping", () => {
       message: "API request failed (HTTP 404)",
     })
   })
+
+  it("throws ApiError with the HTTP status when an error body isn't JSON (gateway HTML)", async () => {
+    requestMock.mockResolvedValueOnce({
+      statusCode: 404,
+      headers: { "content-type": "text/html" },
+      body: { text: vi.fn().mockResolvedValue("<html>Not Found</html>") },
+    })
+
+    const client = createClient()
+    await expect(client.call("ai.one-pager", { securityCode: "x" })).rejects.toMatchObject({
+      statusCode: 404,
+      message: "API request failed (HTTP 404)",
+    })
+  })
+
+  it("throws a parse error for a 200 response whose body isn't JSON", async () => {
+    requestMock.mockResolvedValueOnce({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: { text: vi.fn().mockResolvedValue("not json at all") },
+    })
+
+    const client = createClient()
+    await expect(client.call("ai.one-pager", { securityCode: "x" })).rejects.toMatchObject({
+      message: "Failed to parse API response",
+    })
+  })
 })
 
 describe("GangtiseClient auth recovery", () => {
@@ -457,6 +484,21 @@ describe("GangtiseClient streaming download", () => {
     await fs.unlink(streamTo).catch(() => {})
   })
 
+  it("streams the body to disk and returns savedPath + parsed filename on success", async () => {
+    requestMock.mockResolvedValueOnce({
+      statusCode: 200,
+      headers: { "content-type": "application/octet-stream", "content-disposition": 'attachment; filename="report.pdf"' },
+      body: Readable.from([Buffer.from("hello "), Buffer.from("world")]),
+    })
+
+    const client = createClient()
+    const result = await client.call("insight.research.download", undefined, { reportId: "1" }, { streamTo }) as { savedPath?: string; filename?: string }
+
+    expect(result.savedPath).toBe(streamTo)
+    expect(result.filename).toBe("report.pdf")
+    expect(await fs.readFile(streamTo, "utf8")).toBe("hello world")
+  })
+
   it("removes the partial file when the stream fails mid-download", async () => {
     function* boom() {
       yield Buffer.from("partial bytes")
@@ -475,6 +517,85 @@ describe("GangtiseClient streaming download", () => {
 
     // a failed download must not leave a truncated file behind
     await expect(fs.access(streamTo)).rejects.toThrow()
+  })
+})
+
+describe("GangtiseClient sequential pagination (no total)", () => {
+  beforeEach(() => {
+    requestMock.mockReset()
+  })
+
+  // Mimics wechat chatroom: responds with { chatRoomList } and NO total; the
+  // server caps page size at 50. The client must page until a short page.
+  function chatroomMock(total: number, cap = 50) {
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      const size = Math.min(body.size ?? 50, cap)
+      const available = Math.max(total - from, 0)
+      const count = Math.max(0, Math.min(size, available))
+      const chatRoomList = Array.from({ length: count }, (_, i) => ({ chatroomId: `id-${from + i + 1}` }))
+      return Promise.resolve(jsonResponse({ chatRoomList }))
+    })
+  }
+
+  it("pages until a short page when size is omitted (no total to drive fan-out)", async () => {
+    chatroomMock(101)
+    const client = createClient()
+    const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: Array<{ chatroomId: string }> }
+    expect(result.chatRoomList).toHaveLength(101)
+    expect(result.chatRoomList[0]).toEqual({ chatroomId: "id-1" })
+    expect(result.chatRoomList.at(-1)).toEqual({ chatroomId: "id-101" })
+    expect(requestMock).toHaveBeenCalledTimes(3) // 50 + 50 + 1
+  })
+
+  it("stops at the requested size without over-fetching", async () => {
+    chatroomMock(101)
+    const client = createClient()
+    const result = await client.call("vault.wechat-chatroom.list", { from: 0, size: 60 }) as { chatRoomList: unknown[] }
+    expect(result.chatRoomList).toHaveLength(60)
+    expect(requestMock).toHaveBeenCalledTimes(2) // 50 + 10
+  })
+
+  it("returns a single page when fewer rows than one page exist", async () => {
+    chatroomMock(8)
+    const client = createClient()
+    const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[] }
+    expect(result.chatRoomList).toHaveLength(8)
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("does one extra (empty) page when total is an exact multiple of page size", async () => {
+    chatroomMock(50)
+    const client = createClient()
+    const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[] }
+    expect(result.chatRoomList).toHaveLength(50)
+    expect(requestMock).toHaveBeenCalledTimes(2) // 50 (full) then 0 (short → stop)
+  })
+
+  it("keeps already-collected pages and warns when a LATER page loses shape", async () => {
+    let call = 0
+    requestMock.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve(jsonResponse({ chatRoomList: Array.from({ length: 50 }, (_, i) => ({ chatroomId: `id-${i + 1}` })) }))
+      return Promise.resolve(jsonResponse({ unexpected: true })) // 2nd page loses shape
+    })
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      const client = createClient()
+      const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[] }
+      expect(result.chatRoomList).toHaveLength(50) // first page survives, not discarded
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unexpected shape"))
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("returns the first response untouched when the FIRST page isn't a list shape", async () => {
+    requestMock.mockResolvedValueOnce(jsonResponse({ someObject: true }))
+    const client = createClient()
+    const result = await client.call("vault.wechat-chatroom.list", { from: 0 })
+    expect(result).toEqual({ someObject: true })
   })
 })
 

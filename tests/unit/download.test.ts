@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { extFromContentType, resolveTitle, saveDownloadResult } from "../../src/core/download.js"
 import { DownloadError } from "../../src/core/errors.js"
+import { readTitleCache } from "../../src/core/titleCache.js"
 
 // resolveTitle reads the on-disk title cache via readTitleCache(); stub it to an
 // empty cache so these tests stay hermetic and fast (the real cache can be large).
@@ -34,6 +35,18 @@ describe("resolveTitle", () => {
   // readTitleCache is stubbed to {}, so the lookup misses and we fall through
   // to the (mocked) list endpoint.
   const ENDPOINT = "test.resolve-title.list"
+
+  it("returns a filename from the title cache without calling the list endpoint", async () => {
+    // The common path: a prior `list` cached the title, so download resolves the
+    // name from cache and never re-hits the list endpoint. (Default mock is {}.)
+    vi.mocked(readTitleCache).mockResolvedValueOnce({
+      [ENDPOINT]: { titles: { "123": "Cached Q3 Report" }, ts: Date.now() },
+    })
+    const listSpy = vi.fn()
+    const name = await resolveTitle({ call: listSpy }, { contentType: "application/pdf" }, ENDPOINT, "reportId", "123")
+    expect(name).toBe("Cached Q3 Report.pdf")
+    expect(listSpy).not.toHaveBeenCalled()
+  })
 
   it("builds a sanitized filename from the matched list item and content type", async () => {
     const client = { call: vi.fn().mockResolvedValue({ list: [{ reportId: "123", title: "Q3 业绩/点评" }] }) }

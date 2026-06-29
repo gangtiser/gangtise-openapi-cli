@@ -4,11 +4,12 @@ import { DownloadError } from "./errors.js"
 import { saveOutputIfNeeded } from "./output.js"
 import { lookupTitleCache, readTitleCache, TITLE_LOOKUP_SIZE } from "./titleCache.js"
 
-/** Replace filesystem-unsafe characters with `_` so a title or a server-supplied
- * filename can't create stray subdirectories or escape the intended output path.
+/** Replace filesystem-unsafe characters (path separators, wildcards, and control
+ * characters / NUL) with `_` so a title or a server-supplied filename can't create
+ * stray subdirectories, escape the intended output path, or break fs.writeFile.
  * Shared by title-based naming and the download fallback. */
 function sanitizeFilename(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, "_")
+  return name.replace(/[/\\:*?"<>|\u0000-\u001f]/g, "_")
 }
 
 export interface DownloadResult {

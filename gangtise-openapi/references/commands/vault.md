@@ -61,7 +61,7 @@ gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n
 ```
 
 - `--room-name`：可重复或英文逗号分隔
-- `--size` 默认 20，单页最大 50
+- 省略 `--size` 拉全量（接口不返回 `total`，CLI 串行翻页直到取完）；传 `--size N` 只取前 N 条。单页最大 50
 - 返回字段：`chatroomName` / `chatroomId`
 
 ## 自选股股票池 `vault stock-pool-list / stock-pool-stocks`
