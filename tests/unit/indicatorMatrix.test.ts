@@ -180,4 +180,16 @@ describe("unwrapIndicatorData", () => {
     expect((err as ApiError).code).toBe("410001")
     expect((err as ApiError).message).toBe("参数错误")
   })
+
+  it("throws when an inner failure envelope omits the data key", () => {
+    let err: unknown
+    try {
+      unwrapIndicatorData({ code: "410004", status: false, msg: "指标无权限" })
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).code).toBe("410004")
+    expect((err as ApiError).message).toBe("指标无权限")
+  })
 })
