@@ -21,24 +21,31 @@ function isAsyncPending(error: unknown): boolean {
   return error instanceof ApiError && error.code === "410110"
 }
 
+/** "ok" = content printed; "failed" = terminal 410111 (retrying is pointless, a
+ * message was already written to stderr); "timeout" = poll budget exhausted while
+ * still pending (retrying later makes sense). Callers used to get a bare boolean
+ * and printed a "try again later" hint even for terminal failures — contradicting
+ * the "Do not retry" line right above it. */
+export type PollOutcome = "ok" | "failed" | "timeout"
+
 export async function pollAsyncContent(
   client: AsyncContentClient,
   getContentEndpoint: string,
   dataId: string,
   format: OutputFormat,
   output?: string,
-): Promise<boolean> {
+): Promise<PollOutcome> {
   for (let attempt = 1; attempt <= POLL_MAX_ATTEMPTS; attempt++) {
     try {
       const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
       if (result?.content != null) {
         await printData(result, format, output)
-        return true
+        return "ok"
       }
     } catch (error) {
       if (error instanceof ApiError && error.code === "410111") {
         process.stderr.write("Content generation failed (terminal). Do not retry.\n")
-        return false
+        return "failed"
       }
       if (!isAsyncPending(error)) throw error
     }
@@ -48,7 +55,7 @@ export async function pollAsyncContent(
       await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
-  return false
+  return "timeout"
 }
 
 export async function checkAsyncContent(

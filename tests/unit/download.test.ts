@@ -127,6 +127,21 @@ describe("saveDownloadResult", () => {
     }
   })
 
+  it("truncates over-long auto-derived filenames but keeps the extension", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      const longName = "会".repeat(300) + ".pdf" // 900+ bytes — over ext4's 255-byte entry cap
+      await saveDownloadResult({ data: new Uint8Array([1]), contentType: "application/pdf", filename: longName }, "fallback")
+      const written = (await fs.readdir(dir))[0]
+      expect(Buffer.byteLength(written, "utf8")).toBeLessThanOrEqual(210)
+      expect(written.endsWith(".pdf")).toBe(true)
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
   it("keeps plain overwrite semantics for an explicit output path", async () => {
     const out = path.join(dir, "explicit.pdf")
     await saveDownloadResult({ data: new Uint8Array([1]), contentType: "application/pdf" }, "fallback", out)

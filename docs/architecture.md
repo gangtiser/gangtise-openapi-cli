@@ -1,6 +1,6 @@
 # gangtise-openapi-cli — Technical Architecture
 
-**v0.20.0 · Node ≥20 · ESM**
+**v0.21.0 · Node ≥20 · ESM**
 
 ---
 
@@ -52,6 +52,7 @@
 
 | Module | Responsibility |
 |:--|:--|
+| `transport.ts` | Shared `undici.Agent` (keep-alive pool) · `withRetry` exponential-backoff retry · `runWithConcurrency` concurrency control |
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
 | `quoteSharding.ts` | Full-market kline (`--security all`) date-sharded concurrency · partial-failure tolerance (`partial` / `failedShards`) |
 | `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / time-series `values` matrix flattened into a wide table |
@@ -89,7 +90,7 @@
 
 1. `client.call(get-id endpoint, params)` → `{ dataId }`
 2. Non-blocking: return dataId + hint
-3. Blocking (`--wait`): shared `pollAsyncContent()` helper · exponential backoff 5s→30s · up to 14 attempts (~180s budget)
+3. Blocking (`--wait`): shared `pollAsyncContent()` helper · exponential backoff 5s→30s · up to 14 attempts (~316s budget)
 4. Handle 410110 ("generating") as pending, continue retrying
 5. On 410111 ("generation failed") — terminal state, report error
 5. On success: `printData()` → stdout
@@ -148,9 +149,9 @@ Concurrent requests coalesce into a single in-flight refresh promise (no duplica
 
 | Pattern | Description |
 |:--|:--|
-| **Endpoint Registry** | Declarative · O(1) key lookup · type-safe via `satisfies` |
+| **Endpoint Registry** | Declarative · O(1) key lookup · keys derived from `ENDPOINT_DEFS` record keys via `Object.fromEntries` (key drift impossible) |
 | **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint · MAX_PAGES=1000 safety limit |
-| **Partial-Result Tolerance** | Pagination (`requestPaginated`) and sharding (`quoteSharding`) return already-fetched rows + `partial` / `failedPages` / `failedShards` markers on a non-retryable error and stop, instead of discarding everything |
+| **Partial-Result Tolerance** | Pagination (`requestPaginated`) and sharding (`quoteSharding`) return already-fetched rows + `partial` / `failedPages` / `failedShards` markers on a non-retryable error and stop, instead of discarding everything · process exit code 3 |
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **EDE Double-Envelope + Matrix Flatten** | Indicator endpoints double-wrap (`unwrapIndicatorData` peels the inner envelope); cross-section / time-series `values` matrices flattened by `indicatorMatrix` into `{date, security, name, indicator:value}` wide rows |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
@@ -168,5 +169,5 @@ Concurrent requests coalesce into a single in-flight refresh promise (no duplica
 
 **Dev:**
 - `typescript` ^5.9.2
-- `vitest` ^3.2.4
+- `vitest` ^3.2.6
 - `tsx` ^4.20.5

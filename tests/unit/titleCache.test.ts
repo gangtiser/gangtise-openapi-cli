@@ -121,6 +121,25 @@ describe("readTitleCache / writeTitleCache", () => {
     expect(data.ep.titles.new2).toBe("N2")
   })
 
+  it("evicts the OLDEST entries when over the cap, not the most recent batch", async () => {
+    // Anti-LRU regression: the fill used to walk insertion order from the front,
+    // protecting the oldest batch and evicting yesterday's — so a morning `list`
+    // would lose its cache by the afternoon download.
+    const oldBatch: Record<string, string> = {}
+    for (let i = 0; i < 3000; i++) oldBatch[`old${i}`] = `O${i}`
+    await writeTitleCache("ep", oldBatch, file)
+    const midBatch: Record<string, string> = {}
+    for (let i = 0; i < 3000; i++) midBatch[`mid${i}`] = `M${i}`
+    await writeTitleCache("ep", midBatch, file) // 6000 merged → prune to 5000
+
+    __resetTitleCacheForTests()
+    const data = await readTitleCache(file)
+    expect(Object.keys(data.ep.titles).length).toBe(MAX_TITLES_PER_ENDPOINT)
+    expect(data.ep.titles.mid0).toBe("M0") // fresh batch fully kept
+    expect(data.ep.titles.old2999).toBe("O2999") // newest of the old batch survives
+    expect(data.ep.titles.old0).toBeUndefined() // oldest entries are the ones evicted
+  })
+
   it("drops endpoint entries past the TTL on the next write", async () => {
     await fs.mkdir(dir, { recursive: true })
     const stale: TitleCacheData = { stale: { titles: { "1": "x" }, ts: Date.now() - 25 * 60 * 60 * 1000 } }

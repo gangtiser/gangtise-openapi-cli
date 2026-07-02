@@ -35,7 +35,9 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
       return
     }
     const content = renderOutput(normalized, format)
-    await saveOutputIfNeeded(content, output)
+    // CSV files get a BOM so Excel double-click decodes Chinese as UTF-8 (stdout
+    // stays BOM-free for pipes).
+    await saveOutputIfNeeded(format === "csv" ? `\ufeff${content}` : content, output)
     process.stdout.write(`${output}\n`)
     return
   }

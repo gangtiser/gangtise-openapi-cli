@@ -51,6 +51,19 @@ describe("printData", () => {
     }
   })
 
+  it("writes csv files with a BOM so Excel decodes Chinese as UTF-8", async () => {
+    const out = path.join(dir, "bom.csv")
+    await printData({ total: 1, list: [{ 名称: "贵州茅台" }] }, "csv", out)
+    const content = await fs.readFile(out, "utf8")
+    expect(content.startsWith("\ufeff")).toBe(true)
+    expect(content).toContain("贵州茅台")
+  })
+
+  it("keeps stdout csv BOM-free for pipes", async () => {
+    await printData({ total: 1, list: [{ a: 1 }] }, "csv")
+    expect(stdout().startsWith("\ufeff")).toBe(false)
+  })
+
   it("leaves the exit code alone for complete results", async () => {
     const prevExitCode = process.exitCode
     try {

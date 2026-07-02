@@ -12,6 +12,11 @@ describe("splitCsv", () => {
     expect(splitCsv("a,,b")).toEqual(["a", "b"])
   })
 
+  it("splits on full-width commas from voice-input IMEs", () => {
+    expect(splitCsv("600519.SH，000858.SZ")).toEqual(["600519.SH", "000858.SZ"])
+    expect(splitCsv("a，b, c")).toEqual(["a", "b", "c"])
+  })
+
   it("returns empty array for empty string", () => {
     expect(splitCsv("")).toEqual([])
   })

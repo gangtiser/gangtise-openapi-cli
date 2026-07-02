@@ -163,7 +163,7 @@
 
 ## 公告分类
 
-完整列表用 `reference constant-list --category aShareAnnouncementCategory`（港股用 `hkShareAnnouncementCategory`），树形结构含一级和二级分类。
+完整列表用 `reference constant-list --category aShareAnnouncementCategory`（港股用 `hkShareAnnouncementCategory`，美股用 `usShareAnnouncementCategory`，`103980xxx` 段），树形结构含一级和二级分类。
 
 ### 一级分类
 

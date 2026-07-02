@@ -13,6 +13,18 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|\u0000-\u001f]/g, "_")
 }
 
+/** Keep auto-derived filenames under 200 UTF-8 bytes, preserving the extension.
+ * ext4 caps directory entries at 255 bytes — long Chinese titles hit that at
+ * ~85 chars (3 bytes each) and fs.writeFile throws ENAMETOOLONG after the body
+ * has already been downloaded. */
+function truncateFilename(name: string, maxBytes = 200): string {
+  if (Buffer.byteLength(name, "utf8") <= maxBytes) return name
+  const ext = extname(name)
+  let stem = name.slice(0, name.length - ext.length)
+  while (stem.length > 1 && Buffer.byteLength(stem + ext, "utf8") > maxBytes) stem = stem.slice(0, -1)
+  return stem + ext
+}
+
 /** Pick a non-existing path by suffixing -1, -2, … before the extension, so batch
  * downloads whose titles collide ("2025年第一季度报告" from several companies) don't
  * silently overwrite each other. Only auto-derived names go through this — an
@@ -92,7 +104,7 @@ export async function resolveTitle(
     if (serverExt && !title.toLowerCase().endsWith(serverExt.toLowerCase())) {
       title += serverExt
     }
-    return title
+    return truncateFilename(title)
   }
 
   try {
@@ -132,7 +144,7 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
     // Sanitize the server-provided filename so a Content-Disposition value with
     // / or : can't write outside the intended path (same rule as buildFilename).
     const autoName = (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (fallbackName + extFromContentType(file.contentType))
-    const outputPath = output ?? await uniquePath(autoName)
+    const outputPath = output ?? await uniquePath(truncateFilename(autoName))
     await saveOutputIfNeeded(file.data, outputPath)
     process.stdout.write(`${outputPath}\n`)
     return

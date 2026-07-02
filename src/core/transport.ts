@@ -38,6 +38,9 @@ export async function runWithConcurrency<T, R>(
   return results
 }
 
+/** Fan-out width for pagination and kline shards — one env knob tunes both. */
+export const PAGE_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
+
 const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])
 const RETRYABLE_NETWORK_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"])
 const RETRYABLE_API_CODES = new Set(["999999"])

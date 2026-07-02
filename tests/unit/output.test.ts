@@ -38,13 +38,45 @@ describe("streamOutputToFile error handling", () => {
     rows.push(null) // csv branch silently drops non-object rows — lock that in
     expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", target)).toBe(true)
     const lines = (await fs.readFile(target, "utf8")).trimEnd().split("\n")
-    expect(lines[0]).toBe("a,b")
+    expect(lines[0]).toBe("﻿a,b") // header carries the Excel BOM
     expect(lines).toHaveLength(1 + 1100)
     expect(lines[4]).toBe('3,"x,y"')
   })
 
   it("returns false below the 1000-row streaming threshold (caller falls back to join)", async () => {
     expect(await streamOutputToFile({ total: 2, list: [{ a: 1 }] }, "jsonl", path.join(dir, "small.jsonl"))).toBe(false)
+  })
+
+  it("prefixes the streamed csv with a BOM for Excel", async () => {
+    const target = path.join(dir, "bom.csv")
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ 名称: `第${i}行` }))
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", target)).toBe(true)
+    const content = await fs.readFile(target, "utf8")
+    expect(content.startsWith("\ufeff")).toBe(true)
+  })
+})
+
+describe("row shaping and header escaping", () => {
+  it("drops a stray null row instead of degrading the whole table to index/value", () => {
+    const result = renderOutput({ total: 3, list: [{ a: 1 }, null, { a: 2 }] }, "csv")
+    const lines = result.split("\n")
+    expect(lines[0]).toBe("a")
+    expect(lines).toHaveLength(3) // header + 2 object rows; the null row is skipped
+  })
+
+  it("still renders an all-scalar list as index/value pairs", () => {
+    const result = renderOutput(["600519.SH", "000858.SZ"], "csv")
+    expect(result.split("\n")[0]).toBe("index,value")
+  })
+
+  it("escapes csv column names containing commas", () => {
+    const result = renderOutput([{ "PE(TTM,扣非)": 12.5 }], "csv")
+    expect(result.split("\n")[0]).toBe('"PE(TTM,扣非)"')
+  })
+
+  it("escapes pipes in markdown column names", () => {
+    const result = renderOutput([{ "a|b": 1 }], "markdown")
+    expect(result.split("\n")[0]).toBe("| a\\|b |")
   })
 })
 

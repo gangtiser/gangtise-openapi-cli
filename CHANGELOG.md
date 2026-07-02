@@ -68,6 +68,17 @@
 - `insight official-account list` — 查询公众号资讯列表：支持 `--keyword`（需用数据中的具体词，非整句白话）/ `--account-id`（公众号 ID）/ `--security` / `--category`（文章类型枚举：`news`/`law`/`report`/`view`/`data`/`event`/`meeting`/`notice`/`recruit`/`investEdu`/`brand`/`notes`/`other`）/ `--industry`（`citicIndustry`/`swIndustry` 行业 ID）/ `--search-type`（`1` 标题 / `2` 全文）/ `--rank-type`（`1` 综合 / `2` 时间倒序）；返回含模型生成摘要 `summary` 及关联行业/题材/证券列表
 - `insight official-account download --article-id <id>` — 下载公众号文章：`--file-type 1` txt（默认）/ `2` HTML
 
+### v0.17.2 — 2026-06-16
+
+**修复**
+- 错误码 `0000001008`（服务端 token 失效/他处登录挤掉）现同 8000014/8000015 一样自动重新登录并重试一次
+
+### v0.17.1 — 2026-06-16
+
+**修复**
+- 下载中断时自动清理写了一半的文件，不再残留损坏的半截产物
+- 自动翻页增加 1000 页安全上限，触达时输出告警，防止异常循环
+
 ### v0.17.0 — 2026-06-15
 
 **接口变更（Breaking）**

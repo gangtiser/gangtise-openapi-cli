@@ -27,16 +27,16 @@ describe("asyncContent", () => {
   describe("pollAsyncContent", () => {
     it("prints content and returns true on the first successful attempt", async () => {
       const client = { call: vi.fn().mockResolvedValue({ content: "the report" }) }
-      const ok = await pollAsyncContent(client, "ep", "d1", "json")
-      expect(ok).toBe(true)
+      const outcome = await pollAsyncContent(client, "ep", "d1", "json")
+      expect(outcome).toBe("ok")
       expect(client.call).toHaveBeenCalledTimes(1)
       expect(stdout()).toContain("the report")
     })
 
-    it("returns false immediately on a terminal 410111 failure", async () => {
+    it("returns \"failed\" immediately on a terminal 410111 failure", async () => {
       const client = { call: vi.fn().mockRejectedValue(new ApiError("failed", "410111")) }
-      const ok = await pollAsyncContent(client, "ep", "d1", "json")
-      expect(ok).toBe(false)
+      const outcome = await pollAsyncContent(client, "ep", "d1", "json")
+      expect(outcome).toBe("failed")
       expect(client.call).toHaveBeenCalledTimes(1)
       expect(stderr()).toContain("terminal")
     })
@@ -56,19 +56,19 @@ describe("asyncContent", () => {
       }
       const p = pollAsyncContent(client, "ep", "d1", "json")
       await vi.runAllTimersAsync()
-      expect(await p).toBe(true)
+      expect(await p).toBe("ok")
       expect(client.call).toHaveBeenCalledTimes(2)
       expect(stdout()).toContain("ready now")
     })
 
-    it("stops after 14 attempts and returns false when content never becomes ready", async () => {
+    it("stops after 14 attempts and returns \"timeout\" when content never becomes ready", async () => {
       // Regression guard for the poll budget: a loop-bound slip here turns --wait
       // into an indefinite hang instead of a ~316s give-up.
       vi.useFakeTimers()
       const client = { call: vi.fn().mockRejectedValue(new ApiError("generating", "410110")) }
       const p = pollAsyncContent(client, "ep", "d1", "json")
       await vi.runAllTimersAsync()
-      expect(await p).toBe(false)
+      expect(await p).toBe("timeout")
       expect(client.call).toHaveBeenCalledTimes(14)
     })
   })

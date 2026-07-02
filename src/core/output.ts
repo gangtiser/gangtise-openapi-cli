@@ -23,22 +23,25 @@ function formatScalar(value: unknown): string {
   return String(value)
 }
 
+/** Rows for a list: object rows as-is with stray null/scalar rows dropped (one bad
+ * row must not degrade the whole table to index/value pairs — and the streaming CSV
+ * path already skips them, so both paths agree). A list with NO object rows at all
+ * (e.g. plain string codes) still renders as index/value pairs. */
+function rowsFromList(list: unknown[]): Array<Record<string, unknown>> {
+  const objectRows = list.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+  if (objectRows.length > 0) return objectRows
+  return list.map((item, index) => ({ index, value: item }))
+}
+
 function toRows(value: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(value)) {
-    if (value.every((item) => item && typeof item === "object" && !Array.isArray(item))) {
-      return value as Array<Record<string, unknown>>
-    }
-    return value.map((item, index) => ({ index, value: item }))
+    return rowsFromList(value)
   }
 
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>
     if (Array.isArray(record.list)) {
-      const list = record.list
-      if (list.every((item) => item && typeof item === "object" && !Array.isArray(item))) {
-        return list as Array<Record<string, unknown>>
-      }
-      return list.map((item, index) => ({ index, value: item }))
+      return rowsFromList(record.list)
     }
     return [record]
   }
@@ -75,7 +78,9 @@ function renderMarkdown(rows: Array<Record<string, unknown>>): string {
   }
 
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
-  const header = `| ${columns.join(" | ")} |`
+  // Column names come from server data (e.g. EDE indicator display names) — escape
+  // them like cell values or a name containing | / , breaks the whole table.
+  const header = `| ${columns.map((column) => column.replaceAll("|", "\\|")).join(" | ")} |`
   const divider = `| ${columns.map(() => "---").join(" | ")} |`
   const body = rows.map((row) => `| ${columns.map((column) => formatScalar(row[column]).replace(/[\r\n]+/g, " ").replaceAll("|", "\\|")).join(" | ")} |`)
   return [header, divider, ...body].join("\n")
@@ -87,7 +92,7 @@ function renderCsv(rows: Array<Record<string, unknown>>): string {
   }
 
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
-  const header = columns.join(",")
+  const header = columns.map(csvEscape).join(",")
   const body = rows.map((row) => columns.map((column) => csvEscape(formatScalar(row[column]))).join(","))
   return [header, ...body].join("\n")
 }
@@ -140,7 +145,8 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
     } else {
       const objectRows = list.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
       const columns = Array.from(new Set(objectRows.flatMap((row) => Object.keys(row))))
-      await writeLine(stream, columns.join(","))
+      // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK.
+      await writeLine(stream, "\ufeff" + columns.map(csvEscape).join(","))
       for (const row of objectRows) {
         const cells = columns.map((column) => csvEscape(formatScalar(row[column])))
         await writeLine(stream, cells.join(","))

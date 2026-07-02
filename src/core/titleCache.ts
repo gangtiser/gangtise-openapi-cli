@@ -85,8 +85,11 @@ function capTitles(merged: Record<string, string>, freshKeys: string[], cap: num
     if (k in merged && !(k in out)) { out[k] = merged[k]; n++ }
   }
   if (n < cap) {
-    for (const k of Object.keys(merged)) {
-      if (n >= cap) break
+    // Newest-inserted keys sit at the END of the merged object — fill in reverse so
+    // eviction drops the oldest entries, not the batch the user just listed yesterday.
+    const rest = Object.keys(merged)
+    for (let i = rest.length - 1; i >= 0 && n < cap; i--) {
+      const k = rest[i]
       if (k in out) continue
       out[k] = merged[k]; n++
     }

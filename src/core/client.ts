@@ -10,7 +10,8 @@ import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredent
 import { ApiError, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
-import { getDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency, withRetry } from "./transport.js"
+import { getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, runWithConcurrency, withRetry } from "./transport.js"
+import type { DownloadResult } from "./download.js"
 
 interface Envelope<T> {
   code?: string | number
@@ -19,22 +20,10 @@ interface Envelope<T> {
   success?: boolean
   data?: T
 }
-
-const PAGINATION_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
 // Auth errors that warrant a forced re-login + one replay. 8000014/8000015 are
 // AK/SK errors; 0000001008 is a server-side token invalidation (the token still
 // looks valid by local expiry, so only a forced refresh recovers it).
 const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008"])
-
-export interface DownloadResponse {
-  data?: Uint8Array
-  text?: string
-  url?: string
-  contentType?: string
-  filename?: string
-  /** When set, the response body has been streamed directly to this path (no in-memory buffer). */
-  savedPath?: string
-}
 
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
@@ -227,23 +216,24 @@ export class GangtiseClient {
       }
     }
 
-    // Build remaining page requests
+    // Build remaining page requests. The cap lives inside the loop: a corrupt
+    // server `total` (e.g. 9e15) must not materialize millions of page objects —
+    // or spin for minutes — before a post-hoc truncation applies.
+    const MAX_PAGES = 1000
+    let truncatedByPageCap = false
     type PageReq = { from: number; size: number }
     const pageRequests: PageReq[] = []
     let nextFrom = startFrom + firstPage.list.length
     const endFrom = startFrom + target
     while (nextFrom < endFrom) {
+      if (pageRequests.length + 1 >= MAX_PAGES) {
+        truncatedByPageCap = true
+        break
+      }
       const remaining = endFrom - nextFrom
       const size = Math.min(maxPageSize, remaining)
       pageRequests.push({ from: nextFrom, size })
       nextFrom += size
-    }
-
-    const MAX_PAGES = 1000
-    let truncatedByPageCap = false
-    if (pageRequests.length + 1 > MAX_PAGES) {
-      pageRequests.length = MAX_PAGES - 1
-      truncatedByPageCap = true
     }
 
     let unexpectedShape = false
@@ -256,7 +246,7 @@ export class GangtiseClient {
     const failedPages: PageReq[] = []
     let firstError: unknown = null
     let aborted = false
-    const pages = await runWithConcurrency(pageRequests, PAGINATION_CONCURRENCY, async (req) => {
+    const pages = await runWithConcurrency(pageRequests, PAGE_CONCURRENCY, async (req) => {
       if (aborted) {
         failedPages.push(req)
         return [] as unknown[]
@@ -455,7 +445,7 @@ export class GangtiseClient {
     })
   }
 
-  async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResponse> {
+  async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResult> {
     const dispatcher = getDispatcher()
     const url = new URL(endpoint.path, this.config.baseUrl)
     Object.entries(query).forEach(([key, value]) => {

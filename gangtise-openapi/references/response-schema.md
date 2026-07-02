@@ -61,7 +61,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | ai management-discuss-* | `{securityCode, reportDate, discussionDimension, content}` | `content` 为字符串（业绩会）或字符串数组（财报） |
 | ai earnings-review | `{dataId}`（提交）/ `{status:"pending"}` 或 `{date, content}`（check） | `dataId` 用于轮询；最终 `content` 直接呈现 |
 | ai viewpoint-debate | 同 earnings-review | — |
-| vault drive-list | `{list, total}` | `list[].id` / `list[].title` / `list[].fileType` / `list[].uploadTime` |
+| vault drive-list | `{list, total}` | `list[].fileId`（下载用 `--file-id`）/ `list[].title` / `list[].fileType` / `list[].uploadTime` |
 | vault drive-download | 文件路径（stdout） | — |
 | vault record-list | `{list, total}` | `list[].recordId` / `list[].title` / `list[].category` / `list[].createTime` / `list[].recordDuration` |
 | vault record-download | 文件路径（stdout） | — |

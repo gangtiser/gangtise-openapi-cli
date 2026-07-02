@@ -1,4 +1,4 @@
-import { runWithConcurrency } from "./transport.js"
+import { isVerbose, PAGE_CONCURRENCY, runWithConcurrency } from "./transport.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -24,10 +24,6 @@ const DAY_MS = 86_400_000
  * `--security all` queries so a 2-day A-share shard (~11K rows) isn't
  * silently truncated. Single-security queries are untouched. */
 const ALL_MARKET_LIMIT = 10_000
-/** Shard fan-out concurrency. Shares the GANGTISE_PAGE_CONCURRENCY knob with
- * pagination (see transport/client) so one env var tunes all request fan-out. */
-const SHARD_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
-
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
@@ -94,7 +90,9 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   const shards = buildShards(start, end, config.shardDays)
-  if (process.env.GANGTISE_VERBOSE === "1" || process.env.GANGTISE_VERBOSE === "true") {
+  // isVerbose() (not a direct env read) so the global --verbose flag reaches
+  // shard logging too — cli.ts enables it via setVerbose in a preAction hook.
+  if (isVerbose()) {
     process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
   }
 
@@ -104,7 +102,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // every shard on the first rejection.
   const failedShards: Array<{ startDate: string; endDate: string }> = []
   let firstError: unknown = null
-  const results = await runWithConcurrency(shards, config.concurrency ?? SHARD_CONCURRENCY, async (shard) => {
+  const results = await runWithConcurrency(shards, config.concurrency ?? PAGE_CONCURRENCY, async (shard) => {
     try {
       return await client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
     } catch (error) {

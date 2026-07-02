@@ -6,8 +6,10 @@ interface NumberOptionConfig {
 }
 
 export function splitCsv(value: string): string[] {
+  // Also split on full-width "，": voice-input IMEs produce it, and an unsplit
+  // "600519，000858" goes to the API as one bogus code with no local hint.
   return value
-    .split(",")
+    .split(/[,，]/)
     .map((item) => item.trim())
     .filter(Boolean)
 }

@@ -7,13 +7,14 @@
 ## 知识库搜索 `ai knowledge-batch`
 
 ```bash
-gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>]
+gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>] [--start-time <ms>] [--end-time <ms>]
 ```
 
 - `--query`（**必选**，可重复，最多 5 个）：缺失时本地报错，不发空请求
 - `--top` 默认 10，最大 20
 - `--resource-type`：`10` 券商研报 | `11` 外资研报 | `20` 内部报告 | `40` 首席观点 | `50` 公司公告 | `51` 港股公告 | `60` 会议平台纪要 | `70` 调研纪要公告 | `80` 网络资源纪要 | `90` 产业公众号
 - `--knowledge-name`：`system_knowledge_doc` 系统知识库 | `tenant_knowledge_doc` 机构知识库
+- `--start-time` / `--end-time`：13 位毫秒时间戳，按时间范围过滤
 
 ## 知识资源下载 `ai knowledge-resource-download`
 
@@ -26,12 +27,13 @@ gangtise ai knowledge-resource-download --resource-type <n> --source-id <id> [--
 ## 投研线索 `ai security-clue`
 
 ```bash
-gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <mode> [--gts-code <code>] [--source <name>]
+gangtise ai security-clue --start-time <datetime> --end-time <datetime> --query-mode <mode> [--gts-code <code>] [--source <name>] [--from <n>] [--size <n>]
 ```
 
 - `--query-mode`（**必选**）：`bySecurity` 按证券 | `byIndustry` 按行业
-- `--gts-code`（**必选**）：个股代码（如 `600519.SH`）或申万行业代码（如 `821035.SWI`）。**先用 `reference securities-search` 查个股，或读 `references/lookup-ids.md` 查行业**（全量行业代码：`reference sector-constituents --sector-id 2000000014`）
+- `--gts-code`（建议必传，CLI 未强制）：个股代码（如 `600519.SH`）或申万行业代码（如 `821035.SWI`）。**先用 `reference securities-search` 查个股，或读 `references/lookup-ids.md` 查行业**（全量行业代码：`reference sector-constituents --sector-id 2000000014`）
 - `--source`：`researchReport` | `conference` | `announcement` | `view`
+- `--from` / `--size`：自动翻页（单页 500）；省略 `--size` 拉全量
 
 ## 一页通 / 投资逻辑 / 同业对比
 
@@ -80,7 +82,7 @@ gangtise ai earnings-review-check --data-id <id>
 ```
 
 - `--period`：`年份+报告期`，如 `2025q3`（q1/interim/q3/annual），仅 A 股，覆盖最近 6 期
-- `--wait`：阻塞等待（最多 3 分钟）
+- `--wait`：阻塞等待（最长约 5 分钟：14 次指数退避轮询 5s→30s，累计 ≈316s）
 - 异步流程：① earnings-review → 拿 `dataId` → ② 间隔 30s-1min `*-check` → 若 pending 继续 → 最多轮询 3 次
 - 错误码：`410110` 生成中（继续等待）；`410111` 生成失败（终态，不重试）
 

@@ -404,7 +404,9 @@ fundamental.command("valuation-analysis").requiredOption("--security-code <code>
 fundamental.command("top-holders").requiredOption("--security-code <code>").addOption(new Option("--holder-type <type>", "Holder type: top10/top10Float").choices(["top10", "top10Float"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period: q1/interim/q3/annual/latest", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("fundamental.top-holders", { securityCode: options.securityCode, holderType: options.holderType, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined })))
 fundamental.command("earning-forecast").requiredOption("--security-code <code>").option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: today)").option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => {
   const endDate = options.endDate ?? new Date().toISOString().slice(0, 10)
-  const startDate = options.startDate ?? new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // Anchor the default window to endDate (as the help text promises), not to today —
+  // a historical --end-date without --start-date should mean "the year before it".
+  const startDate = options.startDate ?? new Date(new Date(`${endDate}T00:00:00Z`).getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   return client.call("fundamental.earning-forecast", { securityCode: options.securityCode, startDate, endDate, consensusList: maybeArray(options.consensus) })
 }))
 program.addCommand(fundamental)
@@ -424,7 +426,7 @@ ai.command("security-clue").option("--from <number>", "Starting offset", "0").op
 ai.command("one-pager").requiredOption("--security-code <code>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("ai.one-pager", { securityCode: options.securityCode })))
 ai.command("investment-logic").requiredOption("--security-code <code>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("ai.investment-logic", { securityCode: options.securityCode })))
 ai.command("peer-comparison").requiredOption("--security-code <code>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("ai.peer-comparison", { securityCode: options.securityCode })))
-ai.command("earnings-review").requiredOption("--security-code <code>").requiredOption("--period <period>", "Report period (e.g. 2025q3, 2025interim, 2025annual)").option("--wait", "Wait for content generation (blocking, up to 3 min)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient(async (client) => {
+ai.command("earnings-review").requiredOption("--security-code <code>").requiredOption("--period <period>", "Report period (e.g. 2025q3, 2025interim, 2025annual)").option("--wait", "Wait for content generation (blocking, up to ~5 min)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const idResult = await client.call("ai.earnings-review.get-id", { securityCode: options.securityCode, period: options.period }) as { dataId?: string }
   const dataId = idResult?.dataId
@@ -441,8 +443,13 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
   }
 
   process.stderr.write(`Got dataId: ${dataId}, waiting for content generation...\n`)
-  if (!await pollAsyncContent(client, "ai.earnings-review.get-content", dataId, format, options.output)) {
-    process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai earnings-review-check --data-id ${dataId}\n`)
+  const outcome = await pollAsyncContent(client, "ai.earnings-review.get-content", dataId, format, options.output)
+  if (outcome !== "ok") {
+    // "failed" already printed its terminal "Do not retry" line — only a timeout
+    // gets the retry hint.
+    if (outcome === "timeout") {
+      process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai earnings-review-check --data-id ${dataId}\n`)
+    }
     process.exitCode = 1
   }
 }))
@@ -474,7 +481,7 @@ ai.command("management-discuss-earnings-call").requiredOption("--report-date <da
     securityCode: options.securityCode,
     discussionDimension: options.dimension,
   })))
-ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint text (max 1000 chars)").option("--wait", "Wait for content generation (blocking, up to 3 min)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient(async (client) => {
+ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint text (max 1000 chars)").option("--wait", "Wait for content generation (blocking, up to ~5 min)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const idResult = await client.call("ai.viewpoint-debate.get-id", { viewpoint: options.viewpoint }) as { dataId?: string }
   const dataId = idResult?.dataId
@@ -491,8 +498,11 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   }
 
   process.stderr.write(`Got dataId: ${dataId}, waiting for content generation...\n`)
-  if (!await pollAsyncContent(client, "ai.viewpoint-debate.get-content", dataId, format, options.output)) {
-    process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai viewpoint-debate-check --data-id ${dataId}\n`)
+  const outcome = await pollAsyncContent(client, "ai.viewpoint-debate.get-content", dataId, format, options.output)
+  if (outcome !== "ok") {
+    if (outcome === "timeout") {
+      process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai viewpoint-debate-check --data-id ${dataId}\n`)
+    }
     process.exitCode = 1
   }
 }))

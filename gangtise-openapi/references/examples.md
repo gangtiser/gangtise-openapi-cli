@@ -203,6 +203,7 @@
      → 单对象 {securityCount, securityDetail:[{groupName, securityList:[...]}]}
 5. 呈现：concept-info 各文本字段直接展示（含 null 则跳过）；
    成分股按 groupName 分组列出，isKey=true 标记为「重点」
+```
 
 ## 例 14：板块成分股（sector-search → sector-constituents 两步）
 
@@ -250,5 +251,4 @@
        --date 2026-03-31 --indicator-param "finc_roe_avg_avg:periodNum=4"
 7. 无数据：截面/时序对无此科目的格**返回 null**（不再报 999999、不丢行）→ 财务用报告期末、现金流附注用年报
    日期(2025-12-31)、行情用交易日；银行/券商/保险科目不同，换对公司类型。详见 commands/indicator.md
-```
 ```

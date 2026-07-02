@@ -68,10 +68,10 @@ gangtise fundamental <income-statement-us|balance-sheet-us|cash-flow-us> --secur
 ## 主营业务 `fundamental main-business`
 
 ```bash
-gangtise fundamental main-business --security-code <code> --breakdown <type> [--start-date <date>] [--end-date <date>] [--period <type>] [--field <name>]
+gangtise fundamental main-business --security-code <code> [--breakdown <type>] [--start-date <date>] [--end-date <date>] [--period <type>] [--field <name>]
 ```
 
-- `--breakdown`（**必选**）：`product` 按产品 | `industry` 按行业 | `region` 按地区
+- `--breakdown`（默认 `product`）：`product` 按产品 | `industry` 按行业 | `region` 按地区
 - `--period`：`interim` 中报 | `annual` 年报（可重复）
 - 默认时间窗：`endDate` 当前日期、`startDate` 三年前
 - **不支持 `--fiscal-year`**（误传触发 900001）；按年份筛选用 `--start-date`/`--end-date`

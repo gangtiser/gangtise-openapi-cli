@@ -33,7 +33,7 @@ description: |-
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
    - 5xx / 网络错误 / `999999` → 自动指数退避重试
    - Token 失效（`0000001008` 服务端失效 / `8000014` / `8000015` AK/SK 错误）→ 自动重新登录并重试一次
-8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`。
+8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`（例外：`ai stock-summary` 用 `--security`，`ai security-clue` 用 `--gts-code`）。
 9. **调试**：`--verbose` 或 `GANGTISE_VERBOSE=1` 打印每个请求的耗时/字节数到 stderr。
 
 ## 工作流（3 步）
@@ -228,7 +228,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `410004` | 数据未找到 | — | 检查查询条件 |
 | `430007` | 行情查询超出限制 | — | 缩短日期范围；全市场场景应已自动分片 |
 | `430004` | 研报下载报错（官方未文档化，实测出现于 download） | — | 确认 reportId 有效；换 `--file-type` 或换一篇验证 |
-| `900001` | 请求参数缺失 | — | 检查必填项（如 `--breakdown` / `--indicator`） |
+| `900001` | 请求参数缺失 | — | 检查必填项（如 `--indicator` / `--date`） |
 | `900002` | 请求缺少 uid | — | `gangtise auth status` 查登录状态，重登后重试 |
 | `10011401` | 白名单未开通 | — | 联系管理员 |
 | HTTP 5xx / `ECONNRESET` / 超时 | 网络/服务端 | **自动指数退避重试 ×2** | 仍失败提示用户 |
@@ -287,7 +287,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 按需 Read 对应文件：
 
-- 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 美股公告 / 外资观点 / 独立观点 → `references/commands/insight.md`
+- 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 美股公告 / 外资观点 / 独立观点 / 公众号（official-account）→ `references/commands/insight.md`
 - 行情命令（A 股 / 港股 / 美股日 K / 指数日 K / 分钟 K / 实时行情） → `references/commands/quote.md`
 - 三大报表（A 股 / 港股 / 美股）/ 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
 - knowledge-batch / security-clue / 个股看点（stock-summary）/ AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`

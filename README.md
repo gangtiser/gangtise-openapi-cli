@@ -123,9 +123,10 @@ export GANGTISE_TOKEN="Bearer xxx"
 export GANGTISE_PAGE_CONCURRENCY=5     # 翻页并发数（默认 5）
 export GANGTISE_VERBOSE=1              # 打印每个请求的耗时与字节数
 export GANGTISE_TIMEOUT_MS=30000       # 请求超时（默认 30s）
+export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.config/gangtise/token.json）
 ```
 
-如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。Token 失效（8000014/8000015）时会自动重新登录并重试一次。
+如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。Token 失效（8000014/8000015/0000001008）时会自动重新登录并重试一次。
 
 
 ## AI Agent Skill
@@ -264,6 +265,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 - `gangtise fundamental ...`
 - `gangtise ai ...`
 - `gangtise vault ...`
+- `gangtise indicator ...`
 - `gangtise alternative ...`
 - `gangtise reference ...`
 - `gangtise raw call ...`
@@ -299,7 +301,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / `ECONNRESET` / `ETIMEDOUT` / `999999` 系统错误自动指数退避重试 2 次。
+- **自动重试**：5xx / 429 / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 超时类）/ `999999` 系统错误自动指数退避重试 2 次。
 - **Token 自愈**：调用返回 8000014/8000015 时自动强制刷新 Token 并重试一次。
 - **K线自动分片**：`quote day-kline --security all` 等全市场查询自动按日期切分（A股 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
@@ -337,7 +339,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败时不丢弃已取到的数据：结果带 `partial: true` 与 `failedPages`（K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
-- 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`），同时 stderr 输出 `Total: N, showing: M`
+- 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 - `vault wechat-chatroom-list` 是特例：接口不返回 `total`，CLI 改为串行翻页——省略 `--size` 拉全量、传 `--size N` 取前 N 条，单页 50，无 `Total:` 提示
 
 ## 智能文件命名
@@ -544,7 +546,7 @@ gangtise ai management-discuss-earnings-call --report-date 2025-06-30 --security
 gangtise ai viewpoint-debate --viewpoint "飞天茅台的批价低点是1500元"
 # 等待生成完成后查询结果
 gangtise ai viewpoint-debate-check --data-id 202603310528
-# 也可以 --wait 同步等待结果（最长3分钟）
+# 也可以 --wait 同步等待结果（最长约 5 分钟：14 次指数退避轮询，累计 ≈316s）
 gangtise ai viewpoint-debate --viewpoint "比亚迪股价将突破500元" --wait
 gangtise ai knowledge-resource-download --resource-type 60 --source-id 3052524 --output ./resource.txt
 ```
