@@ -153,6 +153,9 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   }
 
   const file = result as DownloadResult
+  // The fallback prefix embeds a user-supplied id (e.g. --report-id): sanitize it
+  // like server-provided names so an auto filename never interprets input as a path.
+  const safeFallback = sanitizeFilename(fallbackName)
 
   if (typeof file.savedPath === "string") {
     process.stdout.write(`${file.savedPath}\n`)
@@ -162,7 +165,7 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   if (file.data instanceof Uint8Array) {
     // Sanitize the server-provided filename so a Content-Disposition value with
     // / or : can't write outside the intended path (same rule as buildFilename).
-    const autoName = (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (fallbackName + extFromContentType(file.contentType))
+    const autoName = (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (safeFallback + extFromContentType(file.contentType))
     const outputPath = output ?? await uniquePath(truncateFilename(autoName))
     await saveOutputIfNeeded(file.data, outputPath)
     process.stdout.write(`${outputPath}\n`)
@@ -170,7 +173,7 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   }
 
   if (typeof file.text === "string") {
-    const outputPath = output ?? await uniquePath(`${fallbackName}.txt`)
+    const outputPath = output ?? await uniquePath(truncateFilename(`${safeFallback}.txt`))
     await saveOutputIfNeeded(file.text, outputPath)
     process.stdout.write(`${outputPath}\n`)
     return

@@ -47,6 +47,15 @@ describe("streamOutputToFile error handling", () => {
     expect(await streamOutputToFile({ total: 2, list: [{ a: 1 }] }, "jsonl", path.join(dir, "small.jsonl"))).toBe(false)
   })
 
+  it("falls back to non-streaming csv for an all-scalar list instead of writing a BOM-only file", async () => {
+    // renderOutput shapes scalars into index/value rows; the streaming path has no
+    // object rows to derive columns from and used to write just the BOM header.
+    const scalars = Array.from({ length: 1000 }, (_, i) => `code-${i}`)
+    const target = path.join(dir, "scalars.csv")
+    expect(await streamOutputToFile({ total: 1000, list: scalars }, "csv", target)).toBe(false)
+    await expect(fs.access(target)).rejects.toThrow() // nothing half-written either
+  })
+
   it("prefixes the streamed csv with a BOM for Excel", async () => {
     const target = path.join(dir, "bom.csv")
     const rows = Array.from({ length: 1000 }, (_, i) => ({ 名称: `第${i}行` }))

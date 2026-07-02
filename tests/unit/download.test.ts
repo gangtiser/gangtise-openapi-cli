@@ -127,6 +127,21 @@ describe("saveDownloadResult", () => {
     }
   })
 
+  it("sanitizes a user-supplied fallback name so it can't act as a path", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      // fallbackName embeds a user-supplied id (--report-id "../evil"): the auto
+      // filename must treat it as a plain name, not a parent-directory reference.
+      await saveDownloadResult({ text: "hello" }, "../evil")
+      const files = await fs.readdir(dir)
+      expect(files).toEqual([".._evil.txt"])
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
   it("truncates over-long auto-derived filenames but keeps the extension", async () => {
     await fs.mkdir(dir, { recursive: true })
     const cwd = process.cwd()

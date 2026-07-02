@@ -152,6 +152,16 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   // Below this row count the join() approach is cheaper than per-row writes.
   if (list.length < 1000) return false
 
+  // csv can only stream object rows; an all-scalar list has no columns — fall back
+  // to renderOutput's index/value shaping instead of writing a BOM-only file.
+  let csvRows: Array<Record<string, unknown>> = []
+  let csvColumns: string[] = []
+  if (format === "csv") {
+    csvRows = list.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
+    if (csvRows.length === 0) return false
+    csvColumns = Array.from(new Set(csvRows.flatMap((row) => Object.keys(row))))
+  }
+
   const { dirname } = await import("node:path")
   const { createWriteStream } = await import("node:fs")
   await fs.mkdir(dirname(outputPath), { recursive: true })
@@ -167,12 +177,10 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
         await writeLine(stream, JSON.stringify(item))
       }
     } else {
-      const objectRows = list.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
-      const columns = Array.from(new Set(objectRows.flatMap((row) => Object.keys(row))))
       // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK.
-      await writeLine(stream, "\ufeff" + columns.map(csvEscape).join(","))
-      for (const row of objectRows) {
-        const cells = columns.map((column) => csvEscape(formatScalar(row[column])))
+      await writeLine(stream, "\ufeff" + csvColumns.map(csvEscape).join(","))
+      for (const row of csvRows) {
+        const cells = csvColumns.map((column) => csvEscape(formatScalar(row[column])))
         await writeLine(stream, cells.join(","))
       }
     }

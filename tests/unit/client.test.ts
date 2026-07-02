@@ -193,6 +193,36 @@ describe("GangtiseClient pagination", () => {
     expect(requestMock).toHaveBeenCalledTimes(1)
   })
 
+  it("follows a same-origin 302 redirect and keeps the Authorization header", async () => {
+    // undici doesn't follow redirects on its own — without explicit handling the
+    // redirect placeholder body would be saved as the "downloaded file".
+    const bytes = new Uint8Array([1, 2, 3])
+    requestMock
+      .mockResolvedValueOnce({ statusCode: 302, headers: { location: "/real/file.pdf" }, body: { text: vi.fn().mockResolvedValue("") } })
+      .mockResolvedValueOnce(binaryResponse(bytes))
+
+    const client = createClient()
+    const result = await client.call("insight.research.download", undefined, { reportId: "1" }) as { data?: Uint8Array }
+
+    expect(result.data).toEqual(bytes)
+    expect(requestMock).toHaveBeenCalledTimes(2)
+    expect(String(requestMock.mock.calls[1][0])).toContain("/real/file.pdf")
+    const secondHeaders = (requestMock.mock.calls[1][1] as { headers: Record<string, string> }).headers
+    expect(secondHeaders.Authorization).toBeDefined()
+  })
+
+  it("drops Authorization when a download redirect leaves the API origin", async () => {
+    requestMock
+      .mockResolvedValueOnce({ statusCode: 302, headers: { location: "https://oss.example.com/signed.pdf" }, body: { text: vi.fn().mockResolvedValue("") } })
+      .mockResolvedValueOnce(binaryResponse(new Uint8Array([9])))
+
+    const client = createClient()
+    await client.call("insight.research.download", undefined, { reportId: "1" })
+
+    const secondHeaders = (requestMock.mock.calls[1][1] as { headers: Record<string, string> }).headers
+    expect(secondHeaders.Authorization).toBeUndefined() // bearer must not leak to storage hosts
+  })
+
   it("keeps the raw filename when content-disposition has a bare % (invalid URI encoding)", async () => {
     // decodeURIComponent throws URIError on "增长100%.pdf"; the download must not
     // fail over a cosmetic filename hint — fall back to the undecoded value.
@@ -252,11 +282,13 @@ describe("GangtiseClient pagination", () => {
     const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
     try {
       const client = createClient()
-      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[] }
+      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
       expect(result.total).toBe(200)
       expect(result.list).toHaveLength(30)
       expect(requestMock).toHaveBeenCalledTimes(1)
       expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("short page"))
+      // Not just a warning: scripts key off partial / exit code 3.
+      expect(result.partial).toBe(true)
     } finally {
       errSpy.mockRestore()
     }
@@ -502,31 +534,62 @@ describe("GangtiseClient auth recovery", () => {
     expect(listCalls).toBe(2) // HTTP 401 + auth code → refresh → replay succeeds
   })
 
-  it("reuses a freshly refreshed token for staggered failures instead of logging in again", async () => {
-    // Request A fails and refreshes; request B (in flight with the old token) fails
-    // AFTER that refresh completed. B must replay with A's fresh token — a second
-    // login could kick the fresh session server-side (0000001008 semantics).
+  it("reuses a token refreshed by a concurrent request instead of logging in again", async () => {
+    // A and B both go out with the stale token. A fails fast and refreshes; B's
+    // failure lands AFTER that refresh completed (the staggered case). B must
+    // detect "the token I used is older than memoCache" and replay with the fresh
+    // one — a second login could kick the fresh session server-side.
     await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
     let loginCalls = 0
-    let listCalls = 0
-    requestMock.mockImplementation((url: unknown) => {
+    let staleFailures = 0
+    requestMock.mockImplementation((url: unknown, init?: { headers?: Record<string, string> }) => {
       if (String(url).includes("/loginV2")) {
         loginCalls += 1
-        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+        return new Promise((resolve) => setTimeout(() => resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })), 40))
       }
-      listCalls += 1
-      // Calls 1 and 3 are the first attempts of two sequential logical requests —
-      // both rejected as auth failures; calls 2 and 4 are their replays.
-      if (listCalls === 1 || listCalls === 3) return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }))
-      return Promise.resolve(jsonResponse({ answer: listCalls }))
+      if (init?.headers?.Authorization === "Bearer stale") {
+        staleFailures += 1
+        // First stale request fails immediately; the second one resolves only
+        // after the refresh (40ms) has finished — genuinely staggered.
+        const delay = staleFailures === 1 ? 0 : 120
+        return new Promise((resolve) => setTimeout(() => resolve(rawJsonResponse({ code: "8000014", msg: "access key error" })), delay))
+      }
+      return Promise.resolve(jsonResponse({ answer: 1 }))
     })
 
     const client = loginClient()
-    await client.call("ai.one-pager", { securityCode: "600519.SH" })
-    await client.call("ai.one-pager", { securityCode: "000858.SZ" })
+    const [a, b] = await Promise.all([
+      client.call("ai.one-pager", { securityCode: "600519.SH" }),
+      client.call("ai.one-pager", { securityCode: "000858.SZ" }),
+    ])
 
-    expect(listCalls).toBe(4)
-    expect(loginCalls).toBe(1) // the second failure reuses the fresh token, no second login
+    expect(a).toEqual({ answer: 1 })
+    expect(b).toEqual({ answer: 1 })
+    expect(staleFailures).toBe(2)
+    expect(loginCalls).toBe(1) // B reused A's fresh token, no second login
+  })
+
+  it("re-logins when the freshly acquired token itself gets invalidated (kicked session)", async () => {
+    // Regression for the removed time-window guard: right after the initial login
+    // the window was always "recent", so a 0000001008 on the brand-new token was
+    // replayed with the SAME dead token and failed. Token comparison must instead
+    // conclude "the current token died" and force a second login.
+    let loginCalls = 0
+    requestMock.mockImplementation((url: unknown, init?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: `t${loginCalls}`, expiresIn: 7200, time: 1 } }))
+      }
+      // Only the second-generation token works; the first is "kicked".
+      if (init?.headers?.Authorization === "Bearer t2") return Promise.resolve(jsonResponse({ answer: 42 }))
+      return Promise.resolve(rawJsonResponse({ code: "0000001008", msg: "token is invalid" }))
+    })
+
+    const client = loginClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ answer: 42 })
+    expect(loginCalls).toBe(2) // initial login + forced re-login after the kick
   })
 
   it("reports a clean ApiError when the login response has no accessToken", async () => {

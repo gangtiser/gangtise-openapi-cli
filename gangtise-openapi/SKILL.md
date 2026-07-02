@@ -236,7 +236,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 **其他场景**：
 - CLI 未安装 → `npm install -g gangtise-openapi-cli`
-- **退出码 3 = 部分结果**：翻页/K线分片有页失败但已取到的数据保留——stderr 有 warning，`--format json` 可见 `partial: true` 与 `failedPages`（分片为 `failedShards`）；table/csv/jsonl 只有数据行、看不出缺失。拿部分数据继续前必须告知用户缺了哪段
+- **退出码 3 = 部分结果**：翻页/K线分片有页失败、或服务端返回行数与 `total` 矛盾（提前短页）时，已取到的数据保留——stderr 有 warning，`--format json` 可见 `partial: true`（页失败另有 `failedPages`，分片为 `failedShards`）；table/csv/jsonl 只有数据行、看不出缺失。拿部分数据继续前必须告知用户缺了哪段
 - 空结果（list 为空数组） → 建议扩大时间范围、换关键词、去掉部分筛选
 - 模糊公司名匹配多只（"平安" → 中国平安 / 平安银行 / ...） → 列出让用户选
 - 下载文件路径冲突 → 询问覆盖

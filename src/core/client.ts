@@ -28,7 +28,6 @@ const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008"])
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
   private memoCache: TokenCache | null = null
-  private lastRefreshAt = 0
   // After an injected env token (GANGTISE_TOKEN) is rejected and we self-heal via
   // login, stop preferring that now-stale token so the retry uses the fresh one.
   private envTokenInvalidated = false
@@ -86,7 +85,6 @@ export class GangtiseClient {
 
     const cache: TokenCache = { ...envelope, accessToken, expiresIn, expiresAt }
     this.memoCache = cache
-    this.lastRefreshAt = Date.now()
     try {
       await writeTokenCache(this.config.tokenCachePath, cache)
     } catch (error) {
@@ -106,7 +104,7 @@ export class GangtiseClient {
    * the caller re-throws the original error. `authState` persists across the
    * withRetry attempts so we only refresh once per logical request.
    */
-  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean }): Promise<void> {
+  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean }, usedAuthorization?: string): Promise<void> {
     if (
       useAuth
       && !authState.retried
@@ -118,12 +116,16 @@ export class GangtiseClient {
     ) {
       authState.retried = true
       this.envTokenInvalidated = true
-      // If another request refreshed the token moments ago, replay with that fresh
-      // token instead of forcing yet another login: staggered failures across a
-      // pagination fan-out would otherwise trigger back-to-back logins, which can
-      // kick each other's sessions server-side (the 0000001008 semantics).
-      const refreshedRecently = Date.now() - this.lastRefreshAt < 15_000
-      if (!(refreshedRecently && isTokenCacheValid(this.memoCache))) {
+      // If the failed request was still carrying an OLDER token than the one now in
+      // memoCache, another request already refreshed — replay with the fresh token
+      // instead of logging in again (back-to-back logins can kick each other's
+      // sessions server-side, the 0000001008 semantics). If the failed request used
+      // the CURRENT token, that token is genuinely dead: force a new login. A time
+      // window is NOT a valid proxy here — right after the initial login the window
+      // is always "recent", which would skip the refresh exactly when it's needed.
+      const memoToken = this.memoCache && isTokenCacheValid(this.memoCache) ? normalizeToken(this.memoCache.accessToken) : null
+      const alreadyRefreshed = memoToken !== null && usedAuthorization !== undefined && usedAuthorization !== memoToken
+      if (!alreadyRefreshed) {
         this.memoCache = null
         await this.getAuthorizationHeader(true)
       }
@@ -231,14 +233,18 @@ export class GangtiseClient {
     // short page delivered, the server's page cap may be lower than our configured
     // maxPageSize — say so instead of silently returning a subset as "everything".
     if (firstPage.list.length < firstPageSize) {
-      if (collected.length < target) {
-        process.stderr.write(`[gangtise] warning: server returned a short page (${collected.length} rows) but reported total=${total}; treating it as the end of data — results may be incomplete\n`)
-      }
-      return {
+      const out: Record<string, unknown> = {
         ...firstPage,
         total,
         list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
       }
+      if (collected.length < target) {
+        process.stderr.write(`[gangtise] warning: server returned a short page (${collected.length} rows) but reported total=${total}; treating it as the end of data — results may be incomplete\n`)
+        // Machine-readable counterpart of the warning: scripts key off partial /
+        // exit code 3, and must not mistake a truncated result for a complete one.
+        out.partial = true
+      }
+      return out
     }
 
     if (collected.length >= target) {
@@ -433,8 +439,12 @@ export class GangtiseClient {
       const headers: Record<string, string> = {
         'content-type': 'application/json',
       }
+      // Keep the header we actually sent: the self-heal check compares it against
+      // the current memoCache token to tell "stale token" from "fresh token died".
+      let usedAuthorization: string | undefined
       if (useAuth) {
-        headers.Authorization = await this.getAuthorizationHeader()
+        usedAuthorization = await this.getAuthorizationHeader()
+        headers.Authorization = usedAuthorization
       }
 
       const startedAt = Date.now()
@@ -467,7 +477,7 @@ export class GangtiseClient {
         }
         return this.unwrapEnvelope(parsed, response.statusCode)
       } catch (error) {
-        await this.refreshAuthIfRecoverable(error, useAuth, authState)
+        await this.refreshAuthIfRecoverable(error, useAuth, authState, usedAuthorization)
         throw error
       }
     }, {
@@ -490,13 +500,36 @@ export class GangtiseClient {
     return withRetry(async () => {
       const authorization = await this.getAuthorizationHeader()
       const startedAt = Date.now()
-      const response = await request(url, {
+      let currentUrl = url
+      let auth: string | undefined = authorization
+      let response = await request(currentUrl, {
         method: endpoint.method,
         headers: { Authorization: authorization },
         headersTimeout: this.config.timeoutMs,
         bodyTimeout: this.config.timeoutMs,
         dispatcher,
       })
+
+      // undici does not follow redirects, and a download endpoint may 302 to a
+      // pre-signed object-store URL — without this the redirect body would be
+      // saved as the "file". Follow up to 3 hops, dropping Authorization once the
+      // redirect leaves the API origin so the bearer never reaches storage hosts.
+      for (let hops = 0; hops < 3 && response.statusCode >= 300 && response.statusCode < 400; hops++) {
+        const locationHeader = response.headers.location
+        const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader
+        if (!location) break
+        await response.body.text().catch(() => {})
+        const next = new URL(location, currentUrl)
+        if (next.origin !== currentUrl.origin) auth = undefined
+        currentUrl = next
+        response = await request(currentUrl, {
+          method: 'GET',
+          headers: auth ? { Authorization: auth } : {},
+          headersTimeout: this.config.timeoutMs,
+          bodyTimeout: this.config.timeoutMs,
+          dispatcher,
+        })
+      }
 
       const contentType = Array.isArray(response.headers['content-type']) ? response.headers['content-type'][0] : response.headers['content-type']
 
@@ -520,7 +553,7 @@ export class GangtiseClient {
           }
           data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
         } catch (error) {
-          await this.refreshAuthIfRecoverable(error, true, authState)
+          await this.refreshAuthIfRecoverable(error, true, authState, authorization)
           throw error
         }
         if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {

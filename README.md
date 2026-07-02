@@ -338,7 +338,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - 如果显式传了 `--size`，则按指定值翻页，直到达到 `size` 或数据取完
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
-- 部分页失败时不丢弃已取到的数据：结果带 `partial: true` 与 `failedPages`（K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
+- 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 - `vault wechat-chatroom-list` 是特例：接口不返回 `total`，CLI 改为串行翻页——省略 `--size` 拉全量、传 `--size N` 取前 N 条，单页 50，无 `Total:` 提示
 
