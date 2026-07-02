@@ -192,6 +192,19 @@ describe("GangtiseClient pagination", () => {
     expect(requestMock).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps the raw filename when content-disposition has a bare % (invalid URI encoding)", async () => {
+    // decodeURIComponent throws URIError on "增长100%.pdf"; the download must not
+    // fail over a cosmetic filename hint — fall back to the undecoded value.
+    const response = binaryResponse(new Uint8Array([1]))
+    response.headers["content-disposition"] = 'attachment; filename="增长100%.pdf"'
+    requestMock.mockResolvedValueOnce(response)
+
+    const client = createClient()
+    const result = await client.call("insight.research.download", undefined, { reportId: "9" }) as { filename?: string }
+
+    expect(result.filename).toBe("增长100%.pdf")
+  })
+
   it("returns built-in lookup data without making HTTP requests", async () => {
     const client = createClient()
 
@@ -212,10 +225,40 @@ describe("GangtiseClient pagination", () => {
     })
 
     const client = createClient()
-    const result = await client.call("insight.research.list", { from: 0, size: 100 }) as { total: number; list: Array<{ id: number }> }
+    const result = await client.call("insight.research.list", { from: 0, size: 100 }) as { total: number; list: Array<{ id: number }>; partial?: boolean; failedPages?: Array<{ from: number; size: number }> }
 
     expect(result.total).toBe(200)
     expect(result.list.slice(0, 50)).toEqual(Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })))
+    // A shape-broken page means missing rows — the result must be marked partial,
+    // not returned as a complete-looking success.
+    expect(result.partial).toBe(true)
+    expect(result.failedPages?.length).toBeGreaterThan(0)
+  })
+
+  it("returns an empty result with a single request when total is 0", async () => {
+    requestMock.mockResolvedValueOnce(jsonResponse({ total: 0, list: [] }))
+    const client = createClient()
+    const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[] }
+    expect(result.total).toBe(0)
+    expect(result.list).toEqual([])
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("warns when a short first page contradicts the reported total", async () => {
+    // Server says total=200 but returns only 30 rows on a 50-row first page: the
+    // client treats the short page as end-of-data but must say so on stderr.
+    requestMock.mockResolvedValueOnce(jsonResponse({ total: 200, list: Array.from({ length: 30 }, (_, i) => ({ id: i + 1 })) }))
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      const client = createClient()
+      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[] }
+      expect(result.total).toBe(200)
+      expect(result.list).toHaveLength(30)
+      expect(requestMock).toHaveBeenCalledTimes(1)
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("short page"))
+    } finally {
+      errSpy.mockRestore()
+    }
   })
 
   it("returns partial data (first + fetched pages) when a later page hard-fails", async () => {
@@ -385,6 +428,59 @@ describe("GangtiseClient auth recovery", () => {
 
     expect(result).toEqual({ answer: 42 })
     expect(listCalls).toBe(2) // initial 8000014 + retry after refresh
+  })
+
+  it("gives up after one refresh when the server keeps rejecting the token (no login loop)", async () => {
+    // Regression guard for the authState.retried latch: if the replay after a
+    // forced refresh is rejected again, the client must fail — not login forever.
+    // Pre-seed a valid cache so the only login on the wire is the forced refresh.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    let loginCalls = 0
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }))
+    })
+
+    const client = loginClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toMatchObject({ code: "8000014" })
+    expect(loginCalls).toBe(1)
+    expect(listCalls).toBe(2) // initial failure + exactly one replay
+  })
+
+  it("logs in only once when several concurrent pages hit an auth error together", async () => {
+    // The refreshPromise single-flight must merge concurrent refresh attempts from
+    // the pagination fan-out instead of firing one login per failed page.
+    // Pre-seed a valid cache so the only login on the wire is the forced refresh.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    let loginCalls = 0
+    const failedOnce = new Set<number>()
+    requestMock.mockImplementation((url: unknown, init?: { body?: string }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        // Keep the refresh in flight briefly so every concurrent page failure
+        // lands while refreshPromise is still pending (deterministic single-flight).
+        return new Promise((resolve) => setTimeout(() => resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })), 50))
+      }
+      const body = JSON.parse(init?.body ?? "{}") as { from: number; size: number }
+      if (body.from === 0) return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })) }))
+      if (!failedOnce.has(body.from)) {
+        failedOnce.add(body.from)
+        return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }))
+      }
+      return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: body.size }, (_, i) => ({ id: body.from + i + 1 })) }))
+    })
+
+    const client = loginClient()
+    const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
+
+    expect(result.list).toHaveLength(200)
+    expect(result.partial).toBeUndefined()
+    expect(loginCalls).toBe(1)
   })
 
   it("auto-recovers when the server invalidates the token (code 0000001008)", async () => {
@@ -583,8 +679,9 @@ describe("GangtiseClient sequential pagination (no total)", () => {
     const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
     try {
       const client = createClient()
-      const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[] }
+      const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[]; partial?: boolean }
       expect(result.chatRoomList).toHaveLength(50) // first page survives, not discarded
+      expect(result.partial).toBe(true)
       expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unexpected shape"))
     } finally {
       errSpy.mockRestore()

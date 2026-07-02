@@ -128,6 +128,10 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   await fs.mkdir(dirname(outputPath), { recursive: true })
 
   const stream = createWriteStream(outputPath, { encoding: "utf8" })
+  // A stream 'error' with no listener (EACCES on open, ENOSPC mid-write) crashes the
+  // process before any write callback fires. Swallow the event here — the failure
+  // still surfaces through the write/end callbacks below.
+  stream.on("error", () => {})
   try {
     if (format === "jsonl") {
       for (const item of list) {
@@ -142,10 +146,14 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
         await writeLine(stream, cells.join(","))
       }
     }
-  } finally {
     await new Promise<void>((resolve, reject) => {
       stream.end((err?: Error | null) => err ? reject(err) : resolve())
     })
+  } catch (error) {
+    // Mirror the download path: never leave a truncated file that looks complete.
+    stream.destroy()
+    await fs.unlink(outputPath).catch(() => {})
+    throw error
   }
   return true
 }
@@ -171,11 +179,25 @@ function csvEscape(value: string): string {
   return out
 }
 
-function writeLine(stream: { write(chunk: string, cb?: (err?: Error | null) => void): boolean; once(event: "drain", cb: () => void): unknown }, line: string): Promise<void> {
+interface LineSink {
+  write(chunk: string, cb?: (err?: Error | null) => void): boolean
+  once(event: "drain" | "error", cb: (err?: unknown) => void): unknown
+  off(event: "drain" | "error", cb: (err?: unknown) => void): unknown
+}
+
+function writeLine(stream: LineSink, line: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const ok = stream.write(line + "\n", (err?: Error | null) => err ? reject(err) : undefined)
-    if (ok) resolve()
-    else stream.once("drain", () => resolve())
+    if (ok) {
+      resolve()
+      return
+    }
+    // Waiting only for 'drain' would hang forever if the stream errors instead;
+    // race the two and detach the loser so listeners don't pile up per write.
+    const onDrain = () => { stream.off("error", onError); resolve() }
+    const onError = (err?: unknown) => { stream.off("drain", onDrain); reject(err) }
+    stream.once("drain", onDrain)
+    stream.once("error", onError)
   })
 }
 

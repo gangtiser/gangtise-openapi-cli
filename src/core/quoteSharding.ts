@@ -68,13 +68,19 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
  * single-security queries this is a no-op.
  */
 export async function callKlineWithSharding(client: KlineClient, endpointKey: string, body: KlineBody, config: ShardConfig): Promise<unknown> {
-  if (!isAllMarket(body) || !body.startDate || !body.endDate) {
+  if (!isAllMarket(body)) {
     return client.call(endpointKey, body)
   }
 
   // `--security all` returns thousands of rows per day; lift the default 6000-row
-  // cap to the API max so single-shard requests aren't silently truncated.
+  // cap to the API max so single-shard requests aren't silently truncated. This
+  // must apply even when a date is missing (no sharding possible then, but the
+  // single request still needs the lifted cap).
   const allMarketBody: KlineBody = { ...body, limit: body.limit ?? ALL_MARKET_LIMIT }
+
+  if (!body.startDate || !body.endDate) {
+    return client.call(endpointKey, allMarketBody)
+  }
 
   const start = parseDate(body.startDate)
   const end = parseDate(body.endDate)

@@ -11,7 +11,7 @@
 ```
 1. 路由 → insight research list + download
 2. 中金 → C100000026（references/lookup-ids.md 速查）
-   "宏观策略" → research-area: 宏观 122000001 + 策略 122000002
+   "宏观策略" → 研报分类 --category macro + strategy（research list 无 --research-area）
    "最近" → 默认 7 天
 3. Pre-flight：
    - 认证 OK
@@ -19,7 +19,7 @@
    - 下载格式 → 🔴 询问 PDF 还是 Markdown
 4. gangtise insight research list \
      --broker C100000026 \
-     --research-area 122000001 --research-area 122000002 \
+     --category macro --category strategy \
      --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" \
      --rank-type 2 --format json
 5. 提取 reportId + title 展示，让用户选择具体一篇 → 确认 file-type

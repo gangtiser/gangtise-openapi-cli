@@ -1,6 +1,52 @@
-import { describe, expect, it } from "vitest"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
-import { renderOutput } from "../../src/core/output.js"
+import { afterEach, describe, expect, it } from "vitest"
+
+import { renderOutput, streamOutputToFile } from "../../src/core/output.js"
+
+describe("streamOutputToFile error handling", () => {
+  const dir = path.join(os.tmpdir(), `gangtise-output-test-${process.pid}`)
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  it("rejects instead of crashing the process when the target is not writable", async () => {
+    // Pointing the output at an existing directory makes the write stream emit
+    // 'error' (EISDIR); without a listener that used to be an uncaughtException
+    // that bypassed the CLI's try/catch entirely.
+    const target = path.join(dir, "as-dir")
+    await fs.mkdir(target, { recursive: true })
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ id: i }))
+    await expect(streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).rejects.toThrow()
+  })
+
+  it("streams ≥1000 jsonl rows to disk and every line parses back", async () => {
+    const target = path.join(dir, "big.jsonl")
+    const rows = Array.from({ length: 1200 }, (_, i) => ({ id: i, note: i === 7 ? "换行\n引号\"" : "ok" }))
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).toBe(true)
+    const lines = (await fs.readFile(target, "utf8")).trimEnd().split("\n")
+    expect(lines).toHaveLength(1200)
+    expect(JSON.parse(lines[7])).toEqual({ id: 7, note: "换行\n引号\"" })
+  })
+
+  it("streams csv with escaping and skips non-object rows", async () => {
+    const target = path.join(dir, "big.csv")
+    const rows: unknown[] = Array.from({ length: 1100 }, (_, i) => ({ a: i, b: i === 3 ? "x,y" : "z" }))
+    rows.push(null) // csv branch silently drops non-object rows — lock that in
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", target)).toBe(true)
+    const lines = (await fs.readFile(target, "utf8")).trimEnd().split("\n")
+    expect(lines[0]).toBe("a,b")
+    expect(lines).toHaveLength(1 + 1100)
+    expect(lines[4]).toBe('3,"x,y"')
+  })
+
+  it("returns false below the 1000-row streaming threshold (caller falls back to join)", async () => {
+    expect(await streamOutputToFile({ total: 2, list: [{ a: 1 }] }, "jsonl", path.join(dir, "small.jsonl"))).toBe(false)
+  })
+})
 
 describe("renderOutput", () => {
   it("renders field-list style rows as JSON", () => {

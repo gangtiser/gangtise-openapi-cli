@@ -82,6 +82,16 @@ export function toTimestamp13(value: string | undefined): number | undefined {
   const num = Number(value)
   if (!Number.isNaN(num) && num > 1e12) return num
   if (!Number.isNaN(num) && num > 1e9) return num * 1000
+  // `new Date("yyyy-MM-dd")` parses as UTC midnight while `new Date("yyyy-MM-dd HH:mm:ss")`
+  // parses as local time — for CST users the two forms would differ by 8 hours and
+  // silently shift the query window. Anchor date-only input to local midnight so both
+  // forms mean the same wall-clock day.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnly) {
+    const d = new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    const valid = d.getMonth() === Number(dateOnly[2]) - 1 && d.getDate() === Number(dateOnly[3])
+    return valid ? d.getTime() : undefined
+  }
   const ms = new Date(value).getTime()
   if (Number.isNaN(ms)) return undefined
   return ms

@@ -202,17 +202,22 @@ export class GangtiseClient {
     const total = firstPage.total
     const collected: unknown[] = [...firstPage.list]
 
-    // Last page reached on first request
+    const available = Math.max(total - startFrom, 0)
+    const target = requestedSize === undefined ? available : Math.min(requestedSize, available)
+
+    // Last page reached on first request. If `total` promises more rows than the
+    // short page delivered, the server's page cap may be lower than our configured
+    // maxPageSize — say so instead of silently returning a subset as "everything".
     if (firstPage.list.length < firstPageSize) {
+      if (collected.length < target) {
+        process.stderr.write(`[gangtise] warning: server returned a short page (${collected.length} rows) but reported total=${total}; treating it as the end of data — results may be incomplete\n`)
+      }
       return {
         ...firstPage,
         total,
         list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
       }
     }
-
-    const available = Math.max(total - startFrom, 0)
-    const target = requestedSize === undefined ? available : Math.min(requestedSize, available)
 
     if (collected.length >= target) {
       return {
@@ -263,7 +268,10 @@ export class GangtiseClient {
           size: req.size,
         })
         if (!this.isPaginatedListResponse(page)) {
+          // Treat a shape-broken page like a failed page: its rows are missing, so
+          // the result must carry the partial marker instead of looking complete.
           unexpectedShape = true
+          failedPages.push(req)
           return [] as unknown[]
         }
         if (page.total !== total) totalDrift = true
@@ -281,11 +289,11 @@ export class GangtiseClient {
       collected.push(...list)
     }
 
-    if (unexpectedShape && isVerbose()) {
-      process.stderr.write(`[gangtise] warning: a page response had unexpected shape; results may be incomplete\n`)
+    if (unexpectedShape) {
+      process.stderr.write(`[gangtise] warning: a page response had unexpected shape; its rows are missing (counted in failedPages)\n`)
     }
-    if (totalDrift && isVerbose()) {
-      process.stderr.write(`[gangtise] warning: 'total' changed across pages (data shifted during fetch)\n`)
+    if (totalDrift) {
+      process.stderr.write(`[gangtise] warning: 'total' changed across pages (data shifted during fetch); rows may be duplicated or missing\n`)
     }
     // Always surface a cap-induced truncation (not gated on verbose): the user
     // asked for everything and is silently getting a subset, mirroring the
@@ -303,7 +311,8 @@ export class GangtiseClient {
       out.partial = true
       out.failedPages = failedPages.map((p) => ({ from: p.from, size: p.size }))
       const detail = firstError instanceof Error ? `: ${firstError.message}` : ""
-      process.stderr.write(`[gangtise] warning: ${failedPages.length}/${pageRequests.length} pages not fetched${detail}; results are partial — got ${collected.length}/${total} rows (see failedPages). A page hit a non-retryable error (e.g. rate limit); remaining pages were skipped.\n`)
+      const skippedHint = aborted ? " A page hit a non-retryable error (e.g. rate limit); remaining pages were skipped." : ""
+      process.stderr.write(`[gangtise] warning: ${failedPages.length}/${pageRequests.length} pages not fetched${detail}; results are partial — got ${collected.length}/${total} rows (see failedPages).${skippedHint}\n`)
     }
     return out
   }
@@ -341,6 +350,7 @@ export class GangtiseClient {
     let from = startFrom
     const MAX_PAGES = 1000
     let truncatedByPageCap = false
+    let partialShape = false
 
     for (let page = 0; ; page++) {
       const remaining = requestedSize === undefined ? maxPageSize : requestedSize - collected.length
@@ -356,6 +366,7 @@ export class GangtiseClient {
         // LATER page losing shape must NOT discard the rows already collected (mirrors
         // requestPaginated's fail-soft fan-out): stop, keep them, and warn loudly.
         if (page === 0) return firstPage
+        partialShape = true
         process.stderr.write(`[gangtise] warning: a page response had unexpected shape; results are partial — ${collected.length} rows fetched.\n`)
         break
       }
@@ -372,7 +383,9 @@ export class GangtiseClient {
     }
 
     const rows = requestedSize === undefined ? collected : collected.slice(0, requestedSize)
-    return { [listKey]: rows }
+    const out: Record<string, unknown> = { [listKey]: rows }
+    if (partialShape) out.partial = true
+    return out
   }
 
   async login() {
@@ -511,7 +524,18 @@ export class GangtiseClient {
       const filenameMatch = Array.isArray(contentDisposition)
         ? contentDisposition[0]?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
         : contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
-      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1] || filenameMatch[2]) : undefined
+      // A plain filename= value with a bare % ("增长100%.pdf") is not valid URI
+      // encoding — decodeURIComponent would throw and fail the whole download over
+      // a cosmetic hint. Fall back to the raw value instead.
+      let filename: string | undefined
+      if (filenameMatch) {
+        const raw = filenameMatch[1] || filenameMatch[2]
+        try {
+          filename = decodeURIComponent(raw)
+        } catch {
+          filename = raw
+        }
+      }
 
       // Stream directly to disk when caller already knows the destination
       if (options?.streamTo) {

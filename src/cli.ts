@@ -8,7 +8,7 @@ import { buildIndicatorCrossSectionBody, buildIndicatorTimeSeriesBody, buildQuot
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
-import { resolveTitle, saveDownloadResult } from "./core/download.js"
+import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
 import { ENDPOINTS } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
 import { normalizeRows } from "./core/normalize.js"
@@ -34,8 +34,11 @@ async function emit(
   produce: (client: GangtiseClient) => Promise<unknown>,
   cache?: TitleCacheConfig,
 ): Promise<void> {
+  // Validate --format before fetching: a typo'd format must not burn a full
+  // (possibly credit-metered) data pull only to fail at render time.
+  const format = parseOutputFormat(options.format)
   const client = await createClient()
-  await printData(await produce(client), parseOutputFormat(options.format), options.output, cache)
+  await printData(await produce(client), format, options.output, cache)
 }
 
 /** Acquire a client and run an arbitrary action (downloads, polling, custom shaping). */
@@ -61,7 +64,8 @@ async function runDownload(
   }
   const result = await client.call(endpointKey, undefined, query)
   const resolved = options.resolveOutputPath ? await options.resolveOutputPath(result) : undefined
-  await saveDownloadResult(result, options.fallbackName, resolved)
+  // Title-derived names are auto-generated too — dedupe them like the fallback names.
+  await saveDownloadResult(result, options.fallbackName, resolved ? await uniquePath(resolved) : undefined)
 }
 
 /**
@@ -379,6 +383,7 @@ addFinancialReport("balance-sheet-us", "fundamental.balance-sheet-us", "Period: 
 addFinancialReport("cash-flow-us", "fundamental.cash-flow-us", "Period: q1/h1/q3/nsd/annual/latest")
 fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>").option("--end-date <date>").addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).option("--period <type>", "Period: interim/annual", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, breakdown: options.breakdown, periodList: maybeArray(options.period), fieldList: maybeArray(options.field) })))
 fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--skip-null", "Drop rows where value or percentileRank is null").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
   let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList: maybeArray(options.field) })
   if (options.skipNull) {
     const normalized = normalizeRows(data)
@@ -394,7 +399,7 @@ fundamental.command("valuation-analysis").requiredOption("--security-code <code>
       }
     }
   }
-  await printData(data, parseOutputFormat(options.format), options.output)
+  await printData(data, format, options.output)
 }))
 fundamental.command("top-holders").requiredOption("--security-code <code>").addOption(new Option("--holder-type <type>", "Holder type: top10/top10Float").choices(["top10", "top10Float"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period: q1/interim/q3/annual/latest", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("fundamental.top-holders", { securityCode: options.securityCode, holderType: options.holderType, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined })))
 fundamental.command("earning-forecast").requiredOption("--security-code <code>").option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: today)").option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => {
@@ -420,6 +425,7 @@ ai.command("one-pager").requiredOption("--security-code <code>").option("--forma
 ai.command("investment-logic").requiredOption("--security-code <code>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("ai.investment-logic", { securityCode: options.securityCode })))
 ai.command("peer-comparison").requiredOption("--security-code <code>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("ai.peer-comparison", { securityCode: options.securityCode })))
 ai.command("earnings-review").requiredOption("--security-code <code>").requiredOption("--period <period>", "Report period (e.g. 2025q3, 2025interim, 2025annual)").option("--wait", "Wait for content generation (blocking, up to 3 min)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
   const idResult = await client.call("ai.earnings-review.get-id", { securityCode: options.securityCode, period: options.period }) as { dataId?: string }
   const dataId = idResult?.dataId
   if (!dataId) {
@@ -435,7 +441,7 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
   }
 
   process.stderr.write(`Got dataId: ${dataId}, waiting for content generation...\n`)
-  if (!await pollAsyncContent(client, "ai.earnings-review.get-content", dataId, parseOutputFormat(options.format), options.output)) {
+  if (!await pollAsyncContent(client, "ai.earnings-review.get-content", dataId, format, options.output)) {
     process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai earnings-review-check --data-id ${dataId}\n`)
     process.exitCode = 1
   }
@@ -469,6 +475,7 @@ ai.command("management-discuss-earnings-call").requiredOption("--report-date <da
     discussionDimension: options.dimension,
   })))
 ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint text (max 1000 chars)").option("--wait", "Wait for content generation (blocking, up to 3 min)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
   const idResult = await client.call("ai.viewpoint-debate.get-id", { viewpoint: options.viewpoint }) as { dataId?: string }
   const dataId = idResult?.dataId
   if (!dataId) {
@@ -484,7 +491,7 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   }
 
   process.stderr.write(`Got dataId: ${dataId}, waiting for content generation...\n`)
-  if (!await pollAsyncContent(client, "ai.viewpoint-debate.get-content", dataId, parseOutputFormat(options.format), options.output)) {
+  if (!await pollAsyncContent(client, "ai.viewpoint-debate.get-content", dataId, format, options.output)) {
     process.stderr.write(`Content not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise ai viewpoint-debate-check --data-id ${dataId}\n`)
     process.exitCode = 1
   }
@@ -539,6 +546,7 @@ alternative.command("edb-search").requiredOption("--keyword <text>", "Search key
     limit: parseNumberOption(options.limit, "--limit", { integer: true, min: 1 }),
   })))
 alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (repeat, max 10)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)").requiredOption("--end-date <date>", "End date (yyyy-MM-dd)").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
   const raw = await client.call("alternative.edb-data", {
     indicatorIdList: options.indicatorId,
     startDate: options.startDate,
@@ -554,7 +562,7 @@ alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (rep
     )
     data = { list, total: list.length }
   }
-  await printData(data, parseOutputFormat(options.format), options.output)
+  await printData(data, format, options.output)
 }))
 alternative.command("concept-info").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-info", { conceptId: options.conceptId })))
 alternative.command("concept-securities").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-securities", { conceptId: options.conceptId })))
@@ -562,19 +570,22 @@ program.addCommand(alternative)
 
 const indicator = new Command("indicator").description("Data indicator (EDE) APIs: search codes, cross-section, time-series")
 indicator.command("search").requiredOption("--keyword <text>", "Search keyword, e.g. '收盘价' '成交量' '营业收入' (not free-form questions)").option("--limit <number>", "Max results (default: 50, max: 100)", "50").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.search", {
     keyword: options.keyword,
     limit: parseNumberOption(options.limit, "--limit", { integer: true, min: 1 }),
   })
-  await printData(unwrapIndicatorData(raw), parseOutputFormat(options.format), options.output)
+  await printData(unwrapIndicatorData(raw), format, options.output)
 }))
 indicator.command("cross-section").option("--indicator <code>", "Indicator code, e.g. qte_close (repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH (repeat for multiple)", collectList, []).requiredOption("--date <date>", "Data date (yyyy-MM-dd)").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustmentType=2 for 前复权 (repeat)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.cross-section", buildIndicatorCrossSectionBody(options))
-  await printData(flattenCrossSection(unwrapIndicatorData(raw)), parseOutputFormat(options.format), options.output)
+  await printData(flattenCrossSection(unwrapIndicatorData(raw)), format, options.output)
 }))
 indicator.command("time-series").option("--indicator <code>", "Indicator code, e.g. qte_close (repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH (repeat for multiple)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)").requiredOption("--end-date <date>", "End date (yyyy-MM-dd)").option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday (default TD)").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustmentType=2 for 前复权 (repeat)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.time-series", buildIndicatorTimeSeriesBody(options))
-  await printData(flattenTimeSeries(unwrapIndicatorData(raw)), parseOutputFormat(options.format), options.output)
+  await printData(flattenTimeSeries(unwrapIndicatorData(raw)), format, options.output)
 }))
 program.addCommand(indicator)
 
@@ -583,6 +594,7 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
   if (!endpoint) {
     throw new ConfigError(`Unknown endpoint key: ${endpointKey}`)
   }
+  const format = parseOutputFormat(options.format)
   const client = await createClient()
   let body: unknown
   if (options.body) {
@@ -600,7 +612,7 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
     return
   }
   const data = await client.call(endpointKey, body, options.query)
-  await printData(data, parseOutputFormat(options.format), options.output)
+  await printData(data, format, options.output)
 }))
 
 async function checkForUpdate(timeoutMs = 2000): Promise<void> {
@@ -623,6 +635,13 @@ async function checkForUpdate(timeoutMs = 2000): Promise<void> {
     req.setTimeout(timeoutMs, () => { req.destroy(); resolve() })
   })
 }
+
+// `gangtise ... | head` closes stdout early; without a handler the final big write
+// crashes Node with an unhandled 'error' event. Exit quietly like a normal CLI.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error?.code === "EPIPE") process.exit(0)
+  throw error
+})
 
 async function main() {
   if (process.argv.includes("--version") || process.argv.includes("-V")) {

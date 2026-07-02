@@ -111,6 +111,29 @@ describe("saveDownloadResult", () => {
     }
   })
 
+  it("suffixes auto-derived filenames instead of overwriting an existing file", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      await saveDownloadResult({ data: new Uint8Array([1]), contentType: "application/pdf", filename: "2025年第一季度报告.pdf" }, "fallback")
+      await saveDownloadResult({ data: new Uint8Array([2]), contentType: "application/pdf", filename: "2025年第一季度报告.pdf" }, "fallback")
+      // Batch downloads with colliding titles keep both files (-1 suffix), so the
+      // first download never silently vanishes.
+      expect(new Uint8Array(await fs.readFile(path.join(dir, "2025年第一季度报告.pdf")))).toEqual(new Uint8Array([1]))
+      expect(new Uint8Array(await fs.readFile(path.join(dir, "2025年第一季度报告-1.pdf")))).toEqual(new Uint8Array([2]))
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
+  it("keeps plain overwrite semantics for an explicit output path", async () => {
+    const out = path.join(dir, "explicit.pdf")
+    await saveDownloadResult({ data: new Uint8Array([1]), contentType: "application/pdf" }, "fallback", out)
+    await saveDownloadResult({ data: new Uint8Array([2]), contentType: "application/pdf" }, "fallback", out)
+    expect(new Uint8Array(await fs.readFile(out))).toEqual(new Uint8Array([2]))
+  })
+
   it("sanitizes a server-provided filename containing path separators", async () => {
     await fs.mkdir(dir, { recursive: true })
     const cwd = process.cwd()

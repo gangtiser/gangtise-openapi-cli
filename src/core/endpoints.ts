@@ -16,10 +16,11 @@ export interface EndpointDefinition {
   }
 }
 
-export const ENDPOINTS: Record<string, EndpointDefinition> = {
+// Registry entries omit `key`: it is derived from the record key when ENDPOINTS is
+// built below, so the two can never drift.
+const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
   // ─── auth ───
   "auth.login": {
-    key: "auth.login",
     method: "POST",
     path: "/application/auth/oauth/open/loginV2",
     kind: "json",
@@ -28,14 +29,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── lookup (served from local data, not HTTP) ───
   "lookup.broker-orgs.list": {
-    key: "lookup.broker-orgs.list",
     method: "GET",
     path: "/guide/broker-orgs-local",
     kind: "json",
     description: "List broker orgs from local docs",
   },
   "lookup.meeting-orgs.list": {
-    key: "lookup.meeting-orgs.list",
     method: "GET",
     path: "/guide/meeting-orgs-local",
     kind: "json",
@@ -44,7 +43,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── insight ───
   "insight.opinion.list": {
-    key: "insight.opinion.list",
     method: "POST",
     path: "/application/open-insight/chief-opinion/getList",
     kind: "json",
@@ -52,7 +50,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.summary.list": {
-    key: "insight.summary.list",
     method: "POST",
     path: "/application/open-insight/summary/v2/getList",
     kind: "json",
@@ -60,14 +57,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.summary.download": {
-    key: "insight.summary.download",
     method: "GET",
     path: "/application/open-insight/summary/v2/download/file",
     kind: "download",
     description: "Download summary file",
   },
   "insight.roadshow.list": {
-    key: "insight.roadshow.list",
     method: "POST",
     path: "/application/open-insight/schedule/roadshow/getList",
     kind: "json",
@@ -75,7 +70,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.site-visit.list": {
-    key: "insight.site-visit.list",
     method: "POST",
     path: "/application/open-insight/schedule/site-visit/getList",
     kind: "json",
@@ -83,7 +77,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.strategy.list": {
-    key: "insight.strategy.list",
     method: "POST",
     path: "/application/open-insight/schedule/strategy-meeting/getList",
     kind: "json",
@@ -91,7 +84,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.forum.list": {
-    key: "insight.forum.list",
     method: "POST",
     path: "/application/open-insight/schedule/forum/getList",
     kind: "json",
@@ -99,7 +91,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.research.list": {
-    key: "insight.research.list",
     method: "POST",
     path: "/application/open-insight/broker-report/getList",
     kind: "json",
@@ -107,14 +98,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.research.download": {
-    key: "insight.research.download",
     method: "GET",
     path: "/application/open-insight/broker-report/download/file",
     kind: "download",
     description: "Download broker research report",
   },
   "insight.foreign-report.list": {
-    key: "insight.foreign-report.list",
     method: "POST",
     path: "/application/open-insight/foreign-report/getList",
     kind: "json",
@@ -122,14 +111,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.foreign-report.download": {
-    key: "insight.foreign-report.download",
     method: "GET",
     path: "/application/open-insight/foreign-report/download/file",
     kind: "download",
     description: "Download foreign report",
   },
   "insight.announcement.list": {
-    key: "insight.announcement.list",
     method: "POST",
     path: "/application/open-insight/announcement/getList",
     kind: "json",
@@ -137,14 +124,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.announcement.download": {
-    key: "insight.announcement.download",
     method: "GET",
     path: "/application/open-insight/announcement/download/file",
     kind: "download",
     description: "Download A-share announcement file",
   },
   "insight.announcement-hk.list": {
-    key: "insight.announcement-hk.list",
     method: "POST",
     path: "/application/open-insight/announcement-hk/getList",
     kind: "json",
@@ -152,14 +137,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.announcement-hk.download": {
-    key: "insight.announcement-hk.download",
     method: "GET",
     path: "/application/open-insight/announcement-hk/download/file",
     kind: "download",
     description: "Download HK announcement file",
   },
   "insight.announcement-us.list": {
-    key: "insight.announcement-us.list",
     method: "POST",
     path: "/application/open-insight/announcement-us/getList",
     kind: "json",
@@ -167,14 +150,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.announcement-us.download": {
-    key: "insight.announcement-us.download",
     method: "GET",
     path: "/application/open-insight/announcement-us/download/file",
     kind: "download",
     description: "Download US announcement file",
   },
   "insight.foreign-opinion.list": {
-    key: "insight.foreign-opinion.list",
     method: "POST",
     path: "/application/open-insight/foreign-opinion/getList",
     kind: "json",
@@ -182,7 +163,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.independent-opinion.list": {
-    key: "insight.independent-opinion.list",
     method: "POST",
     path: "/application/open-insight/independent-opinion/getList",
     kind: "json",
@@ -190,14 +170,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.independent-opinion.download": {
-    key: "insight.independent-opinion.download",
     method: "GET",
     path: "/application/open-insight/independent-opinion/download/file",
     kind: "download",
     description: "Download foreign independent opinion file",
   },
   "insight.official-account.list": {
-    key: "insight.official-account.list",
     method: "POST",
     path: "/application/open-insight/officialAccount/getList",
     kind: "json",
@@ -205,7 +183,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "insight.official-account.download": {
-    key: "insight.official-account.download",
     method: "GET",
     path: "/application/open-insight/officialAccount/download/file",
     kind: "download",
@@ -214,49 +191,42 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── reference ───
   "reference.securities-search": {
-    key: "reference.securities-search",
     method: "POST",
     path: "/application/open-reference/securities/search",
     kind: "json",
     description: "Search GTS codes (securities)",
   },
   "reference.chiefs-search": {
-    key: "reference.chiefs-search",
     method: "POST",
     path: "/application/open-reference/chiefs/search",
     kind: "json",
     description: "Search chief analyst IDs by name / institution / team",
   },
   "reference.constant-category": {
-    key: "reference.constant-category",
     method: "GET",
     path: "/application/open-reference/constants/category",
     kind: "json",
     description: "List constant categories and their API usage scopes",
   },
   "reference.constant-list": {
-    key: "reference.constant-list",
     method: "POST",
     path: "/application/open-reference/constants/getList",
     kind: "json",
     description: "List all constant values of a category",
   },
   "reference.concept-search": {
-    key: "reference.concept-search",
     method: "POST",
     path: "/application/open-reference/concepts/search",
     kind: "json",
     description: "Search concept (theme) IDs by keyword",
   },
   "reference.sector-search": {
-    key: "reference.sector-search",
     method: "POST",
     path: "/application/open-reference/sectors/search",
     kind: "json",
     description: "Search sector IDs by keyword",
   },
   "reference.sector-constituents": {
-    key: "reference.sector-constituents",
     method: "POST",
     path: "/application/open-reference/sectors/constituents",
     kind: "json",
@@ -265,42 +235,36 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── quote ───
   "quote.day-kline": {
-    key: "quote.day-kline",
     method: "POST",
     path: "/application/open-quote/kline/daily",
     kind: "json",
     description: "Query A-share historical daily kline (SH/SZ/BJ)",
   },
   "quote.day-kline-hk": {
-    key: "quote.day-kline-hk",
     method: "POST",
     path: "/application/open-quote/kline-hk/daily",
     kind: "json",
     description: "Query HK stock historical daily kline (HK)",
   },
   "quote.day-kline-us": {
-    key: "quote.day-kline-us",
     method: "POST",
     path: "/application/open-quote/kline-us/daily",
     kind: "json",
     description: "Query US stock historical daily kline (NYSE/NASDAQ/AMEX)",
   },
   "quote.index-day-kline": {
-    key: "quote.index-day-kline",
     method: "POST",
     path: "/application/open-quote/index/kline/daily",
     kind: "json",
     description: "Query SH/SZ/BJ index daily kline",
   },
   "quote.minute-kline": {
-    key: "quote.minute-kline",
     method: "POST",
     path: "/application/open-quote/kline/minute",
     kind: "json",
     description: "Query A-share minute kline (SH/SZ/BJ)",
   },
   "quote.realtime": {
-    key: "quote.realtime",
     method: "POST",
     path: "/application/open-quote/quote/realtime",
     kind: "json",
@@ -309,105 +273,90 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── fundamental ───
   "fundamental.income-statement": {
-    key: "fundamental.income-statement",
     method: "POST",
     path: "/application/open-fundamental/financial-report/income-statement/accumulated",
     kind: "json",
     description: "Query A-share income statement (accumulated)",
   },
   "fundamental.income-statement-quarterly": {
-    key: "fundamental.income-statement-quarterly",
     method: "POST",
     path: "/application/open-fundamental/financial-report/income-statement/quarterly",
     kind: "json",
     description: "Query A-share income statement (quarterly)",
   },
   "fundamental.balance-sheet": {
-    key: "fundamental.balance-sheet",
     method: "POST",
     path: "/application/open-fundamental/financial-report/balance-sheet/accumulated",
     kind: "json",
     description: "Query A-share balance sheet (accumulated)",
   },
   "fundamental.cash-flow": {
-    key: "fundamental.cash-flow",
     method: "POST",
     path: "/application/open-fundamental/financial-report/cash-flow-statement/accumulated",
     kind: "json",
     description: "Query A-share cash flow statement (accumulated)",
   },
   "fundamental.cash-flow-quarterly": {
-    key: "fundamental.cash-flow-quarterly",
     method: "POST",
     path: "/application/open-fundamental/financial-report/cash-flow-statement/quarterly",
     kind: "json",
     description: "Query A-share cash flow statement (quarterly)",
   },
   "fundamental.income-statement-hk": {
-    key: "fundamental.income-statement-hk",
     method: "POST",
     path: "/application/open-fundamental/financial-report/income-statement/hk",
     kind: "json",
     description: "Query HK income statement (China GAAP)",
   },
   "fundamental.balance-sheet-hk": {
-    key: "fundamental.balance-sheet-hk",
     method: "POST",
     path: "/application/open-fundamental/financial-report/balance-sheet/hk",
     kind: "json",
     description: "Query HK balance sheet (China GAAP)",
   },
   "fundamental.cash-flow-hk": {
-    key: "fundamental.cash-flow-hk",
     method: "POST",
     path: "/application/open-fundamental/financial-report/cash-flow-statement/hk",
     kind: "json",
     description: "Query HK cash flow statement (China GAAP)",
   },
   "fundamental.income-statement-us": {
-    key: "fundamental.income-statement-us",
     method: "POST",
     path: "/application/open-fundamental/financial-report/income-statement/us",
     kind: "json",
     description: "Query US income statement",
   },
   "fundamental.balance-sheet-us": {
-    key: "fundamental.balance-sheet-us",
     method: "POST",
     path: "/application/open-fundamental/financial-report/balance-sheet/us",
     kind: "json",
     description: "Query US balance sheet",
   },
   "fundamental.cash-flow-us": {
-    key: "fundamental.cash-flow-us",
     method: "POST",
     path: "/application/open-fundamental/financial-report/cash-flow-statement/us",
     kind: "json",
     description: "Query US cash flow statement",
   },
   "fundamental.main-business": {
-    key: "fundamental.main-business",
     method: "POST",
     path: "/application/open-fundamental/main-business",
     kind: "json",
     description: "Query main business composition",
   },
   "fundamental.valuation-analysis": {
-    key: "fundamental.valuation-analysis",
     method: "POST",
     path: "/application/open-fundamental/valuation-analysis",
     kind: "json",
     description: "Query valuation analysis",
   },
   "fundamental.top-holders": {
-    key: "fundamental.top-holders",
     method: "POST",
     path: "/application/open-fundamental/capital-structure/top-holders",
     kind: "json",
     description: "Query top holders (top10 / top10 float)",
   },
   "fundamental.earning-forecast": {
-    key: "fundamental.earning-forecast",
     method: "POST",
     path: "/application/open-fundamental/earning-forecast",
     kind: "json",
@@ -416,28 +365,24 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── ai ───
   "ai.stock-summary.list": {
-    key: "ai.stock-summary.list",
     method: "POST",
     path: "/application/open-ai/stock-summary/getList",
     kind: "json",
     description: "Stock highlights (refined research summary per security)",
   },
   "ai.knowledge-batch": {
-    key: "ai.knowledge-batch",
     method: "POST",
     path: "/application/open-data/ai/search/knowledge/batch",
     kind: "json",
     description: "Batch knowledge search",
   },
   "ai.knowledge-resource.download": {
-    key: "ai.knowledge-resource.download",
     method: "GET",
     path: "/application/open-data/ai/resource/download",
     kind: "download",
     description: "Download knowledge resource",
   },
   "ai.security-clue.list": {
-    key: "ai.security-clue.list",
     method: "POST",
     path: "/application/open-ai/security-clue/getList",
     kind: "json",
@@ -445,56 +390,48 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 500 },
   },
   "ai.one-pager": {
-    key: "ai.one-pager",
     method: "POST",
     path: "/application/open-ai/agent/one-pager",
     kind: "json",
     description: "Generate one pager",
   },
   "ai.investment-logic": {
-    key: "ai.investment-logic",
     method: "POST",
     path: "/application/open-ai/agent/investment-logic",
     kind: "json",
     description: "Generate investment logic",
   },
   "ai.peer-comparison": {
-    key: "ai.peer-comparison",
     method: "POST",
     path: "/application/open-ai/agent/peer-comparison",
     kind: "json",
     description: "Generate peer comparison",
   },
   "ai.earnings-review.get-id": {
-    key: "ai.earnings-review.get-id",
     method: "POST",
     path: "/application/open-ai/agent/earnings-review-getid",
     kind: "json",
     description: "Get earnings review ID",
   },
   "ai.earnings-review.get-content": {
-    key: "ai.earnings-review.get-content",
     method: "POST",
     path: "/application/open-ai/agent/earnings-review-getcontent",
     kind: "json",
     description: "Get earnings review content",
   },
   "ai.theme-tracking": {
-    key: "ai.theme-tracking",
     method: "POST",
     path: "/application/open-ai/agent/theme-tracking",
     kind: "json",
     description: "Get theme tracking daily report",
   },
   "ai.research-outline": {
-    key: "ai.research-outline",
     method: "POST",
     path: "/application/open-ai/agent/research-outline",
     kind: "json",
     description: "Get company research outline",
   },
   "ai.hot-topic": {
-    key: "ai.hot-topic",
     method: "POST",
     path: "/application/open-ai/hot-topic/getList",
     kind: "json",
@@ -502,28 +439,24 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 20 },
   },
   "ai.management-discuss-announcement": {
-    key: "ai.management-discuss-announcement",
     method: "POST",
     path: "/application/open-ai/management-discuss/from-announcement",
     kind: "json",
     description: "Management discussion from financial reports (half-year/annual)",
   },
   "ai.management-discuss-earnings-call": {
-    key: "ai.management-discuss-earnings-call",
     method: "POST",
     path: "/application/open-ai/management-discuss/from-earningsCall",
     kind: "json",
     description: "Management discussion from earnings calls",
   },
   "ai.viewpoint-debate.get-id": {
-    key: "ai.viewpoint-debate.get-id",
     method: "POST",
     path: "/application/open-ai/agent/viewpoint-debate-getid",
     kind: "json",
     description: "Get viewpoint debate ID",
   },
   "ai.viewpoint-debate.get-content": {
-    key: "ai.viewpoint-debate.get-content",
     method: "POST",
     path: "/application/open-ai/agent/viewpoint-debate-getcontent",
     kind: "json",
@@ -532,7 +465,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── vault ───
   "vault.drive.list": {
-    key: "vault.drive.list",
     method: "POST",
     path: "/application/open-vault/drive/getList",
     kind: "json",
@@ -540,14 +472,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "vault.drive.download": {
-    key: "vault.drive.download",
     method: "GET",
     path: "/application/open-vault/drive/download/file",
     kind: "download",
     description: "Download vault drive file",
   },
   "vault.record.list": {
-    key: "vault.record.list",
     method: "POST",
     path: "/application/open-vault/record/getList",
     kind: "json",
@@ -555,14 +485,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "vault.record.download": {
-    key: "vault.record.download",
     method: "GET",
     path: "/application/open-vault/record/download/file",
     kind: "download",
     description: "Download voice recording transcription file",
   },
   "vault.my-conference.list": {
-    key: "vault.my-conference.list",
     method: "POST",
     path: "/application/open-vault/my-conference/getList",
     kind: "json",
@@ -570,14 +498,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "vault.my-conference.download": {
-    key: "vault.my-conference.download",
     method: "GET",
     path: "/application/open-vault/my-conference/download/file",
     kind: "download",
     description: "Download my conference resource",
   },
   "vault.wechat-message.list": {
-    key: "vault.wechat-message.list",
     method: "POST",
     path: "/application/open-vault/wechatgroupmsg/list",
     kind: "json",
@@ -585,7 +511,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50 },
   },
   "vault.wechat-chatroom.list": {
-    key: "vault.wechat-chatroom.list",
     method: "POST",
     path: "/application/open-vault/wechatgroupmsg/chatroomId",
     kind: "json",
@@ -594,14 +519,12 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     pagination: { enabled: true, maxPageSize: 50, sequential: true, listKey: "chatRoomList" },
   },
   "vault.stock-pool.list": {
-    key: "vault.stock-pool.list",
     method: "POST",
     path: "/application/open-vault/stock-pool/getPoolList",
     kind: "json",
     description: "List user stock pool IDs and names",
   },
   "vault.stock-pool.stocks": {
-    key: "vault.stock-pool.stocks",
     method: "POST",
     path: "/application/open-vault/stock-pool/getStockList",
     kind: "json",
@@ -610,28 +533,24 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── alternative ───
   "alternative.edb-search": {
-    key: "alternative.edb-search",
     method: "POST",
     path: "/application/open-alternative/EDB/search",
     kind: "json",
     description: "Search industry indicator list by keyword",
   },
   "alternative.edb-data": {
-    key: "alternative.edb-data",
     method: "POST",
     path: "/application/open-alternative/EDB/getData",
     kind: "json",
     description: "Get industry indicator time-series data by indicator ID list",
   },
   "alternative.concept-info": {
-    key: "alternative.concept-info",
     method: "POST",
     path: "/application/open-alternative/concept/info",
     kind: "json",
     description: "Query latest concept (theme index) profile by conceptId",
   },
   "alternative.concept-securities": {
-    key: "alternative.concept-securities",
     method: "POST",
     path: "/application/open-alternative/concept/securities",
     kind: "json",
@@ -640,24 +559,25 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
 
   // ─── indicator (EDE: security-level data indicators) ───
   "indicator.search": {
-    key: "indicator.search",
     method: "POST",
     path: "/application/open-indicator/EDE/search",
     kind: "json",
     description: "Search data indicators by keyword (returns indicatorCode + params)",
   },
   "indicator.cross-section": {
-    key: "indicator.cross-section",
     method: "POST",
     path: "/application/open-indicator/EDE/cross-section",
     kind: "json",
     description: "Get cross-section data (multi-indicator x multi-security, single date)",
   },
   "indicator.time-series": {
-    key: "indicator.time-series",
     method: "POST",
     path: "/application/open-indicator/EDE/time-series",
     kind: "json",
     description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
   },
 }
+
+export const ENDPOINTS: Record<string, EndpointDefinition> = Object.fromEntries(
+  Object.entries(ENDPOINT_DEFS).map(([key, def]) => [key, { key, ...def }]),
+)

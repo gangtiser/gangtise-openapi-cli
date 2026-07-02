@@ -128,6 +128,18 @@ describe("toTimestamp13", () => {
   it("returns undefined for unparseable strings", () => {
     expect(toTimestamp13("not-a-date")).toBeUndefined()
   })
+
+  it("parses date-only input as local midnight, same as the datetime form", () => {
+    // "2025-04-01" used to parse as UTC midnight while "2025-04-01 00:00:00" parsed
+    // as local time — an 8h window shift for CST users. Both forms must agree.
+    expect(toTimestamp13("2025-04-01")).toBe(toTimestamp13("2025-04-01 00:00:00"))
+    expect(toTimestamp13("2025-04-01")).toBe(new Date(2025, 3, 1).getTime())
+  })
+
+  it("rejects out-of-range date-only input instead of rolling it over", () => {
+    expect(toTimestamp13("2025-13-01")).toBeUndefined()
+    expect(toTimestamp13("2025-02-30")).toBeUndefined()
+  })
 })
 
 describe("parseTimestamp13", () => {

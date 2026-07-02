@@ -331,11 +331,12 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `ai hot-topic`
 
 规则：
-- **有时间范围时**（传了 `--start-time/--end-time` 或 `--start-date/--end-date`）：**省略 `--size`**，CLI 自动翻页查全
-- **无时间范围时**（未传时间参数）：默认 `--size 200`，防止一次查询数据量过大
+- **省略 `--size` 一律拉全量**（无论是否传时间范围），CLI 自动翻页查完
+- 数据量未知时，可先 `--size 1` 从 stderr 的 `Total: N` 探明量级，再决定是否全量
 - 如果显式传了 `--size`，则按指定值翻页，直到达到 `size` 或数据取完
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
+- 部分页失败时不丢弃已取到的数据：结果带 `partial: true` 与 `failedPages`（K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`），同时 stderr 输出 `Total: N, showing: M`
 - `vault wechat-chatroom-list` 是特例：接口不返回 `total`，CLI 改为串行翻页——省略 `--size` 拉全量、传 `--size N` 取前 N 条，单页 50，无 `Total:` 提示
 
@@ -361,11 +362,11 @@ gangtise auth status
 ### Insight
 
 ```bash
-# 有时间范围 → 省略 --size，自动查全
+# 省略 --size → 自动翻页查全
 gangtise insight research list --start-time "2026-04-01 00:00:00" --end-time "2026-04-09 23:59:59"
 
-# 无时间范围 → 默认 --size 200
-gangtise insight research list --industry 100800126 --category company --llm-tag inDepth --rating buy
+# 无时间范围也是拉全量；只要前 200 条就显式传 --size
+gangtise insight research list --industry 100800126 --category company --llm-tag inDepth --rating buy --size 200
 
 # 多值 List 模式：一次查多家券商 + 多个行业 + 多个评级
 gangtise insight research list --broker C100000027 --broker C100000014 --industry 100800119 --industry 100800118 --rating buy --rating overweight --format json

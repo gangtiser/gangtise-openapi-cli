@@ -54,6 +54,18 @@ describe("callKlineWithSharding", () => {
     expect(call).toHaveBeenCalledTimes(1)
   })
 
+  it("still lifts the limit to API max for --security all when dates are missing", async () => {
+    // No dates → no sharding possible, but the single full-market request must
+    // not stay on the 6000-row default (it would silently truncate the result).
+    const call = vi.fn().mockResolvedValue({ list: [] })
+    await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+    }, { shardDays: 1 })
+
+    expect(call).toHaveBeenCalledTimes(1)
+    expect(call.mock.calls[0][1]).toMatchObject({ securityList: ["all"], limit: 10_000 })
+  })
+
   it("injects API-max limit (10000) for --security all when user didn't set --limit", async () => {
     const seenBodies: Array<Record<string, unknown>> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {

@@ -141,5 +141,5 @@ gangtise ai management-discuss-earnings-call --report-date <date> --security-cod
 ```
 
 - `--report-date`：接受 `xxxx-03-31` / `xxxx-06-30` / `xxxx-09-30` / `xxxx-12-31`
-- `--dimension`：同上
+- `--dimension`（**必选**）：`businessOperation` | `financialPerformance` | `developmentAndRisk`（注意：不支持 `all`，与财报版不同）
 - 返回 `content` 为字符串

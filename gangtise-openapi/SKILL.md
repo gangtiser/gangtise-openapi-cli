@@ -47,7 +47,7 @@ description: |-
 🔴 **需用户确认**：
 - `gangtise auth status` 未登录 → 提示配置 AK/SK 并中止
 - 多个命令同时匹配 → 复述理解让用户挑（如"搜索研报" → research list 还是 knowledge-batch？）
-- 用户说"全部 / 全量 / 全市场" → 确认是否真要拉全（默认 `--size 200`）
+- 用户说"全部 / 全量 / 全市场" → 确认量级再拉：省略 `--size` 就是拉全量（自动翻页，上限 1000 页）；先 `--size 1` 看 stderr 的 `Total: N` 再决定
 - 下载格式或 `--content-type` 未确定 → 询问（详见下方"下载规则"）
 - list→download 用户没指定具体文件 → 展示前 10 条让用户挑
 
@@ -55,7 +55,7 @@ description: |-
 - 公司名 → 先速查表，否则 `reference securities-search`
 - opaque ID → 先 `references/lookup-ids.md`
 - 模糊时间词 → 查"时间词映射"
-- 无时间范围 → 默认拉前 200 条（不必问）
+- 无时间范围且用户没要求全量 → 主动加 `--size 200` 兜底（不必问）；注意 CLI 省略 `--size` 会拉全量
 - "AI速记/智能摘要/会议纪要"→`summary`、"原始文件/原文件"→`original`、"语音识别/转写文本/ASR"→`asr` — 用户已明示时直接映射 content-type，不必问
 
 ### 下载规则（`--file-type` / `--content-type`）
@@ -236,6 +236,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 **其他场景**：
 - CLI 未安装 → `npm install -g gangtise-openapi-cli`
+- **退出码 3 = 部分结果**：翻页/K线分片有页失败但已取到的数据保留——stderr 有 warning，`--format json` 可见 `partial: true` 与 `failedPages`（分片为 `failedShards`）；table/csv/jsonl 只有数据行、看不出缺失。拿部分数据继续前必须告知用户缺了哪段
 - 空结果（list 为空数组） → 建议扩大时间范围、换关键词、去掉部分筛选
 - 模糊公司名匹配多只（"平安" → 中国平安 / 平安银行 / ...） → 列出让用户选
 - 下载文件路径冲突 → 询问覆盖

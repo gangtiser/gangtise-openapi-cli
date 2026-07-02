@@ -21,6 +21,12 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
       const listLen = Array.isArray(meta.list) ? (meta.list as unknown[]).length : 0
       process.stderr.write(`Total: ${meta.total}, showing: ${listLen}\n`)
     }
+    // Partial results (failed pages/shards) exit with code 3: the table/csv/jsonl
+    // renderers only emit the rows, so without a distinct exit code a script or AI
+    // consumer cannot tell a partial export from a complete one.
+    if (meta.partial === true) {
+      process.exitCode = 3
+    }
   }
 
   if (output) {

@@ -1,3 +1,4 @@
+import fs from "node:fs/promises"
 import { extname } from "node:path"
 
 import { DownloadError } from "./errors.js"
@@ -10,6 +11,22 @@ import { lookupTitleCache, readTitleCache, TITLE_LOOKUP_SIZE } from "./titleCach
  * Shared by title-based naming and the download fallback. */
 function sanitizeFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|\u0000-\u001f]/g, "_")
+}
+
+/** Pick a non-existing path by suffixing -1, -2, … before the extension, so batch
+ * downloads whose titles collide ("2025年第一季度报告" from several companies) don't
+ * silently overwrite each other. Only auto-derived names go through this — an
+ * explicit --output path keeps plain overwrite semantics. */
+export async function uniquePath(p: string): Promise<string> {
+  const exists = (f: string) => fs.access(f).then(() => true, () => false)
+  if (!(await exists(p))) return p
+  const ext = extname(p)
+  const stem = p.slice(0, p.length - ext.length)
+  for (let i = 1; i <= 99; i++) {
+    const candidate = `${stem}-${i}${ext}`
+    if (!(await exists(candidate))) return candidate
+  }
+  return p
 }
 
 export interface DownloadResult {
@@ -114,14 +131,15 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   if (file.data instanceof Uint8Array) {
     // Sanitize the server-provided filename so a Content-Disposition value with
     // / or : can't write outside the intended path (same rule as buildFilename).
-    const outputPath = output ?? (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (fallbackName + extFromContentType(file.contentType))
+    const autoName = (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (fallbackName + extFromContentType(file.contentType))
+    const outputPath = output ?? await uniquePath(autoName)
     await saveOutputIfNeeded(file.data, outputPath)
     process.stdout.write(`${outputPath}\n`)
     return
   }
 
   if (typeof file.text === "string") {
-    const outputPath = output ?? `${fallbackName}.txt`
+    const outputPath = output ?? await uniquePath(`${fallbackName}.txt`)
     await saveOutputIfNeeded(file.text, outputPath)
     process.stdout.write(`${outputPath}\n`)
     return

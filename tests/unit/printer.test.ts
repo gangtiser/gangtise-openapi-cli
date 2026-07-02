@@ -41,6 +41,26 @@ describe("printData", () => {
     expect(stdout()).toContain("b")
   })
 
+  it("sets exit code 3 for partial results so scripts can tell them from complete ones", async () => {
+    const prevExitCode = process.exitCode
+    try {
+      await printData({ total: 100, list: [{ id: 1 }], partial: true, failedPages: [{ from: 50, size: 50 }] }, "table")
+      expect(process.exitCode).toBe(3)
+    } finally {
+      process.exitCode = prevExitCode
+    }
+  })
+
+  it("leaves the exit code alone for complete results", async () => {
+    const prevExitCode = process.exitCode
+    try {
+      await printData({ total: 2, list: [{ id: 1 }, { id: 2 }] }, "table")
+      expect(process.exitCode).toBe(prevExitCode)
+    } finally {
+      process.exitCode = prevExitCode
+    }
+  })
+
   it("prints a Total/showing summary to stderr for paginated wrappers", async () => {
     await printData({ total: 100, list: [{ id: 1 }, { id: 2 }] }, "table")
     expect(stderr()).toContain("Total: 100, showing: 2")

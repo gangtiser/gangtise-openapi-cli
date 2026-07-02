@@ -3,7 +3,7 @@ import path from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { ENDPOINTS, type EndpointDefinition } from "../../src/core/endpoints.js"
+import { ENDPOINTS } from "../../src/core/endpoints.js"
 
 describe("ENDPOINTS", () => {
   it("all entries have valid keys, methods, paths, kinds, and descriptions", () => {
@@ -25,16 +25,8 @@ describe("ENDPOINTS", () => {
     }
   })
 
-  it("every map key matches the endpoint's key field", () => {
-    for (const [mapKey, ep] of Object.entries(ENDPOINTS)) {
-      expect(ep.key).toBe(mapKey)
-    }
-  })
-
-  it("no duplicate keys", () => {
-    const keys = Object.values(ENDPOINTS).map((ep: EndpointDefinition) => ep.key)
-    expect(new Set(keys).size).toBe(keys.length)
-  })
+  // (key-matches-record-key and no-duplicate-keys guards removed: `key` is now
+  // derived from the record key in endpoints.ts, so drift is structurally impossible.)
 
   it("lookup endpoints use /guide/ prefix for local routing", () => {
     const lookupEndpoints = Object.values(ENDPOINTS).filter((ep) => ep.key.startsWith("lookup."))

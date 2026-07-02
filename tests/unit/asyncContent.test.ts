@@ -60,6 +60,17 @@ describe("asyncContent", () => {
       expect(client.call).toHaveBeenCalledTimes(2)
       expect(stdout()).toContain("ready now")
     })
+
+    it("stops after 14 attempts and returns false when content never becomes ready", async () => {
+      // Regression guard for the poll budget: a loop-bound slip here turns --wait
+      // into an indefinite hang instead of a ~316s give-up.
+      vi.useFakeTimers()
+      const client = { call: vi.fn().mockRejectedValue(new ApiError("generating", "410110")) }
+      const p = pollAsyncContent(client, "ep", "d1", "json")
+      await vi.runAllTimersAsync()
+      expect(await p).toBe(false)
+      expect(client.call).toHaveBeenCalledTimes(14)
+    })
   })
 
   describe("checkAsyncContent", () => {
