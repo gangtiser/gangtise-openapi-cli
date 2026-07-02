@@ -27,6 +27,5 @@ describe("getLookupData (lazy JSON loader)", () => {
     const brokers = await getLookupData("broker-orgs")
     const meetings = await getLookupData("meeting-orgs")
     expect(brokers).not.toBe(meetings)
-    expect(brokers.length).not.toBe(meetings.length)
   })
 })

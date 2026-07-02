@@ -78,6 +78,21 @@ describe("row shaping and header escaping", () => {
     const result = renderOutput([{ "a|b": 1 }], "markdown")
     expect(result.split("\n")[0]).toBe("| a\\|b |")
   })
+
+  it("strips control chars from table cells so server data can't inject terminal escapes", () => {
+    const ESC = String.fromCharCode(27)
+    const result = renderOutput([{ note: `x${ESC}[31mred` }], "table")
+    expect(result.includes(ESC)).toBe(false)
+    expect(result).toContain("x[31mred")
+  })
+
+  it("pads table columns by display width so CJK rows align", () => {
+    const result = renderOutput([{ 名称: "贵州茅台", note: "a" }, { 名称: "五粮液", note: "b" }], "table")
+    const lines = result.split("\n")
+    // 贵州茅台 = 8 display cols, 五粮液 = 6 + 2 pad spaces → the note column starts
+    // at the same VISUAL offset; in code units the shorter CJK row has one extra char.
+    expect(lines[2].indexOf("a") - lines[3].indexOf("b")).toBe(-1)
+  })
 })
 
 describe("renderOutput", () => {

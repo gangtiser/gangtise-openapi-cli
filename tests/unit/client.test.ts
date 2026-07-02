@@ -1,4 +1,5 @@
 import fs from "node:fs/promises"
+import path from "node:path"
 import { Readable } from "node:stream"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -481,6 +482,110 @@ describe("GangtiseClient auth recovery", () => {
     expect(result.list).toHaveLength(200)
     expect(result.partial).toBeUndefined()
     expect(loginCalls).toBe(1)
+  })
+
+  it("self-heals when the auth error arrives as HTTP 4xx instead of a 200 envelope", async () => {
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      if (listCalls === 1) return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }, 401))
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    const client = loginClient()
+    const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    expect(result).toEqual({ answer: 42 })
+    expect(listCalls).toBe(2) // HTTP 401 + auth code → refresh → replay succeeds
+  })
+
+  it("reuses a freshly refreshed token for staggered failures instead of logging in again", async () => {
+    // Request A fails and refreshes; request B (in flight with the old token) fails
+    // AFTER that refresh completed. B must replay with A's fresh token — a second
+    // login could kick the fresh session server-side (0000001008 semantics).
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    let loginCalls = 0
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      // Calls 1 and 3 are the first attempts of two sequential logical requests —
+      // both rejected as auth failures; calls 2 and 4 are their replays.
+      if (listCalls === 1 || listCalls === 3) return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }))
+      return Promise.resolve(jsonResponse({ answer: listCalls }))
+    })
+
+    const client = loginClient()
+    await client.call("ai.one-pager", { securityCode: "600519.SH" })
+    await client.call("ai.one-pager", { securityCode: "000858.SZ" })
+
+    expect(listCalls).toBe(4)
+    expect(loginCalls).toBe(1) // the second failure reuses the fresh token, no second login
+  })
+
+  it("reports a clean ApiError when the login response has no accessToken", async () => {
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve(jsonResponse({ answer: 1 }))
+    })
+
+    const client = loginClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toMatchObject({
+      name: "ApiError",
+      message: expect.stringContaining("accessToken"),
+    })
+  })
+
+  it("degrades to a warning when the token cache cannot be persisted", async () => {
+    // Point the cache path INSIDE an existing file: mkdir fails with ENOTDIR.
+    const blocker = `${tokenCachePath}.blocker`
+    await fs.writeFile(blocker, "not a directory")
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      requestMock.mockImplementation((url: unknown) => {
+        if (String(url).includes("/loginV2")) {
+          return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+        }
+        return Promise.resolve(jsonResponse({ answer: 7 }))
+      })
+
+      const client = new GangtiseClient({
+        baseUrl: "https://open.gangtise.com",
+        timeoutMs: 30_000,
+        accessKey: "ak",
+        secretKey: "sk",
+        tokenCachePath: path.join(blocker, "token.json"),
+      })
+      const result = await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+      expect(result).toEqual({ answer: 7 }) // request succeeds despite the failed persist
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("could not persist token cache"))
+    } finally {
+      errSpy.mockRestore()
+      await fs.unlink(blocker).catch(() => {})
+    }
+  })
+
+  it("keeps a path prefix in GANGTISE_BASE_URL when building request URLs", async () => {
+    requestMock.mockResolvedValueOnce(jsonResponse({ answer: 1 }))
+    const client = new GangtiseClient({
+      baseUrl: "https://proxy.corp.com/gangtise",
+      timeoutMs: 30_000,
+      token: "Bearer t",
+      tokenCachePath,
+    })
+    await client.call("ai.one-pager", { securityCode: "600519.SH" })
+
+    const requestedUrl = String(requestMock.mock.calls[0][0])
+    expect(requestedUrl).toContain("https://proxy.corp.com/gangtise/application/")
   })
 
   it("auto-recovers when the server invalidates the token (code 0000001008)", async () => {

@@ -12,8 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 // unfiltered data in production while every unit test stays green. One spawn per case,
 // so keep this to one representative command per wiring pattern, not one per command.
 const run = promisify(execFile)
-const TSX = path.resolve(process.cwd(), "node_modules/.bin/tsx")
-const CLI = path.resolve(process.cwd(), "src/cli.ts")
+const CLI = path.resolve(process.cwd(), "dist/src/cli.js")
 
 interface CapturedRequest {
   path: string
@@ -49,7 +48,7 @@ beforeEach(() => {
 
 async function cli(args: string[]): Promise<{ code: number; out: string }> {
   try {
-    const { stdout, stderr } = await run(TSX, [CLI, ...args], {
+    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
       timeout: 25_000,
       env: {
         ...process.env,
@@ -166,5 +165,30 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(code).toBe(0)
     expect(captured[0].path).toBe("/application/open-ai/stock-summary/getList")
     expect(captured[0].body).toEqual({ securityList: ["600519.SH"] })
+  }, 30_000)
+
+  it("raw call rejects --query on a JSON endpoint before any request goes out", async () => {
+    const { code, out } = await cli(["raw", "call", "ai.one-pager", "--query", "a=b"])
+    expect(code).toBe(1)
+    expect(out).toContain("--query is not supported for JSON endpoints")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("raw call rejects --body on a download endpoint before any request goes out", async () => {
+    const { code, out } = await cli(["raw", "call", "insight.research.download", "--body", "{\"reportId\":\"1\"}"])
+    expect(code).toBe(1)
+    expect(out).toContain("--body is not supported for download endpoints")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("a non-leading --version falls through to commander instead of the pre-parse hijack", async () => {
+    // Old code did argv.includes("--version") BEFORE parsing: any command line
+    // containing the token anywhere printed the bare version (plus a 2s network
+    // update check) and swallowed everything else. Now only argv[2] triggers the
+    // manual path; elsewhere commander's standard option handling decides.
+    const midVersion = await cli(["reference", "securities-search", "--keyword", "--version", "--format", "json"])
+    expect(midVersion.code).toBe(0)
+    expect(midVersion.out.trim()).toMatch(/^\d+\.\d+\.\d+$/) // commander's own version flag, no update-check hijack
+    expect(captured).toHaveLength(0)
   }, 30_000)
 })

@@ -1,23 +1,33 @@
 import { execFile } from "node:child_process"
+import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
-// End-to-end smoke test: runs the real CLI via tsx so command wiring,
-// option parsing, and the top-level error handler are exercised exactly as
-// shipped. No network is touched — only --help, commander-level validation,
-// and argument-validation paths (which throw before any client.call).
+// End-to-end smoke test: runs the real CLI (built once by tests/globalSetup.ts)
+// so command wiring, option parsing, and the top-level error handler are
+// exercised exactly as shipped. No network is touched — only --help,
+// commander-level validation, and argument-validation paths (which throw
+// before any client.call).
 const run = promisify(execFile)
-const TSX = path.resolve(process.cwd(), "node_modules/.bin/tsx")
-const CLI = path.resolve(process.cwd(), "src/cli.ts")
+const CLI = path.resolve(process.cwd(), "dist/src/cli.js")
 
 async function cli(args: string[]): Promise<{ code: number; out: string }> {
   try {
-    const { stdout, stderr } = await run(TSX, [CLI, ...args], {
+    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
       timeout: 25_000,
-      // strip credentials so nothing attempts a real login
-      env: { ...process.env, GANGTISE_ACCESS_KEY: "", GANGTISE_SECRET_KEY: "", GANGTISE_TOKEN: "" },
+      // Strip credentials so nothing attempts a real login. The cache-path and
+      // base-url guards make sure a future test that DOES reach client.call can
+      // never read the developer's real token or hit the production API.
+      env: {
+        ...process.env,
+        GANGTISE_ACCESS_KEY: "",
+        GANGTISE_SECRET_KEY: "",
+        GANGTISE_TOKEN: "",
+        GANGTISE_TOKEN_CACHE_PATH: path.join(os.tmpdir(), `gangtise-cli-test-${process.pid}`, "token.json"),
+        GANGTISE_BASE_URL: "http://127.0.0.1:1",
+      },
     })
     return { code: 0, out: stdout + stderr }
   } catch (error) {

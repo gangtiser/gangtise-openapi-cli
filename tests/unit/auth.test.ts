@@ -21,6 +21,11 @@ describe("normalizeToken", () => {
   it("is idempotent for an already-prefixed token", () => {
     expect(normalizeToken("Bearer abc")).toBe("Bearer abc")
   })
+
+  it("normalizes a lowercase/odd-case bearer prefix instead of double-prefixing", () => {
+    expect(normalizeToken("bearer abc")).toBe("Bearer abc")
+    expect(normalizeToken("BEARER abc")).toBe("Bearer abc")
+  })
 })
 
 describe("isTokenCacheValid", () => {

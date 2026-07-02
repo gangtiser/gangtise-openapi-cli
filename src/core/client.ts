@@ -28,6 +28,7 @@ const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008"])
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
   private memoCache: TokenCache | null = null
+  private lastRefreshAt = 0
   // After an injected env token (GANGTISE_TOKEN) is rejected and we self-heal via
   // login, stop preferring that now-stale token so the retry uses the fresh one.
   private envTokenInvalidated = false
@@ -71,12 +72,29 @@ export class GangtiseClient {
       secretKey: credentials.secretKey,
     }, false)
 
+    // Validate the shape before touching it: a missing accessToken used to surface
+    // as a bare TypeError from normalizeToken, hiding the real cause.
+    if (typeof envelope?.accessToken !== "string" || !envelope.accessToken) {
+      throw new ApiError("Login succeeded but the response carried no accessToken", undefined, undefined, envelope)
+    }
     const accessToken = normalizeToken(envelope.accessToken)
-    const expiresAt = Math.floor(Date.now() / 1000) + envelope.expiresIn
+    // A non-numeric expiresIn would make expiresAt NaN — the cache would never
+    // validate and every command would silently re-login. Degrade to 0 instead
+    // (token works now, next process logs in again).
+    const expiresIn = Number.isFinite(envelope.expiresIn) ? envelope.expiresIn : 0
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresIn
 
-    const cache: TokenCache = { ...envelope, accessToken, expiresAt }
+    const cache: TokenCache = { ...envelope, accessToken, expiresIn, expiresAt }
     this.memoCache = cache
-    await writeTokenCache(this.config.tokenCachePath, cache)
+    this.lastRefreshAt = Date.now()
+    try {
+      await writeTokenCache(this.config.tokenCachePath, cache)
+    } catch (error) {
+      // A read-only HOME or full disk must not fail the request — the in-memory
+      // token is valid; we just can't persist it for the next process.
+      const msg = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`[gangtise] warning: could not persist token cache: ${msg}\n`)
+    }
 
     return accessToken
   }
@@ -99,11 +117,26 @@ export class GangtiseClient {
       && this.config.secretKey
     ) {
       authState.retried = true
-      this.memoCache = null
       this.envTokenInvalidated = true
-      await this.getAuthorizationHeader(true)
+      // If another request refreshed the token moments ago, replay with that fresh
+      // token instead of forcing yet another login: staggered failures across a
+      // pagination fan-out would otherwise trigger back-to-back logins, which can
+      // kick each other's sessions server-side (the 0000001008 semantics).
+      const refreshedRecently = Date.now() - this.lastRefreshAt < 15_000
+      if (!(refreshedRecently && isTokenCacheValid(this.memoCache))) {
+        this.memoCache = null
+        await this.getAuthorizationHeader(true)
+      }
       throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
     }
+  }
+
+  /** `new URL("/a/b", "https://proxy/prefix")` drops "/prefix" — an absolute path
+   * replaces the base's path per the URL spec. Join manually so a reverse-proxy
+   * GANGTISE_BASE_URL with a path prefix keeps working. */
+  private buildUrl(path: string): URL {
+    const base = this.config.baseUrl.endsWith("/") ? this.config.baseUrl : `${this.config.baseUrl}/`
+    return new URL(path.replace(/^\//, ""), base)
   }
 
   private isEnvelope<T>(parsed: unknown): parsed is Envelope<T> {
@@ -393,7 +426,7 @@ export class GangtiseClient {
     }
 
     const dispatcher = getDispatcher()
-    const url = new URL(endpoint.path, this.config.baseUrl)
+    const url = this.buildUrl(endpoint.path)
     const authState = { retried: false }
 
     return withRetry(async () => {
@@ -426,11 +459,12 @@ export class GangtiseClient {
         throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500))
       }
 
-      if (response.statusCode >= 400) {
-        this.throwHttpError(parsed, response.statusCode)
-      }
-
       try {
+        // Auth errors can arrive as HTTP 4xx or as a 200-wrapped error envelope;
+        // both routes must reach the self-heal check below.
+        if (response.statusCode >= 400) {
+          this.throwHttpError(parsed, response.statusCode)
+        }
         return this.unwrapEnvelope(parsed, response.statusCode)
       } catch (error) {
         await this.refreshAuthIfRecoverable(error, useAuth, authState)
@@ -447,7 +481,7 @@ export class GangtiseClient {
 
   async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResult> {
     const dispatcher = getDispatcher()
-    const url = new URL(endpoint.path, this.config.baseUrl)
+    const url = this.buildUrl(endpoint.path)
     Object.entries(query).forEach(([key, value]) => {
       url.searchParams.set(key, String(value))
     })
@@ -479,12 +513,11 @@ export class GangtiseClient {
           return { text, contentType }
         }
 
-        if (response.statusCode >= 400) {
-          this.throwHttpError(parsed, response.statusCode)
-        }
-
         let data: unknown
         try {
+          if (response.statusCode >= 400) {
+            this.throwHttpError(parsed, response.statusCode)
+          }
           data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
         } catch (error) {
           await this.refreshAuthIfRecoverable(error, true, authState)

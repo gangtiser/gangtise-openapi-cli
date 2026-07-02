@@ -128,6 +128,25 @@ export async function resolveTitle(
   return undefined
 }
 
+async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
+  const { createWriteStream } = await import("node:fs")
+  const { Readable } = await import("node:stream")
+  const { pipeline } = await import("node:stream/promises")
+  const { dirname } = await import("node:path")
+
+  const response = await fetch(url)
+  if (!response.ok || !response.body) {
+    throw new DownloadError(`Failed to fetch download URL (HTTP ${response.status})`)
+  }
+  await fs.mkdir(dirname(outputPath), { recursive: true })
+  try {
+    await pipeline(Readable.fromWeb(response.body as import("node:stream/web").ReadableStream), createWriteStream(outputPath))
+  } catch (error) {
+    await fs.unlink(outputPath).catch(() => {})
+    throw error
+  }
+}
+
 export async function saveDownloadResult(result: unknown, fallbackName: string, output?: string): Promise<void> {
   if (!(result && typeof result === "object")) {
     throw new DownloadError("Unexpected download response")
@@ -159,7 +178,10 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
 
   if (typeof file.url === "string") {
     if (output) {
-      await saveOutputIfNeeded(file.url, output)
+      // The server handed us a (typically signed, short-lived) URL instead of the
+      // bytes. The user asked for a file — follow the URL and stream the content
+      // to disk instead of writing the URL string into a fake .pdf.
+      await downloadUrlTo(file.url, output)
       process.stdout.write(`${output}\n`)
       return
     }

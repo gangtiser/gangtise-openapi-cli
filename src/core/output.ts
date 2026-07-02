@@ -13,6 +13,28 @@ export function parseOutputFormat(value?: string): OutputFormat {
   throw new ConfigError(`Unsupported format: ${format}`)
 }
 
+/** Cell text for terminal-facing formats (table/markdown): newlines collapsed for
+ * alignment, remaining C0/DEL control chars stripped so server data can't inject
+ * terminal escape sequences (ESC[31m etc.) into the user's terminal. */
+function sanitizeCell(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")
+}
+
+/** Terminal display width: CJK/fullwidth chars occupy 2 columns — padEnd counts
+ * UTF-16 code units and misaligns every table containing Chinese text. */
+function displayWidth(value: string): number {
+  let width = 0
+  for (const ch of value) {
+    const cp = ch.codePointAt(0)!
+    const wide = (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf)
+      || (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff)
+      || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60)
+      || (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x20000 && cp <= 0x3fffd)
+    width += wide ? 2 : 1
+  }
+  return width
+}
+
 function formatScalar(value: unknown): string {
   if (value === null || value === undefined) {
     return ""
@@ -55,17 +77,19 @@ function renderTable(rows: Array<Record<string, unknown>>): string {
   }
 
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
-  // Format every cell once (formatScalar may JSON.stringify objects), collapsing
-  // newlines so multi-line fields don't break alignment. Reuse the matrix for both
-  // width and rendering — and compute widths with reduce, NOT Math.max(...arr):
+  // Format every cell once (formatScalar may JSON.stringify objects), sanitizing
+  // control chars so multi-line fields don't break alignment. Reuse the matrix for
+  // both width and rendering — and compute widths with reduce, NOT Math.max(...arr):
   // spreading a per-row array overflows the call stack on large results (table is
-  // the default format, e.g. `quote day-kline --security all`).
-  const matrix = rows.map((row) => columns.map((column) => formatScalar(row[column]).replace(/[\r\n]+/g, " ")))
-  const widths = columns.map((column, c) => matrix.reduce((max, cells) => Math.max(max, cells[c].length), column.length))
+  // the default format, e.g. `quote day-kline --security all`). Widths and padding
+  // use displayWidth so CJK cells stay aligned.
+  const headerCells = columns.map(sanitizeCell)
+  const matrix = rows.map((row) => columns.map((column) => sanitizeCell(formatScalar(row[column]))))
+  const widths = columns.map((_, c) => matrix.reduce((max, cells) => Math.max(max, displayWidth(cells[c])), displayWidth(headerCells[c])))
 
-  const renderLine = (values: string[]) => values.map((value, index) => value.padEnd(widths[index], " ")).join("  ")
+  const renderLine = (values: string[]) => values.map((value, index) => value + " ".repeat(Math.max(0, widths[index] - displayWidth(value)))).join("  ")
 
-  const header = renderLine(columns)
+  const header = renderLine(headerCells)
   const divider = renderLine(widths.map((width) => "-".repeat(width)))
   const body = matrix.map((cells) => renderLine(cells))
 
@@ -80,9 +104,9 @@ function renderMarkdown(rows: Array<Record<string, unknown>>): string {
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
   // Column names come from server data (e.g. EDE indicator display names) — escape
   // them like cell values or a name containing | / , breaks the whole table.
-  const header = `| ${columns.map((column) => column.replaceAll("|", "\\|")).join(" | ")} |`
+  const header = `| ${columns.map((column) => sanitizeCell(column).replaceAll("|", "\\|")).join(" | ")} |`
   const divider = `| ${columns.map(() => "---").join(" | ")} |`
-  const body = rows.map((row) => `| ${columns.map((column) => formatScalar(row[column]).replace(/[\r\n]+/g, " ").replaceAll("|", "\\|")).join(" | ")} |`)
+  const body = rows.map((row) => `| ${columns.map((column) => sanitizeCell(formatScalar(row[column])).replaceAll("|", "\\|")).join(" | ")} |`)
   return [header, divider, ...body].join("\n")
 }
 

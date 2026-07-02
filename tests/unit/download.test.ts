@@ -142,6 +142,39 @@ describe("saveDownloadResult", () => {
     }
   })
 
+  it("follows a server-returned URL and writes the fetched bytes when --output is set", async () => {
+    // The old behavior wrote the URL STRING into x.pdf — a "corrupt file" from the
+    // user's point of view. With an output path we must fetch the actual content.
+    const bytes = new Uint8Array([80, 75, 3, 4])
+    const fetchMock = vi.fn().mockResolvedValue(new Response(bytes, { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      const out = path.join(dir, "followed.pdf")
+      await saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)
+      expect(fetchMock).toHaveBeenCalledWith("https://signed.example.com/f.pdf")
+      expect(new Uint8Array(await fs.readFile(out))).toEqual(bytes)
+      expect(stdout().trim()).toBe(out)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("throws DownloadError when the followed URL responds with an error status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("expired", { status: 403 })))
+    try {
+      const out = path.join(dir, "expired.pdf")
+      await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toBeInstanceOf(DownloadError)
+      await expect(fs.access(out)).rejects.toThrow() // no half-written file
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("still prints the URL to stdout when no output path is given", async () => {
+    await saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback")
+    expect(stdout().trim()).toBe("https://signed.example.com/f.pdf")
+  })
+
   it("keeps plain overwrite semantics for an explicit output path", async () => {
     const out = path.join(dir, "explicit.pdf")
     await saveDownloadResult({ data: new Uint8Array([1]), contentType: "application/pdf" }, "fallback", out)

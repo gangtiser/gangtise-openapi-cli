@@ -71,7 +71,10 @@ export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300)
 }
 
 export function normalizeToken(token: string): string {
-  return token.startsWith("Bearer ") ? token : `Bearer ${token}`
+  // Case-insensitive prefix check: GANGTISE_TOKEN="bearer xxx" must become
+  // "Bearer xxx", not the silently-invalid "Bearer bearer xxx".
+  const prefix = /^bearer\s+/i.exec(token)
+  return `Bearer ${prefix ? token.slice(prefix[0].length) : token}`
 }
 
 export function requireAccessCredentials(accessKey?: string, secretKey?: string): { accessKey: string; secretKey: string } {

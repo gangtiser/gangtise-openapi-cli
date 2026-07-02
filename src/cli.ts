@@ -614,36 +614,33 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
       throw new ConfigError(`Invalid JSON in --body: ${options.body}`)
     }
   }
+  // Fail loudly on arguments the endpoint kind can't use — they used to be
+  // silently dropped, leaving the user to puzzle over server-side errors.
   if (endpoint.kind === "download") {
+    if (body !== undefined) {
+      throw new ValidationError(`--body is not supported for download endpoints (use --query key=value); ${endpointKey} is kind=download`)
+    }
     await runDownload(client, endpointKey, options.query as Record<string, string | number>, {
       output: options.output,
       fallbackName: "download.bin",
     })
     return
   }
-  const data = await client.call(endpointKey, body, options.query)
+  if (Object.keys(options.query as Record<string, string>).length > 0) {
+    throw new ValidationError(`--query is not supported for JSON endpoints (use --body '{...}'); ${endpointKey} is kind=json`)
+  }
+  const data = await client.call(endpointKey, body)
   await printData(data, format, options.output)
 }))
 
 async function checkForUpdate(timeoutMs = 2000): Promise<void> {
-  const https = await import("node:https")
-  await new Promise<void>((resolve) => {
-    const req = https.get("https://registry.npmjs.org/gangtise-openapi-cli/latest", (res) => {
-      let body = ""
-      res.on("data", (chunk: string) => { body += chunk })
-      res.on("end", () => {
-        try {
-          const latest: string = JSON.parse(body).version
-          if (latest && latest !== CLI_VERSION) {
-            process.stderr.write(`Update available: ${CLI_VERSION} → ${latest}\nRun: npm update -g gangtise-openapi-cli\n`)
-          }
-        } catch { /* ignore */ }
-        resolve()
-      })
-    })
-    req.on("error", () => resolve())
-    req.setTimeout(timeoutMs, () => { req.destroy(); resolve() })
-  })
+  try {
+    const response = await fetch("https://registry.npmjs.org/gangtise-openapi-cli/latest", { signal: AbortSignal.timeout(timeoutMs) })
+    const latest = (await response.json() as { version?: string }).version
+    if (latest && latest !== CLI_VERSION) {
+      process.stderr.write(`Update available: ${CLI_VERSION} → ${latest}\nRun: npm update -g gangtise-openapi-cli\n`)
+    }
+  } catch { /* best-effort: offline or a slow registry must not break --version */ }
 }
 
 // `gangtise ... | head` closes stdout early; without a handler the final big write
@@ -654,7 +651,10 @@ process.stdout.on("error", (error: NodeJS.ErrnoException) => {
 })
 
 async function main() {
-  if (process.argv.includes("--version") || process.argv.includes("-V")) {
+  // Positional check, not argv.includes: "--version" appearing later (e.g. as
+  // another option's value) must not short-circuit the whole command.
+  const firstArg = process.argv[2]
+  if (firstArg === "--version" || firstArg === "-V") {
     process.stdout.write(`${CLI_VERSION}\n`)
     await checkForUpdate()
     return
