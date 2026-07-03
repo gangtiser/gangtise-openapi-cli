@@ -4,6 +4,14 @@
 
 ## Changelog
 
+### v0.22.1 — 2026-07-03
+
+**修复**
+- 错误码 `410004` 提示改为中性措辞「数据未找到或无指标权限，请检查查询条件与指标权限」——此前只说"数据未找到"，与 `indicator` 内层信封的"无权限"消息拼接后自相矛盾
+
+**文档 / Skill**（随 `/sync-skill` 分发，不影响 CLI 行为）
+- gangtise-openapi Agent Skill 经 fable5 审计 + 多轮 review 优化：官方积分计费速查表 + 高积分 pre-flight 闸门、AI 同步生成命令 `GANGTISE_TIMEOUT_MS=120000` 超时前置、大结果集 `--output` 落盘、异步 `--wait` 主路径、行业码口径收敛到单一权威、市值量纲实测（`qte_mkt_cptl` 仅 A 股 / 默认原始「元」/ `scale`+`currency`）等文档补全与消歧
+
 ### v0.22.0 — 2026-07-02
 
 **行为变更（注意）**
