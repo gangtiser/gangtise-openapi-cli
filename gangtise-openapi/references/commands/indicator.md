@@ -124,6 +124,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 - **探索性取数**：截面与时序现在对无数据都优雅处理（截面返 `null` 单元格、时序返空行），都适合"先看有没有数"；看趋势仍优先 `time-series` + 覆盖报告期的区间。
 - **名称反查 code 要核对，别取首条**：存在同显示名的兄弟指标——单季 `cf_finc_exp_qtr` 与累计 `cf_finc_exp` 都叫「财务费用」，`bs_fmt`/`cf_fmt`/`is_fmt` 都叫「报表格式」。`search` 按名称模糊匹配，目标 code 高概率在 top1 但不绝对，要看 `indicatorCode` 确认。
 - **批量查询做失败拆分**：某指标**缺必填参数**或入参错误时会整批报错（无数据不会——按 `null` 返回），逐指标单查能定位是哪个指标缺参/不可查。
+- **市值量纲（实测 2026-07）**：`qte_mkt_cptl`（总市值）**仅 A 股**——港股/美股返 `null`（换 `currency` 也没用，是 scope 外 ≠ 无数据）；**默认返原始「元」**（茅台 ≈ `1.5e12`，即 1.5 万亿），别误当天文数字。用 `scale` 数字码缩放（`0`元 / `3`千 / `4`万 / `6`百万 / `8`亿 / `9`十亿——`scale=8` → `15038` 亿元）、`currency` 换币种（`dft`本币 / `cny` / `hkd` / `usd` …）。**跨证券比市值前先统一 `scale`+`currency`**。
 
 ## 通用说明
 

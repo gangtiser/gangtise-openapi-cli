@@ -58,7 +58,7 @@ gangtise reference constant-category [--format json]
 | `usShareAnnouncementCategory` | 美股公告分类（`103980xxx` 段） | tree（2 级） | `insight announcement-us --category` |
 | `regionCategory` | 区域分类 | flat | `insight foreign-report --region` |
 
-> **行业 / 研究方向过滤——选哪套 category（实测 + spec，2026-06-15）：**
+> **行业 / 研究方向过滤——选哪套 category（⭐ 权威口径，其他文件引用此处、勿重复枚举命令清单以免漂移；实测 + spec，2026-06-15）：**
 > - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account / wechat-message 全部正确过滤。`swIndustry`（`104xxx`）在 6 个 insight list（含 official-account）上等效（spec 多数命令写 citic+sw），但 **`vault wechat-message-list` 只认中信码、传申万码会静默返回全量** → 统一用中信码最稳。
 > - **`--research-area`（researchAreaList）→ 用 `gangtiseIndustry`**：完整研究方向分类 = 30 个行业（`1008001xx`，与 citicIndustry 相同）+ 6 个方向（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`）。行业码与方向码均已实测正确过滤（opinion / summary / roadshow / site-visit / forum）。`citicIndustry` 也能用但只含行业、无方向；`swIndustry`（`104xxx`）除 summary / my-conference 外返 0，勿用。
 

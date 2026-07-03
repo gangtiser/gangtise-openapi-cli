@@ -30,7 +30,7 @@
 
 ## 申万行业（--industry 参数）
 
-完整列表用 `reference constant-list --category swIndustry`。⚠️ 申万码（`104xxx`）只在 6 个 insight list（opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account）上等效有效；**`vault wechat-message-list` 会静默忽略申万码、返回全量**，且申万码不能用于 `--research-area`（返 0）。拿不准就统一用上方中信码。
+完整列表用 `reference constant-list --category swIndustry`。⚠️ 申万码（`104xxx`）只在**部分** insight list 上作 `--industry` 等效、**不能用于 `--research-area`（返 0）**、`vault wechat-message-list` 会**静默返全量**——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**，勿在此重复枚举。拿不准就统一用上方中信码。
 
 | ID | 行业 | ID | 行业 | ID | 行业 |
 |----|------|----|------|----|------|

@@ -158,7 +158,7 @@ description: |-
 - `indicator` 取数二选一：单日多标的横向对比 → `cross-section`；时间区间纵向走势 → `time-series`（且 `time-series` 不能多指标 × 多证券同时，截面才可以）
 - `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报错（服务端现直接指明「必填参数 X 不能为空」）；**无数据已统一返回 `null`**（截面不再抛 `999999`、不丢行），换公司类型/年报日期可取到对应类型科目的数。**取"最新"值别踩空**：行情类 `--date` 填当天且盘中/未入库会整行 `null`（≠无数据，别据此报"无数据"），改用 T-1 交易日；财务类用报告期末（如 `2025-12-31`）。详见 `references/commands/indicator.md`
 - "业绩点评"双义消歧：**检索已有**（研报/纪要里的业绩点评内容）走 `insight ... list --llm-tag earningsReview`（0.1/条）；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句
-- "多公司最新 PE / 总市值"：单证券估值序列走 `fundamental valuation-analysis`（免费、默认近一年日频、**无总市值指标**）；要总市值或多证券横向快照走 `indicator cross-section`（先 search 拿 code，按单元格计费）
+- "多公司最新 PE / 总市值"：单证券估值序列走 `fundamental valuation-analysis`（免费、默认近一年日频、**无总市值指标**）；要总市值或多证券横向快照走 `indicator cross-section`（先 search 拿 code，按单元格计费）。总市值 `qte_mkt_cptl` **仅 A 股**、默认原始「元」（茅台 ≈1.5e12），比大小前用 `scale`/`currency` 统一（详见 indicator.md）
 
 ## 公司名 → 证券代码
 
