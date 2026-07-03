@@ -2,6 +2,8 @@
 
 注意：`ai one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `viewpoint-debate-check` / `earnings-review-check` 返回 `{content: "markdown文本"}`；这类命令仍然加 `--format json`，但呈现给用户时直接取 `content` 字段，不要展示 JSON 包装层。
 
+**⏱ 同步生成命令务必前置 `GANGTISE_TIMEOUT_MS=120000`**：`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `stock-summary` / `theme-tracking` / `hot-topic` / `management-discuss-*` 首次生成常 >30s，默认 30s 超时会触发重试 ×2（白等 ~92s 且可能重复扣积分）。**复制命令时别漏掉这个前缀**（运行示例见下方 `stock-summary` / `theme-tracking` 及 `examples.md` 例3）。 `earnings-review` / `viewpoint-debate` 是异步——用 `--wait`（工具超时 ≥360s）或 `*-check` 轮询，不吃这个超时。
+
 ---
 
 ## 知识库搜索 `ai knowledge-batch`
@@ -61,8 +63,8 @@ gangtise ai stock-summary --security <aShares|hkStocks>
 
 **示例：**
 ```bash
-gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json   # 茅台 / 腾讯看点
-gangtise ai stock-summary --security hkStocks --format json                        # 全部港股，total 2662
+GANGTISE_TIMEOUT_MS=120000 gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json   # 茅台 / 腾讯看点
+GANGTISE_TIMEOUT_MS=120000 gangtise ai stock-summary --security hkStocks --format json                        # 全部港股，total 2662
 ```
 
 ## 调研提纲 `ai research-outline`
@@ -82,8 +84,8 @@ gangtise ai earnings-review-check --data-id <id>
 ```
 
 - `--period`：`年份+报告期`，如 `2025q3`（q1/interim/q3/annual），仅 A 股，覆盖最近 6 期
-- `--wait`：阻塞等待（最长约 5 分钟：14 次指数退避轮询 5s→30s，累计 ≈316s）
-- 异步流程：① earnings-review → 拿 `dataId` → ② 间隔 30s-1min `*-check` → 若 pending 继续 → 最多轮询 3 次
+- `--wait`（**推荐**）：阻塞等待到出结果（最长约 5 分钟：14 次指数退避轮询 5s→30s，累计 ≈316s）——**用它时把工具/命令超时设到 ≥360s**，否则外层先超时
+- 不带 `--wait` 的手动轮询：① `earnings-review` → 拿 `{dataId, status, hint}` → ② 间隔 ~30s `*-check`（预算 ~2-3 分钟）→ pending 继续 → 多次仍 pending 交用户稍后手动 check
 - 错误码：`410110` 生成中（继续等待）；`410111` 生成失败（终态，不重试）
 
 ## 观点 PK `ai viewpoint-debate`（异步）
@@ -111,7 +113,7 @@ gangtise ai theme-tracking --theme-id <id> --date <yyyy-MM-dd> [--type <name>]
 **示例：**
 ```bash
 # 查"核电"主题 2026-05-09 的晚报
-gangtise ai theme-tracking --theme-id 121000002 --date 2026-05-09 --type night --format json
+GANGTISE_TIMEOUT_MS=120000 gangtise ai theme-tracking --theme-id 121000002 --date 2026-05-09 --type night --format json
 # 返回 [{"type":"night","date":"2026-05-09","content":"..."}]
 ```
 

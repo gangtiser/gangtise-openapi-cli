@@ -50,8 +50,8 @@
 1. 路由 → ai one-pager
 2. 比亚迪 → 002594.SZ（速查表）
    注意：one-pager 用 --security-code，不是 --security
-3. Pre-flight：耗时长（~30s），告知用户"生成中..."
-4. gangtise ai one-pager --security-code 002594.SZ --format json
+3. Pre-flight：首次生成常 >30s → 前置 `GANGTISE_TIMEOUT_MS=120000` 防超时重试；告知用户"生成中..."
+4. GANGTISE_TIMEOUT_MS=120000 gangtise ai one-pager --security-code 002594.SZ --format json
 5. 返回 {content: "markdown"} → 直接呈现 content，不要展示 JSON 包装
 ```
 

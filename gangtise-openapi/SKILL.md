@@ -25,14 +25,14 @@ description: |-
 2. **opaque ID**：先读 `references/lookup-ids.md`；找不到再按类型查：行业/区域/公告分类/城市 → `reference constant-list --category <分类>`（分类代码用 `reference constant-category` 查）；题材 → `reference concept-search --keyword <名>`；板块 → `reference sector-search --keyword <名>`；申万 `--gts-code` 行业代码全量 → `sector-search --keyword 申万一级行业指数` 取指数数据板块层级的 sectorId 再 `sector-constituents`；券商/会议机构 → `gangtise lookup <type> list`（仅剩 broker-org / meeting-org 两个本地表）。**绝不猜测**。
 3. **公司名 → 证券代码**：先查下方速查表（5 只 mega-cap），其余一律 `gangtise reference securities-search --keyword <名> --category stock` 取 `list[0].gtsCode`。
 4. **时间格式**：datetime `"YYYY-MM-DD HH:mm:ss"`（引号包裹），date `YYYY-MM-DD`。
-5. **多值参数**：重复传，不要逗号分隔。`--security 600519.SH --security 000858.SZ`。
+5. **多值参数**：优先重复传（最稳、最明确）：`--security 600519.SH --security 000858.SZ`。CLI 也支持半/全角逗号分隔（`args.ts` 为语音输入容错），但重复传不易被 shell 吞。
 6. **K 线"最近 N 条"**：必须用 `--start-date`/`--end-date` 拉日期范围，从结果按 `tradeDate` 取尾部最近 N 条。**不要只用 `--limit N`**（截取的是窗口开头）。
 6.1. **日 K 仅历史**：`day-kline` / `day-kline-hk` / `day-kline-us` **不返回盘中实时数据**。当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00（北京时间）。需要盘中快照请走 `quote realtime`。
 6.2. **多标的日 K 不自动分片**：只有 `--security all` 才按日切片提额；显式传多个 `--security` 时默认 `--limit 6000`、**无截断告警、K 线无 `total` 可核对**。先估 标的数 × 交易日数，接近/超 6000 → 逐只分开拉、或显式 `--limit 10000`（上限）并核对每只都有数据，避免后半段证券被静默截断。
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
-   - 5xx / 网络错误 / `999999` → 自动指数退避重试
+   - 5xx / `429` / 网络错误 / `999999` → 自动指数退避重试
    - Token 失效（`0000001008` 服务端失效 / `8000014` / `8000015` AK/SK 错误）→ 自动重新登录并重试一次
 8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`（例外：`ai stock-summary` 用 `--security`，`ai security-clue` 用 `--gts-code`）。
 9. **调试**：`--verbose` 或 `GANGTISE_VERBOSE=1` 打印每个请求的耗时/字节数到 stderr。
@@ -48,9 +48,9 @@ description: |-
 🔴 **需用户确认**：
 - `gangtise auth status` 未登录 → 提示配置 AK/SK 并中止
 - 多个命令同时匹配 → 复述理解让用户挑（如"搜索研报" → research list 还是 knowledge-batch？）
-- 用户说"全部 / 全量 / 全市场" → 确认量级再拉：省略 `--size` 就是拉全量（自动翻页，上限 1000 页）；先 `--size 1` 看 stderr 的 `Total: N` 再决定（探量这步别加 `--format json`——json 下不打 `Total` 行）
+- 用户说"全部 / 全量 / 全市场" → 确认量级再拉：省略 `--size` 就是拉全量（自动翻页，上限 1000 页）；先 `--size 1` 看 stderr 的 `Total: N` 再决定（探量这步别加 `--format json`——json 下不打 `Total` 行）；全市场/跨一年分片等大批量可 `GANGTISE_PAGE_CONCURRENCY=10` 提速（默认 5，同时管翻页与 K 线分片）
 - **高积分操作先确认**：任何 50 积分/次及以上、或"按条 × 大批量"（如 `stock-summary` 全市场数千只、`opinion` 全量翻页、`concept-info` 500/次）→ 先估总积分告知用户再执行（单价见下「积分计费速查」）
-- 下载格式或 `--content-type` 未确定 → 询问（详见下方"下载规则"）
+- 下载**必选**格式未定才问：`independent-opinion --file-type`（必选）、`vault record/my-conference --content-type`（record 三种 original/asr/summary、my-conference 两种 asr/summary）；其余 download 有默认（多为 `1`=PDF/原始），用户没提格式就用默认、不必问
 - list→download 用户没指定具体文件 → 展示前 10 条让用户挑
 
 🟡 **自行判断**：
@@ -89,7 +89,7 @@ description: |-
 | `vault record-download` | `--content-type` | `original` 原始文件 / `asr` 语音识别 / `summary` AI 速记 |
 | `vault my-conference-download` | `--content-type` | `asr` 语音识别 / `summary` AI 速记 |
 
-省略 `--output` 时 CLI 自动用真实标题做文件名（先读本地 title-cache，未命中则回查 list 接口）。
+省略 `--output` 时 CLI 自动用真实标题做文件名（先读本地 title-cache，未命中则回查 list 接口）。**批量下载或下载旧文件**（跳过 list 直接按 ID 下）时 title-cache 大概率未命中、每个文件都回查一次 list，建议显式 `--output ./<名>.<ext>` 省掉回查。
 
 ## 意图路由表
 
@@ -157,6 +157,8 @@ description: |-
 - "指标" → 证券级指标（总市值/估值分位/财务指标等，需 `--security` 证券代码）走 `indicator`（EDE）；**但基础行情（收盘价/开高低收/成交量/成交额/涨跌幅）优先 `quote`**（免费、可 `--security all` 自动分片；`indicator` 按单元格计费且需先 search 拿 code）；行业/宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），三套接口不同
 - `indicator` 取数二选一：单日多标的横向对比 → `cross-section`；时间区间纵向走势 → `time-series`（且 `time-series` 不能多指标 × 多证券同时，截面才可以）
 - `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报错（服务端现直接指明「必填参数 X 不能为空」）；**无数据已统一返回 `null`**（截面不再抛 `999999`、不丢行），换公司类型/年报日期可取到对应类型科目的数。**取"最新"值别踩空**：行情类 `--date` 填当天且盘中/未入库会整行 `null`（≠无数据，别据此报"无数据"），改用 T-1 交易日；财务类用报告期末（如 `2025-12-31`）。详见 `references/commands/indicator.md`
+- "业绩点评"双义消歧：**检索已有**（研报/纪要里的业绩点评内容）走 `insight ... list --llm-tag earningsReview`（0.1/条）；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句
+- "多公司最新 PE / 总市值"：单证券估值序列走 `fundamental valuation-analysis`（免费、默认近一年日频、**无总市值指标**）；要总市值或多证券横向快照走 `indicator cross-section`（先 search 拿 code，按单元格计费）
 
 ## 公司名 → 证券代码
 
@@ -190,18 +192,18 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | **下载** | 各 `download` | stdout = 文件路径字符串 | 直接读 stdout 整行 |
 | **AI 内容** | one-pager / investment-logic / peer-comparison / research-outline | `{content: "markdown文本"}` | 取 `content` 直接呈现 |
 | **K 线** | quote * | `{list: [{tradeDate, ...}]}` | 按 tradeDate 排序，取需要的尾部 |
-| **异步（含 *-check）** | earnings-review / viewpoint-debate / earnings-review-check / viewpoint-debate-check | 提交 `{dataId}`；check 成功 `{date, content}` / pending `{status:"pending"}` 或抛 `410110` | 见下方"异步任务流程" |
+| **异步（含 *-check）** | earnings-review / viewpoint-debate / earnings-review-check / viewpoint-debate-check | 提交 `{dataId, status, hint}`；check 成功 `{date, content}` / pending `{status:"pending"}` 或抛 `410110` | 见下方"异步任务流程" |
 
 完整字段对照见 `references/response-schema.md`。
 
 ### 异步任务流程
 
-1. 提交命令（不带 `--wait`）→ 拿到 `dataId`
-2. 间隔 30s-1min 调 `*-check --data-id <id>`
-3. 返回 `{date, content}` → 成功，呈现 content
-4. 返回 `{status: "pending"}` 或错误码 `410110` → 继续等
-5. 错误码 `410111` → 终态失败，告知用户重试或换参数
-6. 累计 3 次仍 pending → 把 `dataId` 给用户让其稍后手动 check
+`earnings-review` / `viewpoint-debate` 异步生成，两条路径：
+
+- **`--wait`（推荐）**：命令带 `--wait` 阻塞到出结果（CLI 内轮询最长 ≈316s）。**把工具/命令超时设到 ≥360s**，否则外层先超时。直接拿 `{date, content}` 呈现。
+- **手动轮询**（不带 `--wait`）：① 提交 → 拿 `{dataId, status, hint}`；② 间隔 ~30s 调 `*-check --data-id <id>`（预算给足 ~2-3 分钟）；③ `{date, content}`=成功 / `{status:"pending"}`=继续等 / 终态失败=换参重试；④ 多次仍 pending → 把 `dataId` 交用户稍后再 check。
+
+**别把原始码甩给用户**：`410110`=生成中（继续等）、`410111`=终态失败（换参），按 `status` + 退出码判断后用人话说明。
 
 ### 呈现规范
 
@@ -219,6 +221,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | 最近一个月 | 30 天 | 30 天 | — |
 | 过去一年 / 近一年 | 1 年 | 1 年 | 1 年 |
 | 今年 | 1/1 至今 | 1/1 至今 | 1/1 至今 |
+| 今天 / 今日 | 当天（`start=end=`今天） | 见下行「最新 / 今日 / 当前（K 线）」 | — |
 | 最新 / 今日 / 当前（K 线） | — | **45 天范围 → 从尾部取最近交易日**，不要只用 `--limit` | — |
 | 最新一期 / 最新报告期（财报） | — | — | 省略 `--fiscal-year`，传 `--period latest`（默认） |
 | 最新观点 / 今日观点 | 1 天范围 + `--rank-type 2` | — | — |
@@ -242,7 +245,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `999995` | 积分不足 | — | 联系管理员 |
 | `903301` | 今日调用上限 | **不重试** | 告知用户次日重试或升级配额 |
 | `433007` | 数据源不匹配 | — | 检查 `resourceType + sourceId` 组合 |
-| `410004` | 数据未找到，或**该指标无权限**（服务端复用此码；`indicator` 内层失败会带具体 msg 如"指标无权限"） | — | 检查查询条件与指标权限；`indicator` 持续失败多为无权限，联系管理员 |
+| `410004` | 数据未找到，或**该指标无权限**（服务端复用此码；`indicator` 内层失败会带具体 msg 如"指标无权限"） | — | 检查查询条件与指标权限 |
 | `430007` | 行情查询超出限制 | — | 缩短日期范围；全市场场景应已自动分片 |
 | `430004` | 研报下载报错（官方未文档化，实测出现于 download） | — | 确认 reportId 有效；换 `--file-type` 或换一篇验证 |
 | `900001` | 请求参数缺失 | — | 检查必填项（如 `--indicator` / `--date`） |

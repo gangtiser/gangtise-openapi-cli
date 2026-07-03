@@ -172,11 +172,12 @@ gangtise lookup meeting-org list          # 会议机构（--institution 用）
 ## Raw 调用 `gangtise raw call`
 
 ```bash
-gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'
+gangtise raw call <endpoint.key> --body '{"from":0,"size":120}'                                       # JSON 端点（POST，绝大多数）
+gangtise raw call insight.research.download --query reportId=<id> --query fileType=1 --output x.pdf   # 仅 kind=download 端点用 --query
 ```
 
 - endpoint key 格式：`<命令组>.<子命令>.<操作>`，如：
   - `insight.opinion.list`、`insight.announcement-hk.list`、`insight.foreign-opinion.list`、`insight.independent-opinion.list`
   - `reference.securities-search`、`reference.constant-list`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch`
-- `--body` 传 JSON 字符串
+- **JSON 端点**（绝大多数）用 `--body` 传 JSON；**`kind=download` 端点**（各 `*.download`）用 `--query key=value`（可重复）。传反会被 CLI **直接拒绝**（JSON 端点给 `--query`、或 download 端点给 `--body`，都抛 ValidationError，不发请求）
 - 自动翻页 / 重试 / Agent 复用与封装命令一致
