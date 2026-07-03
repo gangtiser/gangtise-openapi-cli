@@ -95,6 +95,7 @@ gangtise fundamental earning-forecast --security-code <code> [--start-date <date
 - `--start-date` / `--end-date`：默认近一年
 - `--consensus` 可重复：`netIncome` 归母净利润 | `netIncomeYoy` 同比增速 | `eps` 每股收益 | `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG | `roe` 净资产收益率 | `ps` 市销率
 - 返回结构：`{securityCode, securityName, updateList: [{date, fieldList: [{forecastYear, ...consensus}]}]}` — 每个日期固定返回 3 年预测（如 `2026E` / `2027E` / `2028E`）
+- **积分**：`0.5`/条（盈利预测是 `fundamental` 里唯一收费项，其余报表/主营/估值/股东均免费）
 
 ## 前十大股东 `fundamental top-holders`
 

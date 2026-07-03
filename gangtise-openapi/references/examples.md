@@ -22,6 +22,7 @@
      --category macro --category strategy \
      --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" \
      --rank-type 2 --format json
+   （选"导出全量"分支：改 `--format jsonl --output cicc_macro.jsonl` 落盘，再 `wc -l` / `head` 采样，别把全量塞进上下文）
 5. 提取 reportId + title 展示，让用户选择具体一篇 → 确认 file-type
 6. gangtise insight research download --report-id <id> --file-type 1
 ```

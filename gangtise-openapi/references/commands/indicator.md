@@ -99,6 +99,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 | `410001` | 入参错误：没传指标/证券，或 `time-series` 传了「多指标 × 多证券」 | 补齐 `--indicator`/`--security`；多 × 多改用 `cross-section` |
 | 缺参报错（曾为 `410106`） | **缺必填参数**：服务端现已直接指明缺哪个，如「指标 X 的必填参数 periodNum(期数) 不能为空」（仍以 HTTP 500 返回，CLI 重试 2 次后透出该消息） | 读 `search --format json` 的 `parameterList`，把 `required:true` 的参数用 `--indicator-param` 补上 |
 | `999999` | 真系统故障才用此码。**无数据已不再报 `999999`**：截面遇无数据现在返回 `null` 单元格（证券行保留、不丢行、不再 500），与时序一致 | 无数据按 `null` 正常返回；真 `999999` 多为瞬时问题，CLI 自动重试 2 次 |
+| `410004` | 数据未找到，或**该指标无权限**（内层信封失败会带具体 msg，如"指标无权限"；此码被服务端复用） | 检查查询条件与指标权限；换证券/日期仍失败多为无权限，联系管理员开通 |
 
 ### 必填参数（`410106` 的根因）
 

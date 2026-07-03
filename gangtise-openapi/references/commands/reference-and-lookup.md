@@ -59,7 +59,7 @@ gangtise reference constant-category [--format json]
 | `regionCategory` | 区域分类 | flat | `insight foreign-report --region` |
 
 > **行业 / 研究方向过滤——选哪套 category（实测 + spec，2026-06-15）：**
-> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / foreign-opinion / independent-opinion / wechat-message 全部正确过滤。`swIndustry`（`104xxx`）在 6 个 insight list（含 official-account）上等效（spec 多数命令写 citic+sw），但 **`vault wechat-message-list` 只认中信码、传申万码会静默返回全量** → 统一用中信码最稳。
+> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account / wechat-message 全部正确过滤。`swIndustry`（`104xxx`）在 6 个 insight list（含 official-account）上等效（spec 多数命令写 citic+sw），但 **`vault wechat-message-list` 只认中信码、传申万码会静默返回全量** → 统一用中信码最稳。
 > - **`--research-area`（researchAreaList）→ 用 `gangtiseIndustry`**：完整研究方向分类 = 30 个行业（`1008001xx`，与 citicIndustry 相同）+ 6 个方向（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`）。行业码与方向码均已实测正确过滤（opinion / summary / roadshow / site-visit / forum）。`citicIndustry` 也能用但只含行业、无方向；`swIndustry`（`104xxx`）除 summary / my-conference 外返 0，勿用。
 
 ## 常量值 `reference constant-list`
@@ -150,7 +150,7 @@ gangtise lookup meeting-org list          # 会议机构（--institution 用）
 
 ### 常见行业别名映射
 
-| 用户说法 | 标准行业 | `--industry` ID | `--gts-code`（security-clue） |
+| 用户说法 | 标准（申万）行业 | 申万码¹ | `--gts-code`（security-clue） |
 |----------|---------|----------------|---------------------------|
 | 新能源 / 光伏 / 风电 / 电新 | 电力设备 | `104630000` | `821052.SWI` |
 | AI / 人工智能 / 算力 | 计算机 | `104710000` | `821055.SWI` |
@@ -163,7 +163,9 @@ gangtise lookup meeting-org list          # 会议机构（--institution 用）
 | 银行 / 银行股 | 银行 | `104480000` | `821047.SWI` |
 | 汽车 / 新车 | 汽车 | `104280000` | `821036.SWI` |
 
-> **参数名选择**：`--industry`（industryList，用 `citicIndustry` 码 `1008001xx`）用于 opinion / research / foreign-report / foreign-opinion / independent-opinion / wechat-message；`--research-area`（researchAreaList，用 `gangtiseIndustry` 码 = 行业 `1008001xx` + 方向 `122000xxx`）用于 opinion / summary / roadshow / site-visit / forum / my-conference；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）。注意 strategy（线下策略会）无 `--research-area`，只按 `--institution` / `--location` 筛。
+> ¹ 第 3 列是**申万码**（`104xxx`），仅在 opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account 这 6 个 insight list 上作 `--industry` 等效；`vault wechat-message-list` 会静默返回全量、`--research-area` 返 0——通用/推荐的**中信码**（`1008001xx`）见 `references/lookup-ids.md` 中信表或 `constant-list --category citicIndustry`。
+
+> **参数名选择**：`--industry`（industryList，用 `citicIndustry` 码 `1008001xx`）用于 opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account / wechat-message；`--research-area`（researchAreaList，用 `gangtiseIndustry` 码 = 行业 `1008001xx` + 方向 `122000xxx`）用于 opinion / summary / roadshow / site-visit / forum / my-conference；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）。注意 strategy（线下策略会）无 `--research-area`，只按 `--institution` / `--location` 筛。
 
 > **"消费"歧义**：用户说"消费/大消费"覆盖多个子行业（食品饮料 `104340000` / 商贸零售 `104450000` / 社会服务 `104460000` / 家电 `104330000` / 纺织服饰 `104350000` / 美容护理 `104770000`），需向用户确认具体方向，或用 `--keyword 消费` 做宽泛搜索。
 

@@ -6,9 +6,9 @@ description: |-
 
   **触发词**：调接口 / CLI / openapi / 导出 / 下载研报 / 批量查 / 拉数据 / 跑一下 / 钢尼斯 / gtIC（Gangtise 语音误识别）
 
-  **适用**：原始数据导出、批量 jsonl/csv、下载 PDF/MD、行情 K 线、财务报表、估值指标、证券级数据指标（EDE 截面/时序）、AI 能力（一页通/投资逻辑/同业对比/线索/业绩点评/主题跟踪/调研提纲/知识库搜索）、云盘文件管理（Vault）
+  **适用**：原始数据导出、批量 jsonl/csv、下载 PDF/MD、行情 K 线、财务报表、估值指标、证券级数据指标（EDE 截面/时序）、AI 能力（一页通/投资逻辑/同业对比/个股看点·投研总结/投研线索/业绩点评/观点PK·多空辩论/主题跟踪/热点话题/管理层讨论/调研提纲/知识库搜索）、云盘文件管理（Vault）
 
-  **不适用**：不做研究报告撰写、观点总结/多空 PK 等内容生成式二次加工——本 skill 只从 OpenAPI 取原始数据与文件
+  **不适用**：不脱离 OpenAPI 自行撰写研报、编造投研结论或做自由问答——观点总结、多空 PK 等 AI 产物本 skill 只经由 Gangtise 平台 AI 接口获取，不自行生成
 
   **前置**：依赖 gangtise CLI，未安装时提示用户 `npm install -g gangtise-openapi-cli`
 ---
@@ -28,6 +28,7 @@ description: |-
 5. **多值参数**：重复传，不要逗号分隔。`--security 600519.SH --security 000858.SZ`。
 6. **K 线"最近 N 条"**：必须用 `--start-date`/`--end-date` 拉日期范围，从结果按 `tradeDate` 取尾部最近 N 条。**不要只用 `--limit N`**（截取的是窗口开头）。
 6.1. **日 K 仅历史**：`day-kline` / `day-kline-hk` / `day-kline-us` **不返回盘中实时数据**。当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00（北京时间）。需要盘中快照请走 `quote realtime`。
+6.2. **多标的日 K 不自动分片**：只有 `--security all` 才按日切片提额；显式传多个 `--security` 时默认 `--limit 6000`、**无截断告警、K 线无 `total` 可核对**。先估 标的数 × 交易日数，接近/超 6000 → 逐只分开拉、或显式 `--limit 10000`（上限）并核对每只都有数据，避免后半段证券被静默截断。
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
@@ -47,7 +48,8 @@ description: |-
 🔴 **需用户确认**：
 - `gangtise auth status` 未登录 → 提示配置 AK/SK 并中止
 - 多个命令同时匹配 → 复述理解让用户挑（如"搜索研报" → research list 还是 knowledge-batch？）
-- 用户说"全部 / 全量 / 全市场" → 确认量级再拉：省略 `--size` 就是拉全量（自动翻页，上限 1000 页）；先 `--size 1` 看 stderr 的 `Total: N` 再决定
+- 用户说"全部 / 全量 / 全市场" → 确认量级再拉：省略 `--size` 就是拉全量（自动翻页，上限 1000 页）；先 `--size 1` 看 stderr 的 `Total: N` 再决定（探量这步别加 `--format json`——json 下不打 `Total` 行）
+- **高积分操作先确认**：任何 50 积分/次及以上、或"按条 × 大批量"（如 `stock-summary` 全市场数千只、`opinion` 全量翻页、`concept-info` 500/次）→ 先估总积分告知用户再执行（单价见下「积分计费速查」）
 - 下载格式或 `--content-type` 未确定 → 询问（详见下方"下载规则"）
 - list→download 用户没指定具体文件 → 展示前 10 条让用户挑
 
@@ -56,7 +58,21 @@ description: |-
 - opaque ID → 先 `references/lookup-ids.md`
 - 模糊时间词 → 查"时间词映射"
 - 无时间范围且用户没要求全量 → 主动加 `--size 200` 兜底（不必问）；注意 CLI 省略 `--size` 会拉全量
+- 预估结果 >200 行 → 别全量 `--format json` 引进上下文，改 `--format jsonl --output <file>` 落盘（CLI ≥1000 行自动流式、stdout 只回显文件路径），再 `wc -l` + `head` 采样呈现
+- 路由到 AI 同步生成命令（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `stock-summary` / `theme-tracking` / `hot-topic` / `management-discuss-*`）→ 命令前置 `GANGTISE_TIMEOUT_MS=120000`（服务端常 >30s，默认超时会触发重试、白等且可能重复扣积分）。`earnings-review` / `viewpoint-debate` 是异步（`--wait` 或 `*-check` 轮询），不吃这个超时
 - "AI速记/智能摘要/会议纪要"→`summary`、"原始文件/原文件"→`original`、"语音识别/转写文本/ASR"→`asr` — 用户已明示时直接映射 content-type，不必问
+
+### 积分计费速查
+
+"免费"=0 积分；**只列单价**，数据范围（可查多久）随账号等级不同、不在此列。
+
+- **免费**：所有 `quote` 行情、`fundamental` 报表/主营/估值/股东（**盈利预测除外**）、`reference`/`constant` 查询、`alternative edb-search`、`vault`（record/wechat/股票池/drive/AI云盘）
+- **0.1/条 list**：research / foreign-report / official-account / announcement(A/港/美) / summary 的 list、`vault my-conference-list`
+- **按条（观点/含详情类 list）**：independent-opinion list 与 `ai security-clue` 5；roadshow/site-visit/strategy/forum list 20；opinion / foreign-opinion list 30；`fundamental earning-forecast` 0.5；`ai stock-summary` 3（无看点的证券不返回也不扣）；`alternative edb-data` 30
+- **各 download（/篇）**：announcement / official-account 10；research / announcement-hk / announcement-us 20；independent-opinion 30；summary / foreign-report / my-conference 50
+- 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**；`ai hot-topic` 50/篇
+- 🔴 **极贵**：`alternative concept-info` / `concept-securities` **500/次**
+- **按单元格**：`indicator cross-section` / `time-series`（A股 0.05 / 港股 0.1 / 美股 0.2 积分每 100 单元格，见 `indicator.md`）；`ai knowledge-resource-download` 按下游资源计费
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -91,6 +107,7 @@ description: |-
 | 美股公告 / US 公告 | `insight announcement-us list` |
 | 公众号资讯 / 产业资讯 / 公众号文章 | `insight official-account list` |
 | 跨类型语义搜索（研报+纪要+...） | `ai knowledge-batch`（多个 `--resource-type`） |
+| 知识库原文下载（搜到后取全文） | `ai knowledge-resource-download`（前置：`knowledge-batch` 拿 `resourceType`+`sourceId`；`433007`=组合不匹配） |
 | 一页通 / 投资逻辑 / 同业对比 / 调研提纲 | `ai one-pager / investment-logic / peer-comparison / research-outline` |
 | 个股看点 / 投研总结 / 公司速览 | `ai stock-summary`（`--security` 代码或 `aShares`/`hkStocks` 全市场；仅 A 股/港股） |
 | 业绩点评（异步） | `ai earnings-review` |
@@ -137,9 +154,9 @@ description: |-
 - "搜索 X" → 数据维度精确（按行业/券商）走对应 `insight ... list`；跨类型语义搜索走 `ai knowledge-batch`
 - 港股代码用在 `insight foreign-opinion --security` 还是 `quote day-kline-hk --security`？前者要"境外"格式（`UBER.N`），后者要 `.HK`
 - "成分股" → 题材深度（分组/重点标记/纳入理由）走 `alternative concept-securities`；板块（行业/概念分类树，纯代码名单）走 `reference sector-constituents`
-- "指标" → 证券级指标（个股收盘价/成交量/总市值/财务指标，需 `--security` 证券代码）走 `indicator`（EDE）；行业/宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），两套接口不同
+- "指标" → 证券级指标（总市值/估值分位/财务指标等，需 `--security` 证券代码）走 `indicator`（EDE）；**但基础行情（收盘价/开高低收/成交量/成交额/涨跌幅）优先 `quote`**（免费、可 `--security all` 自动分片；`indicator` 按单元格计费且需先 search 拿 code）；行业/宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），三套接口不同
 - `indicator` 取数二选一：单日多标的横向对比 → `cross-section`；时间区间纵向走势 → `time-series`（且 `time-series` 不能多指标 × 多证券同时，截面才可以）
-- `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报错（服务端现直接指明「必填参数 X 不能为空」）；**无数据已统一返回 `null`**（截面不再抛 `999999`、不丢行），换公司类型/年报日期可取到对应类型科目的数。详见 `references/commands/indicator.md`
+- `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报错（服务端现直接指明「必填参数 X 不能为空」）；**无数据已统一返回 `null`**（截面不再抛 `999999`、不丢行），换公司类型/年报日期可取到对应类型科目的数。**取"最新"值别踩空**：行情类 `--date` 填当天且盘中/未入库会整行 `null`（≠无数据，别据此报"无数据"），改用 T-1 交易日；财务类用报告期末（如 `2025-12-31`）。详见 `references/commands/indicator.md`
 
 ## 公司名 → 证券代码
 
@@ -206,7 +223,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | 最新一期 / 最新报告期（财报） | — | — | 省略 `--fiscal-year`，传 `--period latest`（默认） |
 | 最新观点 / 今日观点 | 1 天范围 + `--rank-type 2` | — | — |
 
-参数命名：Insight/Vault/AI 用 `--start-time` / `--end-time`（datetime）；Quote/Fundamental 用 `--start-date` / `--end-date`（date）。
+参数命名：Insight/Vault/AI 用 `--start-time` / `--end-time`（datetime）；Quote/Fundamental 用 `--start-date` / `--end-date`（date）。**三个例外**：`ai knowledge-batch` 的 `--start-time`/`--end-time` 收 **13 位毫秒时间戳**（传 datetime 字符串会报 `expected a finite number`）；`ai hot-topic` 用 `--start-date`/`--end-date`（date）；`quote minute-kline` 虽属 Quote 却用 `--start-time`/`--end-time` 且为 datetime。
 
 支持时间倒序的命令加 `--rank-type 2`：opinion / summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。其他 list 命令按 API 默认排序。
 
@@ -225,7 +242,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `999995` | 积分不足 | — | 联系管理员 |
 | `903301` | 今日调用上限 | **不重试** | 告知用户次日重试或升级配额 |
 | `433007` | 数据源不匹配 | — | 检查 `resourceType + sourceId` 组合 |
-| `410004` | 数据未找到 | — | 检查查询条件 |
+| `410004` | 数据未找到，或**该指标无权限**（服务端复用此码；`indicator` 内层失败会带具体 msg 如"指标无权限"） | — | 检查查询条件与指标权限；`indicator` 持续失败多为无权限，联系管理员 |
 | `430007` | 行情查询超出限制 | — | 缩短日期范围；全市场场景应已自动分片 |
 | `430004` | 研报下载报错（官方未文档化，实测出现于 download） | — | 确认 reportId 有效；换 `--file-type` 或换一篇验证 |
 | `900001` | 请求参数缺失 | — | 检查必填项（如 `--indicator` / `--date`） |
