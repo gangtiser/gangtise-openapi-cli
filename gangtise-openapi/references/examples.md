@@ -253,3 +253,38 @@
 7. 无数据：截面/时序对无此科目的格**返回 null**（不再报 999999、不丢行）→ 财务用报告期末、现金流附注用年报
    日期(2025-12-31)、行情用交易日；银行/券商/保险科目不同，换对公司类型。详见 commands/indicator.md
 ```
+
+## 例 16：A 股资金流向（个股 vs 全市场按日分片）
+
+**用户**："看下宁德时代最近一个月的主力资金净流入" / "拉今天全 A 股的资金流向"
+
+```
+1. 路由 → quote fund-flow（A 股日频资金流向，免费；仅历史，约 16:30 入库）
+2. 个股：宁德时代 300750.SZ；"最近一个月" → 今日往前 30 天
+   gangtise quote fund-flow --security 300750.SZ \
+     --start-date 2026-06-06 --end-date 2026-07-06 \
+     --field tradeDate --field mainNetInflow --field mainInflowRatio --format json
+   → 主力 = 大单 + 特大单；字段族 {small|medium|large|xlarge}{Inflow|Outflow|NetInflow|InflowRatio}
+   单只无翻页：撞 --limit（默认 6000/上限 10000）会标 partial + 退出码 3 → 缩小日期区间
+3. 全市场：--security aShares
+   ⚠️ aShares 必须显式传 --start-date/--end-date（缺日期本地报错；否则单请求被服务端 430012 拒）
+   单日约 5500 行，CLI 按日自动分片并发合并、无需手动分批（宽区间落盘再采样）：
+   gangtise quote fund-flow --security aShares \
+     --start-date 2026-07-06 --end-date 2026-07-06 --format jsonl --output aShares_flow.jsonl
+```
+
+## 例 17：机构 ID 搜索（名称 → institutionId，喂给 --broker/--institution）
+
+**用户**："查渤海证券最近的研报"
+
+```
+1. 机构名不在速查表、要按机构筛选 → 先 reference institution-search 拿 ID（免费，搜索型 top≤10，绝不猜 ID）
+2. gangtise reference institution-search --keyword 渤海证券 --format json
+   → list[0] = {institutionId: "C100000001", institutionName, usageScopes:[...]}
+   usageScopes 直接标明这个 ID 用于哪个命令的哪个参数（省去猜 --broker 还是 --institution）
+   可选 --category 缩类：domesticBroker / foreignInstitution / leadInstitution / opinionInstitution / foreignOpinionInstitution
+3. 研报按券商筛选走 --broker：
+   gangtise insight research list --broker C100000001 --rank-type 2 \
+     --start-time "2026-06-06 00:00:00" --end-time "2026-07-06 23:59:59" --format json
+4. 只有要「全量枚举」券商/机构表时才用本地 lookup broker-org/meeting-org list（institution-search 是搜索、非全量）
+```
