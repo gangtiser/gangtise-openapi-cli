@@ -13,6 +13,10 @@ interface ShardConfig {
   /** Days per shard. Picked so each request stays under the 10K-row API cap. */
   shardDays: number
   concurrency?: number
+  /** securityList value that means "whole market" for this endpoint and triggers
+   * date-sharding + the lifted row cap: `all` for kline (default), `aShares` for
+   * fund-flow. */
+  fullMarketValue?: string
 }
 
 interface KlineClient {
@@ -36,10 +40,16 @@ function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-function isAllMarket(body: KlineBody): boolean {
+export function isFullMarket(body: KlineBody, fullMarketValue: string): boolean {
   const list = body.securityList
   if (!Array.isArray(list) || list.length !== 1) return false
-  return list[0] === "all"
+  return list[0] === fullMarketValue
+}
+
+/** Kline uses `all` as its whole-market keyword; fund-flow uses `aShares`. Thin wrapper
+ * so kline call sites read naturally. */
+export function isAllMarket(body: KlineBody): boolean {
+  return isFullMarket(body, "all")
 }
 
 function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDate: string; endDate: string }> {
@@ -64,7 +74,8 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
  * single-security queries this is a no-op.
  */
 export async function callKlineWithSharding(client: KlineClient, endpointKey: string, body: KlineBody, config: ShardConfig): Promise<unknown> {
-  if (!isAllMarket(body)) {
+  const fullMarketValue = config.fullMarketValue ?? "all"
+  if (!isFullMarket(body, fullMarketValue)) {
     return client.call(endpointKey, body)
   }
 
@@ -73,20 +84,45 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // must apply even when a date is missing (no sharding possible then, but the
   // single request still needs the lifted cap).
   const allMarketBody: KlineBody = { ...body, limit: body.limit ?? ALL_MARKET_LIMIT }
+  const perShardLimit = allMarketBody.limit ?? ALL_MARKET_LIMIT
+  // A shard maxes out for two reasons with different fixes: a user-set low --limit is
+  // raisable; hitting the API cap itself is not (only a smaller internal shardDays window
+  // would help). Word the truncation warning accordingly.
+  const truncationHint = perShardLimit < ALL_MARKET_LIMIT
+    ? "raise or omit --limit to fetch the full market"
+    : `a single ${config.shardDays}-day window exceeds the ${ALL_MARKET_LIMIT}-row API cap`
+
+  // A full-market response whose row count reaches the per-request limit was itself
+  // capped (a low user --limit, or a single day exceeding the API row cap) — its slice
+  // is incomplete, so the result must be flagged partial rather than shown as complete.
+  const isTruncated = (rec: Record<string, unknown>): boolean =>
+    Array.isArray(rec.list) && rec.list.length >= perShardLimit
+
+  // A single full-market request (missing/unparseable dates, or a range that fits one
+  // shard) skips the merge loop below, so it needs the same truncation check inline — or
+  // a low --limit / oversized day slips through as a silent exit-0 success.
+  const callSingle = async (): Promise<unknown> => {
+    const single = await client.call(endpointKey, allMarketBody)
+    if (single && typeof single === "object" && !Array.isArray(single) && isTruncated(single as Record<string, unknown>)) {
+      ;(single as Record<string, unknown>).partial = true
+      process.stderr.write(`[gangtise] warning: full-market request hit the ${perShardLimit}-row limit and was likely truncated; results are partial — ${truncationHint}.\n`)
+    }
+    return single
+  }
 
   if (!body.startDate || !body.endDate) {
-    return client.call(endpointKey, allMarketBody)
+    return callSingle()
   }
 
   const start = parseDate(body.startDate)
   const end = parseDate(body.endDate)
   if (!start || !end || end < start) {
-    return client.call(endpointKey, allMarketBody)
+    return callSingle()
   }
 
   const totalDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
   if (totalDays <= config.shardDays) {
-    return client.call(endpointKey, allMarketBody)
+    return callSingle()
   }
 
   const shards = buildShards(start, end, config.shardDays)
@@ -115,11 +151,13 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   let fieldList: unknown[] | undefined
   let header: Record<string, unknown> | null = null
   const merged: unknown[] = []
+  let truncatedShards = 0
   for (const r of results) {
     if (!(r && typeof r === "object")) continue
     const rec = r as Record<string, unknown>
     if (!header) header = rec
     if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
+    if (isTruncated(rec)) truncatedShards++
     // Append one-by-one rather than push(...list): a future higher row cap could
     // make a single shard's list large enough to overflow the stack via spread.
     if (Array.isArray(rec.list)) for (const item of rec.list as unknown[]) merged.push(item)
@@ -132,12 +170,18 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   if (!header) return { list: [] }
-  const out: Record<string, unknown> = { ...header, list: merged }
+  // `total` on a shard is that shard's own row count; overwrite it with the merged count
+  // so the JSON `total` and the `Total:` stderr line reflect the whole combined result.
+  const out: Record<string, unknown> = { ...header, total: merged.length, list: merged }
   if (fieldList) out.fieldList = fieldList
   if (failedShards.length > 0) {
     out.partial = true
     out.failedShards = failedShards
     process.stderr.write(`[gangtise] warning: ${failedShards.length}/${shards.length} shards failed; results are partial (see failedShards)\n`)
+  }
+  if (truncatedShards > 0) {
+    out.partial = true
+    process.stderr.write(`[gangtise] warning: ${truncatedShards}/${shards.length} shard(s) hit the ${perShardLimit}-row limit and were likely truncated; results are partial — ${truncationHint}.\n`)
   }
   return out
 }

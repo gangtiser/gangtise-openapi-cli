@@ -43,6 +43,36 @@ describe("callKlineWithSharding", () => {
     expect(result.list).toHaveLength(6) // 3 shards × 2 rows
   })
 
+  it("date-shards a full-market fund-flow query (aShares) and lifts the limit", async () => {
+    // fund-flow's whole-market keyword is `aShares`, and its rows are objects (not the
+    // columnar arrays kline returns) — the merge must handle both.
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => ({
+      total: 2,
+      list: [{ securityCode: `A-${body.startDate}` }, { securityCode: `B-${body.startDate}` }],
+    }))
+
+    const result = await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["aShares"],
+      startDate: "2026-06-29",
+      endDate: "2026-07-01",
+    }, { shardDays: 1, fullMarketValue: "aShares" }) as { list: unknown[] }
+
+    expect(call).toHaveBeenCalledTimes(3) // 3 calendar days, 1 day/shard
+    expect(result.list).toHaveLength(6) // 3 shards × 2 rows
+    expect((call.mock.calls[0][1] as { limit?: number }).limit).toBe(10_000) // full-market lift
+  })
+
+  it("does not shard fund-flow for an explicit security (only the aShares keyword triggers it)", async () => {
+    const call = vi.fn().mockResolvedValue({ total: 1, list: [{ securityCode: "600519.SH" }] })
+    await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["600519.SH"],
+      startDate: "2026-06-01",
+      endDate: "2026-12-31",
+    }, { shardDays: 1, fullMarketValue: "aShares" })
+
+    expect(call).toHaveBeenCalledTimes(1) // explicit security → passthrough, no sharding
+  })
+
   it("falls back to a single call when dates are unparseable", async () => {
     const call = vi.fn().mockResolvedValue({ list: [] })
     await callKlineWithSharding({ call }, "quote.day-kline", {
@@ -102,6 +132,55 @@ describe("callKlineWithSharding", () => {
     for (const b of seenBodies) {
       expect(b.limit).toBe(500)
     }
+  })
+
+  it("flags partial when a shard comes back exactly full (low --limit silently truncates each shard)", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    // --limit 2 caps every daily shard at 2 rows though each day has far more → truncation.
+    const call = vi.fn().mockResolvedValue({ total: 2, list: [{ x: 1 }, { x: 2 }] })
+    const result = await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["aShares"],
+      startDate: "2026-06-29",
+      endDate: "2026-07-01",
+      limit: 2,
+    }, { shardDays: 1, fullMarketValue: "aShares" }) as { partial?: boolean }
+
+    expect(result.partial).toBe(true)
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("truncated")
+    errSpy.mockRestore()
+  })
+
+  it("reports the merged row count as total, not the first shard's per-day total", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => ({
+      total: 2, // each shard reports only its own day's count
+      list: [{ d: body.startDate, n: 1 }, { d: body.startDate, n: 2 }],
+    }))
+    const result = await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["aShares"],
+      startDate: "2026-06-29",
+      endDate: "2026-07-01",
+    }, { shardDays: 1, fullMarketValue: "aShares" }) as { total: number; list: unknown[] }
+
+    expect(result.list).toHaveLength(6) // 3 shards × 2 rows
+    expect(result.total).toBe(6) // merged count, NOT the first shard's 2
+  })
+
+  it("flags partial when a SINGLE-request full-market response is truncated (range fits one shard)", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    // 1-day range with shardDays 1 → totalDays <= shardDays → single passthrough request,
+    // NOT the merge loop. --limit 2 caps it though the day has more → must still be partial.
+    const call = vi.fn().mockResolvedValue({ total: 2, list: [{ x: 1 }, { x: 2 }] })
+    const result = await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["aShares"],
+      startDate: "2026-06-29",
+      endDate: "2026-06-29",
+      limit: 2,
+    }, { shardDays: 1, fullMarketValue: "aShares" }) as { partial?: boolean }
+
+    expect(call).toHaveBeenCalledTimes(1) // single request, not sharded
+    expect(result.partial).toBe(true)
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("truncated")
+    errSpy.mockRestore()
   })
 
   it("emits non-overlapping shards covering the whole range", async () => {

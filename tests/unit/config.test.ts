@@ -39,6 +39,10 @@ describe("loadConfig", () => {
     expect(config.tokenCachePath).toContain("token.json")
   })
 
+  it("defaults to the openapi.gangtise.com base URL", () => {
+    expect(DEFAULT_BASE_URL).toBe("https://openapi.gangtise.com")
+  })
+
   it("reads overrides from the environment", () => {
     process.env.GANGTISE_BASE_URL = "https://example.test"
     process.env.GANGTISE_TIMEOUT_MS = "5000"

@@ -2,6 +2,29 @@
 
 本项目完整版本历史。README 顶部仅展示最近几个版本。
 
+### v0.23.0 — 2026-07-05
+
+**行为变更（注意）**
+- ⚠️ 默认 API 域名迁移：`https://open.gangtise.com` → `https://openapi.gangtise.com`。旧域名仍可用，CLI 只是切换了默认值（新旧域名多接口实测等价）；如需固定旧域名设 `GANGTISE_BASE_URL=https://open.gangtise.com`
+- `vault wechat-chatroom-list`：服务端接口改版为返回 `{ total, list }`（此前无 `total`、列名 `chatRoomList`），CLI 相应改为按 `total` 并发翻页；同时移除全仓已无端点使用的 `sequential`/`listKey` 顺序翻页机制
+- 无翻页的行情端点（`quote fund-flow` / `minute-kline` / 显式多标的的 `day-kline`·`-hk`·`-us`·`index-day-kline`）返回行数撞上单次 `--limit` 时标 `partial`（退出码 3）+ stderr 警告，避免静默截断；`--limit` 现本地校验 ≤ 10000（撞服务端上限也不漏标）。K 线 `--security all` 仍走日期分片自动补全
+
+**新增**
+- `quote fund-flow` — A股个股日资金流向（沪深京；小/中/大/特大单流入流出金额及占比、主力净流入；`--security` 或 `aShares` 全市场、`--start-date`/`--end-date`、`--limit`（默认 6000/上限 10000）、`--field`）；无积分消耗。`aShares` 全市场按日自动分片并发合并、须显式传日期范围（缺日期本地报错）；单只证券无翻页，撞 `--limit` 标 `partial`
+- `reference institution-search` — 机构 ID 搜索，5 类机构（`domesticBroker`/`foreignInstitution`/`leadInstitution`/`opinionInstitution`/`foreignOpinionInstitution`——末者文档未列但实测有效），结果自带 `usageScopes` 标明适用接口/参数；覆盖既有 `--broker`/`--institution` 全部机构入参；免费
+- `vault my-conference-list` 新增 `--source`（录制来源 1=企微会议助理 2=会议服务微信群）
+
+**文档 / Skill**
+- 机构 ID 路由改为 `reference institution-search` 优先（本地 `lookup broker-org/meeting-org` 仅作全量枚举兜底）；指标(EDE) 三接口与更新后服务端文档核对一致
+
+### v0.22.1 — 2026-07-03
+
+**修复**
+- 错误码 `410004` 提示改为中性措辞「数据未找到或无指标权限，请检查查询条件与指标权限」——此前只说"数据未找到"，与 `indicator` 内层信封的"无权限"消息拼接后自相矛盾
+
+**文档 / Skill**（随 `/sync-skill` 分发，不影响 CLI 行为）
+- gangtise-openapi Agent Skill 经 fable5 审计 + 多轮 review 优化：积分计费速查 + 高积分 pre-flight 闸门、AI 同步命令超时前置、大结果集落盘、异步 `--wait` 主路径、行业码口径收敛、市值量纲实测等
+
 ### v0.22.0 — 2026-07-02
 
 **行为变更（注意）**

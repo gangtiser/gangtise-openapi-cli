@@ -784,83 +784,29 @@ describe("GangtiseClient streaming download", () => {
   })
 })
 
-describe("GangtiseClient sequential pagination (no total)", () => {
+describe("GangtiseClient wechat-chatroom pagination (total + list)", () => {
   beforeEach(() => {
     requestMock.mockReset()
   })
 
-  // Mimics wechat chatroom: responds with { chatRoomList } and NO total; the
-  // server caps page size at 50. The client must page until a short page.
-  function chatroomMock(total: number, cap = 50) {
-    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
-      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
-      const from = body.from ?? 0
-      const size = Math.min(body.size ?? 50, cap)
-      const available = Math.max(total - from, 0)
-      const count = Math.max(0, Math.min(size, available))
-      const chatRoomList = Array.from({ length: count }, (_, i) => ({ chatroomId: `id-${from + i + 1}` }))
-      return Promise.resolve(jsonResponse({ chatRoomList }))
-    })
-  }
-
-  it("pages until a short page when size is omitted (no total to drive fan-out)", async () => {
-    chatroomMock(101)
+  // The server switched chatroom from `{ chatRoomList }` (no total) to
+  // `{ total, list }`; the endpoint now auto-paginates by total like any other
+  // list endpoint (server still caps page size at 50).
+  it("fetches all chatrooms across pages when size is omitted", async () => {
+    paginatedMock({ total: 101, itemFor: (id) => ({ chatroomId: `id-${id}`, chatroomName: `room-${id}` }) })
     const client = createClient()
-    const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: Array<{ chatroomId: string }> }
-    expect(result.chatRoomList).toHaveLength(101)
-    expect(result.chatRoomList[0]).toEqual({ chatroomId: "id-1" })
-    expect(result.chatRoomList.at(-1)).toEqual({ chatroomId: "id-101" })
-    expect(requestMock).toHaveBeenCalledTimes(3) // 50 + 50 + 1
+    const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { total: number; list: Array<{ chatroomId: string }> }
+    expect(result.total).toBe(101)
+    expect(result.list).toHaveLength(101)
+    expect(result.list[0]).toEqual({ chatroomId: "id-1", chatroomName: "room-1" })
+    expect(result.list.at(-1)).toEqual({ chatroomId: "id-101", chatroomName: "room-101" })
   })
 
   it("stops at the requested size without over-fetching", async () => {
-    chatroomMock(101)
+    paginatedMock({ total: 101, itemFor: (id) => ({ chatroomId: `id-${id}` }) })
     const client = createClient()
-    const result = await client.call("vault.wechat-chatroom.list", { from: 0, size: 60 }) as { chatRoomList: unknown[] }
-    expect(result.chatRoomList).toHaveLength(60)
-    expect(requestMock).toHaveBeenCalledTimes(2) // 50 + 10
-  })
-
-  it("returns a single page when fewer rows than one page exist", async () => {
-    chatroomMock(8)
-    const client = createClient()
-    const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[] }
-    expect(result.chatRoomList).toHaveLength(8)
-    expect(requestMock).toHaveBeenCalledTimes(1)
-  })
-
-  it("does one extra (empty) page when total is an exact multiple of page size", async () => {
-    chatroomMock(50)
-    const client = createClient()
-    const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[] }
-    expect(result.chatRoomList).toHaveLength(50)
-    expect(requestMock).toHaveBeenCalledTimes(2) // 50 (full) then 0 (short → stop)
-  })
-
-  it("keeps already-collected pages and warns when a LATER page loses shape", async () => {
-    let call = 0
-    requestMock.mockImplementation(() => {
-      call += 1
-      if (call === 1) return Promise.resolve(jsonResponse({ chatRoomList: Array.from({ length: 50 }, (_, i) => ({ chatroomId: `id-${i + 1}` })) }))
-      return Promise.resolve(jsonResponse({ unexpected: true })) // 2nd page loses shape
-    })
-    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
-    try {
-      const client = createClient()
-      const result = await client.call("vault.wechat-chatroom.list", { from: 0 }) as { chatRoomList: unknown[]; partial?: boolean }
-      expect(result.chatRoomList).toHaveLength(50) // first page survives, not discarded
-      expect(result.partial).toBe(true)
-      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unexpected shape"))
-    } finally {
-      errSpy.mockRestore()
-    }
-  })
-
-  it("returns the first response untouched when the FIRST page isn't a list shape", async () => {
-    requestMock.mockResolvedValueOnce(jsonResponse({ someObject: true }))
-    const client = createClient()
-    const result = await client.call("vault.wechat-chatroom.list", { from: 0 })
-    expect(result).toEqual({ someObject: true })
+    const result = await client.call("vault.wechat-chatroom.list", { from: 0, size: 60 }) as { list: unknown[] }
+    expect(result.list).toHaveLength(60)
   })
 })
 

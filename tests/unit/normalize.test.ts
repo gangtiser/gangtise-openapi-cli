@@ -65,18 +65,22 @@ describe("normalizeRows", () => {
     ])
   })
 
-  it("unwraps chatRoomList rows for group ID responses", () => {
+  it("keeps { total, list } for group ID responses (chatroom now returns total + list)", () => {
     const result = normalizeRows({
-      chatRoomList: [
+      total: 2,
+      list: [
         { chatroomName: "AI学习群", chatroomId: "wvbiijgwgejyeuwp" },
         { chatroomName: "投研分享群", chatroomId: "wvbiijgwgekdfj" },
       ],
     })
 
-    expect(result).toEqual([
-      { chatroomName: "AI学习群", chatroomId: "wvbiijgwgejyeuwp" },
-      { chatroomName: "投研分享群", chatroomId: "wvbiijgwgekdfj" },
-    ])
+    expect(result).toEqual({
+      total: 2,
+      list: [
+        { chatroomName: "AI学习群", chatroomId: "wvbiijgwgejyeuwp" },
+        { chatroomName: "投研分享群", chatroomId: "wvbiijgwgekdfj" },
+      ],
+    })
   })
 
   it("unwraps constants rows preserving category metadata", () => {

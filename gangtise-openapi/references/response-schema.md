@@ -39,6 +39,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight official-account download | 文件路径（stdout） | — |
 | reference securities-search | `{returnedCount, list}` | `list[].gtsCode` / `list[].gtsName` / `list[].category` / `list[].matchScore` / `list[].matchType` |
 | reference chiefs-search | `{returnedCount, list}` | `list[].chiefId` / `list[].chiefName` / `list[].institution` / `list[].team` / `list[].matchScore` |
+| reference institution-search | `{returnedCount, list}` | `list[].institutionId` / `list[].institutionName` / `list[].category` / `list[].usageScopes[{apiName, paramName}]` / `list[].matchScore` |
 | reference constant-category | `{total, list}` | `list[].category` / `list[].categoryName` / `list[].structureType`（flat/tree） / `list[].maxLevel` / `list[].usageScopes[].apiName` / `.paramName` |
 | reference constant-list | `{category, structureType, maxLevel, constantCount, list}`（CLI 把 `constants` 规范化为 `list`） | `list[].constantId` / `list[].constantName` / `list[].level`；树形分类父节点含 `list[].children[]`（递归同构） |
 | reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
@@ -47,6 +48,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | quote day-kline / day-kline-hk / day-kline-us / index-day-kline | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume`；index 另含 `securityName`（指数名称，v0.15.0 起） |
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `latestPrice` / `pctChange` / `volume` / `amount` / `amplitude` |
+| quote fund-flow | `{fieldList, list, total}` 列式 → 规范化后 `{list: [{...}], total}` 宽表 | `securityCode` / `tradeDate` + 请求的字段（`mainNetInflow` / `largeInflow` / `xlargeOutflow` / …） |
 | fundamental income-statement / balance-sheet / cash-flow（含 quarterly / -hk / -us） | `{total, list: [{...}]}` | `fiscalYear` / `period` / `endDate` / `companyName` / `companyType`（企业类型名称，如 `一般企业`/`银行`）+ 各 `--field` 字段；港股/美股另含 `timeCovered`（不规则跨度） |
 | fundamental main-business | `{list: [{...}]}` | `endDate` / `breakdownName` / `revenue` / `revenueRatio` / `grossProfitRatio` |
 | fundamental valuation-analysis | `{list: [{...}]}` | `tradeDate` / `value` / `percentileRank` |
@@ -68,7 +70,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault my-conference-list | `{list, total}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
 | vault my-conference-download | 文件路径（stdout） | — |
 | vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].msgContent` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList` |
-| vault wechat-chatroom-list | `{chatRoomList: [...]}` | `chatRoomList[].chatroomName` / `chatRoomList[].chatroomId` |
+| vault wechat-chatroom-list | `{list, total}` | `list[].chatroomName` / `list[].chatroomId` |
 | alternative edb-search | `{list: [...]}` 指标列表 | `indicatorId` / `indicatorName` / `dataSource` / `frequency` / `unit` |
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |

@@ -1,7 +1,7 @@
 import os from "node:os"
 import path from "node:path"
 
-export const DEFAULT_BASE_URL = "https://open.gangtise.com"
+export const DEFAULT_BASE_URL = "https://openapi.gangtise.com"
 export const DEFAULT_TIMEOUT_MS = 30_000
 export const DEFAULT_TOKEN_CACHE_PATH = path.join(os.homedir(), ".config", "gangtise", "token.json")
 

@@ -7,12 +7,6 @@ export interface EndpointDefinition {
   pagination?: {
     enabled: true
     maxPageSize: number
-    /** Some endpoints paginate by offset but return NO `total` and use a non-standard
-     * list key (e.g. wechat chatroom's `chatRoomList`). For those set `sequential` so
-     * the client pages until a short page signals the end, and `listKey` to the array
-     * field to accumulate. Omit both for the standard total-driven fan-out. */
-    sequential?: true
-    listKey?: string
   }
 }
 
@@ -202,6 +196,12 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Search chief analyst IDs by name / institution / team",
   },
+  "reference.institution-search": {
+    method: "POST",
+    path: "/application/open-reference/institutions/search",
+    kind: "json",
+    description: "Search institution IDs by keyword (domestic broker / foreign / lead / opinion institution)",
+  },
   "reference.constant-category": {
     method: "GET",
     path: "/application/open-reference/constants/category",
@@ -269,6 +269,12 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-quote/quote/realtime",
     kind: "json",
     description: "Query realtime quote snapshot (A-share / HK / US)",
+  },
+  "quote.fund-flow": {
+    method: "POST",
+    path: "/application/open-quote/fund-flow/daily",
+    kind: "json",
+    description: "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)",
   },
 
   // ─── fundamental ───
@@ -515,8 +521,8 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-vault/wechatgroupmsg/chatroomId",
     kind: "json",
     description: "List WeChat group chatroom IDs",
-    // No `total` in the response, list key is `chatRoomList`, server caps size at 50.
-    pagination: { enabled: true, maxPageSize: 50, sequential: true, listKey: "chatRoomList" },
+    // Response is `{ total, list }` (server caps size at 50); auto-paginate by total.
+    pagination: { enabled: true, maxPageSize: 50 },
   },
   "vault.stock-pool.list": {
     method: "POST",

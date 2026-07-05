@@ -30,6 +30,14 @@ beforeAll(async () => {
     req.on("end", () => {
       captured.push({ path: req.url ?? "", body: raw ? JSON.parse(raw) : undefined })
       res.setHeader("content-type", "application/json")
+      if ((req.url ?? "").includes("/daily")) {
+        // Fixed 3-row columnar payload for the limit-capped quote endpoints (fund-flow,
+        // kline) so a truncation test can drive rows-vs-limit: --limit 3 hits the cap
+        // (partial), --limit 5000/6000 stays under it. Body-mapping tests (no --limit or
+        // a large one) get 3 < cap → exit 0, so their assertions are unaffected.
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList: ["securityCode", "tradeDate", "mainNetInflow"], list: [["600519.SH", "2026-06-03", 1], ["000001.SZ", "2026-06-03", 2], ["000002.SZ", "2026-06-03", 3]] } }))
+        return
+      }
       res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
     })
   })
@@ -157,6 +165,152 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       securityList: ["600519.SH"],
       startDate: "2026-01-01",
       endDate: "2026-01-31",
+      limit: 6000, // omitting --limit sends the API-default cap explicitly (== truncation cap)
+    })
+  }, 30_000)
+
+  it("quote minute-kline sends the API-default limit (6000) when --limit is omitted", async () => {
+    // Regression: the truncation cap must equal the limit actually sent. Omitting --limit
+    // sends 6000 (the real server default) — an earlier build assumed 5000 and would
+    // false-flag complete 5000–5999-row results as truncated.
+    const { code } = await cli([
+      "quote", "minute-kline", "--security", "600519.SH",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 15:00:00",
+      "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-quote/kline/minute")
+    expect(captured[0].body).toEqual({
+      securityCode: "600519.SH",
+      startTime: "2026-06-01 09:30:00",
+      endTime: "2026-06-01 15:00:00",
+      limit: 6000,
+    })
+  }, 30_000)
+
+  it("quote fund-flow maps securities, date range, limit and fields to the request body", async () => {
+    const { code } = await cli([
+      "quote", "fund-flow",
+      "--security", "600519.SH", "--security", "aShares",
+      "--start-date", "2026-06-01", "--end-date", "2026-06-05",
+      "--limit", "5000", "--field", "mainNetInflow", "--field", "largeInflow",
+      "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-quote/fund-flow/daily")
+    expect(captured[0].body).toEqual({
+      securityList: ["600519.SH", "aShares"],
+      startDate: "2026-06-01",
+      endDate: "2026-06-05",
+      limit: 5000,
+      fieldList: ["mainNetInflow", "largeInflow"],
+    })
+  }, 30_000)
+
+  it("quote fund-flow flags partial (exit 3) + warns when returned rows hit the limit", async () => {
+    // Explicit security → single-request path; stub returns 3 rows and --limit 3 means
+    // rows == cap → truncation signal. (Full-market aShares is date-sharded instead.)
+    const { code, out } = await cli([
+      "quote", "fund-flow", "--security", "600519.SH",
+      "--start-date", "2026-06-03", "--end-date", "2026-06-03", "--limit", "3", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect(out).toContain("truncated")
+  }, 30_000)
+
+  it("quote fund-flow stays exit 0 when returned rows are under the limit", async () => {
+    // Explicit security; stub returns 3 rows and --limit 6000 means rows < cap → complete.
+    const { code } = await cli([
+      "quote", "fund-flow", "--security", "600519.SH",
+      "--start-date", "2026-06-03", "--end-date", "2026-06-03", "--limit", "6000", "--format", "json",
+    ])
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it("quote fund-flow rejects --limit above the 10000 API ceiling before any request", async () => {
+    const { code, out } = await cli([
+      "quote", "fund-flow", "--security", "aShares", "--limit", "10001", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(out).toContain("<= 10000")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("quote fund-flow --security aShares date-shards the full market into per-day requests", async () => {
+    // Full-market fund-flow errors server-side on a multi-day single request, so the CLI
+    // splits it into one request per day (shardDays: 1) and merges — never one big call.
+    const { code } = await cli([
+      "quote", "fund-flow", "--security", "aShares",
+      "--start-date", "2026-06-29", "--end-date", "2026-07-01", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(3) // 3 calendar days → 3 per-day shards
+    expect(captured.every((c) => c.path === "/application/open-quote/fund-flow/daily")).toBe(true)
+    expect(captured.map((c) => (c.body as { startDate: string }).startDate).sort())
+      .toEqual(["2026-06-29", "2026-06-30", "2026-07-01"])
+    expect((captured[0].body as { limit?: number }).limit).toBe(10000) // full-market lift, not the 6000 default
+  }, 30_000)
+
+  it("quote fund-flow --security aShares without a date range is rejected locally", async () => {
+    // Full-market fund-flow must date-shard, which needs an explicit range; without it the
+    // CLI rejects up front (exit 1, no request) instead of letting the server 430012.
+    const { code, out } = await cli([
+      "quote", "fund-flow", "--security", "aShares", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(out).toContain("requires both --start-date and --end-date")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("quote index-day-kline flags partial (exit 3) for explicit securities when rows hit the limit", async () => {
+    // Same truncation guard as fund-flow, applied through the addKlineCommand factory.
+    const { code, out } = await cli([
+      "quote", "index-day-kline", "--security", "000001.SH",
+      "--start-date", "2026-06-01", "--end-date", "2026-06-03", "--limit", "3", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect(out).toContain("truncated")
+  }, 30_000)
+
+  it("quote index-day-kline --security all does not false-flag partial when the result fits the limit", async () => {
+    // --limit omitted → full-market path uses the 10000 cap; the stub's 3 rows are well
+    // under it, so the result must NOT be flagged partial (true negative). A result that
+    // actually hits the limit IS flagged — covered in quoteSharding.test.ts.
+    const { code } = await cli([
+      "quote", "index-day-kline", "--security", "all",
+      "--start-date", "2026-06-03", "--end-date", "2026-06-03", "--format", "json",
+    ])
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it("reference institution-search maps keyword, categories and top", async () => {
+    const { code } = await cli([
+      "reference", "institution-search",
+      "--keyword", "招商", "--category", "domesticBroker", "--category", "opinionInstitution",
+      "--top", "5", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-reference/institutions/search")
+    expect(captured[0].body).toEqual({
+      keyword: "招商",
+      categoryList: ["domesticBroker", "opinionInstitution"],
+      top: 5,
+    })
+  }, 30_000)
+
+  it("vault my-conference-list maps --source to a numeric sourceList", async () => {
+    const { code } = await cli([
+      "vault", "my-conference-list",
+      "--source", "1", "--source", "2", "--category", "earningsCall",
+      "--size", "3", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-vault/my-conference/getList")
+    expect(captured[0].body).toEqual({
+      from: 0,
+      size: 3,
+      categoryList: ["earningsCall"],
+      sourceList: [1, 2],
     })
   }, 30_000)
 

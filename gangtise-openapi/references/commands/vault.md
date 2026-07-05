@@ -31,14 +31,15 @@ gangtise vault record-download --record-id <id> --content-type <type> [--output 
 ## 我的会议 `vault my-conference-list/download`
 
 ```bash
-gangtise vault my-conference-list [--keyword <text>] [--research-area <id>] [--security <code>] [--institution <id>] [--category <name>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
+gangtise vault my-conference-list [--keyword <text>] [--research-area <id>] [--security <code>] [--institution <id>] [--category <name>] [--source <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
 gangtise vault my-conference-download --conference-id <id> --content-type <type> [--output <path>]
 ```
 
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`（可重复）
+- `--source`：录制来源 `1`=企微会议助理 | `2`=会议服务微信群（可重复；不传返回全部）
 - `--keyword` vs `--research-area`：用户说"关于AI的"用 `--keyword AI`；说"电子行业的会议"用 `--research-area 100800126`（research-area 用 `gangtiseIndustry` 码 `1008001xx` + 方向 `122000xxx`，**不要用申万码 `104xxx`**）
 - `--content-type`（download **必选**）：`asr` 语音识别 | `summary` AI 速记
-- 返回字段：`conferenceId` / `title` / `publishTime` / `category` / `institution{...}` / `security{...}` / `researchArea{...}` / `guest`
+- 返回字段：`conferenceId` / `title` / `publishTime` / `category` / `institution{...}` / `security{...}` / `researchArea{...}` / `guest` / `sourceList`（录制来源，`1`/`2`）
 
 ## 群消息 `vault wechat-message-list`
 
@@ -61,8 +62,8 @@ gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n
 ```
 
 - `--room-name`：可重复或英文逗号分隔
-- 省略 `--size` 拉全量（接口不返回 `total`，CLI 串行翻页直到取完）；传 `--size N` 只取前 N 条。单页最大 50
-- 返回字段：`chatroomName` / `chatroomId`
+- 省略 `--size` 拉全量（接口返回 `total`，CLI 按 total 并发翻页）；传 `--size N` 只取前 N 条。单页最大 50
+- 返回字段：`total`（总条数）/ `chatroomName` / `chatroomId`
 
 ## 自选股股票池 `vault stock-pool-list / stock-pool-stocks`
 

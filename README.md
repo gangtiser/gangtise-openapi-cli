@@ -4,6 +4,18 @@
 
 ## Changelog
 
+### v0.23.0 — 2026-07-05
+
+**行为变更（注意）**
+- ⚠️ 默认 API 域名迁移：`https://open.gangtise.com` → `https://openapi.gangtise.com`。旧域名仍可用，CLI 只是切换了默认值（新旧域名多接口实测等价）；如需固定旧域名设 `GANGTISE_BASE_URL=https://open.gangtise.com`
+- `vault wechat-chatroom-list`：服务端接口改版为返回 `{ total, list }`（此前无 `total`、列名 `chatRoomList`）。CLI 相应改为按 `total` 并发翻页（不再串行翻页）；省略 `--size` 仍拉全量、传 `--size N` 取前 N 条，`Total:` 提示恢复
+- 无翻页的行情端点（`quote fund-flow` / `minute-kline` / 显式多标的的日 K：`day-kline`·`-hk`·`-us`·`index-day-kline`）返回行数撞上单次 `--limit` 时标 `partial`（退出码 3）+ stderr 警告，避免被静默截断；`--limit` 现本地校验 ≤ 10000（撞服务端上限也不漏标）。K 线 `--security all` 仍走日期分片自动补全，不受影响
+
+**新增**
+- `quote fund-flow` — A股个股日资金流向（沪深京），含小/中/大/特大单流入流出金额及占比、主力净流入等字段；`--security`（或 `aShares` 全市场）、`--start-date` / `--end-date`、`--limit`（默认 6000，上限 10000）、`--field` 指定返回字段；无积分消耗（单只证券无翻页，撞 `--limit` 时的截断处理见上「行为变更」；**`aShares` 全市场须显式传 `--start-date`/`--end-date`，CLI 按日自动分片并发合并——缺日期会本地报错**）
+- `reference institution-search` — 机构 ID 搜索，输入机构名/简称返回 `institutionId` 及适用接口参数（`usageScopes`）；`--keyword`（必填）、`--category`（`domesticBroker`/`foreignInstitution`/`leadInstitution`/`opinionInstitution`/`foreignOpinionInstitution`，可重复）、`--top`（默认 10，上限 10）；免费。覆盖既有 `--broker`/`--institution` 全部机构类（research/foreign-report/opinion/foreign-opinion/summary/roadshow/site-visit/strategy/my-conference）
+- `vault my-conference-list` 新增 `--source` — 按录制来源筛选（`1`=企微会议助理 `2`=会议服务微信群，可重复；不传返回全部）
+
 ### v0.22.1 — 2026-07-03
 
 **修复**
@@ -149,7 +161,7 @@ npm run dev -- --help
 ```bash
 export GANGTISE_ACCESS_KEY="your-ak"
 export GANGTISE_SECRET_KEY="your-sk"
-export GANGTISE_BASE_URL="https://open.gangtise.com"
+export GANGTISE_BASE_URL="https://openapi.gangtise.com"
 export GANGTISE_TOKEN="Bearer xxx"
 
 # 性能/调试可选项
@@ -227,7 +239,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | 模块 | 子命令 | 说明 |
 |------|--------|------|
 | **Auth** | `login` / `status` | 认证登录、状态查询 |
-| **Lookup** | `broker-org list` / `meeting-org list` | 本地枚举表（API 未覆盖的部分；行业/区域/公告分类/题材/申万行业代码改用 Reference 接口） |
+| **Lookup** | `broker-org list` / `meeting-org list` | 券商/会议机构本地全量枚举表（按名称找 ID 优先 `reference institution-search`；行业/区域/公告分类/题材/申万码已改用 Reference 接口） |
 | **Insight** | `opinion list` | 内资机构观点 |
 | | `summary list` / `download` | 纪要（含下载，支持 `--file-type` 选原始/HTML） |
 | | `roadshow list` | 路演 |
@@ -244,6 +256,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `official-account list` / `download` | 产业公众号资讯（含 txt/HTML 下载） |
 | **Reference** | `securities-search` | GTS Code 搜索（按名称/代码/拼音匹配） |
 | | `chiefs-search` | 首席分析师 ID 搜索（按姓名/机构/团队匹配） |
+| | `institution-search` | 机构 ID 搜索（内资券商/外资/牵头/观点机构，按名称匹配） |
 | | `constant-category` | 常量分类列表（含各分类适用的接口与参数） |
 | | `constant-list` | 按分类导出常量值全量列表（行业/城市/公告分类/区域等） |
 | | `concept-search` | 题材 ID 搜索（名称/拼音/分组名匹配） |
@@ -253,6 +266,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `index-day-kline` | 沪深京指数日K线 |
 | | `minute-kline` | A股分钟K线 |
 | | `realtime` | 个股实时行情快照（A股/港股/美股） |
+| | `fund-flow` | A股个股日资金流向（沪深京；小/中/大/特大单 + 主力净流入） |
 | **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | A股三大财务报表（累计） |
 | | `income-statement-quarterly` / `cash-flow-quarterly` | A股利润表/现金流量表（单季度） |
 | | `income-statement-hk` / `balance-sheet-hk` / `cash-flow-hk` | 港股三大财务报表（中国会计准则） |
@@ -362,7 +376,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `vault record-list`
 - `vault my-conference-list`
 - `vault wechat-message-list`
-- `vault wechat-chatroom-list`（特例：接口无 `total`，CLI 串行翻页）
+- `vault wechat-chatroom-list`
 - `ai hot-topic`
 
 规则：
@@ -373,7 +387,6 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
-- `vault wechat-chatroom-list` 是特例：接口不返回 `total`，CLI 改为串行翻页——省略 `--size` 拉全量、传 `--size N` 取前 N 条，单页 50，无 `Total:` 提示
 
 ## 智能文件命名
 
@@ -462,6 +475,8 @@ gangtise reference securities-search --keyword "银行" --category stock --categ
 # 首席分析师 ID 搜索（按姓名/机构/团队；拿 chiefId 供 insight opinion list --chief 使用）
 gangtise reference chiefs-search --keyword 东吴证券 --top 3 --format json
 gangtise reference chiefs-search --keyword 芦哲 --format json
+# 机构 ID 搜索（--category: domesticBroker/foreignInstitution/leadInstitution/opinionInstitution）
+gangtise reference institution-search --keyword 招商证券 --category domesticBroker --top 3 --format json
 
 # 常量查询：先看分类，再按分类导出全量常量值
 gangtise reference constant-category --format json
@@ -502,6 +517,8 @@ gangtise quote minute-kline --security 600519.SH --start-time "2026-04-15 09:30:
 gangtise quote realtime --security 600519.SH --security 00700.HK --security AAPL.O --field securityCode --field tradeTime --field latestPrice --field pctChange --field volume --format json
 # 实时行情：全市场批量（建议配合 --field 精简字段）
 gangtise quote realtime --security aShares --field securityCode --field latestPrice --field pctChange --field volume --format json
+# A股个股日资金流向（沪深京；--security aShares 全市场；--limit 上限 10000，超限缩短日期区间分批）
+gangtise quote fund-flow --security 600519.SH --security 000001.SZ --start-date 2026-06-01 --end-date 2026-06-05 --field mainNetInflow --field largeInflow --field xlargeInflow --format json
 ```
 
 > **历史 vs 实时**：`day-kline*` 仅返回历史数据（当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00 北京时间）。盘中需要最新成交价、振幅等实时字段必须走 `quote realtime`。
@@ -598,8 +615,9 @@ gangtise vault record-list --keyword 晨会 --category upload --category mobile
 # 录音速记下载（--content-type: original/asr/summary）
 gangtise vault record-download --record-id 49412 --content-type summary
 
-# 我的会议列表
+# 我的会议列表（--source 录制来源：1=企微会议助理 2=会议服务微信群，可重复；不传返回全部）
 gangtise vault my-conference-list --keyword AI --category earningsCall --institution C100000027
+gangtise vault my-conference-list --source 2 --category earningsCall --size 20
 # 我的会议下载（--content-type: asr/summary）
 gangtise vault my-conference-download --conference-id 43319 --content-type asr
 

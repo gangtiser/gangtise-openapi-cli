@@ -56,7 +56,7 @@ export function buildQuoteKlineBody(options: QuoteKlineOptions) {
     securityList: maybeArray(options.security),
     startDate: options.startDate,
     endDate: options.endDate,
-    limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }),
+    limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }),
     fieldList: maybeArray(options.field),
   }
 }

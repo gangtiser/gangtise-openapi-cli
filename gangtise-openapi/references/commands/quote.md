@@ -52,6 +52,24 @@ gangtise quote realtime [--security <code>] [--field <name>]
 - 非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照
 - 字段速查：见 `references/fields.md` 中的"实时行情"小节
 
+## A股资金流向 `quote fund-flow`
+
+```bash
+gangtise quote fund-flow [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
+```
+
+- A 股个股**日频**资金流向（沪深京 `.SH` / `.SZ` / `.BJ`），仅历史数据；交易日数据约 16:30 入库
+- `--security`：证券代码（可重复），或 `aShares` 全市场 A 股（**须显式传 `--start-date`/`--end-date`**，CLI 按日自动分片并发合并；缺日期会本地报错）
+- `--start-date` / `--end-date`：`yyyy-MM-dd`；省略时 `end-date` 默认最新交易日、`start-date` 默认往前 1 年
+- `--limit`：默认 6000，**上限 10000**（超 10000 本地直接报错）
+  - **单只证券**：接口无翻页，返回行数撞上 `--limit` 时结果标 `partial`、退出码 3、stderr 警告——缩小日期区间分批拉取
+  - **`aShares` 全市场**（单日约 5000+ 行）：**须显式传 `--start-date`/`--end-date`**，CLI 按日自动分片并发合并、无需手动分批（缺日期或单请求多日全市场会触发服务端 `430012/430013`，分片规避了它）
+- `--field`：指定返回字段（`securityCode` / `tradeDate` 默认返回，恒在最前）；不传返回全部
+  - 小/中/大/特大单：`{small|medium|large|xlarge}{Inflow|Outflow|NetInflow|InflowRatio|OutflowRatio}`
+  - 汇总与主力：`total{Inflow|Outflow|NetInflow}` / `main{Inflow|Outflow|NetInflow|InflowRatio|OutflowRatio}`（主力 = 大单 + 特大单）
+- 金额单位：元；占比单位：%（各分类流入占比之和 = 100）
+- 无积分消耗
+
 ## 指数日 K 线 `quote index-day-kline`
 
 ```bash
@@ -71,5 +89,5 @@ gangtise quote minute-kline --security <code> [--start-time <datetime>] [--end-t
 
 - 仅支持 A 股，**必须传 `--security`**（否则返回 430007）
 - `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全）
-- `--limit` 默认 5000，上限 10000
+- `--limit` 默认 6000，上限 10000
 - 常用字段：`securityCode` `tradeTime` `open` `high` `low` `close` `change` `pctChange` `volume` `amount`

@@ -106,6 +106,15 @@ describe("ENDPOINTS", () => {
     expect(ep.kind).toBe("json")
   })
 
+  it("fund-flow endpoint uses open-quote path and is unpaginated", () => {
+    const ep = ENDPOINTS["quote.fund-flow"]
+    expect(ep).toBeDefined()
+    expect(ep.method).toBe("POST")
+    expect(ep.path).toBe("/application/open-quote/fund-flow/daily")
+    expect(ep.kind).toBe("json")
+    expect(ep.pagination).toBeUndefined()
+  })
+
   it("includes quote index-day-kline endpoint", () => {
     const ep = ENDPOINTS["quote.index-day-kline"]
     expect(ep).toBeDefined()
@@ -320,6 +329,8 @@ describe("ENDPOINTS", () => {
     expect(chatroom.path).toBe("/application/open-vault/wechatgroupmsg/chatroomId")
     expect(chatroom.kind).toBe("json")
     expect(chatroom.method).toBe("POST")
+    // Server switched to { total, list }; auto-paginates by total (no sequential/listKey).
+    expect(chatroom.pagination).toEqual({ enabled: true, maxPageSize: 50 })
   })
 
   it("indicator (EDE) endpoints use correct keys and paths and are unpaginated", () => {
@@ -391,6 +402,15 @@ describe("ENDPOINTS", () => {
     expect(ep.method).toBe("POST")
     expect(ep.path).toBe("/application/open-reference/chiefs/search")
     expect(ep.kind).toBe("json")
+  })
+
+  it("institution-search endpoint uses correct key and path", () => {
+    const ep = ENDPOINTS["reference.institution-search"]
+    expect(ep).toBeDefined()
+    expect(ep.method).toBe("POST")
+    expect(ep.path).toBe("/application/open-reference/institutions/search")
+    expect(ep.kind).toBe("json")
+    expect(ep.pagination).toBeUndefined()
   })
 
   // Endpoint keys appear as bare string literals throughout cli.ts

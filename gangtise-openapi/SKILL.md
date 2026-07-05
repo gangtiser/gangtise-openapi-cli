@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.22.1"
+version: "0.23.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -22,13 +22,13 @@ description: |-
 ## 必备规则
 
 1. **`--format json`**：列表/数据类必加。AI 内容生成（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `*-check`）也加 json，但呈现时**直接取 `content` 字段**，不要展示 JSON 包装层。
-2. **opaque ID**：先读 `references/lookup-ids.md`；找不到再按类型查：行业/区域/公告分类/城市 → `reference constant-list --category <分类>`（分类代码用 `reference constant-category` 查）；题材 → `reference concept-search --keyword <名>`；板块 → `reference sector-search --keyword <名>`；申万 `--gts-code` 行业代码全量 → `sector-search --keyword 申万一级行业指数` 取指数数据板块层级的 sectorId 再 `sector-constituents`；券商/会议机构 → `gangtise lookup <type> list`（仅剩 broker-org / meeting-org 两个本地表）。**绝不猜测**。
+2. **opaque ID**：先读 `references/lookup-ids.md`；找不到再按类型查：行业/区域/公告分类/城市 → `reference constant-list --category <分类>`（分类代码用 `reference constant-category` 查）；题材 → `reference concept-search --keyword <名>`；板块 → `reference sector-search --keyword <名>`；申万 `--gts-code` 行业代码全量 → `sector-search --keyword 申万一级行业指数` 取指数数据板块层级的 sectorId 再 `sector-constituents`；券商/牵头/观点机构（按名称找 ID）→ `reference institution-search --keyword <名> [--category ...]`（服务端搜索，返回 `institutionId` + `usageScopes` 标明该 ID 用于哪个接口的哪个参数；覆盖 `--broker` / `--institution` 全部 5 类机构，含 `foreignOpinionInstitution`）——仅当要**全量枚举**时才用本地表 `gangtise lookup broker-org/meeting-org list`（institution-search 是搜索型：top≤10、非全量）。**绝不猜测**。
 3. **公司名 → 证券代码**：先查下方速查表（5 只 mega-cap），其余一律 `gangtise reference securities-search --keyword <名> --category stock` 取 `list[0].gtsCode`。
 4. **时间格式**：datetime `"YYYY-MM-DD HH:mm:ss"`（引号包裹），date `YYYY-MM-DD`。
 5. **多值参数**：优先重复传（最稳、最明确）：`--security 600519.SH --security 000858.SZ`。CLI 也支持半/全角逗号分隔（`args.ts` 为语音输入容错），但重复传不易被 shell 吞。
 6. **K 线"最近 N 条"**：必须用 `--start-date`/`--end-date` 拉日期范围，从结果按 `tradeDate` 取尾部最近 N 条。**不要只用 `--limit N`**（截取的是窗口开头）。
 6.1. **日 K 仅历史**：`day-kline` / `day-kline-hk` / `day-kline-us` **不返回盘中实时数据**。当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00（北京时间）。需要盘中快照请走 `quote realtime`。
-6.2. **多标的日 K 不自动分片**：只有 `--security all` 才按日切片提额；显式传多个 `--security` 时默认 `--limit 6000`、**无截断告警、K 线无 `total` 可核对**。先估 标的数 × 交易日数，接近/超 6000 → 逐只分开拉、或显式 `--limit 10000`（上限）并核对每只都有数据，避免后半段证券被静默截断。
+6.2. **多标的日 K 不自动分片**：只有 `--security all` 才按日切片提额；显式传多个 `--security` 时走单请求（默认 `--limit 6000` / 上限 10000）。**v0.23.0 起：返回行数撞上 `--limit` 时结果会标 `partial`、退出码 3、stderr 警告**（不再静默截断；`--limit` 超 10000 本地直接报错）。仍建议先估 标的数 × 交易日数，接近/超 6000 → 逐只分开拉、或显式 `--limit 10000` 并按日期区间分批。
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
@@ -123,6 +123,7 @@ description: |-
 | 指数日 K（沪深京） | `quote index-day-kline` |
 | 分钟 K（A 股） | `quote minute-kline` |
 | 实时行情（A / 港 / 美） | `quote realtime` |
+| A股资金流向（主力/大单净流入，日频） | `quote fund-flow`（`--security` 或 `aShares` 全市场〔须带 `--start-date`/`--end-date`，按日自动分片〕；免费） |
 | A股利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
 | 港股利润表 / 资产负债 / 现金流 | `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` |
 | 美股利润表 / 资产负债 / 现金流 | `fundamental income-statement-us / balance-sheet-us / cash-flow-us` |
@@ -144,6 +145,7 @@ description: |-
 | 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间） | `indicator time-series`（前置：`indicator search` 拿 indicatorCode） |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
 | 首席 ID / 分析师 ID 搜索 | `reference chiefs-search`（按姓名/机构/团队，用于 `insight opinion --chief`） |
+| 机构 ID 搜索（内资券商/外资/牵头/观点机构） | `reference institution-search`（按机构名，用于 `--institution` / `--broker`；免费） |
 | 常量/枚举 ID（行业/城市/公告分类/区域） | `reference constant-list --category <code>`（分类代码用 `reference constant-category` 查） |
 | 题材 ID 搜索 | `reference concept-search` |
 | 板块 ID 搜索 | `reference sector-search` |
@@ -308,12 +310,12 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 按需 Read 对应文件：
 
 - 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 美股公告 / 外资观点 / 独立观点 / 公众号（official-account）→ `references/commands/insight.md`
-- 行情命令（A 股 / 港股 / 美股日 K / 指数日 K / 分钟 K / 实时行情） → `references/commands/quote.md`
+- 行情命令（A 股 / 港股 / 美股日 K / 指数日 K / 分钟 K / 实时行情 / 资金流向 fund-flow） → `references/commands/quote.md`
 - 三大报表（A 股 / 港股 / 美股）/ 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
 - knowledge-batch / security-clue / 个股看点（stock-summary）/ AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
 - 行业指标数据库（EDB）/ 题材指数画像与成分股（concept-info / concept-securities）→ `references/commands/alternative.md`
 - 数据指标（EDE：search / cross-section / time-series，证券级指标截面与时序）→ `references/commands/indicator.md`
-- securities-search / chiefs-search（首席 ID）/ 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
+- securities-search / chiefs-search（首席 ID）/ institution-search（机构 ID）/ 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 
 跑通流程对照 → `references/examples.md`

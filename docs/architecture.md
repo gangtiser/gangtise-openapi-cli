@@ -112,7 +112,7 @@
 
 ## Layer 5 — External Services & Storage
 
-### Gangtise OpenAPI · `https://open.gangtise.com`
+### Gangtise OpenAPI · `https://openapi.gangtise.com`
 
 | Domain | Base Path | Endpoints |
 |:--|:--|:--|

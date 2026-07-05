@@ -48,7 +48,7 @@ describe("cli smoke", () => {
   it("lists quote subcommands", async () => {
     const { code, out } = await cli(["quote", "--help"])
     expect(code).toBe(0)
-    for (const sub of ["day-kline", "day-kline-hk", "day-kline-us", "index-day-kline", "minute-kline", "realtime"]) {
+    for (const sub of ["day-kline", "day-kline-hk", "day-kline-us", "index-day-kline", "minute-kline", "realtime", "fund-flow"]) {
       expect(out).toContain(sub)
     }
   }, 30_000)
@@ -72,7 +72,7 @@ describe("cli smoke", () => {
   it("lists reference subcommands", async () => {
     const { code, out } = await cli(["reference", "--help"])
     expect(code).toBe(0)
-    for (const sub of ["securities-search", "chiefs-search", "constant-category", "constant-list", "concept-search", "sector-search", "sector-constituents"]) {
+    for (const sub of ["securities-search", "chiefs-search", "institution-search", "constant-category", "constant-list", "concept-search", "sector-search", "sector-constituents"]) {
       expect(out).toContain(sub)
     }
   }, 30_000)
@@ -193,6 +193,26 @@ describe("cli smoke", () => {
     for (const flag of ["--indicator", "--security", "--start-date", "--end-date", "--calendar-type", "--currency", "--scale", "--indicator-param"]) {
       expect(out).toContain(flag)
     }
+  }, 30_000)
+
+  it("quote fund-flow exposes the documented flags", async () => {
+    const { code, out } = await cli(["quote", "fund-flow", "--help"])
+    expect(code).toBe(0)
+    for (const flag of ["--security", "--start-date", "--end-date", "--limit", "--field"]) {
+      expect(out).toContain(flag)
+    }
+  }, 30_000)
+
+  it("reference institution-search requires --keyword", async () => {
+    const { code, out } = await cli(["reference", "institution-search"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--keyword")
+  }, 30_000)
+
+  it("vault my-conference-list exposes --source (recording source filter)", async () => {
+    const { code, out } = await cli(["vault", "my-conference-list", "--help"])
+    expect(code).toBe(0)
+    expect(out).toContain("--source")
   }, 30_000)
 
   it("lists insight announcement subcommands including announcement-us", async () => {

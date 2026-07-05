@@ -3,6 +3,7 @@ import { ValidationError } from "./errors.js"
 interface NumberOptionConfig {
   integer?: boolean
   min?: number
+  max?: number
 }
 
 export function splitCsv(value: string): string[] {
@@ -32,6 +33,9 @@ export function parseNumberOption(value: string | number | undefined, optionName
   }
   if (config.min !== undefined && parsed < config.min) {
     throw new ValidationError(`Invalid ${optionName}: expected a number >= ${config.min}`)
+  }
+  if (config.max !== undefined && parsed > config.max) {
+    throw new ValidationError(`Invalid ${optionName}: expected a number <= ${config.max}`)
   }
 
   return parsed

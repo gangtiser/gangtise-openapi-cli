@@ -6,7 +6,7 @@ import { readTokenCache, redactTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "./core/indicatorMatrix.js"
-import { callKlineWithSharding } from "./core/quoteSharding.js"
+import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
 import { ENDPOINTS } from "./core/endpoints.js"
@@ -44,6 +44,33 @@ async function emit(
 /** Acquire a client and run an arbitrary action (downloads, polling, custom shaping). */
 async function withClient(fn: (client: GangtiseClient) => Promise<void>): Promise<void> {
   await fn(await createClient())
+}
+
+/**
+ * Server-side default row cap shared by the limit-capped, non-paginated quote endpoints
+ * (fund-flow, minute-kline, day/index kline — all default to 6000 per the API docs). We
+ * send it EXPLICITLY when `--limit` is omitted (rather than letting the server apply its
+ * own default) so the request limit and the truncation `cap` below are always the same
+ * number — never a guess about the server's default that can drift out of sync.
+ */
+const DEFAULT_QUOTE_LIMIT = 6000
+
+/**
+ * Limit-capped, non-paginated endpoints (fund-flow, kline) report `total` as the
+ * RETURNED row count, not the true total, so a full page (rows == the limit we sent) is
+ * the only truncation signal. Flag the result partial (printData → exit 3) + warn so a
+ * capped export isn't mistaken for the full set. `cap` MUST be the exact limit the caller
+ * sent on the request; `--limit` is validated to <= 10000 so `cap` can't exceed the
+ * server ceiling and hide a truncation.
+ */
+function flagIfLimitTruncated(data: unknown, cap: number, label: string): void {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return
+  const rec = data as Record<string, unknown>
+  if (rec.partial === true) return
+  if (Array.isArray(rec.list) && rec.list.length >= cap) {
+    rec.partial = true
+    process.stderr.write(`[gangtise] warning: ${label} returned ${rec.list.length} rows = the ${cap}-row limit; results are likely truncated (this endpoint has no pagination). Narrow --start-date/--end-date or raise --limit (max 10000), fetching in date batches.\n`)
+  }
 }
 
 /**
@@ -358,13 +385,63 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
     .option("--field <field>", "Field", collectList, [])
     .option("--format <format>", "Output format", "table")
     .option("--output <path>")
-    .action((options) => emit(options, (client) => callKlineWithSharding(client, endpointKey, buildQuoteKlineBody(options), { shardDays })))
+    .action((options) => withClient(async (client) => {
+      const format = parseOutputFormat(options.format)
+      const body = buildQuoteKlineBody(options)
+      if (isAllMarket(body)) {
+        // `--security all` is date-sharded: callKlineWithSharding lifts the limit to the
+        // API max and owns completeness (partial / failedShards), so leave `limit` unset
+        // and skip the single-request truncation guard.
+        const data = await callKlineWithSharding(client, endpointKey, body, { shardDays })
+        await printData(data, format, options.output)
+        return
+      }
+      // Explicit securities go out as one request: pin the limit to the known default so
+      // the sent limit and the truncation cap are the same number by construction.
+      const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
+      const data = await callKlineWithSharding(client, endpointKey, { ...body, limit }, { shardDays })
+      flagIfLimitTruncated(data, limit, name)
+      await printData(data, format, options.output)
+    }))
 addKlineCommand("day-kline", "quote.day-kline", "Security code (A-share: .SH/.SZ/.BJ, or 'all' for full market)", 1)
 addKlineCommand("day-kline-hk", "quote.day-kline-hk", "Security code (HK stock: .HK, or 'all' for full market)", 2)
 addKlineCommand("day-kline-us", "quote.day-kline-us", "Security code (US stock: e.g. AAPL.O, or 'all' for full market)", 1)
 addKlineCommand("index-day-kline", "quote.index-day-kline", "Index code (.SH/.SZ/.BJ, or 'all' for full market)", 30)
-quote.command("minute-kline").option("--security <code>", "Security code (A-share only: .SH/.SZ/.BJ)").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)").option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)").option("--limit <number>", "Max rows per request (default: 5000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("quote.minute-kline", { securityCode: options.security, startTime: options.startTime, endTime: options.endTime, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList: maybeArray(options.field) })))
+quote.command("minute-kline").option("--security <code>", "Security code (A-share only: .SH/.SZ/.BJ)").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)").option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
+  const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }) ?? DEFAULT_QUOTE_LIMIT
+  const data = await client.call("quote.minute-kline", { securityCode: options.security, startTime: options.startTime, endTime: options.endTime, limit, fieldList: maybeArray(options.field) })
+  flagIfLimitTruncated(data, limit, "minute-kline")
+  await printData(data, format, options.output)
+}))
 quote.command("realtime").description("Realtime quote snapshot (A-share / HK / US)").option("--security <code>", "Security code (e.g. 600519.SH / 00700.HK / AAPL.O), or market keyword: aShares / hkStocks / usStocks", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("quote.realtime", { securityList: maybeArray(options.security), fieldList: maybeArray(options.field) })))
+quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").option("--security <code>", "Security code (e.g. 600519.SH / 872931.BJ), or 'aShares' for full A-share market — auto-sharded by day (repeat)", collectList, []).option("--start-date <date>", "Start date yyyy-MM-dd (default: endDate minus 1 year)").option("--end-date <date>", "End date yyyy-MM-dd (default: latest trading day)").option("--limit <number>", "Max rows per request (default: 6000, max: 10000; single-security cap — aShares auto-shards by day)").option("--field <field>", "Field, e.g. mainNetInflow/largeInflow/xlargeOutflow (repeat); omit for all", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+  const format = parseOutputFormat(options.format)
+  const body = {
+    securityList: maybeArray<string>(options.security),
+    startDate: options.startDate,
+    endDate: options.endDate,
+    limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }),
+    fieldList: maybeArray<string>(options.field),
+  }
+  if (isFullMarket(body, "aShares")) {
+    // Full-market fund-flow: the server errors (430012/430013) instead of truncating when
+    // a single request exceeds the row cap, so date-shard by day (~5.4k A-share rows/day,
+    // under the lifted API cap) and merge — same mechanism as `--security all` kline.
+    // Sharding needs an explicit range; without both dates it would fall back to one
+    // doomed full-market request, so require the range up front with a clear message.
+    if (!body.startDate || !body.endDate) {
+      throw new ValidationError("quote fund-flow --security aShares requires both --start-date and --end-date (the full market is fetched via per-day shards)")
+    }
+    const data = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: 1, fullMarketValue: "aShares" })
+    await printData(data, format, options.output)
+    return
+  }
+  const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
+  const data = await client.call("quote.fund-flow", { ...body, limit })
+  flagIfLimitTruncated(data, limit, "fund-flow")
+  await printData(data, format, options.output)
+}))
 program.addCommand(quote)
 
 const fundamental = new Command("fundamental").description("Fundamental APIs")
@@ -534,6 +611,11 @@ reference.command("chiefs-search").requiredOption("--keyword <text>", "Search ke
     keyword: options.keyword,
     top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
   })))
+reference.command("institution-search").requiredOption("--keyword <text>", "Search keyword (institution name / abbreviation)").option("--category <name>", "Category: domesticBroker/foreignInstitution/leadInstitution/opinionInstitution/foreignOpinionInstitution (repeat); omit for all", collectList, []).option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.institution-search", {
+    keyword: options.keyword,
+    categoryList: maybeArray(options.category),
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+  })))
 program.addCommand(reference)
 
 const vault = new Command("vault").description("Vault APIs")
@@ -541,7 +623,7 @@ vault.command("drive-list").option("--from <number>", "Starting offset", "0").op
 addDownloadCommand(vault, { endpointKey: "vault.drive.download", name: "drive-download", idOption: "--file-id", idField: "fileId", fallbackPrefix: "file", titleListEndpoint: "vault.drive.list" })
 vault.command("record-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--category <name>", "Recording type: upload/link/mobile/gtNote/pc/share", collectList, []).option("--space-type <number>", "Space type: 1=my records / 2=tenant records", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.record.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, categoryList: maybeArray(options.category), spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), { endpointKey: "vault.record.list", idField: "recordId" }))
 addDownloadCommand(vault, { endpointKey: "vault.record.download", name: "record-download", idOption: "--record-id", idField: "recordId", fallbackPrefix: "record", contentTypeDescription: "Content type: original/asr/summary", titleListEndpoint: "vault.record.list" })
-vault.command("my-conference-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--research-area <id>", "Research area ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.my-conference.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution), categoryList: maybeArray(options.category) }), { endpointKey: "vault.my-conference.list", idField: "conferenceId" }))
+vault.command("my-conference-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--research-area <id>", "Research area ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", collectList, []).option("--source <number>", "Recording source: 1=企微会议助理 2=会议服务微信群 (repeat)", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.my-conference.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution), categoryList: maybeArray(options.category), sourceList: options.source.length ? options.source : undefined }), { endpointKey: "vault.my-conference.list", idField: "conferenceId" }))
 addDownloadCommand(vault, { endpointKey: "vault.my-conference.download", name: "my-conference-download", idOption: "--conference-id", idField: "conferenceId", fallbackPrefix: "conference", contentTypeDescription: "Content type: asr/summary", titleListEndpoint: "vault.my-conference.list" })
 vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>").option("--end-time <datetime>").option("--keyword <text>").option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-message.list", buildWechatMessageListBody(options))))
 vault.command("wechat-chatroom-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--room-name <name>", "WeChat group name; repeat or comma-separate for multiple names", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-chatroom.list", buildWechatChatroomListBody(options))))

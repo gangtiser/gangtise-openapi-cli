@@ -37,6 +37,34 @@ gangtise reference chiefs-search --keyword <text> [--top <n>]
 gangtise reference chiefs-search --keyword 东吴证券 --top 3 --format json   # → 周良玖 / 芦哲 / 陈李，chiefId 如 P100005161
 ```
 
+## 机构 ID 搜索 `reference institution-search`
+
+```bash
+gangtise reference institution-search --keyword <text> [--category <name>] [--top <n>]
+```
+
+- 用途：查机构 ID，拿到的 `institutionId` 用于各接口的 `--institution`（牵头机构）/ `--broker`（券商 / 观点机构）入参。**每条结果自带 `usageScopes[{apiName, paramName}]`，服务端直接标明该 ID 用于哪个接口的哪个参数**——拿不准某 ID 该喂给谁时以此为准
+- `--keyword`（**必选**）：机构名称 / 简称（如 `招商证券`、`华泰`、`摩根`）
+- `--category`：机构分类，缩小范围（可重复；不传查所有分类）。5 个分类与既有命令参数的对应（均实测有效）：
+
+  | category | CLI 命令 · 参数 | 用途 |
+  |----------|----------------|------|
+  | `domesticBroker` | `insight research list --broker` | 内资研报 |
+  | `foreignInstitution` | `insight foreign-report list --broker` | 外资研报 |
+  | `opinionInstitution` | `insight opinion list --broker` | 内资机构观点 |
+  | `foreignOpinionInstitution` | `insight foreign-opinion list --broker` | 外资机构观点 |
+  | `leadInstitution` | `--institution`（`summary` / `roadshow` / `site-visit` / `strategy` / `vault my-conference` list） | 纪要 / 路演 / 调研 / 线下策略会 / 我的会议的牵头机构 |
+
+  注：API 文档 `categoryList` 只列了前 4 类，但 `foreignOpinionInstitution` 同样是有效过滤值（实测确认，服务端接受且返回该类）
+- `--top`：默认 10，**上限 10**；结果按 `matchScore`（`0~1`）降序
+- 免费调用
+- 返回字段：`institutionId` / `institutionName` / `category` / `usageScopes[{apiName, paramName}]`（该机构适用的接口及参数）/ `matchScore`
+
+**示例：**
+```bash
+gangtise reference institution-search --keyword 招商证券 --category domesticBroker --top 3 --format json   # → C100000020 招商证券
+```
+
 ## 常量分类 `reference constant-category`
 
 ```bash
@@ -139,11 +167,11 @@ gangtise reference sector-constituents --sector-id 2000000014 --format json
 
 ## Lookup 本地表（仅剩 2 个）
 
-常量/板块 API 未覆盖的 ID 仍走本地表：
+**按名称找机构 ID 优先用 `reference institution-search`**（服务端搜索、覆盖全部 5 类机构、带 usageScopes）；本地表主要用于**全量枚举**券商/会议机构（institution-search 为搜索型：top≤10、非全量）：
 
 ```bash
-gangtise lookup broker-org list           # 券商机构（--broker 用）
-gangtise lookup meeting-org list          # 会议机构（--institution 用）
+gangtise lookup broker-org list           # 券商机构全量（--broker 用；180 条静态表）
+gangtise lookup meeting-org list          # 会议/牵头机构全量（--institution 用；130 条静态表）
 ```
 
 行业 / 区域 / 公告分类 / 研究方向 / 题材 ID / 申万行业代码已改用 API：`reference constant-list` / `reference concept-search` / `reference sector-constituents`（v0.16.0 起移除对应 lookup 子命令）。
