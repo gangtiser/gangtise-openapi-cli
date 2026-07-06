@@ -3,13 +3,13 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
-import { ENDPOINTS } from "./core/endpoints.js"
+import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
 import { normalizeRows } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
@@ -480,7 +480,7 @@ fundamental.command("valuation-analysis").requiredOption("--security-code <code>
 }))
 fundamental.command("top-holders").requiredOption("--security-code <code>").addOption(new Option("--holder-type <type>", "Holder type: top10/top10Float").choices(["top10", "top10Float"]).makeOptionMandatory()).option("--start-date <date>").option("--end-date <date>").option("--fiscal-year <year>", "Fiscal year", collectList, []).option("--period <period>", "Period: q1/interim/q3/annual/latest", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("fundamental.top-holders", { securityCode: options.securityCode, holderType: options.holderType, startDate: options.startDate, endDate: options.endDate, fiscalYear: maybeArray(options.fiscalYear), period: options.period.length ? options.period : undefined })))
 fundamental.command("earning-forecast").requiredOption("--security-code <code>").option("--start-date <date>", "Start date (default: 1 year before end-date)").option("--end-date <date>", "End date (default: today)").option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => {
-  const endDate = options.endDate ?? new Date().toISOString().slice(0, 10)
+  const endDate = options.endDate ?? localDateString(new Date())
   // Anchor the default window to endDate (as the help text promises), not to today —
   // a historical --end-date without --start-date should mean "the year before it".
   const startDate = options.startDate ?? new Date(new Date(`${endDate}T00:00:00Z`).getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
@@ -713,7 +713,7 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
   }
   const data = await client.call(endpointKey, body)
   await printData(data, format, options.output)
-}))
+})).addCommand(new Command("list").description("List all registered endpoint keys (for use with 'raw call')").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => printData(listEndpoints(), parseOutputFormat(options.format), options.output)))
 
 async function checkForUpdate(timeoutMs = 2000): Promise<void> {
   try {

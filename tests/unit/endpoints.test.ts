@@ -3,7 +3,7 @@ import path from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { ENDPOINTS } from "../../src/core/endpoints.js"
+import { ENDPOINTS, listEndpoints, resolveTimeoutMs } from "../../src/core/endpoints.js"
 
 describe("ENDPOINTS", () => {
   it("all entries have valid keys, methods, paths, kinds, and descriptions", () => {
@@ -433,5 +433,54 @@ describe("ENDPOINTS", () => {
     expect(referenced.size).toBeGreaterThan(20) // sanity: the regex actually matched keys
     const missing = [...referenced].filter((key) => !(key in ENDPOINTS))
     expect(missing).toEqual([])
+  })
+})
+
+describe("resolveTimeoutMs", () => {
+  it("raises to the endpoint floor when the config timeout is lower", () => {
+    expect(resolveTimeoutMs(30_000, { timeoutMs: 120_000 })).toBe(120_000)
+  })
+
+  it("keeps a higher user-configured timeout (floor never lowers it)", () => {
+    expect(resolveTimeoutMs(200_000, { timeoutMs: 120_000 })).toBe(200_000)
+  })
+
+  it("uses the config timeout when the endpoint sets no floor", () => {
+    expect(resolveTimeoutMs(30_000, {})).toBe(30_000)
+  })
+})
+
+describe("AI generation endpoint timeouts", () => {
+  // Synchronous generation blocks well past the 30s default; a timeout there
+  // triggers a retry, and each retry can re-bill the generation. Give them a floor.
+  it("gives synchronous generation endpoints a 120s timeout floor", () => {
+    for (const key of [
+      "ai.one-pager", "ai.investment-logic", "ai.peer-comparison",
+      "ai.theme-tracking", "ai.research-outline",
+      "ai.management-discuss-announcement", "ai.management-discuss-earnings-call",
+    ]) {
+      expect(ENDPOINTS[key].timeoutMs, `${key}.timeoutMs`).toBe(120_000)
+    }
+  })
+
+  it("leaves fast list and async-polling AI endpoints on the default timeout", () => {
+    for (const key of [
+      "ai.hot-topic", "ai.stock-summary.list",
+      "ai.earnings-review.get-id", "ai.earnings-review.get-content",
+      "ai.viewpoint-debate.get-id", "ai.viewpoint-debate.get-content",
+    ]) {
+      expect(ENDPOINTS[key].timeoutMs, `${key}.timeoutMs`).toBeUndefined()
+    }
+  })
+})
+
+describe("listEndpoints", () => {
+  it("returns every registered endpoint with its key/method/path/description", () => {
+    const all = listEndpoints()
+    expect(all.length).toBe(Object.keys(ENDPOINTS).length)
+    expect(all.find((e) => e.key === "ai.one-pager")).toMatchObject({
+      method: "POST",
+      path: "/application/open-ai/agent/one-pager",
+    })
   })
 })

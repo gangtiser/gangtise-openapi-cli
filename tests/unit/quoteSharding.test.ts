@@ -237,4 +237,69 @@ describe("callKlineWithSharding", () => {
       endDate: "2026-04-06",
     }, { shardDays: 2 })).rejects.toThrow("all down")
   })
+
+  it("skips weekend shards for per-day (fund-flow) sharding", async () => {
+    // 2026-07-03 Fri, 07-04 Sat, 07-05 Sun, 07-06 Mon → only Fri + Mon are fetched
+    // (weekends are always empty: A/HK/US markets are closed).
+    const seen: string[] = []
+    const call = vi.fn().mockImplementation(async (_k: string, body: { startDate: string }) => {
+      seen.push(body.startDate)
+      return { total: 1, list: [{ x: 1 }] }
+    })
+    await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["aShares"],
+      startDate: "2026-07-03",
+      endDate: "2026-07-06",
+    }, { shardDays: 1, fullMarketValue: "aShares" })
+
+    expect(seen.sort()).toEqual(["2026-07-03", "2026-07-06"])
+  })
+
+  it("does not skip weekends for multi-day shards (e.g. day-kline-hk, shardDays 2), which straddle weekdays", async () => {
+    const seen: string[] = []
+    const call = vi.fn().mockImplementation(async (_k: string, body: { startDate: string }) => {
+      seen.push(body.startDate)
+      return { list: [] }
+    })
+    // shards [07-03..07-04],[07-05..07-06],[07-07..07-08]: the middle one starts on a
+    // Sunday but contains Monday 07-06 — dropping it would lose a trading day.
+    await callKlineWithSharding({ call }, "quote.day-kline-hk", {
+      securityList: ["all"],
+      startDate: "2026-07-03",
+      endDate: "2026-07-08",
+    }, { shardDays: 2 })
+
+    expect(seen).toHaveLength(3)
+  })
+
+  it("skips weekends for ANY per-day sharding, not just fund-flow — day-kline/day-kline-us are shardDays 1", async () => {
+    const seen: string[] = []
+    const call = vi.fn().mockImplementation(async (_k: string, body: { startDate: string }) => {
+      seen.push(body.startDate)
+      return { list: [] }
+    })
+    // day-kline --security all shards one day at a time (cli.ts), so weekend-skip
+    // applies to it too. A-shares are closed weekends, so this is correct, not a bug.
+    await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-07-03",
+      endDate: "2026-07-06",
+    }, { shardDays: 1 })
+
+    expect(seen.sort()).toEqual(["2026-07-03", "2026-07-06"]) // Sat 07-04 / Sun 07-05 skipped
+  })
+
+  it("returns an empty result without throwing when a per-day range is entirely weekend", async () => {
+    // 2026-07-04 Sat, 07-05 Sun → both shards filtered out → nothing to fetch. Must
+    // NOT fall into the "all shards failed" path (0 === 0) and throw.
+    const call = vi.fn().mockResolvedValue({ total: 1, list: [{ x: 1 }] })
+    const result = await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["aShares"],
+      startDate: "2026-07-04",
+      endDate: "2026-07-05",
+    }, { shardDays: 1, fullMarketValue: "aShares" }) as { list: unknown[] }
+
+    expect(call).not.toHaveBeenCalled()
+    expect(result.list).toEqual([])
+  })
 })

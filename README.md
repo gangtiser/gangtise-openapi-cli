@@ -4,6 +4,26 @@
 
 ## Changelog
 
+### v0.24.0 — 2026-07-07
+
+**新增**
+- `raw list` — 列出所有已注册的 endpoint key（含 method / path / description），配合 `raw call <key>` 使用，不必再翻文档记 key；支持 `--format`（默认 table）/ `--output`
+- AI 同步生成端点内置 120s 超时下限（`one-pager` / `investment-logic` / `peer-comparison` / `theme-tracking` / `research-outline` / `management-discuss-announcement` / `management-discuss-earnings-call`）——生成耗时长不再撞 30s 默认超时触发重试，**不必再手动前缀 `GANGTISE_TIMEOUT_MS`**；显式设更大值仍生效（取 max）
+- 429 响应尊重 `Retry-After`（秒或 HTTP-date；覆盖 JSON、非 JSON、下载三类错误路径），优先于默认指数退避，封顶 60s 防挂死
+- 超大结果（≥5 万行且走非流式渲染：table/json/markdown，或 jsonl/csv 未带 `--output`）在 stderr 提示改用 `--format jsonl --output <path>` 流式落盘
+
+**性能**
+- JSON 请求启用 gzip（`accept-encoding: gzip` + 本地解压）——实测 `reference constant-list` 2110B→586B（3.6x），K 线类高重复大 JSON 收益更高；下载二进制路径不变
+- 全市场按日分片（`quote fund-flow` / `day-kline` / `day-kline-us`，均 1 天/片）自动跳过周六日（A/港/美股周末闭市必空），省 ~28% 请求与每日调用配额；多日分片（`day-kline-hk` 2 天、`index-day-kline` 30 天）不受影响
+
+**修复**
+- 表格（table/markdown）显示宽度纳入 emoji 码位区（0x1F000–0x1FAFF），含 emoji 的微信群名/消息不再错位
+- `fundamental earning-forecast` 默认 `--end-date`（"today"）改用运行机器本地日期；此前用 UTC 日期，CST 凌晨 0–8 点会算成"昨天"
+
+**文档 / 工程**（不影响已发布 CLI 行为）
+- `insight announcement`（A 股公告）时间过滤时区说明：`--start-time`/`--end-time` 按运行机器时区换算，跨机器精确边界改传 13 位毫秒时间戳
+- CI 测试矩阵增加 Node 24（此前仅 20；发布用 24）
+
 ### v0.23.0 — 2026-07-05
 
 **行为变更（注意）**
@@ -283,7 +303,7 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 - `gangtise indicator ...`
 - `gangtise alternative ...`
 - `gangtise reference ...`
-- `gangtise raw call ...`
+- `gangtise raw call ...` / `gangtise raw list`
 
 ## 推荐工作流
 
@@ -664,6 +684,10 @@ gangtise alternative concept-securities --concept-id 121000130 --format json
 ### Raw
 
 ```bash
+# 先列出所有 endpoint key（配合 raw call，不必翻文档记 key）
+gangtise raw list
+gangtise raw list --format json   # key / method / path / description
+
 gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 ```
 

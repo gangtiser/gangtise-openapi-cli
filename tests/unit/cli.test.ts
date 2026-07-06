@@ -61,6 +61,13 @@ describe("cli smoke", () => {
     }
   }, 30_000)
 
+  it("raw list prints registered endpoint keys (no network, for discoverability)", async () => {
+    const { code, out } = await cli(["raw", "list", "--format", "json"])
+    expect(code).toBe(0)
+    expect(out).toContain("ai.one-pager")
+    expect(out).toContain("quote.day-kline")
+  }, 30_000)
+
   it("lists alternative subcommands", async () => {
     const { code, out } = await cli(["alternative", "--help"])
     expect(code).toBe(0)

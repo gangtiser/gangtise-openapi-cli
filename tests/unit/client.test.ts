@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { Readable } from "node:stream"
+import { gzipSync } from "node:zlib"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -829,6 +830,121 @@ describe("GangtiseClient pagination cap", () => {
       expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("safety cap"))
     } finally {
       errSpy.mockRestore()
+    }
+  })
+})
+
+// A gzip-encoded JSON envelope: content-encoding: gzip + a body that only exposes
+// arrayBuffer() (undici gives bytes; we gunzip). Mirrors what the server actually
+// returns once we advertise accept-encoding.
+function gzipJsonResponse(data: unknown) {
+  const gz = gzipSync(Buffer.from(JSON.stringify({ code: "000000", msg: "ok", data })))
+  return {
+    statusCode: 200,
+    headers: { "content-type": "application/json", "content-encoding": "gzip" },
+    body: {
+      arrayBuffer: vi.fn().mockResolvedValue(gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength)),
+      text: vi.fn(),
+    },
+  }
+}
+
+function rateLimitedResponse(retryAfter: string) {
+  return {
+    statusCode: 429,
+    headers: { "content-type": "application/json", "retry-after": retryAfter },
+    body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "429000", msg: "rate limited" })) },
+  }
+}
+
+describe("GangtiseClient gzip", () => {
+  beforeEach(() => requestMock.mockReset())
+
+  it("gunzips a gzip-encoded JSON response", async () => {
+    requestMock.mockResolvedValue(gzipJsonResponse({ hello: "世界" }))
+    const result = await createClient().call("reference.constant-list", { category: "x" })
+    expect(result).toEqual({ hello: "世界" })
+  })
+
+  it("advertises accept-encoding: gzip on JSON requests", async () => {
+    requestMock.mockResolvedValue(jsonResponse({ ok: 1 }))
+    await createClient().call("reference.constant-list", { category: "x" })
+    const opts = requestMock.mock.calls[0][1] as { headers: Record<string, string> }
+    expect(opts.headers["accept-encoding"]).toBe("gzip")
+  })
+})
+
+describe("GangtiseClient endpoint timeout floor", () => {
+  beforeEach(() => requestMock.mockReset())
+
+  it("lifts the request timeout to 120s for a synchronous AI generation endpoint", async () => {
+    requestMock.mockResolvedValue(jsonResponse({ text: "..." }))
+    await createClient().call("ai.one-pager", { securityCode: "600519.SH" })
+    const opts = requestMock.mock.calls[0][1] as { headersTimeout: number; bodyTimeout: number }
+    expect(opts.headersTimeout).toBe(120_000)
+    expect(opts.bodyTimeout).toBe(120_000)
+  })
+
+  it("keeps the default 30s timeout for a normal endpoint", async () => {
+    requestMock.mockResolvedValue(jsonResponse({ list: [] }))
+    await createClient().call("reference.constant-list", { category: "x" })
+    const opts = requestMock.mock.calls[0][1] as { headersTimeout: number }
+    expect(opts.headersTimeout).toBe(30_000)
+  })
+})
+
+describe("GangtiseClient 429 Retry-After", () => {
+  beforeEach(() => requestMock.mockReset())
+
+  it("attaches Retry-After from a 429 response so backoff can honor it", async () => {
+    vi.useFakeTimers()
+    try {
+      requestMock.mockResolvedValue(rateLimitedResponse("2"))
+      const p = createClient().call("reference.constant-list", { category: "x" }).catch((e: unknown) => e)
+      await vi.runAllTimersAsync()
+      const err = await p
+      expect(err).toBeInstanceOf(ApiError)
+      expect((err as { retryAfterMs?: number }).retryAfterMs).toBe(2000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("attaches Retry-After even when the 429 body is not JSON (parse-fail path)", async () => {
+    vi.useFakeTimers()
+    try {
+      // A gateway may return a plain-text 429; JSON.parse fails, but Retry-After must
+      // still reach the error so backoff honors it.
+      requestMock.mockResolvedValue({
+        statusCode: 429,
+        headers: { "content-type": "text/plain", "retry-after": "2" },
+        body: { text: vi.fn().mockResolvedValue("rate limited, try later") },
+      })
+      const p = createClient().call("reference.constant-list", { category: "x" }).catch((e: unknown) => e)
+      await vi.runAllTimersAsync()
+      const err = await p
+      expect(err).toBeInstanceOf(ApiError)
+      expect((err as { retryAfterMs?: number }).retryAfterMs).toBe(2000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("attaches Retry-After on a rate-limited (429) download", async () => {
+    vi.useFakeTimers()
+    try {
+      requestMock.mockResolvedValue({
+        statusCode: 429,
+        headers: { "content-type": "text/plain", "retry-after": "3" },
+        body: { text: vi.fn().mockResolvedValue("rate limited") },
+      })
+      const p = createClient().call("insight.summary.download", undefined, { reportId: "1" }).catch((e: unknown) => e)
+      await vi.runAllTimersAsync()
+      const err = await p
+      expect(err).toBeInstanceOf(ApiError)
+      expect((err as { retryAfterMs?: number }).retryAfterMs).toBe(3000)
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

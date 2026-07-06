@@ -38,6 +38,9 @@ export class ApiError extends CliError {
     readonly code?: string,
     readonly statusCode?: number,
     readonly details?: unknown,
+    /** Server-specified Retry-After (ms), set on 429 responses so the transport
+     * backoff can honor it instead of the default exponential schedule. */
+    readonly retryAfterMs?: number,
   ) {
     super(message)
     this.hint = code ? ERROR_HINTS[code] : undefined

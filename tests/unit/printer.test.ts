@@ -107,4 +107,32 @@ describe("printData", () => {
     })
     expect(writeMock).not.toHaveBeenCalled()
   })
+
+  it("nudges toward jsonl --output for a very large non-streamed result", async () => {
+    const rows = Array.from({ length: 50_000 }, (_, i) => ({ id: i }))
+    await printData({ total: rows.length, list: rows }, "table")
+    // Must point at --output too: jsonl only streams to a file; jsonl to stdout still
+    // builds one big string, so "--format jsonl" alone wouldn't fix the memory issue.
+    expect(stderr()).toContain("--format jsonl --output")
+  })
+
+  it("still nudges for jsonl WITHOUT --output (stdout jsonl builds one big string)", async () => {
+    const rows = Array.from({ length: 50_000 }, (_, i) => ({ id: i }))
+    await printData({ total: rows.length, list: rows }, "jsonl")
+    expect(stderr()).toContain("--format jsonl --output")
+  })
+
+  it("does not nudge for jsonl WITH --output (it streams row-by-row to disk)", async () => {
+    const rows = Array.from({ length: 50_000 }, (_, i) => ({ id: i }))
+    await printData({ total: rows.length, list: rows }, "jsonl", path.join(dir, "big.jsonl"))
+    expect(stderr()).not.toContain("in memory")
+  })
+
+  it("nudges for a huge all-scalar csv --output (streamOutputToFile declines it, so it still builds a big string)", async () => {
+    // csv streaming needs object rows; an all-scalar list falls back to renderOutput,
+    // which builds the whole string — the '--output' alone must NOT silence the hint.
+    const rows = Array.from({ length: 50_000 }, (_, i) => `code-${i}`)
+    await printData({ total: rows.length, list: rows }, "csv", path.join(dir, "scalars.csv"))
+    expect(stderr()).toContain("in memory")
+  })
 })

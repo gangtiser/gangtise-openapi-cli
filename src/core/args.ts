@@ -112,6 +112,16 @@ export function parseTimestamp13(value: string | undefined, optionName: string):
   return parsed
 }
 
+/** Machine-local calendar date as `yyyy-MM-dd`, for CLI "default: today" options.
+ * `new Date().toISOString().slice(0,10)` renders the UTC day — for CST users a
+ * pre-08:00 "today" resolves to yesterday. Anchoring to local components matches
+ * toTimestamp13's local-midnight convention. */
+export function localDateString(d: Date): string {
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
 export interface IndicatorParamGroup {
   indicatorCode: string
   parameters: { paramKey: string; paramValue: string }[]

@@ -8,6 +8,17 @@ export interface EndpointDefinition {
     enabled: true
     maxPageSize: number
   }
+  /** Per-endpoint timeout floor in ms. Synchronous AI generation blocks well past
+   * the 30s default; without a floor it times out and retries, and a retry can
+   * re-bill the generation. `resolveTimeoutMs` lifts the request timeout to this
+   * value (never lowering a higher user-configured timeout). */
+  timeoutMs?: number
+}
+
+/** Effective request timeout: the endpoint's floor, or the config timeout if higher
+ * (a user who raised GANGTISE_TIMEOUT_MS keeps their value). */
+export function resolveTimeoutMs(configTimeoutMs: number, endpoint: Pick<EndpointDefinition, "timeoutMs">): number {
+  return Math.max(configTimeoutMs, endpoint.timeoutMs ?? 0)
 }
 
 // Registry entries omit `key`: it is derived from the record key when ENDPOINTS is
@@ -400,18 +411,21 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/one-pager",
     kind: "json",
     description: "Generate one pager",
+    timeoutMs: 120_000,
   },
   "ai.investment-logic": {
     method: "POST",
     path: "/application/open-ai/agent/investment-logic",
     kind: "json",
     description: "Generate investment logic",
+    timeoutMs: 120_000,
   },
   "ai.peer-comparison": {
     method: "POST",
     path: "/application/open-ai/agent/peer-comparison",
     kind: "json",
     description: "Generate peer comparison",
+    timeoutMs: 120_000,
   },
   "ai.earnings-review.get-id": {
     method: "POST",
@@ -430,12 +444,14 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/theme-tracking",
     kind: "json",
     description: "Get theme tracking daily report",
+    timeoutMs: 120_000,
   },
   "ai.research-outline": {
     method: "POST",
     path: "/application/open-ai/agent/research-outline",
     kind: "json",
     description: "Get company research outline",
+    timeoutMs: 120_000,
   },
   "ai.hot-topic": {
     method: "POST",
@@ -449,12 +465,14 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/management-discuss/from-announcement",
     kind: "json",
     description: "Management discussion from financial reports (half-year/annual)",
+    timeoutMs: 120_000,
   },
   "ai.management-discuss-earnings-call": {
     method: "POST",
     path: "/application/open-ai/management-discuss/from-earningsCall",
     kind: "json",
     description: "Management discussion from earnings calls",
+    timeoutMs: 120_000,
   },
   "ai.viewpoint-debate.get-id": {
     method: "POST",
@@ -587,3 +605,9 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
 export const ENDPOINTS: Record<string, EndpointDefinition> = Object.fromEntries(
   Object.entries(ENDPOINT_DEFS).map(([key, def]) => [key, { key, ...def }]),
 )
+
+/** Flat catalog of every registered endpoint, for `raw list` discoverability
+ * (so `raw call` doesn't require memorizing endpoint keys). */
+export function listEndpoints(): Array<{ key: string; method: string; path: string; description: string }> {
+  return Object.values(ENDPOINTS).map(({ key, method, path, description }) => ({ key, method, path, description }))
+}

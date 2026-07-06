@@ -52,16 +52,29 @@ export function isAllMarket(body: KlineBody): boolean {
   return isFullMarket(body, "all")
 }
 
+/** Sat/Sun in UTC — shard dates are formatted from UTC midnight (see parseDate). */
+function isWeekendUtc(d: Date): boolean {
+  const day = d.getUTCDay()
+  return day === 0 || day === 6
+}
+
 function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDate: string; endDate: string }> {
   const shards: Array<{ startDate: string; endDate: string }> = []
   let cursor = start.getTime()
   const endTime = end.getTime()
   while (cursor <= endTime) {
     const shardEnd = Math.min(cursor + (shardDays - 1) * DAY_MS, endTime)
-    shards.push({
-      startDate: formatDate(new Date(cursor)),
-      endDate: formatDate(new Date(shardEnd)),
-    })
+    // Per-day sharding (shardDays===1): a lone weekend day always returns empty (A/HK/US
+    // markets closed) — skip it to save ~28% of requests and daily quota. This covers
+    // every 1-day-sharded full-market query: fund-flow AND day-kline / day-kline-us
+    // (both shardDays 1 in cli.ts). Multi-day shards (day-kline-hk=2, index=30) always
+    // straddle weekdays, so they're never dropped.
+    if (!(shardDays === 1 && isWeekendUtc(new Date(cursor)))) {
+      shards.push({
+        startDate: formatDate(new Date(cursor)),
+        endDate: formatDate(new Date(shardEnd)),
+      })
+    }
     cursor = shardEnd + DAY_MS
   }
   return shards
@@ -126,6 +139,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   const shards = buildShards(start, end, config.shardDays)
+  // A range that's entirely weekends (per-day sharding) filters down to nothing — no
+  // trading days to fetch. Return empty rather than falling into the all-shards-failed
+  // check below, which would misread 0 shards as a total outage and throw.
+  if (shards.length === 0) return { list: [] }
   // isVerbose() (not a direct env read) so the global --verbose flag reaches
   // shard logging too — cli.ts enables it via setVerbose in a preAction hook.
   if (isVerbose()) {

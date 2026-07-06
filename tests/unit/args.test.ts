@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, maybeArray, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -195,5 +195,18 @@ describe("parseIndicatorParams", () => {
   it("throws when the code or key is empty", () => {
     expect(() => parseIndicatorParams([":adjustmentType=1"])).toThrow(ValidationError)
     expect(() => parseIndicatorParams(["qte_close:=1"])).toThrow(ValidationError)
+  })
+})
+
+describe("localDateString", () => {
+  it("formats a Date as its LOCAL yyyy-MM-dd, not UTC", () => {
+    // Built from local components and read back as local → deterministic regardless
+    // of the machine timezone. `toISOString().slice(0,10)` renders the UTC day, which
+    // for CST users flips a pre-08:00 "today" back to yesterday.
+    expect(localDateString(new Date(2026, 6, 6, 3, 30))).toBe("2026-07-06")
+  })
+
+  it("zero-pads single-digit months and days", () => {
+    expect(localDateString(new Date(2026, 0, 3))).toBe("2026-01-03")
   })
 })

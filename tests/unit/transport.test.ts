@@ -1,7 +1,9 @@
+import { gzipSync } from "node:zlib"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { ApiError } from "../../src/core/errors.js"
-import { markRetryable, runWithConcurrency, withRetry } from "../../src/core/transport.js"
+import { decodeResponseBody, markRetryable, parseRetryAfterMs, runWithConcurrency, withRetry } from "../../src/core/transport.js"
 
 describe("runWithConcurrency", () => {
   it("preserves item order in the results", async () => {
@@ -84,5 +86,68 @@ describe("withRetry", () => {
     })
     const result = await withRetry(fn, { retries: 2, baseDelayMs: 1 })
     expect(result).toBe("ok")
+  })
+
+  it("honors an error's retryAfterMs instead of the computed backoff", async () => {
+    vi.useFakeTimers()
+    try {
+      // 1500ms > the 5ms maxDelay cap: proves Retry-After overrides normal backoff.
+      const err = Object.assign(new ApiError("rate limited", "429000", 429), { retryAfterMs: 1500 })
+      const fn = vi.fn().mockRejectedValueOnce(err).mockResolvedValue("ok")
+      let seenDelay = -1
+      const p = withRetry(fn, { retries: 1, baseDelayMs: 1, maxDelayMs: 5, onRetry: (_a, _e, d) => { seenDelay = d } })
+      await vi.runAllTimersAsync()
+      expect(await p).toBe("ok")
+      expect(seenDelay).toBe(1500)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("caps a hostile retryAfterMs at a 60s ceiling so the CLI can't be hung", async () => {
+    vi.useFakeTimers()
+    try {
+      const err = Object.assign(new ApiError("rate limited", "429000", 429), { retryAfterMs: 10 * 60_000 })
+      const fn = vi.fn().mockRejectedValueOnce(err).mockResolvedValue("ok")
+      let seenDelay = -1
+      const p = withRetry(fn, { retries: 1, baseDelayMs: 1, onRetry: (_a, _e, d) => { seenDelay = d } })
+      await vi.runAllTimersAsync()
+      await p
+      expect(seenDelay).toBe(60_000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe("decodeResponseBody", () => {
+  it("gunzips a gzip-encoded body back to utf-8", () => {
+    const json = JSON.stringify({ hello: "世界", n: 1 })
+    expect(decodeResponseBody(gzipSync(Buffer.from(json)), "gzip")).toBe(json)
+  })
+
+  it("returns an unencoded body unchanged", () => {
+    const json = JSON.stringify({ a: "中文" })
+    expect(decodeResponseBody(Buffer.from(json), undefined)).toBe(json)
+  })
+
+  it("reads the first value when content-encoding arrives as an array", () => {
+    expect(decodeResponseBody(gzipSync(Buffer.from("{}")), ["gzip"])).toBe("{}")
+  })
+})
+
+describe("parseRetryAfterMs", () => {
+  it("parses delta-seconds into ms", () => {
+    expect(parseRetryAfterMs("3", 0)).toBe(3000)
+  })
+
+  it("parses an HTTP-date relative to now", () => {
+    const now = Date.parse("2026-07-06T00:00:00Z")
+    expect(parseRetryAfterMs("Mon, 06 Jul 2026 00:00:05 GMT", now)).toBe(5000)
+  })
+
+  it("returns undefined for a missing or unparseable value", () => {
+    expect(parseRetryAfterMs(undefined, 0)).toBeUndefined()
+    expect(parseRetryAfterMs("soon", 0)).toBeUndefined()
   })
 })

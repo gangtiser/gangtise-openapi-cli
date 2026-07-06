@@ -8,9 +8,9 @@ import { request } from "undici"
 import type { CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, ValidationError } from "./errors.js"
-import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
+import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
-import { getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, runWithConcurrency, withRetry } from "./transport.js"
+import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, runWithConcurrency, withRetry } from "./transport.js"
 import type { DownloadResult } from "./download.js"
 
 interface Envelope<T> {
@@ -148,13 +148,13 @@ export class GangtiseClient {
     return 'msg' in obj || 'data' in obj || 'success' in obj || 'status' in obj
   }
 
-  private throwHttpError(parsed: unknown, statusCode: number): never {
+  private throwHttpError(parsed: unknown, statusCode: number, retryAfterMs?: number): never {
     if (this.isEnvelope(parsed)) {
       const code = parsed.code === undefined ? undefined : String(parsed.code)
-      throw new ApiError(parsed.msg || `API request failed (HTTP ${statusCode})`, code, statusCode, parsed)
+      throw new ApiError(parsed.msg || `API request failed (HTTP ${statusCode})`, code, statusCode, parsed, retryAfterMs)
     }
 
-    throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed)
+    throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed, retryAfterMs)
   }
 
   private unwrapEnvelope<T>(parsed: Envelope<T>, statusCode?: number): T {
@@ -364,9 +364,14 @@ export class GangtiseClient {
     const url = this.buildUrl(endpoint.path)
     const authState = { retried: false }
 
+    const timeoutMs = resolveTimeoutMs(this.config.timeoutMs, endpoint)
+
     return withRetry(async () => {
       const headers: Record<string, string> = {
         'content-type': 'application/json',
+        // undici does not auto-decompress; decodeResponseBody gunzips below. Server
+        // gzip cuts JSON payloads ~3-10x (measured 3.6x on constant-list).
+        'accept-encoding': 'gzip',
       }
       // Keep the header we actually sent: the self-heal check compares it against
       // the current memoCache token to tell "stale token" from "fresh token died".
@@ -381,12 +386,23 @@ export class GangtiseClient {
         method: endpoint.method,
         headers,
         body: endpoint.method === 'GET' ? undefined : JSON.stringify(body ?? {}),
-        headersTimeout: this.config.timeoutMs,
-        bodyTimeout: this.config.timeoutMs,
+        headersTimeout: timeoutMs,
+        bodyTimeout: timeoutMs,
         dispatcher,
       })
-      const text = await response.body.text()
+      // Only buffer + gunzip when the server actually compressed; an unencoded
+      // response reads as text directly (and keeps existing behavior on that path).
+      const encoding = response.headers['content-encoding']
+      const gzipped = (Array.isArray(encoding) ? encoding[0] : encoding)?.toLowerCase().trim() === 'gzip'
+      const text = gzipped
+        ? decodeResponseBody(new Uint8Array(await response.body.arrayBuffer()), encoding)
+        : await response.body.text()
       logTiming(`${endpoint.method} ${endpoint.path}`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
+
+      // Parse Retry-After once so every error path below (JSON parse failure AND the
+      // envelope/HTTP-error throw) carries it — a non-JSON 429/503 must still honor
+      // the server's rate window instead of falling back to default backoff.
+      const retryAfterMs = parseRetryAfterMs(response.headers['retry-after'], Date.now())
 
       let parsed: Envelope<T>
       try {
@@ -395,14 +411,14 @@ export class GangtiseClient {
         const message = response.statusCode >= 400
           ? `API request failed (HTTP ${response.statusCode})`
           : 'Failed to parse API response'
-        throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500))
+        throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500), retryAfterMs)
       }
 
       try {
         // Auth errors can arrive as HTTP 4xx or as a 200-wrapped error envelope;
         // both routes must reach the self-heal check below.
         if (response.statusCode >= 400) {
-          this.throwHttpError(parsed, response.statusCode)
+          this.throwHttpError(parsed, response.statusCode, retryAfterMs)
         }
         return this.unwrapEnvelope(parsed, response.statusCode)
       } catch (error) {
@@ -461,6 +477,9 @@ export class GangtiseClient {
       }
 
       const contentType = Array.isArray(response.headers['content-type']) ? response.headers['content-type'][0] : response.headers['content-type']
+      // From the final (post-redirect) response, so a rate-limited download honors
+      // Retry-After too — every error branch below passes it into the ApiError.
+      const retryAfterMs = parseRetryAfterMs(response.headers['retry-after'], Date.now())
 
       if (contentType?.includes('application/json')) {
         const text = await response.body.text()
@@ -470,7 +489,7 @@ export class GangtiseClient {
           parsed = JSON.parse(text)
         } catch {
           if (response.statusCode >= 400) {
-            throw new ApiError('Download failed', undefined, response.statusCode, text)
+            throw new ApiError('Download failed', undefined, response.statusCode, text, retryAfterMs)
           }
           return { text, contentType }
         }
@@ -478,7 +497,7 @@ export class GangtiseClient {
         let data: unknown
         try {
           if (response.statusCode >= 400) {
-            this.throwHttpError(parsed, response.statusCode)
+            this.throwHttpError(parsed, response.statusCode, retryAfterMs)
           }
           data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
         } catch (error) {
@@ -495,14 +514,14 @@ export class GangtiseClient {
         const text = await response.body.text()
         logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         if (response.statusCode >= 400) {
-          throw new ApiError('Download failed', undefined, response.statusCode, text)
+          throw new ApiError('Download failed', undefined, response.statusCode, text, retryAfterMs)
         }
         return { text, contentType }
       }
 
       if (response.statusCode >= 400) {
         const text = await response.body.text()
-        throw new ApiError('Download failed', undefined, response.statusCode, text)
+        throw new ApiError('Download failed', undefined, response.statusCode, text, retryAfterMs)
       }
 
       const contentDisposition = response.headers['content-disposition']

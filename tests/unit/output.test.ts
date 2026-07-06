@@ -209,3 +209,12 @@ describe("renderOutput", () => {
     })
   })
 })
+
+describe("renderOutput table display width", () => {
+  it("counts an astral emoji as 2 columns so the divider stays aligned", () => {
+    // Header "x" is width 1; the emoji cell is width 2 → the column (and its divider)
+    // must be 2 wide. Counting the emoji as 1 (UTF-16/codepoint count) misaligns it.
+    const [, divider] = renderOutput([{ x: "🚀" }], "table").split("\n")
+    expect(divider).toBe("--")
+  })
+})

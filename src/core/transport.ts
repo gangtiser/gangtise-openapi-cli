@@ -1,6 +1,41 @@
+import { gunzipSync } from "node:zlib"
+
 import { Agent, type Dispatcher } from "undici"
 
 import { ApiError } from "./errors.js"
+
+/** Decode an HTTP response body honoring Content-Encoding. undici does not
+ * auto-decompress, so requestJson advertises `accept-encoding: gzip` and gunzips
+ * here; an unencoded body is read as-is. */
+export function decodeResponseBody(buf: Uint8Array, contentEncoding: string | string[] | undefined): string {
+  const enc = (Array.isArray(contentEncoding) ? contentEncoding[0] : contentEncoding)?.toLowerCase().trim()
+  const b = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength)
+  return enc === "gzip" ? gunzipSync(b).toString("utf8") : b.toString("utf8")
+}
+
+/** A Retry-After delay we'll honor even if it exceeds maxDelay — but never past this
+ * ceiling, so a hostile/misconfigured header can't hang the CLI for minutes. */
+const RETRY_AFTER_CEILING_MS = 60_000
+
+/** Parse a Retry-After header (delta-seconds or an HTTP-date) into a delay in ms.
+ * Returns undefined when absent or unparseable. `nowMs` is injected for testing. */
+export function parseRetryAfterMs(value: string | string[] | undefined, nowMs: number): number | undefined {
+  const raw = (Array.isArray(value) ? value[0] : value)?.trim()
+  if (!raw) return undefined
+  if (/^\d+$/.test(raw)) return Number(raw) * 1000
+  const dateMs = Date.parse(raw)
+  return Number.isNaN(dateMs) ? undefined : Math.max(0, dateMs - nowMs)
+}
+
+/** A retryable error may carry a server-specified Retry-After (attached by the
+ * client on a 429); prefer it over the computed backoff. */
+function retryAfterFromError(error: unknown): number | undefined {
+  if (error && typeof error === "object") {
+    const v = (error as { retryAfterMs?: unknown }).retryAfterMs
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return v
+  }
+  return undefined
+}
 
 let cachedDispatcher: Dispatcher | null = null
 
@@ -86,8 +121,12 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
       return await fn()
     } catch (error) {
       if (attempt >= retries || !isRetryableError(error)) throw error
-      const jitter = Math.random() * baseDelay
-      const delay = Math.min(maxDelay, baseDelay * 2 ** attempt + jitter)
+      // A server-sent Retry-After (429) wins over exponential backoff, but is capped
+      // so it can't stall the CLI; otherwise fall back to jittered exponential backoff.
+      const retryAfter = retryAfterFromError(error)
+      const delay = retryAfter !== undefined
+        ? Math.min(retryAfter, RETRY_AFTER_CEILING_MS)
+        : Math.min(maxDelay, baseDelay * 2 ** attempt + Math.random() * baseDelay)
       options.onRetry?.(attempt + 1, error, delay)
       await new Promise(resolve => setTimeout(resolve, delay))
       attempt++

@@ -91,6 +91,7 @@ gangtise insight announcement download --announcement-id <id> [--file-type <n>] 
 
 - `--category`：公告分类 ID，用 `reference constant-list --category aShareAnnouncementCategory` 查。常用：`103910200` 财务报告、`103910700` 股权股本、`103910201` 业绩预告、`103910703` 质押冻结、`103910803` 股权激励、`103910818` 股份增减持、`103910823` 问询函（完整列表见 `references/lookup-ids.md`）
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown
+- 时间过滤时区：本命令（A 股公告，独有）会把 `--start-time`/`--end-time` 按**运行机器的时区**换算成毫秒时间戳（其余 insight 列表是把字符串直传服务端）。CST 机器上即北京时；在 UTC 云环境（cloud agent / CI）跑则日窗整体偏 8 小时。需跨机器精确边界时，直接传 13 位毫秒时间戳（原样透传，与机器时区无关）。
 
 ## 港股公告 `insight announcement-hk list/download`
 
