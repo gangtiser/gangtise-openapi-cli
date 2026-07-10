@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.24.0"
+version: "0.25.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -66,8 +66,8 @@ description: |-
 
 "免费"=0 积分；**只列单价**，数据范围（可查多久）随账号等级不同、不在此列。
 
-- **免费**：所有 `quote` 行情、`fundamental` 报表/主营/估值/股东（**盈利预测除外**）、`reference`/`constant` 查询、`alternative edb-search`、`vault`（record/wechat/股票池/drive/AI云盘）
-- **0.1/条 list**：research / foreign-report / official-account / announcement(A/港/美) / summary 的 list、`vault my-conference-list`
+- **免费**：所有 `quote` 行情、`fundamental` 报表/主营/估值/股东（**盈利预测除外**）、`reference`/`constant` 查询（含 `official-account-search`）、`alternative edb-search`、`vault`（record/wechat/股票池/drive/AI云盘）、`insight report-image list`
+- **0.1/条 list**：research / foreign-report / official-account / announcement(A/港/美) / summary / qa 的 list、`vault my-conference-list`；`insight report-image download` 0.1/张
 - **按条（观点/含详情类 list）**：independent-opinion list 与 `ai security-clue` 5；roadshow/site-visit/strategy/forum list 20；opinion / foreign-opinion list 30；`fundamental earning-forecast` 0.5；`ai stock-summary` 3（无看点的证券不返回也不扣）；`alternative edb-data` 30
 - **各 download（/篇）**：announcement / official-account 10；research / announcement-hk / announcement-us 20；independent-opinion 30；summary / foreign-report / my-conference 50
 - 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**；`ai hot-topic` 50/篇
@@ -106,6 +106,8 @@ description: |-
 | 港股公告 / HK 公告 | `insight announcement-hk list` |
 | 美股公告 / US 公告 | `insight announcement-us list` |
 | 公众号资讯 / 产业资讯 / 公众号文章 | `insight official-account list` |
+| 投资者问答 / 互动平台 / 电话会议 / 调研纪要 QA | `insight qa list`（按证券，`--security-code` 必填；`--source`/`--question-category`/`--answer-important` 精筛） |
+| 研报图表 / 研报图片搜索 | `insight report-image list`（`--keyword`；下载原图 `insight report-image download --chunk-id`） |
 | 跨类型语义搜索（研报+纪要+...） | `ai knowledge-batch`（多个 `--resource-type`） |
 | 知识库原文下载（搜到后取全文） | `ai knowledge-resource-download`（前置：`knowledge-batch` 拿 `resourceType`+`sourceId`；`433007`=组合不匹配） |
 | 一页通 / 投资逻辑 / 同业对比 / 调研提纲 | `ai one-pager / investment-logic / peer-comparison / research-outline` |
@@ -146,6 +148,7 @@ description: |-
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
 | 首席 ID / 分析师 ID 搜索 | `reference chiefs-search`（按姓名/机构/团队，用于 `insight opinion --chief`） |
 | 机构 ID 搜索（内资券商/外资/牵头/观点机构） | `reference institution-search`（按机构名，用于 `--institution` / `--broker`；免费） |
+| 公众号 ID 搜索（按公众号名/机构/分类） | `reference official-account-search`（返回 `accountId`，喂 `insight official-account list --account-id`；免费） |
 | 常量/枚举 ID（行业/城市/公告分类/区域） | `reference constant-list --category <code>`（分类代码用 `reference constant-category` 查） |
 | 题材 ID 搜索 | `reference concept-search` |
 | 板块 ID 搜索 | `reference sector-search` |
@@ -251,6 +254,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `430007` | 行情查询超出限制 | — | 缩短日期范围；全市场场景应已自动分片 |
 | `430004` | 研报下载报错（官方未文档化，实测出现于 download） | — | 确认 reportId 有效；换 `--file-type` 或换一篇验证 |
 | `900001` | 请求参数缺失 | — | 检查必填项（如 `--indicator` / `--date`） |
+| `100003` | 参数值非法（服务端不指明是哪个参数） | — | 对照命令 `--help` 检查枚举参数拼写/取值（如 `--source` / `--question-category` / `--answer-important`），**不要重试同命令** |
 | `900002` | 请求缺少 uid | — | `gangtise auth status` 查登录状态，重登后重试 |
 | `10011401` | 白名单未开通 | — | 联系管理员 |
 | HTTP 5xx / `ECONNRESET` / 超时 | 网络/服务端 | **自动指数退避重试 ×2** | 仍失败提示用户 |
@@ -309,13 +313,13 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 按需 Read 对应文件：
 
-- 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 美股公告 / 外资观点 / 独立观点 / 公众号（official-account）→ `references/commands/insight.md`
+- 内资观点 / 纪要 / 路演 / 调研 / 策略 / 论坛 / 研报 / 外资研报 / A 股公告 / 港股公告 / 美股公告 / 外资观点 / 独立观点 / 公众号（official-account）/ 投资者问答（qa）/ 研报图表（report-image）→ `references/commands/insight.md`
 - 行情命令（A 股 / 港股 / 美股日 K / 指数日 K / 分钟 K / 实时行情 / 资金流向 fund-flow） → `references/commands/quote.md`
 - 三大报表（A 股 / 港股 / 美股）/ 主营 / 估值 / 盈利预测 / 股东 → `references/commands/fundamental.md`
 - knowledge-batch / security-clue / 个股看点（stock-summary）/ AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
 - 行业指标数据库（EDB）/ 题材指数画像与成分股（concept-info / concept-securities）→ `references/commands/alternative.md`
 - 数据指标（EDE：search / cross-section / time-series，证券级指标截面与时序）→ `references/commands/indicator.md`
-- securities-search / chiefs-search（首席 ID）/ institution-search（机构 ID）/ 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
+- securities-search / chiefs-search（首席 ID）/ institution-search（机构 ID）/ official-account-search（公众号 ID）/ 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 
 跑通流程对照 → `references/examples.md`

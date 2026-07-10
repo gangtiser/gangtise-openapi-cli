@@ -16,6 +16,10 @@ describe("ApiError", () => {
     expect(err.hint).toContain("ACCESS_KEY")
   })
 
+  it("hints 100003 参数值非法 toward enum spelling (server does not name the bad param)", () => {
+    expect(new ApiError("参数值非法", "100003").hint).toContain("枚举")
+  })
+
   it("provides hints for codes documented in the skill error table", () => {
     expect(new ApiError("quote range", "430007").hint).toContain("日期范围")
     expect(new ApiError("download", "430004").hint).toContain("file-type")

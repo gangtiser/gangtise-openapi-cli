@@ -15,6 +15,7 @@ const ERROR_HINTS: Record<string, string> = {
   "999995": "当前账号积分不足。",
   "900002": "请求缺少 uid。",
   "900001": "请求参数为空或缺少必填项。",
+  "100003": "参数值非法——服务端不会指明是哪个参数，多为枚举参数拼写或取值超范围（如 --source / --question-category / --answer-important），对照命令 --help 列出的合法值检查。",
   "0000001008": "Token 已失效（多为他处登录挤掉本会话）；有 AK/SK 时 CLI 会自动重新登录重试一次，否则请重新登录。",
   "8000014": "GANGTISE_ACCESS_KEY 错误。",
   "8000015": "GANGTISE_SECRET_KEY 错误。",

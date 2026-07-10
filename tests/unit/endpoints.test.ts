@@ -413,6 +413,45 @@ describe("ENDPOINTS", () => {
     expect(ep.pagination).toBeUndefined()
   })
 
+  it("QA (Q&A) endpoint uses the Q&A-data path and paginates at maxPageSize 500", () => {
+    const ep = ENDPOINTS["insight.qa.list"]
+    expect(ep).toBeDefined()
+    expect(ep.key).toBe("insight.qa.list")
+    expect(ep.method).toBe("POST")
+    // The '&' in the path is intentional — it is the vendor's literal path segment.
+    expect(ep.path).toBe("/application/open-insight/Q&A-data/getList")
+    expect(ep.kind).toBe("json")
+    expect(ep.pagination).toEqual({ enabled: true, maxPageSize: 500 })
+  })
+
+  it("report-image endpoints use correct keys, paths, and kinds", () => {
+    const list = ENDPOINTS["insight.report-image.list"]
+    expect(list).toBeDefined()
+    expect(list.key).toBe("insight.report-image.list")
+    expect(list.method).toBe("POST")
+    expect(list.path).toBe("/application/open-insight/report-image/getList")
+    expect(list.kind).toBe("json")
+    // top-based (max 20), flat data array, no `total` → intentionally not auto-paginated.
+    expect(list.pagination).toBeUndefined()
+
+    const download = ENDPOINTS["insight.report-image.download"]
+    expect(download).toBeDefined()
+    expect(download.key).toBe("insight.report-image.download")
+    expect(download.method).toBe("GET")
+    expect(download.path).toBe("/application/open-insight/report-image/download/file")
+    expect(download.kind).toBe("download")
+  })
+
+  it("official-account-search endpoint uses the open-reference path and is unpaginated", () => {
+    const ep = ENDPOINTS["reference.official-account-search"]
+    expect(ep).toBeDefined()
+    expect(ep.key).toBe("reference.official-account-search")
+    expect(ep.method).toBe("POST")
+    expect(ep.path).toBe("/application/open-reference/officialAccount/search")
+    expect(ep.kind).toBe("json")
+    expect(ep.pagination).toBeUndefined()
+  })
+
   // Endpoint keys appear as bare string literals throughout cli.ts
   // (client.call("..."), addDownloadCommand({ endpointKey: "..." }), addKlineCommand(...)).
   // A typo only surfaces at runtime as "Unknown endpoint key"; this catches it at

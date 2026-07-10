@@ -193,6 +193,26 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "download",
     description: "Download WeChat official account article (txt/HTML)",
   },
+  "insight.qa.list": {
+    method: "POST",
+    // The literal '&' is the vendor's path segment (Q&A-data), not a query separator.
+    path: "/application/open-insight/Q&A-data/getList",
+    kind: "json",
+    description: "List investor Q&A (conference/interactive/survey) for a security",
+    pagination: { enabled: true, maxPageSize: 500 },
+  },
+  "insight.report-image.list": {
+    method: "POST",
+    path: "/application/open-insight/report-image/getList",
+    kind: "json",
+    description: "Search research report images by keyword (returns chunkId + metadata)",
+  },
+  "insight.report-image.download": {
+    method: "GET",
+    path: "/application/open-insight/report-image/download/file",
+    kind: "download",
+    description: "Download a research report image by chunkId",
+  },
 
   // ─── reference ───
   "reference.securities-search": {
@@ -212,6 +232,12 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-reference/institutions/search",
     kind: "json",
     description: "Search institution IDs by keyword (domestic broker / foreign / lead / opinion institution)",
+  },
+  "reference.official-account-search": {
+    method: "POST",
+    path: "/application/open-reference/officialAccount/search",
+    kind: "json",
+    description: "Search official account (WeChat public account) IDs by name / institution / category",
   },
   "reference.constant-category": {
     method: "GET",

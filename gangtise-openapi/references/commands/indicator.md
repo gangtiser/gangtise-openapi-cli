@@ -15,6 +15,7 @@ gangtise indicator search --keyword <text> [--limit <n>]
 - `--limit`：返回条数上限，默认 50，最大 100
 - 默认 `--format table`（看 `indicatorCode` / `indicatorName` / `description` 即可）；要看每个指标支持哪些参数（`parameterList`），用 `--format json`
 - 返回字段：`indicatorCode` / `indicatorName` / `description`（算法）/ `parameterList`（可传的 `--indicator-param` 参数及枚举）/ `score`（`scope` 适用市场/品种字段服务端当前多返 `null`）
+- **市场范围**：指标数据覆盖 A 股 / 港股 / 美股（2026-07 起扩展，此前仅 A 股）。美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE)，**不是 `.US`**——实测 `AAPL.US` 查不到数据，须用 `AAPL.O`（官方示例里的 `AAPL.US` 是笔误）
 
 ```bash
 gangtise indicator search --keyword 收盘价 --limit 5 --format json   # 看 parameterList
@@ -29,7 +30,7 @@ gangtise indicator cross-section --indicator <code> [--indicator <code2>] \
 ```
 
 - `--indicator`（**至少 1 个**）：指标编码，来自 `search`，可重复传多个
-- `--security`（**至少 1 个**）：证券代码，如 `600519.SH` / `09992.HK`，可重复传多个
+- `--security`（**至少 1 个**）：证券代码，如 `600519.SH`（A股）/ `09992.HK`（港股）/ `AAPL.O`（美股，用 `.O`/`.N` 后缀，非 `.US`），可重复传多个
 - `--date`（**必选**）：数据日期 `yyyy-MM-dd`（须为交易日，非交易日/无数据日返回空）
 - `--currency`：币种 `DFT`(原始,默认)/`CNY`/`HKD`/`USD`/`EUR`/`GBP`/`JPY`/`TWD`/`MOP`/`AUD`
 - `--scale`：量纲 `0`(个,默认)/`3`(千)/`4`(万)/`6`(百万)/`8`(亿)/`9`(十亿)

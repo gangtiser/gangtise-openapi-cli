@@ -210,6 +210,34 @@ describe("cli smoke", () => {
     }
   }, 30_000)
 
+  it("lists the v0.25.0 subcommands (qa / report-image / official-account-search)", async () => {
+    const insight = await cli(["insight", "--help"])
+    expect(insight.code).toBe(0)
+    expect(insight.out).toContain("qa")
+    expect(insight.out).toContain("report-image")
+    const reference = await cli(["reference", "--help"])
+    expect(reference.code).toBe(0)
+    expect(reference.out).toContain("official-account-search")
+  }, 30_000)
+
+  it("insight qa list requires --security-code", async () => {
+    const { code, out } = await cli(["insight", "qa", "list"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--security-code")
+  }, 30_000)
+
+  it("insight report-image list requires --keyword", async () => {
+    const { code, out } = await cli(["insight", "report-image", "list"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--keyword")
+  }, 30_000)
+
+  it("insight report-image download requires --chunk-id", async () => {
+    const { code, out } = await cli(["insight", "report-image", "download"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--chunk-id")
+  }, 30_000)
+
   it("reference institution-search requires --keyword", async () => {
     const { code, out } = await cli(["reference", "institution-search"])
     expect(code).not.toBe(0)

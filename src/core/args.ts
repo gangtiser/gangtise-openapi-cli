@@ -83,6 +83,18 @@ export function maybeArray<T>(value: T[]): T[] | undefined {
   return value.length > 0 ? value : undefined
 }
 
+// Whitelist for enum-valued repeatable options. Only used where the server was
+// probed NOT to reject bad values (it silently ignores the filter or returns
+// empty instead) — endpoints that answer 100003 keep server-side validation.
+export function parseChoiceList(values: string[], optionName: string, allowed: readonly string[]): string[] | undefined {
+  for (const value of values) {
+    if (!allowed.includes(value)) {
+      throw new ValidationError(`Invalid ${optionName}: "${value}" is not one of ${allowed.join("/")}`)
+    }
+  }
+  return maybeArray(values)
+}
+
 export function toTimestamp13(value: string | undefined): number | undefined {
   if (value === undefined) return undefined
   const num = Number(value)

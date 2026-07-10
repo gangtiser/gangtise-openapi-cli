@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseChoiceList, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -195,6 +195,21 @@ describe("parseIndicatorParams", () => {
   it("throws when the code or key is empty", () => {
     expect(() => parseIndicatorParams([":adjustmentType=1"])).toThrow(ValidationError)
     expect(() => parseIndicatorParams(["qte_close:=1"])).toThrow(ValidationError)
+  })
+})
+
+describe("parseChoiceList", () => {
+  it("returns undefined for an empty list (omit-for-all semantics)", () => {
+    expect(parseChoiceList([], "--category", ["a", "b"])).toBeUndefined()
+  })
+
+  it("passes valid values through unchanged", () => {
+    expect(parseChoiceList(["broker", "media"], "--category", ["listedCompany", "broker", "government", "media"])).toEqual(["broker", "media"])
+  })
+
+  it("throws ValidationError naming the bad value and the allowed set", () => {
+    expect(() => parseChoiceList(["brokers"], "--category", ["broker", "media"])).toThrow(ValidationError)
+    expect(() => parseChoiceList(["brokers"], "--category", ["broker", "media"])).toThrow(/--category.*brokers.*broker\/media/)
   })
 })
 

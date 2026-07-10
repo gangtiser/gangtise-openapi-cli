@@ -65,6 +65,24 @@ gangtise reference institution-search --keyword <text> [--category <name>] [--to
 gangtise reference institution-search --keyword 招商证券 --category domesticBroker --top 3 --format json   # → C100000020 招商证券
 ```
 
+## 公众号 ID 搜索 `reference official-account-search`
+
+```bash
+gangtise reference official-account-search --keyword <text> [--category <name>] [--top <n>]
+```
+
+- 用途：查公众号 ID，拿到的 `accountId` 喂给 `insight official-account list --account-id` 拉该公众号资讯
+- `--keyword`（**必选**）：公众号名称 / 所属机构 / 关键字（如 `中信证券`、`人民日报`）
+- `--category`：分类过滤，可多选——`listedCompany` 上市公司 | `broker` 券商团队 | `government` 政府官方 | `media` 媒体。⚠️ 部分公众号不属这四类（`category` 返回 `null`）；一旦传 `--category` 就会漏掉这些未分类公众号，要全量（含未分类）就**别传** `--category`
+- `--top`：默认 10，**上限 10**；结果按 `matchScore`（`0~1`）降序
+- 免费调用
+- 返回 `{returnedCount, list}`；list 字段：`accountId` / `accountName` / `category`（四类之一或 `null`）/ `matchScore`
+
+**示例：**
+```bash
+gangtise reference official-account-search --keyword 中信证券 --top 3 --format json   # → gh_fe1d2be7e8db 中信证券研究
+```
+
 ## 常量分类 `reference constant-category`
 
 ```bash

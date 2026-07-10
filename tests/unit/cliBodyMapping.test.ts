@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { readFile, rm } from "node:fs/promises"
 import http from "node:http"
 import os from "node:os"
 import path from "node:path"
@@ -23,6 +24,10 @@ const captured: CapturedRequest[] = []
 let server: http.Server
 let baseUrl: string
 
+// JPEG magic prefix so the download E2E test can assert the binary body
+// reaches disk byte-for-byte (not JSON-mangled or re-encoded).
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x01, 0x02, 0x03])
+
 beforeAll(async () => {
   server = http.createServer((req, res) => {
     let raw = ""
@@ -36,6 +41,11 @@ beforeAll(async () => {
         // (partial), --limit 5000/6000 stays under it. Body-mapping tests (no --limit or
         // a large one) get 3 < cap → exit 0, so their assertions are unaffected.
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList: ["securityCode", "tradeDate", "mainNetInflow"], list: [["600519.SH", "2026-06-03", 1], ["000001.SZ", "2026-06-03", 2], ["000002.SZ", "2026-06-03", 3]] } }))
+        return
+      }
+      if ((req.url ?? "").includes("/report-image/download/file")) {
+        res.setHeader("content-type", "image/jpeg")
+        res.end(JPEG_BYTES)
         return
       }
       res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
@@ -296,6 +306,107 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       categoryList: ["domesticBroker", "opinionInstitution"],
       top: 5,
     })
+  }, 30_000)
+
+  it("insight qa list maps filters to BARE source/questionCategory/answerImportant keys (not *List) and keeps the & path", async () => {
+    // QA's request keys are bare (source/questionCategory/answerImportant), unlike the
+    // *List convention elsewhere — sending sourceList etc. would silently drop the filter.
+    // Also asserts the literal '&' in the path survives the round-trip to the server.
+    const { code } = await cli([
+      "insight", "qa", "list",
+      "--security-code", "601012.SH",
+      "--source", "interactive", "--source", "survey",
+      "--question-category", "productAndBusiness", "--question-category", "financialData",
+      "--answer-important", "1",
+      "--start-time", "2026-05-01 00:00:00", "--end-time", "2026-06-16 23:59:59",
+      "--size", "5", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/Q&A-data/getList")
+    expect(captured[0].body).toEqual({
+      from: 0,
+      size: 5,
+      securityCode: "601012.SH",
+      startTime: "2026-05-01 00:00:00",
+      endTime: "2026-06-16 23:59:59",
+      source: ["interactive", "survey"],
+      questionCategory: ["productAndBusiness", "financialData"],
+      answerImportant: [1],
+    })
+  }, 30_000)
+
+  it("insight report-image list maps keyword, top and sourceId (string datetimes, no epoch conversion)", async () => {
+    const { code } = await cli([
+      "insight", "report-image", "list",
+      "--keyword", "AI", "--top", "3", "--source-id", "297236012319510528",
+      "--start-time", "2024-01-01 00:00:00", "--end-time", "2024-12-31 23:59:59",
+      "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/report-image/getList")
+    expect(captured[0].body).toEqual({
+      keyword: "AI",
+      top: 3,
+      sourceId: "297236012319510528",
+      startTime: "2024-01-01 00:00:00",
+      endTime: "2024-12-31 23:59:59",
+    })
+  }, 30_000)
+
+  it("reference official-account-search maps keyword, BARE category (not categoryList), and top", async () => {
+    const { code } = await cli([
+      "reference", "official-account-search",
+      "--keyword", "东吴证券", "--category", "broker", "--category", "media",
+      "--top", "5", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-reference/officialAccount/search")
+    expect(captured[0].body).toEqual({
+      keyword: "东吴证券",
+      category: ["broker", "media"],
+      top: 5,
+    })
+  }, 30_000)
+
+  it("rejects --top above the documented cap before any request goes out (server silently truncates)", async () => {
+    // Probed 2026-07-10: report-image --top 21 returns 20 rows, official-account-search
+    // --top 11 returns 10 — no server error either way, so the CLI must fail locally.
+    const insightCap = await cli(["insight", "report-image", "list", "--keyword", "AI", "--top", "21"])
+    expect(insightCap.code).not.toBe(0)
+    expect(insightCap.out).toContain("<= 20")
+    const referenceCap = await cli(["reference", "official-account-search", "--keyword", "东吴", "--top", "11"])
+    expect(referenceCap.code).not.toBe(0)
+    expect(referenceCap.out).toContain("<= 10")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("rejects a misspelled reference-search --category before any request goes out", async () => {
+    // Probed 2026-07-10: the server never rejects a bogus category — securities-search
+    // silently IGNORES the filter (returns all categories), institution-search and
+    // official-account-search silently return empty. All three are wrong-data traps.
+    for (const args of [
+      ["reference", "securities-search", "--keyword", "茅台", "--category", "stocks"],
+      ["reference", "institution-search", "--keyword", "中金", "--category", "domesticBrokers"],
+      ["reference", "official-account-search", "--keyword", "东吴", "--category", "brokers"],
+    ]) {
+      const { code, out } = await cli(args)
+      expect(code).not.toBe(0)
+      expect(out).toContain("--category")
+    }
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("insight report-image download sends chunkId as a query param and writes the JPEG body to --output", async () => {
+    const outPath = path.join(os.tmpdir(), `gangtise-report-image-${process.pid}.jpg`)
+    try {
+      const { code } = await cli(["insight", "report-image", "download", "--chunk-id", "image_10_384_8", "--output", outPath])
+      expect(code).toBe(0)
+      expect(captured).toHaveLength(1)
+      expect(captured[0].path).toBe("/application/open-insight/report-image/download/file?chunkId=image_10_384_8")
+      expect(await readFile(outPath)).toEqual(JPEG_BYTES)
+    } finally {
+      await rm(outPath, { force: true })
+    }
   }, 30_000)
 
   it("vault my-conference-list maps --source to a numeric sourceList", async () => {

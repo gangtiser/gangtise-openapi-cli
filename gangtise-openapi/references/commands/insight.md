@@ -155,3 +155,33 @@ gangtise insight official-account download --article-id <id> [--file-type <n>] [
 - `--keyword`：需用数据中的具体词（如 `泡泡玛特`），不能用整句白话
 - `--file-type`（download）：`1` txt（默认）| `2` HTML
 - 返回字段：`articleId` / `accountId` / `accountName` / `author` / `title` / `publishTime` / `url` / `originalFlag`（`0` 非原创 / `1` 原创）/ `articleCategory` / `summary`（模型摘要）/ `industryList[]{industryId, industryName}` / `conceptList[]{conceptId, conceptName}` / `securityList[]{securityCode, securityName}`
+
+## 投资者问答 QA `insight qa list`
+
+```bash
+gangtise insight qa list --security-code <code> [--start-time <t>] [--end-time <t>] [--source <type>] [--question-category <name>] [--answer-important <0|1>] [--size <n>]
+```
+
+- `--security-code`（**必填**）：证券代码，如 `601012.SH`（按单只证券提取投资者问答）
+- `--start-time` / `--end-time`：`yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm:ss`（字符串直传，不转时间戳）
+- `--source`：问题来源，可多选——`conference` 电话会议 | `interactive` 互动平台 | `survey` 调研纪要
+- `--question-category`：问题类型，可多选——`productAndBusiness` 产品技术与业务布局 | `capacityAndProjects` 产能与项目进展 | `ordersAndCustomers` 订单与客户 | `financialData` 财务与经营数据 | `materialEvents` 重大事项 | `capitalOperations` 资本运作 | `shareholdersAndDividends` 股东户数与常规分红 | `corporateGovernance` 治理与管理 | `marketAndValuation` 市场与估值 | `macroAndIndustry` 宏观与行业看法 | `risksAndOthers` 风险质疑其他
+- `--answer-important`：答案是否涉及重要信息，可多选——`1` 是（回答匹配提问且涉及重要信息）| `0` 否；`--answer-important 1` 只取重要，省略或 `0 1` 两个都传=不按此维度筛选
+- 自动翻页（`{total,list}`，单页上限 500）；省略 `--size` 拉全量
+- 返回字段：`source` / `publishTime` / `question` / `answer` / `member`（回答方身份，如企业高管/董秘）/ `securityCode` / `questionCategory[]` / `answerImportant`（`1` 是 / `0` 否）
+- **积分**：0.1/条
+
+## 研报图表 `insight report-image list` / `download`
+
+```bash
+gangtise insight report-image list --keyword <text> [--top <n>] [--source-id <id>] [--start-time <t>] [--end-time <t>]
+gangtise insight report-image download --chunk-id <id> [--output <path>]
+```
+
+- `--keyword`（**必填**，list）：搜索关键词，如 `AI`、`新能源汽车`
+- `--top`：返回上限，默认 10，**最大 20**
+- `--source-id`：研报 ID，限定到某篇研报（可从研报列表或知识库取）
+- `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全），限定图片所属研报的发布时间
+- `--chunk-id`（**必填**，download）：图片唯一标识，取自 list 返回的 `chunkId`；直接下二进制原图（JPEG）。省略 `--output` 时优先用服务端返回的文件名，无则按 `report-image-<chunkId>` 命名
+- list 返回字段：`chunkId` / `title` / `sourceId` / `broker` / `category` / `typeList[]` / `industry` / `publishTime` / `page` / `totalPages` / `imageCaption[]` / `imageFootnote[]` / `pageContent`（该页 OCR/描述文本）；扁平数组、无 `total`（不翻页，靠 `--top` 控量）
+- **积分**：list 免费；download 0.1/张

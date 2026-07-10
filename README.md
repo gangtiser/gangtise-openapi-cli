@@ -4,6 +4,22 @@
 
 ## Changelog
 
+### v0.25.0 — 2026-07-10
+
+**新增接口（4）**
+- `insight qa list` — 投资者问答 QA：按证券提取互动平台 / 电话会议 / 调研纪要的提问与回答；`--security-code`（必填）、`--source`（`conference`/`interactive`/`survey`）、`--question-category`（11 类，见 `insight.md`）、`--answer-important`（`1` 是 / `0` 否）、`--start-time`/`--end-time`（字符串直传）；自动翻页（单页上限 500）；0.1 积分/条
+- `insight report-image list` / `download` — 研报图表：按关键词搜索研报图片，返回 `chunkId` + 元数据（`--keyword` 必填、`--top` 默认 10 上限 20、`--source-id`、时间过滤；**免费**），再 `download --chunk-id` 下二进制原图（JPEG，0.1 积分/张）
+- `reference official-account-search` — 公众号 ID 搜索：输入公众号名 / 机构 / 关键字返回 `accountId`（喂 `insight official-account list --account-id`）；`--keyword`（必填）、`--category`（`listedCompany`/`broker`/`government`/`media`，可重复；未分类公众号 `category` 为 `null`，传 `--category` 会漏掉）、`--top`（默认 10 上限 10）；免费
+
+**变更**
+- `indicator search` / `cross-section` / `time-series` 市场范围从仅 A 股扩展至 A 股 / 港股 / 美股（服务端变更；CLI 早已支持 `--currency` 与多市场证券代码，无需改动）。⚠️ 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE)，**非 `.US`**——官方示例的 `AAPL.US` 查不到数据，实测须 `AAPL.O`
+
+**修复 / 加固**（承接上一批未单独发版的改动）
+- 分页 / 分片 `partial` 检测补全：`requestPaginated` 的短后续页、`MAX_PAGES` 上限、`total` 漂移、失败页四种场景统一触发 `partial`（退出码 3）——失败页独立成判定条件，避免超额返回的兄弟页把行数补满、掩盖失败页空洞；`quote` 全市场分片硬错后熔断、破损形状分片计入 `failedShards`
+- `--top` 本地上限校验（`report-image` / `knowledge-batch` ≤20，reference 六个搜索命令 ≤10）——实测服务端对超限值**静默截断**不报错，现在发请求前本地报错；`securities-search` / `institution-search` / `official-account-search` 的 `--category` 加本地白名单——实测服务端对拼错的分类**不报错**（securities-search 静默忽略过滤返回全类别、另两个静默返回空），拼写错误不再伪装成"无结果"（`insight qa` 的枚举服务端会报 `100003`，故不做本地白名单）
+- 错误码 `100003`（参数值非法）补充中文提示——服务端不指明是哪个参数，提示对照命令 `--help` 检查枚举参数拼写
+- undici `^7.16.0` → `^7.28.0`（修 keep-alive 队列污染 GHSA-35p6-xmwp-9g52），`engines.node` `>=20` → `>=20.18.1` 对齐 undici 实际最低要求
+
 ### v0.24.0 — 2026-07-07
 
 **新增**
@@ -68,50 +84,6 @@
 - `raw call` 会在本地拒绝 JSON endpoint 的 `--query` 和 download endpoint 的 `--body`，避免静默丢参数；`--format` 在发请求前校验，格式拼错不再先消耗接口调用
 - `gangtise ... | head` 遇 stdout `EPIPE` 时安静退出；只有首个参数是 `--version` / `-V` 时才触发版本快捷路径
 - Endpoint registry 的 `key` 改为由记录键自动派生，减少映射漂移；新增真实 CLI 选项到请求体的 stub 测试；测试 272 → 323
-
-### v0.21.0 — 2026-06-29
-
-**行为变更（注意）**
-- ⚠️ `vault wechat-chatroom-list` 省略 `--size` 现在**拉全量**（此前默认只返回 20 条）。该接口不返回 `total`，CLI 改为串行翻页（翻到不满页为止，单页上限 50）；传 `--size N` 仍只取前 N 条。依赖"默认 20 条"的脚本会拿到全部群。
-
-**修复**
-- `quote day-kline --security all` 等大结果集用默认 `table` 格式输出时不再因 `Math.max(...大数组)` 撑爆调用栈崩溃（`RangeError`）；`renderTable` 改用 reduce 计算列宽
-- CSV 导出：含回车符 `\r` 的字段现在正确加引号（RFC 4180）；`table` / `markdown` 的多行字段折叠换行，保持表格对齐
-- 下载文件名剥离控制字符 / NUL，避免 `fs.writeFile` 报错
-
-**修复（安全）**
-- token 缓存文件（`~/.config/gangtise/token.json`）改为临时文件 + 原子 `rename` 写入：从第一字节即 `0600`，消除"旧文件宽松权限残留"与"崩溃截断"两个隐患
-
-**内部 / 工程**
-- 依赖 `vitest` 升级到 3.2.6（修复 dev-only 安全告警）；新增 `npm run typecheck`；测试 257 → 272
-
-### v0.20.0 — 2026-06-26
-
-**新增接口**
-- `insight announcement-us list` / `download` — 美股公司公告列表与下载（`--security TSLA.O`、`--category`〔分类用 `reference constant-list --category usShareAnnouncementCategory`，美股独立的 `103980xxx` 段〕、`--search-type`、`--rank-type`、下载 `--file-type 1` 原始 PDF / `2` Markdown）；自动翻页，单页上限 50
-- `ai stock-summary` — 个股看点（精炼投研总结）：`--security` 传具体代码（A股/港股，可重复，单次最多 6000）或市场关键词 `aShares` / `hkStocks` 拉全市场；无看点的证券不返回、不扣分
-- `fundamental income-statement-us` / `balance-sheet-us` / `cash-flow-us` — 美股三大财务报表（参数同其他财报：`--security-code` / `--period` / `--report-type` / `--fiscal-year` / `--field` 等）
-- `reference chiefs-search` — 首席分析师 ID 搜索（`--keyword` 按姓名/机构/团队匹配，`--top` 默认 10）；用于 `insight opinion list --chief` 的入参
-
-**变更**
-- `insight announcement-hk download` 新增 `--file-type`（`1` 原始（默认）/ `2` Markdown），此前无格式选项
-
-**行为变更（注意）**
-- ⚠️ `auth login` / `auth status` 默认脱敏 access token：`--format json` 输出里 `authorization` 与 `cache.accessToken` 显示为 `<redacted>`，仅保留过期时间 / 用户名 / 产品码 / uid 等非敏感字段。**依赖 `auth login` 原始 token 输出的脚本会拿到 `<redacted>`**，需改用 `auth login --show-token` 获取明文。
-
-**修复（安全）**
-- `auth status` / `auth login` token 脱敏：按凭证字段名模式匹配（`token`/`key`/`secret`/`password`/`credential`），覆盖 `apiKey`/`privateKey`/`refreshToken` 等任何可能携带的凭证字段
-- 自愈守卫：同时设 `GANGTISE_TOKEN` + AK/SK 时，注入 token 失效后重新登录不再被旧 token 短路，重试改用登录拿到的新 token
-
-**修复（数据正确性 / 健壮性）**
-- ⚠️ **CSV 负数不再被破坏**（影响所有 CSV 导出）：此前防公式注入会把负数（如跌幅 `-3.5`）加 `'` 前缀变成文本，Excel/pandas 无法参与计算；现仅对非有限数字的可疑串（`=`/`@`/`-1+cmd` 等）加前缀，合法数字原样输出
-- 自动翻页改为 fail-soft：某页遇不可重试错误（限流 `903301` 等）不再丢弃已取的全部数据，返回已取页 + `partial` / `failedPages` 标记，并在首错后停止继续请求（避免撞限流多烧配额）
-- 下载文件名 fallback（服务端 `Content-Disposition`）补清洗：含 `/`、`:` 等字符的文件名不再写到意外路径
-- `ai stock-summary` / `ai knowledge-batch` 缺 `--security` / `--query` 时本地报错，不再发空请求（stock-summary 借此避免被后台当全市场误扣积分）
-- `ai hot-topic` `--no-with-related-securities` / `--no-with-close-reading` 改为显式发 `false`（语义更明确，不依赖"字段缺失=排除"的隐含约定）
-
-**修复（indicator 适配 EDE 后台新结构）**
-- `indicator cross-section` / `time-series` 适配后台改版的返回结构（字段名加 `List` 后缀 `securityCodeList/indicatorCodeList/…`、截面 `values` 改二维 `[指标][证券]`）：此前后台改结构后 CLI 拍平失配、退化成原始矩阵，现恢复 `{date, security, name, 指标:值}` 宽表。配合后台同步变化——无数据从 `999999` 报错改为返回 `null`（截面不再 500、不丢行），缺必填参数从笼统 `410106` 改为直接指明缺哪个参数
 
 > 更早版本及完整更新历史见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -242,9 +214,12 @@ cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
 | | `foreign-opinion list` | 外资机构观点 |
 | | `independent-opinion list` / `download` | 外资独立分析师观点（含原文/翻译HTML下载） |
 | | `official-account list` / `download` | 产业公众号资讯（含 txt/HTML 下载） |
+| | `qa list` | 投资者问答 QA（互动平台/电话会议/调研纪要，按证券） |
+| | `report-image list` / `download` | 研报图表搜索（按关键词，含原图 JPEG 下载） |
 | **Reference** | `securities-search` | GTS Code 搜索（按名称/代码/拼音匹配） |
 | | `chiefs-search` | 首席分析师 ID 搜索（按姓名/机构/团队匹配） |
 | | `institution-search` | 机构 ID 搜索（内资券商/外资/牵头/观点机构，按名称匹配） |
+| | `official-account-search` | 公众号 ID 搜索（按公众号名/机构/分类匹配，返回 accountId） |
 | | `constant-category` | 常量分类列表（含各分类适用的接口与参数） |
 | | `constant-list` | 按分类导出常量值全量列表（行业/城市/公告分类/区域等） |
 | | `concept-search` | 题材 ID 搜索（名称/拼音/分组名匹配） |
@@ -338,7 +313,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
 - **自动重试**：5xx / 429 / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 超时类）/ `999999` 系统错误自动指数退避重试 2 次。
 - **Token 自愈**：调用返回 8000014/8000015 时自动强制刷新 Token 并重试一次。
-- **K线自动分片**：`quote day-kline --security all` 等全市场查询自动按日期切分（A股 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
+- **K线/资金流向自动分片**：`quote day-kline --security all`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
 - **`--verbose`**：打印每个请求的方法、路径、状态码、耗时和响应大小到 stderr，方便定位慢查询。
 
@@ -359,6 +334,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight foreign-opinion list`
 - `insight independent-opinion list`
 - `insight official-account list`
+- `insight qa list`
 - `ai security-clue`
 - `vault drive-list`
 - `vault record-list`
@@ -447,6 +423,12 @@ gangtise insight independent-opinion download --independent-opinion-id 207051900
 gangtise insight official-account list --keyword 泡泡玛特 --rank-type 2 --size 20 --format json
 gangtise insight official-account download --article-id 7286248 --file-type 2
 
+# 投资者问答 QA（按证券；--source/--question-category/--answer-important 精筛，自动翻页）
+gangtise insight qa list --security-code 601012.SH --source interactive --answer-important 1 --size 20 --format json
+# 研报图表：按关键词搜图拿 chunkId，再下原图（JPEG）
+gangtise insight report-image list --keyword AI --top 5 --format json
+gangtise insight report-image download --chunk-id image_10_384655917758685184_8 --output ./ai-chart.jpg
+
 # 纪要下载（会议平台来源可选 HTML 格式）
 gangtise insight summary download --summary-id 4906813 --file-type 2
 ```
@@ -463,8 +445,10 @@ gangtise reference securities-search --keyword "银行" --category stock --categ
 # 首席分析师 ID 搜索（按姓名/机构/团队；拿 chiefId 供 insight opinion list --chief 使用）
 gangtise reference chiefs-search --keyword 东吴证券 --top 3 --format json
 gangtise reference chiefs-search --keyword 芦哲 --format json
-# 机构 ID 搜索（--category: domesticBroker/foreignInstitution/leadInstitution/opinionInstitution）
+# 机构 ID 搜索（--category: domesticBroker/foreignInstitution/leadInstitution/opinionInstitution/foreignOpinionInstitution）
 gangtise reference institution-search --keyword 招商证券 --category domesticBroker --top 3 --format json
+# 公众号 ID 搜索（按名称/机构/分类；拿 accountId 供 insight official-account list --account-id）
+gangtise reference official-account-search --keyword 中信证券 --top 3 --format json
 
 # 常量查询：先看分类，再按分类导出全量常量值
 gangtise reference constant-category --format json

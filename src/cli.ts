@@ -3,7 +3,7 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
@@ -199,6 +199,8 @@ const announcementUs = new Command("announcement-us")
 const foreignOpinion = new Command("foreign-opinion")
 const independentOpinion = new Command("independent-opinion")
 const officialAccount = new Command("official-account")
+const qa = new Command("qa")
+const reportImage = new Command("report-image")
 
 addTimeFilters(opinion.command("list").option("--rank-type <number>", "Rank type", "1").option("--research-area <id>", "Research area ID", collectList, []).option("--chief <id>", "Chief ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--concept <id>", "Concept ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--source <source>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime,
@@ -359,6 +361,21 @@ addTimeFilters(officialAccount.command("list").option("--search-type <number>", 
   }), { endpointKey: "insight.official-account.list", idField: "articleId" }))
 addDownloadCommand(officialAccount, { endpointKey: "insight.official-account.download", idOption: "--article-id", idField: "articleId", fallbackPrefix: "official-account", fileType: { description: "File type: 1=txt(default) 2=HTML", default: "1" }, titleListEndpoint: "insight.official-account.list" })
 
+// QA request keys are BARE (source/questionCategory/answerImportant), not the *List
+// convention — the body below mirrors the spec exactly. Datetimes pass through as strings.
+qa.command("list").requiredOption("--security-code <code>", "Security code, e.g. 601012.SH").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all (max page 500)").option("--start-time <datetime>", "Start time (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)").option("--end-time <datetime>", "End time (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)").option("--source <type>", "Source: conference/interactive/survey (repeat)", collectList, []).option("--question-category <name>", "Question category (repeat): productAndBusiness/capacityAndProjects/ordersAndCustomers/financialData/materialEvents/capitalOperations/shareholdersAndDividends/corporateGovernance/marketAndValuation/macroAndIndustry/risksAndOthers", collectList, []).option("--answer-important <flag>", "Answer involves key info: 1=yes 0=no (repeat; omit for all)", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("insight.qa.list", {
+    from: parseFrom(options.from), size: parseSize(options.size),
+    securityCode: options.securityCode, startTime: options.startTime, endTime: options.endTime,
+    source: maybeArray(options.source), questionCategory: maybeArray(options.questionCategory),
+    answerImportant: options.answerImportant.length ? options.answerImportant : undefined,
+  })))
+
+reportImage.command("list").requiredOption("--keyword <text>", "Search keyword, e.g. 'AI' '新能源汽车'").option("--top <number>", "Max results (default: 10, max: 20)", "10").option("--source-id <id>", "Report source ID, to filter to one report (from a report list or knowledge base)").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss; yyyy-MM-dd auto-completed)").option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss; yyyy-MM-dd auto-completed)").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("insight.report-image.list", {
+    keyword: options.keyword, top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 20 }),
+    sourceId: options.sourceId, startTime: options.startTime, endTime: options.endTime,
+  })))
+addDownloadCommand(reportImage, { endpointKey: "insight.report-image.download", idOption: "--chunk-id", idField: "chunkId", fallbackPrefix: "report-image" })
+
 insight.addCommand(opinion)
 insight.addCommand(summary)
 insight.addCommand(roadshow)
@@ -373,6 +390,8 @@ insight.addCommand(announcementUs)
 insight.addCommand(foreignOpinion)
 insight.addCommand(independentOpinion)
 insight.addCommand(officialAccount)
+insight.addCommand(qa)
+insight.addCommand(reportImage)
 program.addCommand(insight)
 
 const quote = new Command("quote").description("Quote APIs")
@@ -489,9 +508,9 @@ fundamental.command("earning-forecast").requiredOption("--security-code <code>")
 program.addCommand(fundamental)
 
 const ai = new Command("ai").description("AI APIs")
-ai.command("knowledge-batch").option("--query <text>", "Query", collectList, []).option("--top <number>", "Top", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <ms>").option("--end-time <ms>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => {
+ai.command("knowledge-batch").option("--query <text>", "Query", collectList, []).option("--top <number>", "Max results (default: 10, max: 20)", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <ms>").option("--end-time <ms>").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => {
   if (!options.query.length) throw new ValidationError("--query is required: pass at least one --query")
-  return emit(options, (client) => client.call("ai.knowledge-batch", { queries: options.query, top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }), resourceTypes: options.resourceType.length ? options.resourceType : undefined, knowledgeNames: maybeArray(options.knowledgeName), startTime: parseOptionalNumberOption(options.startTime, "--start-time", { integer: true, min: 0 }), endTime: parseOptionalNumberOption(options.endTime, "--end-time", { integer: true, min: 0 }) }))
+  return emit(options, (client) => client.call("ai.knowledge-batch", { queries: options.query, top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 20 }), resourceTypes: options.resourceType.length ? options.resourceType : undefined, knowledgeNames: maybeArray(options.knowledgeName), startTime: parseOptionalNumberOption(options.startTime, "--start-time", { integer: true, min: 0 }), endTime: parseOptionalNumberOption(options.endTime, "--end-time", { integer: true, min: 0 }) }))
 })
 ai.command("knowledge-resource-download").requiredOption("--resource-type <number>").requiredOption("--source-id <id>").option("--output <path>").action((options) => withClient(async (client) => {
   await runDownload(client, "ai.knowledge-resource.download", { resourceType: parseNumberOption(options.resourceType, "--resource-type", { integer: true, min: 0 }), sourceId: options.sourceId }, {
@@ -593,28 +612,34 @@ ai.command("stock-summary").description("Stock highlights: refined research summ
 const reference = new Command("reference").description("Reference data APIs")
 reference.command("securities-search").requiredOption("--keyword <text>", "Search keyword (name/code/pinyin/English)").option("--category <type>", "Category: stock/dr/index/fund", collectList, []).option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.securities-search", {
     keyword: options.keyword,
-    category: options.category.length ? options.category : undefined,
-    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+    category: parseChoiceList(options.category, "--category", ["stock", "dr", "index", "fund"]),
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 10 }),
   })))
 reference.command("constant-category").description("List constant categories and which API params accept them").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.constant-category")))
 reference.command("constant-list").requiredOption("--category <code>", "Category code from 'reference constant-category' (e.g. citicIndustry/swIndustry/regionCategory)").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.constant-list", { category: options.category })))
 reference.command("concept-search").requiredOption("--keyword <text>", "Search keyword (name/pinyin/group name)").option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.concept-search", {
     keyword: options.keyword,
-    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 10 }),
   })))
 reference.command("sector-search").option("--keyword <text>", "Search keyword (name/pinyin)").option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.sector-search", {
     keyword: options.keyword,
-    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 10 }),
   })))
 reference.command("sector-constituents").requiredOption("--sector-id <id>", "Sector ID from 'reference sector-search'").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.sector-constituents", { sectorId: options.sectorId })))
 reference.command("chiefs-search").requiredOption("--keyword <text>", "Search keyword (chief name / institution / team)").option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.chiefs-search", {
     keyword: options.keyword,
-    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 10 }),
   })))
 reference.command("institution-search").requiredOption("--keyword <text>", "Search keyword (institution name / abbreviation)").option("--category <name>", "Category: domesticBroker/foreignInstitution/leadInstitution/opinionInstitution/foreignOpinionInstitution (repeat); omit for all", collectList, []).option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.institution-search", {
     keyword: options.keyword,
-    categoryList: maybeArray(options.category),
-    top: parseNumberOption(options.top, "--top", { integer: true, min: 1 }),
+    categoryList: parseChoiceList(options.category, "--category", ["domesticBroker", "foreignInstitution", "leadInstitution", "opinionInstitution", "foreignOpinionInstitution"]),
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 10 }),
+  })))
+// Note: request key is BARE `category` here (spec), unlike institution-search's `categoryList`.
+reference.command("official-account-search").requiredOption("--keyword <text>", "Search keyword (account name / institution / keyword, e.g. 东吴证券)").option("--category <name>", "Category: listedCompany/broker/government/media (repeat); omit for all incl. uncategorized", collectList, []).option("--top <number>", "Max results (default: 10, max: 10)", "10").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("reference.official-account-search", {
+    keyword: options.keyword,
+    category: parseChoiceList(options.category, "--category", ["listedCompany", "broker", "government", "media"]),
+    top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 10 }),
   })))
 program.addCommand(reference)
 

@@ -37,9 +37,13 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight independent-opinion download | 文件路径（stdout） | — |
 | insight official-account list | `{list, total}` | `list[].articleId` / `list[].accountName` / `list[].title` / `list[].publishTime` / `list[].articleCategory` / `list[].summary` / `list[].industryList[].industryName` / `list[].conceptList[].conceptName` / `list[].securityList[].securityCode` |
 | insight official-account download | 文件路径（stdout） | — |
+| insight qa list | `{list, total}` | `list[].source`（conference/interactive/survey）/ `list[].publishTime` / `list[].question` / `list[].answer` / `list[].member` / `list[].securityCode` / `list[].questionCategory[]` / `list[].answerImportant`（1/0） |
+| insight report-image list | `[{...}]`（扁平数组，无 `total`） | `[].chunkId`（下载用 `--chunk-id`）/ `[].title` / `[].sourceId` / `[].broker` / `[].category` / `[].page` / `[].totalPages` / `[].imageCaption[]` / `[].imageFootnote[]` / `[].pageContent`（该页 OCR/描述） |
+| insight report-image download | 文件路径（stdout，JPEG） | — |
 | reference securities-search | `{returnedCount, list}` | `list[].gtsCode` / `list[].gtsName` / `list[].category` / `list[].matchScore` / `list[].matchType` |
 | reference chiefs-search | `{returnedCount, list}` | `list[].chiefId` / `list[].chiefName` / `list[].institution` / `list[].team` / `list[].matchScore` |
 | reference institution-search | `{returnedCount, list}` | `list[].institutionId` / `list[].institutionName` / `list[].category` / `list[].usageScopes[{apiName, paramName}]` / `list[].matchScore` |
+| reference official-account-search | `{returnedCount, list}` | `list[].accountId`（喂 `insight official-account list --account-id`）/ `list[].accountName` / `list[].category`（四类或 `null`）/ `list[].matchScore` |
 | reference constant-category | `{total, list}` | `list[].category` / `list[].categoryName` / `list[].structureType`（flat/tree） / `list[].maxLevel` / `list[].usageScopes[].apiName` / `.paramName` |
 | reference constant-list | `{category, structureType, maxLevel, constantCount, list}`（CLI 把 `constants` 规范化为 `list`） | `list[].constantId` / `list[].constantName` / `list[].level`；树形分类父节点含 `list[].children[]`（递归同构） |
 | reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
