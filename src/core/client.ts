@@ -336,12 +336,27 @@ export class GangtiseClient {
       total,
       list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
     }
+    // Unified completeness backstop. Whatever the cause — a failed/shape-broken page,
+    // a short later page (server page cap < maxPageSize), the MAX_PAGES cap, or `total`
+    // drifting mid-fetch — the result is partial. A short row count or a total drift each
+    // force it; so does any failedPages entry on its own — an over-returning sibling page
+    // can lift the row count back to target and mask the hole (short would read false), yet
+    // the failedPages branch below still writes "results are partial" to stderr, so the flag
+    // must agree. printData maps partial → exit 3 so a script can't read a truncated export
+    // as complete. The cap and drift branches above already warned on stderr; failedPages
+    // warns below.
+    const short = collected.length < target
+    if (short || totalDrift || failedPages.length > 0) out.partial = true
     if (failedPages.length > 0) {
-      out.partial = true
       out.failedPages = failedPages.map((p) => ({ from: p.from, size: p.size }))
       const detail = firstError instanceof Error ? `: ${firstError.message}` : ""
       const skippedHint = aborted ? " A page hit a non-retryable error (e.g. rate limit); remaining pages were skipped." : ""
       process.stderr.write(`[gangtise] warning: ${failedPages.length}/${pageRequests.length} pages not fetched${detail}; results are partial — got ${collected.length}/${total} rows (see failedPages).${skippedHint}\n`)
+    } else if (short && !truncatedByPageCap && !totalDrift) {
+      // A short later page with no failure, cap, or drift to explain it: the server
+      // simply delivered fewer rows than `total` promised. Warn so an interactive run
+      // sees why the result is partial (the other causes each warn on their own path).
+      process.stderr.write(`[gangtise] warning: server returned ${collected.length} of ${total} rows (a later page came back short); results may be incomplete\n`)
     }
     return out
   }

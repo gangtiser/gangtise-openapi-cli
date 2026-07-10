@@ -318,6 +318,106 @@ describe("GangtiseClient pagination", () => {
     expect(result.list.length).toBeGreaterThanOrEqual(50)
     expect(result.list[0]).toEqual({ id: 1 })
   })
+
+  it("flags partial when a later page comes back short (server page cap below maxPageSize)", async () => {
+    // maxPageSize is 50. The first page fills (50 rows, total=100), so one more page
+    // fans out — but it returns only 30 rows with no error. Collected 80 < 100: a short
+    // later page is a silent shortfall today; it must be flagged partial, not complete.
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const from = (JSON.parse(opts?.body ?? "{}") as { from?: number }).from ?? 0
+        const count = from === 0 ? 50 : 30
+        const list = Array.from({ length: count }, (_, i) => ({ id: from + 1 + i }))
+        return Promise.resolve(jsonResponse({ total: 100, list }))
+      })
+
+      const client = createClient()
+      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
+
+      expect(requestMock).toHaveBeenCalledTimes(2)
+      expect(result.list).toHaveLength(80)
+      expect(result.partial).toBe(true)
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("incomplete"))
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("flags partial when the MAX_PAGES safety cap truncates a huge fetch", async () => {
+    // maxPageSize 50 × the 1000-page cap = 50000 rows max. total=50001 forces the cap:
+    // the fetch stops one row short, so the result must be partial, not a silent subset.
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      paginatedMock({ total: 50001, itemFor: (id) => ({ id }) })
+      const client = createClient()
+      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
+
+      expect(requestMock).toHaveBeenCalledTimes(1000)
+      expect(result.list).toHaveLength(50000)
+      expect(result.partial).toBe(true)
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("safety cap"))
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("flags partial when total drifts across pages even if the row count meets target", async () => {
+    // First page reports total=100 (target 100); a later page reports total=90 — data
+    // shifted mid-fetch, so rows may be duplicated/missing. Even though 100 rows come
+    // back, the drift alone makes completeness unverifiable → partial.
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const from = (JSON.parse(opts?.body ?? "{}") as { from?: number }).from ?? 0
+        const total = from === 0 ? 100 : 90
+        const list = Array.from({ length: 50 }, (_, i) => ({ id: from + 1 + i }))
+        return Promise.resolve(jsonResponse({ total, list }))
+      })
+
+      const client = createClient()
+      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
+
+      expect(result.list).toHaveLength(100)
+      expect(result.partial).toBe(true)
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("changed across pages"))
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("flags partial when failedPages is non-empty even if the row count still meets target", async () => {
+    // The case row-count and drift both miss: one page fails (shape-broken here, so the
+    // fan-out is NOT aborted) while another page ignores `size` and over-returns, so
+    // collected reaches target and `total` never drifts. short and totalDrift both look
+    // clean — only failedPages betrays the hole. The code writes "results are partial" to
+    // stderr, so the machine-readable partial flag (→ exit 3) MUST agree, or a script reads
+    // a holed export as complete.
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const from = (JSON.parse(opts?.body ?? "{}") as { from?: number }).from ?? 0
+        // maxPageSize 50, total 150 → first page (from=0) + fan-out at from=50 and from=100.
+        if (from === 0) return Promise.resolve(jsonResponse({ total: 150, list: Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })) }))
+        // from=50: shape-broken → recorded in failedPages, but no abort of the fan-out.
+        if (from === 50) return Promise.resolve(jsonResponse({ unexpected: true }))
+        // from=100: over-returns 100 rows (ignores size=50); total unchanged → no drift.
+        return Promise.resolve(jsonResponse({ total: 150, list: Array.from({ length: 100 }, (_, i) => ({ id: 101 + i })) }))
+      })
+
+      const client = createClient()
+      const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean; failedPages?: Array<{ from: number; size: number }> }
+
+      // Over-return pushes the row count up to target and total never drifts...
+      expect(result.list).toHaveLength(150)
+      // ...so only failedPages exposes the gap — and it must force both the flag and the warning.
+      expect(result.failedPages?.length).toBeGreaterThan(0)
+      expect(result.partial).toBe(true)
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("results are partial"))
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
 })
 
 describe("GangtiseClient envelope unwrapping", () => {

@@ -409,7 +409,7 @@
         <div class="diagram-title">gangtise-openapi-cli</div>
         <div class="diagram-subtitle">Technical Architecture / Layered Data Flow</div>
       </div>
-      <div class="diagram-version">v0.20.0 &middot; Node &ge;20 &middot; ESM</div>
+      <div class="diagram-version">Node &ge;20.18.1 &middot; ESM</div>
     </div>
 
     <!-- Flow Legend -->
@@ -465,7 +465,7 @@
       <div class="layer-grid cols-2">
         <div class="comp">
           <div class="comp-label">Commander.js</div>
-          <div class="comp-value">src/cli.ts &mdash; ~652 lines</div>
+          <div class="comp-value">src/cli.ts</div>
           <div class="comp-sub">All commands, options, action handlers</div>
         </div>
         <div class="comp">
@@ -509,7 +509,7 @@
         <div class="comp">
           <div class="comp-label">Endpoint Registry</div>
           <div class="comp-value">endpoints.ts</div>
-          <div class="comp-sub">86 endpoints &middot; O(1) lookup</div>
+          <div class="comp-sub">O(1) endpoint lookup</div>
         </div>
         <div class="comp">
           <div class="comp-label">Error Hierarchy</div>
@@ -739,14 +739,14 @@
           <div class="section-label" style="margin-top:8px;">Runtime</div>
           <div class="dep-row">
             <div class="dep-item"><strong>commander</strong> ^14.0.0</div>
-            <div class="dep-item"><strong>undici</strong> ^7.16.0</div>
+            <div class="dep-item"><strong>undici</strong> ^7.28.0</div>
           </div>
         </div>
         <div>
           <div class="section-label">Dev</div>
           <div class="dep-row">
             <div class="dep-item"><strong>typescript</strong> ^5.9.2</div>
-            <div class="dep-item"><strong>vitest</strong> ^3.2.4</div>
+            <div class="dep-item"><strong>vitest</strong> ^3.2.6</div>
             <div class="dep-item"><strong>tsx</strong> ^4.20.5</div>
           </div>
         </div>

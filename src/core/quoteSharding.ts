@@ -155,11 +155,29 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // every shard on the first rejection.
   const failedShards: Array<{ startDate: string; endDate: string }> = []
   let firstError: unknown = null
+  let aborted = false
   const results = await runWithConcurrency(shards, config.concurrency ?? PAGE_CONCURRENCY, async (shard) => {
+    // A prior shard hit a hard error (rate limit, no-perm, retries exhausted). Stop
+    // dispatching the rest rather than burning quota into the same failure; record them
+    // as failed so the merged result is flagged partial. Mirrors requestPaginated.
+    if (aborted) {
+      failedShards.push(shard)
+      return null
+    }
     try {
-      return await client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
+      const res = await client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
+      // A shard that resolves but carries no `list` array is shape-broken (an error
+      // object, a truncated envelope) — its rows are missing. Treat it exactly like a
+      // thrown shard so the result is marked partial, not silently short. Unlike a hard
+      // error this doesn't abort the fan-out: one malformed shard isn't systemic.
+      if (!(res && typeof res === "object" && Array.isArray((res as Record<string, unknown>).list))) {
+        failedShards.push(shard)
+        return null
+      }
+      return res
     } catch (error) {
       if (!firstError) firstError = error
+      aborted = true
       failedShards.push(shard)
       return null
     }

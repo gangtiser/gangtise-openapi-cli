@@ -23,6 +23,7 @@
     "README.md"
   ],
   "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
@@ -30,11 +31,11 @@
     "prepare": "node scripts/prepare.cjs && npm run build"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.18.1"
   },
   "dependencies": {
     "commander": "^14.0.0",
-    "undici": "^7.16.0"
+    "undici": "^7.28.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

@@ -238,6 +238,52 @@ describe("callKlineWithSharding", () => {
     }, { shardDays: 2 })).rejects.toThrow("all down")
   })
 
+  it("treats a shard that resolves without a list as failed, not a silent empty shard", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    // Middle shard returns a shape-broken response (an error object, no `list`) instead
+    // of throwing. Its rows are missing, so it must be flagged failed/partial — not
+    // merged as if it were a valid shard that happened to have no rows.
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-03") return { oops: true }
+      return { fieldList: ["securityCode", "tradeDate"], list: [[`SH-${body.startDate}`, body.startDate]] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-06",
+    }, { shardDays: 2 }) as { list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
+
+    expect(call).toHaveBeenCalledTimes(3) // a shape-broken shard does NOT abort the rest
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-04" }])
+    expect(result.list).toHaveLength(2) // 2 surviving shards × 1 row each
+    errSpy.mockRestore()
+  })
+
+  it("stops dispatching remaining shards after a hard error, keeping earlier survivors", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    // Serial (concurrency 1): shard 1 succeeds, shard 2 hits a rate limit and throws,
+    // shard 3 must be skipped — not dispatched into the same rate limit — while shard 1's
+    // rows survive.
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-03") throw new Error("903301 rate limited")
+      return { fieldList: ["securityCode"], list: [[`SH-${body.startDate}`]] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-06",
+    }, { shardDays: 2, concurrency: 1 }) as { list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
+
+    expect(call).toHaveBeenCalledTimes(2) // the 04-05 shard is never dispatched
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toHaveLength(2) // the thrown shard + the skipped one
+    expect(result.list).toHaveLength(1) // only the first shard survived
+    errSpy.mockRestore()
+  })
+
   it("skips weekend shards for per-day (fund-flow) sharding", async () => {
     // 2026-07-03 Fri, 07-04 Sat, 07-05 Sun, 07-06 Mon → only Fri + Mon are fetched
     // (weekends are always empty: A/HK/US markets are closed).

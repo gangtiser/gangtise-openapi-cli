@@ -1,6 +1,6 @@
 # gangtise-openapi-cli — Technical Architecture
 
-**v0.21.0 · Node ≥20 · ESM**
+**Node ≥20.18.1 · ESM**
 
 ---
 
@@ -27,7 +27,7 @@
 
 | Commander.js | Argument Parsers |
 |:--|:--|
-| `src/cli.ts` — 652 lines | `src/core/args.ts` |
+| `src/cli.ts` | `src/core/args.ts` |
 | All commands, options, action handlers | splitCsv / collectList / collectKeyValue / parseTimestamp13 / parseIndicatorParams |
 
 ↓
@@ -46,7 +46,7 @@
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| 86 endpoints · O(1) lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
+| O(1) endpoint lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
 
 ### Request & Content Helpers
 
@@ -69,7 +69,7 @@
 1. `client.call(key, params)`
 2. `ENDPOINT_REGISTRY` lookup
 3. `kind="json"` + pagination
-4. `requestPaginated()` total-driven fan-out — or `requestSequentialPaginated()` for no-total endpoints (wechat chatroom: page until a short page) · MAX_PAGES=1000 safety limit
+4. `requestPaginated()` total-driven fan-out · MAX_PAGES=1000 safety limit
 5. HTTP 5xx check → `unwrapEnvelope()` → `.data`
 6. `normalizeRows()` flatten fieldList/list + chatRoomList + constants · preserves total/meta
 7. `renderOutput()` → stdout · `Total: N, showing: M` → stderr
@@ -165,7 +165,7 @@ Concurrent requests coalesce into a single in-flight refresh promise (no duplica
 
 **Runtime:**
 - `commander` ^14.0.0
-- `undici` ^7.16.0
+- `undici` ^7.28.0
 
 **Dev:**
 - `typescript` ^5.9.2
