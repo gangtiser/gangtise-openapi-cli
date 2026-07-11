@@ -210,6 +210,26 @@ describe("cli smoke", () => {
     }
   }, 30_000)
 
+  it("every registered insight/reference endpoint has its command in the group --help (derived from ENDPOINTS, not hand-listed)", async () => {
+    // Hardcoded smoke lists don't fail when a new command ships without being
+    // added to them — qa/report-image slipped through exactly this way in
+    // v0.25.0. Deriving the expectations from the endpoint registry makes a
+    // missing CLI wiring (or a renamed command) fail here instead.
+    const { ENDPOINTS } = await import("../../src/core/endpoints.js")
+    const groups: Record<string, Set<string>> = { insight: new Set(), reference: new Set() }
+    for (const key of Object.keys(ENDPOINTS)) {
+      const [group, name] = key.split(".")
+      if (group in groups && name) groups[group].add(name)
+    }
+    for (const [group, names] of Object.entries(groups)) {
+      const { code, out } = await cli([group, "--help"])
+      expect(code).toBe(0)
+      for (const name of names) {
+        expect(out, `${group} --help should list "${name}" (from endpoint registry)`).toContain(name)
+      }
+    }
+  }, 60_000)
+
   it("lists the v0.25.0 subcommands (qa / report-image / official-account-search)", async () => {
     const insight = await cli(["insight", "--help"])
     expect(insight.code).toBe(0)

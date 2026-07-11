@@ -68,6 +68,31 @@ describe("streamOutputToFile error handling", () => {
     await expect(fs.access(target + ".part")).rejects.toThrow()
   })
 
+  it("caps a runaway cell's display width so one huge field can't pad the whole column", () => {
+    // table is the default format: without a cap, a single 50KB cell forces every
+    // other row in that column to be padded to ~50K spaces (rows × width blowup).
+    const rows = [{ id: 1, note: "x".repeat(50_000) }, { id: 2, note: "short" }]
+    const rendered = renderOutput(rows, "table")
+    const lines = rendered.split("\n")
+    expect(Math.max(...lines.map((line) => line.length))).toBeLessThan(200)
+    expect(rendered).toContain("…")
+  })
+
+  it("escapes backslashes before pipes so a literal \\| cell keeps the markdown column count", () => {
+    // Escaping only "|" turns a literal `\|` into `\\|`: GFM reads that as an
+    // escaped backslash followed by a BARE pipe — the row grows an extra column.
+    const rendered = renderOutput([{ a: "x\\|y", b: "z" }], "markdown")
+    const dataLine = rendered.split("\n")[2]
+    expect(dataLine).toContain("x\\\\\\|y")
+  })
+
+  it("strips C1 control characters (single-byte CSI) from table cells", () => {
+    // U+009B is a one-byte CSI: 8-bit-control terminals treat it exactly like
+    // ESC[ — the C0 filter alone leaves this injection route open.
+    const rendered = renderOutput([{ v: "a31mred" }], "table")
+    expect(rendered).not.toContain("")
+  })
+
   it("streams ≥1000 jsonl rows to disk and every line parses back", async () => {
     const target = path.join(dir, "big.jsonl")
     const rows = Array.from({ length: 1200 }, (_, i) => ({ id: i, note: i === 7 ? "换行\n引号\"" : "ok" }))

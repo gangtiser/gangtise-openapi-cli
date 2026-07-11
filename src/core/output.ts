@@ -14,10 +14,11 @@ export function parseOutputFormat(value?: string): OutputFormat {
 }
 
 /** Cell text for terminal-facing formats (table/markdown): newlines collapsed for
- * alignment, remaining C0/DEL control chars stripped so server data can't inject
- * terminal escape sequences (ESC[31m etc.) into the user's terminal. */
+ * alignment, remaining C0/DEL/C1 control chars stripped so server data can't inject
+ * terminal escape sequences into the user's terminal (U+009B is a one-byte CSI
+ * that 8-bit-control terminals treat exactly like ESC[). */
 function sanitizeCell(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")
+  return value.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001f\u007f\u0080-\u009f]/g, "")
 }
 
 /** Terminal display width: CJK/fullwidth chars and emoji occupy 2 columns — padEnd
@@ -73,6 +74,24 @@ function toRows(value: unknown): Array<Record<string, unknown>> {
   return [{ value }]
 }
 
+// One huge cell (a 50KB brief/chat message) would otherwise force every row of
+// that column to be padded to the same width — rows × width of pure spaces.
+const MAX_CELL_DISPLAY_WIDTH = 120
+
+/** Truncate a cell to the display-width cap, ellipsis included in the budget. */
+function clampCell(value: string): string {
+  if (displayWidth(value) <= MAX_CELL_DISPLAY_WIDTH) return value
+  let out = ""
+  let width = 0
+  for (const ch of value) {
+    const w = displayWidth(ch)
+    if (width + w > MAX_CELL_DISPLAY_WIDTH - 1) break
+    out += ch
+    width += w
+  }
+  return out + "…"
+}
+
 function renderTable(rows: Array<Record<string, unknown>>): string {
   if (rows.length === 0) {
     return "(empty)"
@@ -85,8 +104,8 @@ function renderTable(rows: Array<Record<string, unknown>>): string {
   // spreading a per-row array overflows the call stack on large results (table is
   // the default format, e.g. `quote day-kline --security all`). Widths and padding
   // use displayWidth so CJK cells stay aligned.
-  const headerCells = columns.map(sanitizeCell)
-  const matrix = rows.map((row) => columns.map((column) => sanitizeCell(formatScalar(row[column]))))
+  const headerCells = columns.map((column) => clampCell(sanitizeCell(column)))
+  const matrix = rows.map((row) => columns.map((column) => clampCell(sanitizeCell(formatScalar(row[column])))))
   const widths = columns.map((_, c) => matrix.reduce((max, cells) => Math.max(max, displayWidth(cells[c])), displayWidth(headerCells[c])))
 
   const renderLine = (values: string[]) => values.map((value, index) => value + " ".repeat(Math.max(0, widths[index] - displayWidth(value)))).join("  ")
@@ -106,9 +125,12 @@ function renderMarkdown(rows: Array<Record<string, unknown>>): string {
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
   // Column names come from server data (e.g. EDE indicator display names) — escape
   // them like cell values or a name containing | / , breaks the whole table.
-  const header = `| ${columns.map((column) => sanitizeCell(column).replaceAll("|", "\\|")).join(" | ")} |`
+  // Backslash must go first: escaping only "|" turns a literal `\|` into `\\|`,
+  // which GFM reads as an escaped backslash + BARE pipe → an extra column.
+  const mdEscape = (value: string) => value.replaceAll("\\", "\\\\").replaceAll("|", "\\|")
+  const header = `| ${columns.map((column) => mdEscape(sanitizeCell(column))).join(" | ")} |`
   const divider = `| ${columns.map(() => "---").join(" | ")} |`
-  const body = rows.map((row) => `| ${columns.map((column) => sanitizeCell(formatScalar(row[column])).replaceAll("|", "\\|")).join(" | ")} |`)
+  const body = rows.map((row) => `| ${columns.map((column) => mdEscape(sanitizeCell(formatScalar(row[column])))).join(" | ")} |`)
   return [header, divider, ...body].join("\n")
 }
 

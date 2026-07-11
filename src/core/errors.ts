@@ -42,8 +42,11 @@ export class ApiError extends CliError {
     /** Server-specified Retry-After (ms), set on 429 responses so the transport
      * backoff can honor it instead of the default exponential schedule. */
     readonly retryAfterMs?: number,
+    /** Context-specific hint that beats the generic per-code table — e.g. EDE's
+     * 999999 means "no data", not the table's "系统错误，请稍后重试". */
+    hintOverride?: string,
   ) {
     super(message)
-    this.hint = code ? ERROR_HINTS[code] : undefined
+    this.hint = hintOverride ?? (code ? ERROR_HINTS[code] : undefined)
   }
 }

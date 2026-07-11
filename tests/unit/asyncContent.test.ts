@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
 import { checkAsyncContent, pollAsyncContent } from "../../src/core/asyncContent.js"
 import { ApiError } from "../../src/core/errors.js"
 
 describe("asyncContent", () => {
-  let outSpy: ReturnType<typeof vi.spyOn>
-  let errSpy: ReturnType<typeof vi.spyOn>
+  let outSpy: MockInstance<typeof process.stdout.write>
+  let errSpy: MockInstance<typeof process.stderr.write>
   let savedExitCode: typeof process.exitCode
 
   beforeEach(() => {
@@ -41,10 +41,30 @@ describe("asyncContent", () => {
       expect(stderr()).toContain("terminal")
     })
 
-    it("rethrows a non-async error instead of polling", async () => {
-      const client = { call: vi.fn().mockRejectedValue(new ApiError("boom", "999999", 500)) }
-      await expect(pollAsyncContent(client, "ep", "d1", "json")).rejects.toMatchObject({ code: "999999" })
+    it("rethrows a non-transient error instead of polling", async () => {
+      // 999995 积分不足 is terminal for this request — burning the remaining
+      // 5-minute poll budget on it would be pointless.
+      const client = { call: vi.fn().mockRejectedValue(new ApiError("no credits", "999995", 200)) }
+      await expect(pollAsyncContent(client, "ep", "d1", "json")).rejects.toMatchObject({ code: "999995" })
       expect(client.call).toHaveBeenCalledTimes(1)
+    })
+
+    it("tolerates a transient 5xx blip mid-poll instead of abandoning the whole wait", async () => {
+      // AI generation windows are exactly when the server is busiest: a single
+      // 5xx (after the client's own retries) used to void minutes of waiting even
+      // though the dataId was still valid. Transient errors consume an attempt
+      // and polling continues.
+      vi.useFakeTimers()
+      const client = {
+        call: vi.fn()
+          .mockRejectedValueOnce(new ApiError("系统内部错误", "999999", 500))
+          .mockResolvedValue({ content: "the report" }),
+      }
+      const p = pollAsyncContent(client, "ep", "d1", "json")
+      await vi.runAllTimersAsync()
+      expect(await p).toBe("ok")
+      expect(client.call).toHaveBeenCalledTimes(2)
+      expect(stderr()).toContain("transient")
     })
 
     it("retries on 410110 (generating) and succeeds on a later attempt", async () => {

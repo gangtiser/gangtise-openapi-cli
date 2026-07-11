@@ -221,7 +221,14 @@ export class GangtiseClient {
       size: firstPageSize,
     })
 
-    if (!this.isPaginatedListResponse(firstPage)) return firstPage
+    if (!this.isPaginatedListResponse(firstPage)) {
+      // Shape drift (e.g. total arriving as a string) silently degrades fetch-all
+      // to a single page with no partial marker — make it visible on verbose.
+      if (isVerbose()) {
+        process.stderr.write(`[gangtise] warning: ${endpoint.key} is marked paginated but the first page has an unexpected shape (no numeric total + list); returning it as-is\n`)
+      }
+      return firstPage
+    }
 
     const total = firstPage.total
     const collected: unknown[] = [...firstPage.list]
@@ -452,12 +459,21 @@ export class GangtiseClient {
         throw error
       }
     }, {
-      policy: endpoint.retry === "no-replay" ? "no-replay" : "default",
+      policy: endpoint.retry ?? "default",
       onRetry: (attempt, error, delay) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)
         process.stderr.write(`[gangtise] retry ${attempt} after ${delay.toFixed(0)}ms: ${msg.slice(0, 120)}\n`)
       },
+    }).catch((error: unknown) => {
+      // EDE uses 999999 for "no data for this query" (probed 2026-07-11) — the
+      // generic "系统错误，请稍后重试" hint would send the user retrying a query
+      // that will never have data. Swap in a context-specific hint.
+      if (endpoint.retry === 'no-999999' && error instanceof ApiError && error.code === '999999') {
+        throw new ApiError(error.message, error.code, error.statusCode, error.details, error.retryAfterMs,
+          'EDE 的 999999 多为查询无数据（节假日 / 未来日期 / 未覆盖标的）——先检查查询条件，确认应有数据再重试。')
+      }
+      throw error
     })
   }
 
@@ -603,6 +619,9 @@ export class GangtiseClient {
         filename,
       }
     }, {
+      // Download endpoints carry per-篇 billing too (summary/foreign-report/
+      // my-conference at 50/篇) — honor the endpoint's retry policy here as well.
+      policy: endpoint.retry ?? "default",
       onRetry: (attempt, error, delay) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)

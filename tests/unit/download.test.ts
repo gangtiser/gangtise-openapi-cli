@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { Readable } from "node:stream"
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
 import { extFromContentType, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
 import { DownloadError } from "../../src/core/errors.js"
@@ -85,7 +85,7 @@ describe("resolveTitle", () => {
 
 describe("saveDownloadResult", () => {
   const dir = path.join(os.tmpdir(), `gangtise-download-test-${process.pid}`)
-  let outSpy: ReturnType<typeof vi.spyOn>
+  let outSpy: MockInstance<typeof process.stdout.write>
 
   beforeEach(() => {
     outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
@@ -246,6 +246,23 @@ describe("saveDownloadResult", () => {
     await expect(fs.access(noLocation)).rejects.toThrow()
   })
 
+  it("passes a total-deadline AbortSignal to signed-URL requests (idle timeouts alone allow endless slow-drip)", async () => {
+    requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from([1])) })
+    const out = path.join(dir, "deadline.pdf")
+    await saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)
+    const opts = requestMock.mock.calls[0][1] as { signal?: unknown }
+    expect(opts.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it("cleans up the .part file when the final rename fails", async () => {
+    requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from([1])) })
+    // Target is an existing DIRECTORY → rename must fail; the .part must not linger.
+    const out = path.join(dir, "as-dir.pdf")
+    await fs.mkdir(out, { recursive: true })
+    await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toThrow()
+    await expect(fs.access(out + ".part")).rejects.toThrow()
+  })
+
   it("redacts the signed-URL query string from verbose logs", async () => {
     const { setVerbose } = await import("../../src/core/transport.js")
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
@@ -277,6 +294,25 @@ describe("saveDownloadResult", () => {
     await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toThrow()
     expect(await fs.readFile(out, "utf8")).toBe("OLD") // re-download failure must not destroy the old file
     await expect(fs.access(out + ".part")).rejects.toThrow() // no .part litter
+  })
+
+  it("truncates long filenames by code point so an emoji never splits into a lone surrogate", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      // "a" + 120 emoji (4 UTF-8 bytes each) lands the 200-byte cut mid-pair when
+      // trimming by UTF-16 code unit — the written name would end in U+FFFD.
+      const longEmojiName = "a" + "📈".repeat(120) + ".pdf"
+      await saveDownloadResult({ data: new Uint8Array([1]), contentType: "application/pdf", filename: longEmojiName }, "fallback")
+      const written = (await fs.readdir(dir))[0]
+      // A lone surrogate at the cut point reaches the filesystem as U+FFFD (�).
+      expect(written).not.toContain("�")
+      expect(written.endsWith(".pdf")).toBe(true)
+      expect(Buffer.byteLength(written, "utf8")).toBeLessThanOrEqual(210)
+    } finally {
+      process.chdir(cwd)
+    }
   })
 
   it("uniquePath throws instead of overwriting the original after 99 suffix collisions", async () => {

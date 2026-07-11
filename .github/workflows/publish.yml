@@ -28,8 +28,14 @@ jobs:
           package-manager-cache: false
 
       - name: Verify tag matches package version
-        if: startsWith(github.ref, 'refs/tags/')
+        # Unconditional: a workflow_dispatch from a branch ref must not publish
+        # whatever version happens to be in package.json — dispatch is only a
+        # re-run escape hatch and must target a v* tag ref.
         run: |
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "publish requires a v* tag ref (got $GITHUB_REF); workflow_dispatch must target a tag"
+            exit 1
+          fi
           node -e "const pkg = require('./package.json'); const expected = 'v' + pkg.version; if (process.env.GITHUB_REF_NAME !== expected) { console.error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package version ' + expected); process.exit(1) }"
 
       - run: npm ci

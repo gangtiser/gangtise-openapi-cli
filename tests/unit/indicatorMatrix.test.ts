@@ -25,6 +25,21 @@ describe("flattenCrossSection", () => {
     ],
   }
 
+  it("suffixes an indicator literally named like a reserved column instead of clobbering it", () => {
+    const clash = {
+      date: "2026-05-18",
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["qte_close", "x_date"],
+      indicatorNameList: ["收盘价", "date"],
+      values: [[1323.0], [42]],
+    }
+    const out = flattenCrossSection(clash) as { list: Record<string, unknown>[] }
+    // The metadata column must survive; the clashing indicator gets a suffixed header.
+    expect(out.list[0].date).toBe("2026-05-18")
+    expect(out.list[0]["date (x_date)"]).toBe(42)
+  })
+
   it("emits one row per security with indicator-name columns", () => {
     const out = flattenCrossSection(data) as { list: Record<string, unknown>[]; total: number }
     expect(out.total).toBe(2)

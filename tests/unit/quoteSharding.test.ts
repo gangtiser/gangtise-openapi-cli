@@ -134,6 +134,28 @@ describe("callKlineWithSharding", () => {
     }
   })
 
+  it("reports WHICH shards were truncated so consumers can re-pull narrower windows", async () => {
+    // The stderr count alone doesn't tell a script/agent which date windows to
+    // re-fetch; truncatedShards mirrors failedShards with concrete ranges.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      // 06-29 shard maxes out the limit (truncated); 06-30 stays under.
+      return body.startDate === "2026-06-29"
+        ? { total: 2, list: [{ x: 1 }, { x: 2 }] }
+        : { total: 1, list: [{ x: 3 }] }
+    })
+    const result = await callKlineWithSharding({ call }, "quote.fund-flow", {
+      securityList: ["aShares"],
+      startDate: "2026-06-29",
+      endDate: "2026-06-30",
+      limit: 2,
+    }, { shardDays: 1, fullMarketValue: "aShares" }) as { partial?: boolean; truncatedShards?: unknown }
+
+    expect(result.partial).toBe(true)
+    expect(result.truncatedShards).toEqual([{ startDate: "2026-06-29", endDate: "2026-06-29" }])
+    errSpy.mockRestore()
+  })
+
   it("flags partial when a shard comes back exactly full (low --limit silently truncates each shard)", async () => {
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
     // --limit 2 caps every daily shard at 2 rows though each day has far more → truncation.

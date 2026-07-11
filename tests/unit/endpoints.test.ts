@@ -471,6 +471,10 @@ describe("ENDPOINTS", () => {
       "ai.viewpoint-debate.get-id",
       "alternative.concept-info",
       "alternative.concept-securities",
+      // 50/篇 downloads — same price tier as the AI Agent calls.
+      "insight.summary.download",
+      "insight.foreign-report.download",
+      "vault.my-conference.download",
     ]
     for (const key of NO_REPLAY_KEYS) {
       expect(ENDPOINTS[key], key).toBeDefined()
@@ -481,6 +485,15 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS["ai.earnings-review.get-content"].retry).toBeUndefined()
     expect(ENDPOINTS["ai.viewpoint-debate.get-content"].retry).toBeUndefined()
     expect(ENDPOINTS["insight.qa.list"].retry).toBeUndefined()
+  })
+
+  it("marks EDE indicator endpoints as no-999999 (server uses that code for no-data)", () => {
+    // Probed 2026-07-11: a no-data query (holiday date) answers HTTP 500 +
+    // 999999 — retrying wastes 3 requests + ~4s on every empty query.
+    for (const key of ["indicator.search", "indicator.cross-section", "indicator.time-series"]) {
+      expect(ENDPOINTS[key], key).toBeDefined()
+      expect(ENDPOINTS[key].retry, key).toBe("no-999999")
+    }
   })
 
   // Endpoint keys appear as bare string literals throughout cli.ts

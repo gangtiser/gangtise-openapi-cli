@@ -3,7 +3,7 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
@@ -744,7 +744,9 @@ async function checkForUpdate(timeoutMs = 2000): Promise<void> {
   try {
     const response = await fetch("https://registry.npmjs.org/gangtise-openapi-cli/latest", { signal: AbortSignal.timeout(timeoutMs) })
     const latest = (await response.json() as { version?: string }).version
-    if (latest && latest !== CLI_VERSION) {
+    // Ordered compare, not inequality: during the just-published window the
+    // registry still serves the PREVIOUS version — don't suggest a "downgrade".
+    if (latest && isVersionNewer(latest, CLI_VERSION)) {
       process.stderr.write(`Update available: ${CLI_VERSION} → ${latest}\nRun: npm update -g gangtise-openapi-cli\n`)
     }
   } catch { /* best-effort: offline or a slow registry must not break --version */ }

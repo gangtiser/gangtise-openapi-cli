@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.26.0"
+version: "0.27.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -32,7 +32,7 @@ description: |-
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
-   - 5xx / `429` / 网络错误 / `999999` → 自动指数退避重试（🔴 贵档端点例外：仅连接失败 / 429 / token 自愈重试，5xx/超时不重放防重复扣分，v0.26.0）
+   - 5xx / `429` / 网络错误 / `999999` → 自动指数退避重试（🔴 贵档端点例外：仅连接失败 / 429 / token 自愈重试，5xx/超时不重放防重复扣分，v0.26.0；`indicator` 端点对 `999999` 不重试——该码=查询无数据，v0.27.0）
    - Token 失效（`0000001008` 服务端失效 / `8000014` / `8000015` AK/SK 错误）→ 自动重新登录并重试一次
 8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`（例外：`ai stock-summary` 用 `--security`，`ai security-clue` 用 `--gts-code`）。
 9. **调试**：`--verbose` 或 `GANGTISE_VERBOSE=1` 打印每个请求的耗时/字节数到 stderr。
@@ -72,7 +72,7 @@ description: |-
 - **各 download（/篇）**：announcement / official-account 10；research / announcement-hk / announcement-us 20；independent-opinion 30；summary / foreign-report / my-conference 50
 - 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**；`ai hot-topic` 50/篇
 - 🔴 **极贵**：`alternative concept-info` / `concept-securities` **500/次**
-- ⚠️ **同参数重复调用不免费**：按次计费无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）——生成类结果拿到后自行留存复用，别为"刷新"重调；CLI 已对上述 🔴 贵档端点关闭 5xx/超时自动重放（v0.26.0），正是为防重复扣分
+- ⚠️ **同参数重复调用不免费**：按次计费无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）——生成类结果拿到后自行留存复用，别为"刷新"重调；CLI 已对上述 🔴 贵档端点关闭 5xx/超时自动重放（v0.26.0），50/篇 的 `summary` / `foreign-report` / `my-conference` download 同样不重放（v0.27.0），正是为防重复扣分
 - **按单元格**：`indicator cross-section` / `time-series`（A股 0.05 / 港股 0.1 / 美股 0.2 积分每 100 单元格，见 `indicator.md`）；`ai knowledge-resource-download` 按下游资源计费
 
 ### 下载规则（`--file-type` / `--content-type`）
@@ -240,7 +240,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 | 错误码 | 含义 | CLI 行为 | Agent 是否介入 |
 |--------|------|---------|--------------|
-| `999999` | 系统错误；但 **`indicator`（EDE）仍会用此码 + HTTP 500 表示查询无数据**（节假日 / 未来日期 / 未覆盖标的，2026-07-11 实测）——单元格级缺值才是 `null` | 普通端点自动重试 ×2；🔴 贵档端点不重试（v0.26.0） | `indicator` 遇到先检查日期/标的是否该有数据，别盲目重试 |
+| `999999` | 系统错误；但 **`indicator`（EDE）仍会用此码 + HTTP 500 表示查询无数据**（节假日 / 未来日期 / 未覆盖标的，2026-07-11 实测）——单元格级缺值才是 `null` | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试（CLI hint 会直接提示「多为查询无数据」） | `indicator` 遇到先检查日期/标的是否该有数据，别盲目重试 |
 | `410110` | 异步生成中 | 异步轮询逻辑视为 pending | 继续等 |
 | `410111` | 异步生成失败 | 终态 | **不重试**，建议换参数 |
 | `410106` / 缺参 | `indicator` **缺必填参数**（服务端现直接指明缺哪个，如「必填参数 periodNum 不能为空」；以 HTTP 500 返回故 CLI 重试 ×2） | **自动重试 ×2** | 读 `indicator search --format json` 的 `parameterList`，补 `required:true` 参数（periodNum/startDate/fiscalYear） |
@@ -263,7 +263,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 **其他场景**：
 - CLI 未安装 → `npm install -g gangtise-openapi-cli`
-- **退出码 3 = 部分结果**：翻页/K线分片有页失败、或服务端返回行数与 `total` 矛盾（提前短页）时，已取到的数据保留——stderr 有 warning，`--format json` 可见 `partial: true`（页失败另有 `failedPages`，分片为 `failedShards`）；table/csv/jsonl 只有数据行、看不出缺失。拿部分数据继续前必须告知用户缺了哪段
+- **退出码 3 = 部分结果**：翻页/K线分片有页失败、或服务端返回行数与 `total` 矛盾（提前短页）时，已取到的数据保留——stderr 有 warning，`--format json` 可见 `partial: true`（页失败另有 `failedPages`；分片失败为 `failedShards`、分片撞行数上限为 `truncatedShards`，均带具体日期区间可定向缩窗补拉）；table/csv/jsonl 只有数据行、看不出缺失。拿部分数据继续前必须告知用户缺了哪段
 - 空结果（list 为空数组） → 建议扩大时间范围、换关键词、去掉部分筛选
 - 模糊公司名匹配多只（"平安" → 中国平安 / 平安银行 / ...） → 列出让用户选
 - 下载文件路径冲突 → 询问覆盖

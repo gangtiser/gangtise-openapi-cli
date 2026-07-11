@@ -4,6 +4,33 @@
 
 ## Changelog
 
+### v0.27.0 — 2026-07-11
+
+**EDE 指标（体验修复）**
+- `indicator` 三端点对 `999999` 不再自动重试——实测服务端用 `999999` + HTTP 500 表示「查询无数据」（节假日 / 未来日期 / 未覆盖标的），此前每次空查询白烧 3 个请求 + ~4 秒；错误提示改为指向检查查询条件而非「稍后重试」
+
+**资金与下载加固（承接 v0.26.0）**
+- 下载路径同样接入重试策略：50/篇 的 `summary` / `foreign-report` / `my-conference` download 改为 no-replay（与 AI Agent 同价档；下载中断重试可能重复计费），10-30/篇 的下载维持默认重试
+- 签名 URL 下载增加整体硬截止（10× 单请求超时）——headers/body 超时是空闲型，慢滴速传输可无限续命；最终 rename 失败时清理 `.part`
+- `GANGTISE_PAGE_CONCURRENCY` 防御性解析：非法/非正数回退默认 5、上限 32——负值此前被底层钳制成**单 worker 串行**（静默变慢），过大值可能造成过度并发触发限流
+- `--version` 更新提示改为数值分段版本比较（不处理预发布号；本项目只发 x.y.z）——刚发版的 registry 滞后窗口不再把旧版本提示成"可更新"
+
+**体验与正确性小修**
+- `--wait` 异步轮询容忍瞬态错误：5xx/网络抖动只消耗一次尝试并继续等待，不再作废整段等待（积分不足等终态错误仍立即中止）
+- table 输出单元格显示宽度上限 120（超长截断加 `…`）——一个超长字段不再把整列所有行 pad 成同宽（行数 × 宽度的空格放大）
+- markdown 输出先转义反斜杠再转义竖线，字面 `\|` 单元格不再错位列；table/markdown 过滤 C1 控制符（U+009B 单字节 CSI 注入面）
+- 自动文件名按码点截断，emoji 不再被截成 `�`；EDE 矩阵中与 `date`/`security`/`name` 同名的指标列自动加后缀，不再覆盖元数据列
+- 全市场分片截断时输出 `truncatedShards`（具体日期区间，与 `failedShards` 对称），脚本/AI 消费者可定向缩窗补拉
+- 分页端点首页形状漂移（如 `total` 变字符串）时 `--verbose` 下告警，不再完全静默退化单页
+
+**Skill 分发**
+- `gangtise-openapi/` 目录纳入 npm 包；README 安装命令改为从 `$(npm root -g)` 复制——此前的相对路径命令对 npm 用户不可执行
+
+**防漂移门禁（工程，不影响 CLI 行为）**
+- 新增 README↔ENDPOINTS 一致性测试：「自动翻页」清单与注册表 pagination 标记双向比对（此类手抄清单漂移已发生两次）；insight/reference 子命令的 `--help` 覆盖改为从端点注册表派生，新命令漏接线直接测试失败
+- `npm run prepare` 前置断言 README/CHANGELOG 含当前版本条目（写盘前检查，失败零残留）；`npm run typecheck` 纳入 tests/（tsconfig.test.json）
+- CI：`npm pack` 装包冒烟（`--help` + skill 文件存在校验）、测试矩阵 Node 下限改精确 20.18.1、CI typecheck；publish 的 `workflow_dispatch` 必须指向 `v*` tag（关闭无护栏发布通道）
+
 ### v0.26.0 — 2026-07-11
 
 **资金安全（重要）**
@@ -68,14 +95,6 @@
 - `reference institution-search` — 机构 ID 搜索，输入机构名/简称返回 `institutionId` 及适用接口参数（`usageScopes`）；`--keyword`（必填）、`--category`（`domesticBroker`/`foreignInstitution`/`leadInstitution`/`opinionInstitution`/`foreignOpinionInstitution`，可重复）、`--top`（默认 10，上限 10）；免费。覆盖既有 `--broker`/`--institution` 全部机构类（research/foreign-report/opinion/foreign-opinion/summary/roadshow/site-visit/strategy/my-conference）
 - `vault my-conference-list` 新增 `--source` — 按录制来源筛选（`1`=企微会议助理 `2`=会议服务微信群，可重复；不传返回全部）
 
-### v0.22.1 — 2026-07-03
-
-**修复**
-- 错误码 `410004` 提示改为中性措辞「数据未找到或无指标权限，请检查查询条件与指标权限」——此前只说"数据未找到"，与 `indicator` 内层信封的"无权限"消息拼接后自相矛盾
-
-**文档 / Skill**（随 `/sync-skill` 分发，不影响 CLI 行为）
-- gangtise-openapi Agent Skill 经 fable5 审计 + 多轮 review 优化：官方积分计费速查表 + 高积分 pre-flight 闸门、AI 同步生成命令 `GANGTISE_TIMEOUT_MS=120000` 超时前置、大结果集 `--output` 落盘、异步 `--wait` 主路径、行业码口径收敛到单一权威、市值量纲实测（`qte_mkt_cptl` 仅 A 股 / 默认原始「元」/ `scale`+`currency`）等文档补全与消歧
-
 > 更早版本及完整更新历史见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 首次安装
@@ -95,6 +114,8 @@ gangtise --help
 ```bash
 npm update -g gangtise-openapi-cli
 ```
+
+> 更新后若使用 Agent Skill：包内 skill 已随包更新，但复制到 `~/.claude/skills/` 等目录的副本是快照，**需重新执行下方「安装」段的复制命令**才能让 AI 助手拿到新版 skill。
 
 本地开发：
 
@@ -116,7 +137,7 @@ export GANGTISE_BASE_URL="https://openapi.gangtise.com"
 export GANGTISE_TOKEN="Bearer xxx"
 
 # 性能/调试可选项
-export GANGTISE_PAGE_CONCURRENCY=5     # 翻页并发数（默认 5）
+export GANGTISE_PAGE_CONCURRENCY=5     # 翻页/分片并发数（默认 5，上限 32；非法值回退默认）
 export GANGTISE_VERBOSE=1              # 打印每个请求的耗时与字节数
 export GANGTISE_TIMEOUT_MS=30000       # 请求超时（默认 30s）
 export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.config/gangtise/token.json）
@@ -155,21 +176,25 @@ gangtise-openapi/
     └── response-schema.md            # 各接口响应字段说明
 ```
 
-安装：
+安装（skill 目录随 npm 包分发，`npm install -g` 之后即可从全局安装位置复制）：
 
 ```bash
+SKILL_SRC="$(npm root -g)/gangtise-openapi-cli/gangtise-openapi"
+
 # Claude Code
-cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
+cp -r "$SKILL_SRC" ~/.claude/skills/gangtise-openapi
 
 # Codex
-cp -r gangtise-openapi ~/.codex/skills/gangtise-openapi
+cp -r "$SKILL_SRC" ~/.codex/skills/gangtise-openapi
 
 # OpenClaw
-cp -r gangtise-openapi ~/.openclaw/skills/gangtise-openapi
+cp -r "$SKILL_SRC" ~/.openclaw/skills/gangtise-openapi
 
 # Hermes
-cp -r gangtise-openapi ~/.hermes/skills/gangtise-openapi
+cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 ```
+
+> 从仓库 clone 开发时，把 `$SKILL_SRC` 换成仓库内的 `gangtise-openapi` 目录即可。
 
 > **版本更新**：每次 CLI 发版时，`gangtise-openapi/SKILL.md` 的 `version` 字段会自动同步。更新 CLI 后，请将项目中的 `gangtise-openapi/` 目录重新复制到对应的 skills 目录覆盖更新：
 >
@@ -302,7 +327,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档生成类端点例外**（one-pager 等 13 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等 13 个生成/提交类 + 50/篇 的 summary/foreign-report/my-conference 下载，共 16 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——该码实为「查询无数据」（实测），重试纯浪费。
 - **Token 自愈**：调用返回 8000014/8000015 时自动强制刷新 Token 并重试一次。
 - **K线/资金流向自动分片**：`quote day-kline --security all`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。

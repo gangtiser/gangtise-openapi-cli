@@ -186,13 +186,16 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   let fieldList: unknown[] | undefined
   let header: Record<string, unknown> | null = null
   const merged: unknown[] = []
-  let truncatedShards = 0
-  for (const r of results) {
+  // Record WHICH windows maxed out, not just how many: a script/agent consumer
+  // needs the concrete date ranges to re-pull narrower windows (mirrors failedShards).
+  const truncatedShards: Array<{ startDate: string; endDate: string }> = []
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]
     if (!(r && typeof r === "object")) continue
     const rec = r as Record<string, unknown>
     if (!header) header = rec
     if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
-    if (isTruncated(rec)) truncatedShards++
+    if (isTruncated(rec)) truncatedShards.push(shards[i])
     // Append one-by-one rather than push(...list): a future higher row cap could
     // make a single shard's list large enough to overflow the stack via spread.
     if (Array.isArray(rec.list)) for (const item of rec.list as unknown[]) merged.push(item)
@@ -214,9 +217,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     out.failedShards = failedShards
     process.stderr.write(`[gangtise] warning: ${failedShards.length}/${shards.length} shards failed; results are partial (see failedShards)\n`)
   }
-  if (truncatedShards > 0) {
+  if (truncatedShards.length > 0) {
     out.partial = true
-    process.stderr.write(`[gangtise] warning: ${truncatedShards}/${shards.length} shard(s) hit the ${perShardLimit}-row limit and were likely truncated; results are partial — ${truncationHint}.\n`)
+    out.truncatedShards = truncatedShards
+    process.stderr.write(`[gangtise] warning: ${truncatedShards.length}/${shards.length} shard(s) hit the ${perShardLimit}-row limit and were likely truncated; results are partial (see truncatedShards) — ${truncationHint}.\n`)
   }
   return out
 }

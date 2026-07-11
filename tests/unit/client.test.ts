@@ -165,6 +165,24 @@ describe("GangtiseClient pagination", () => {
     expect(result.list.at(-1)).toEqual(["s52", "T52"])
   })
 
+  it("warns on verbose when a paginated endpoint's first page loses the {total,list} shape", async () => {
+    // Shape drift (e.g. total arriving as a string) silently degrades fetch-all
+    // to a single page with no partial marker — at least make it visible.
+    const { setVerbose } = await import("../../src/core/transport.js")
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    setVerbose(true)
+    try {
+      requestMock.mockResolvedValueOnce(jsonResponse({ total: "200", list: [{ id: 1 }] }))
+      const client = createClient()
+      const result = await client.call("insight.qa.list", { securityCode: "601012.SH" }) as Record<string, unknown>
+      expect(result.total).toBe("200") // passthrough unchanged
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("shape")
+    } finally {
+      setVerbose(false)
+      errSpy.mockRestore()
+    }
+  })
+
   it("does one request for endpoints without pagination metadata", async () => {
     requestMock.mockResolvedValueOnce(jsonResponse({ answer: 1 }))
 
@@ -580,6 +598,51 @@ describe("GangtiseClient retry policy wiring", () => {
     const result = await client.call("insight.qa.list", { securityCode: "601012.SH", from: 0, size: 1 }) as { total: number }
     expect(result.total).toBe(0)
     expect(requestMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not replay a 5xx on a no-replay DOWNLOAD endpoint (billed per 篇, non-idempotent)", async () => {
+    // summary/foreign-report/my-conference downloads cost 50/篇 — same tier as
+    // the AI Agent calls; the download path must honor retry policy too.
+    requestMock.mockResolvedValue({
+      statusCode: 503,
+      headers: { "content-type": "application/json" },
+      body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "999999", msg: "err" })), arrayBuffer: vi.fn() },
+    })
+    const client = createClient()
+    await expect(client.call("insight.summary.download", undefined, { summaryId: "1" })).rejects.toBeInstanceOf(ApiError)
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("still replays a 5xx on a default-policy download endpoint", async () => {
+    requestMock
+      .mockResolvedValueOnce({
+        statusCode: 503,
+        headers: { "content-type": "application/json" },
+        body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "999999", msg: "err" })), arrayBuffer: vi.fn() },
+      })
+      .mockResolvedValueOnce(binaryResponse(new Uint8Array([9])))
+    const client = createClient()
+    const result = await client.call("insight.research.download", undefined, { reportId: "1" }) as { data?: Uint8Array }
+    expect(result.data).toEqual(new Uint8Array([9]))
+    expect(requestMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not retry 999999 on indicator endpoints and hints no-data instead of '稍后重试'", async () => {
+    // Probed 2026-07-11: EDE answers a no-data query (holiday date) with
+    // HTTP 500 + 999999 "系统内部错误" — retrying burns 3 requests and ~4s on
+    // every empty query, then advises the user to retry. Fail fast with an
+    // indicator-specific hint; a genuine 5xx still retries on other endpoints.
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "999999", msg: "系统内部错误" }, 500))
+    const client = createClient()
+    let caught: unknown
+    try {
+      await client.call("indicator.cross-section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-01-01" })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as ApiError).hint).toContain("无数据")
+    expect(requestMock).toHaveBeenCalledTimes(1)
   })
 })
 

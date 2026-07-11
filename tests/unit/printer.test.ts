@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
 const { writeMock } = vi.hoisted(() => ({ writeMock: vi.fn().mockResolvedValue(undefined) }))
 
@@ -16,8 +16,10 @@ vi.mock("../../src/core/titleCache.js", async () => {
 const { printData } = await import("../../src/core/printer.js")
 
 describe("printData", () => {
-  let outSpy: ReturnType<typeof vi.spyOn>
-  let errSpy: ReturnType<typeof vi.spyOn>
+  // ReturnType<typeof vi.spyOn> resolves to the generic default instantiation,
+  // which the overloaded stdout/stderr write spy is not assignable to (TS2322).
+  let outSpy: MockInstance<typeof process.stdout.write>
+  let errSpy: MockInstance<typeof process.stderr.write>
   const dir = path.join(os.tmpdir(), `gangtise-printer-test-${process.pid}`)
 
   beforeEach(() => {

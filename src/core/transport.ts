@@ -73,8 +73,18 @@ export async function runWithConcurrency<T, R>(
   return results
 }
 
+/** Parse GANGTISE_PAGE_CONCURRENCY defensively. runWithConcurrency clamps to
+ * ≥1 worker, so a negative/zero/NaN value silently degrades to SERIAL fetching
+ * (slow, confusing); an absurd value fans out up to items.length workers at
+ * once and can 429-storm the server. Fall back to the default and cap at 32. */
+export function resolvePageConcurrency(raw: string | undefined, fallback = 5, max = 32): number {
+  const parsed = Math.floor(Number(raw))
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.min(parsed, max)
+}
+
 /** Fan-out width for pagination and kline shards — one env knob tunes both. */
-export const PAGE_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
+export const PAGE_CONCURRENCY = resolvePageConcurrency(process.env.GANGTISE_PAGE_CONCURRENCY)
 
 const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])
 const RETRYABLE_NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"])
@@ -86,8 +96,11 @@ const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN
 /** "no-replay" (per-call billed endpoints — billing probed non-idempotent, no
  * cache-hit exemption): never resend a request the server may have executed.
  * Only connect-phase errors, 429 (rejected before processing) and the explicit
- * token-self-heal mark retry; 5xx / response timeouts / 999999 fail fast. */
-export type RetryPolicy = "default" | "no-replay"
+ * token-self-heal mark retry; 5xx / response timeouts / 999999 fail fast.
+ * "no-999999" (EDE indicator endpoints): the server answers a no-data query with
+ * HTTP 500 + 999999 (probed 2026-07-11) — retrying that is pure waste; everything
+ * else follows the default policy. */
+export type RetryPolicy = "default" | "no-replay" | "no-999999"
 
 function isRetryableError(error: unknown, policy: RetryPolicy): boolean {
   if (error && typeof error === "object" && (error as { __retryable?: boolean }).__retryable === true) {
@@ -96,8 +109,8 @@ function isRetryableError(error: unknown, policy: RetryPolicy): boolean {
   if (error instanceof ApiError) {
     if (error.statusCode === 429) return true
     if (policy === "no-replay") return false
+    if (error.code && RETRYABLE_API_CODES.has(error.code)) return policy !== "no-999999"
     if (error.statusCode != null && RETRYABLE_HTTP_STATUS.has(error.statusCode)) return true
-    if (error.code && RETRYABLE_API_CODES.has(error.code)) return true
     return false
   }
   if (error && typeof error === "object" && "code" in error) {
@@ -113,6 +126,13 @@ function isRetryableError(error: unknown, policy: RetryPolicy): boolean {
 
 export function markRetryable<E extends object>(error: E): E {
   return Object.assign(error, { __retryable: true })
+}
+
+/** Errors worth waiting out (anything the default policy would retry): transient
+ * 5xx / network / timeout / 429 / 999999. Used by async polling to survive a
+ * blip without abandoning a multi-minute wait. */
+export function isTransientError(error: unknown): boolean {
+  return isRetryableError(error, "default")
 }
 
 export interface RetryOptions {

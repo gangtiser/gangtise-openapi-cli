@@ -17,8 +17,10 @@ export interface EndpointDefinition {
    * (no 5xx/timeout/999999 retry; connect-phase errors, 429 and token self-heal
    * still retry). Billing probed 2026-07-11: the platform charges per call with
    * no cache-hit exemption, so a replay on these expensive (🔴-tier) endpoints
-   * double-bills. */
-  retry?: "no-replay"
+   * double-bills.
+   * "no-999999": EDE answers a no-data query with HTTP 500 + 999999 (probed
+   * 2026-07-11) — don't retry that code; everything else stays default. */
+  retry?: "no-replay" | "no-999999"
 }
 
 /** Effective request timeout: the endpoint's floor, or the config timeout if higher
@@ -72,6 +74,8 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/summary/v2/download/file",
     kind: "download",
     description: "Download summary file",
+    // 50/篇 — same price tier as the AI Agent calls; billing probed non-idempotent.
+    retry: "no-replay",
   },
   "insight.roadshow.list": {
     method: "POST",
@@ -126,6 +130,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/foreign-report/download/file",
     kind: "download",
     description: "Download foreign report",
+    retry: "no-replay",
   },
   "insight.announcement.list": {
     method: "POST",
@@ -569,6 +574,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-vault/my-conference/download/file",
     kind: "download",
     description: "Download my conference resource",
+    retry: "no-replay",
   },
   "vault.wechat-message.list": {
     method: "POST",
@@ -632,18 +638,21 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-indicator/EDE/search",
     kind: "json",
     description: "Search data indicators by keyword (returns indicatorCode + params)",
+    retry: "no-999999",
   },
   "indicator.cross-section": {
     method: "POST",
     path: "/application/open-indicator/EDE/cross-section",
     kind: "json",
     description: "Get cross-section data (multi-indicator x multi-security, single date)",
+    retry: "no-999999",
   },
   "indicator.time-series": {
     method: "POST",
     path: "/application/open-indicator/EDE/time-series",
     kind: "json",
     description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
+    retry: "no-999999",
   },
 }
 

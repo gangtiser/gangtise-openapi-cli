@@ -1,6 +1,7 @@
 import type { OutputFormat } from "./config.js"
 import { ApiError } from "./errors.js"
 import { printData } from "./printer.js"
+import { isTransientError } from "./transport.js"
 
 // 14 attempts with exponential backoff (5s→30s cap) ≈ 316s total wait budget.
 export const POLL_MAX_ATTEMPTS = 14
@@ -47,7 +48,15 @@ export async function pollAsyncContent(
         process.stderr.write("Content generation failed (terminal). Do not retry.\n")
         return "failed"
       }
-      if (!isAsyncPending(error)) throw error
+      if (!isAsyncPending(error)) {
+        // AI generation windows are exactly when the server is busiest: one 5xx
+        // (after the client's own retries) must not void minutes of waiting —
+        // the dataId is still valid. Transient errors consume this attempt and
+        // polling continues; anything else (no credits, bad params) aborts.
+        if (!isTransientError(error)) throw error
+        const msg = error instanceof Error ? error.message : String(error)
+        process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: transient error (${msg.slice(0, 80)}), continuing to wait...\n`)
+      }
     }
     if (attempt < POLL_MAX_ATTEMPTS) {
       const delay = nextDelayMs(attempt)

@@ -20,9 +20,11 @@ function sanitizeFilename(name: string): string {
 function truncateFilename(name: string, maxBytes = 200): string {
   if (Buffer.byteLength(name, "utf8") <= maxBytes) return name
   const ext = extname(name)
-  let stem = name.slice(0, name.length - ext.length)
-  while (stem.length > 1 && Buffer.byteLength(stem + ext, "utf8") > maxBytes) stem = stem.slice(0, -1)
-  return stem + ext
+  // Trim by code point, not UTF-16 unit: a cut inside a surrogate pair would put
+  // a lone surrogate in the name, which reaches the filesystem as U+FFFD (�).
+  const stem = [...name.slice(0, name.length - ext.length)]
+  while (stem.length > 1 && Buffer.byteLength(stem.join("") + ext, "utf8") > maxBytes) stem.pop()
+  return stem.join("") + ext
 }
 
 /** Pick a non-existing path by suffixing -1, -2, … before the extension, so batch
@@ -161,6 +163,11 @@ async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
       method: "GET" as const,
       headersTimeout: timeoutMs,
       bodyTimeout: timeoutMs,
+      // headers/body timeouts are IDLE timeouts — a stream trickling one byte
+      // per interval resets them forever. A generous total deadline (10× the
+      // per-request timeout) bounds the whole transfer without killing large
+      // legitimate downloads.
+      signal: AbortSignal.timeout(timeoutMs * 10),
       dispatcher: getDispatcher(),
     }
     let currentUrl = url
@@ -193,7 +200,13 @@ async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
     }
     logTiming(`GET ${redactUrl(currentUrl)}`, Date.now() - startedAt, String(response.statusCode))
   })
-  await fs.rename(partPath, outputPath)
+  try {
+    await fs.rename(partPath, outputPath)
+  } catch (error) {
+    // e.g. outputPath turned out to be a directory — don't leave the .part behind.
+    await fs.unlink(partPath).catch(() => {})
+    throw error
+  }
 }
 
 export async function saveDownloadResult(result: unknown, fallbackName: string, output?: string): Promise<void> {

@@ -3,7 +3,7 @@ import { gzipSync } from "node:zlib"
 import { describe, expect, it, vi } from "vitest"
 
 import { ApiError } from "../../src/core/errors.js"
-import { decodeResponseBody, markRetryable, parseRetryAfterMs, runWithConcurrency, withRetry } from "../../src/core/transport.js"
+import { decodeResponseBody, markRetryable, parseRetryAfterMs, resolvePageConcurrency, runWithConcurrency, withRetry } from "../../src/core/transport.js"
 
 describe("runWithConcurrency", () => {
   it("preserves item order in the results", async () => {
@@ -177,6 +177,41 @@ describe("withRetry no-replay policy (per-call billed endpoints)", () => {
       .mockRejectedValueOnce(markRetryable(new ApiError("token invalid", "8000014", 200)))
       .mockResolvedValue("ok")
     expect(await withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("resolvePageConcurrency", () => {
+  it("returns the default for unset/invalid/non-positive values", () => {
+    expect(resolvePageConcurrency(undefined)).toBe(5)
+    expect(resolvePageConcurrency("abc")).toBe(5)
+    expect(resolvePageConcurrency("0")).toBe(5)
+    expect(resolvePageConcurrency("-3")).toBe(5) // negative used to degrade to a single serial worker
+  })
+
+  it("accepts sane values and caps runaway ones", () => {
+    expect(resolvePageConcurrency("10")).toBe(10)
+    expect(resolvePageConcurrency("2.9")).toBe(2) // integers only
+    expect(resolvePageConcurrency("1000000")).toBe(32) // don't spawn a million workers / 429-storm the server
+  })
+})
+
+// EDE uses 999999 + HTTP 500 for "no data for this query" (probed 2026-07-11) —
+// retrying it is pure waste. "no-999999" keeps everything else from the default
+// policy (5xx, network, 429, self-heal) and only drops the 999999 API code.
+describe("withRetry no-999999 policy (EDE indicator endpoints)", () => {
+  it("does not retry the 999999 API code", async () => {
+    const err = new ApiError("系统内部错误", "999999", 500)
+    const fn = vi.fn().mockRejectedValue(err)
+    await expect(withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-999999" })).rejects.toBe(err)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("still retries a plain 5xx without the 999999 code", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new ApiError("bad gateway", undefined, 502))
+      .mockResolvedValue("ok")
+    expect(await withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-999999" })).toBe("ok")
     expect(fn).toHaveBeenCalledTimes(2)
   })
 })

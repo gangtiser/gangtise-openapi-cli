@@ -83,6 +83,22 @@ export function maybeArray<T>(value: T[]): T[] | undefined {
   return value.length > 0 ? value : undefined
 }
 
+/** True when `latest` is strictly newer than `current` (numeric per-segment
+ * compare). Plain inequality would nag "update available" during the
+ * just-published window while the registry still serves the previous version. */
+export function isVersionNewer(latest: string, current: string): boolean {
+  const parse = (v: string) => v.split(".").map(Number)
+  const a = parse(latest)
+  const b = parse(current)
+  if (a.some(Number.isNaN) || b.some(Number.isNaN)) return false
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0
+    const y = b[i] ?? 0
+    if (x !== y) return x > y
+  }
+  return false
+}
+
 // Whitelist for enum-valued repeatable options. Only used where the server was
 // probed NOT to reject bad values (it silently ignores the filter or returns
 // empty instead) — endpoints that answer 100003 keep server-side validation.

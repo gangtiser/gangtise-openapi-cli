@@ -56,7 +56,9 @@ function rowOf(values: unknown, index: number): unknown[] | undefined {
 // Build one column header per series. Prefer the human-readable name; on a
 // duplicate name append the code so a column is never silently overwritten.
 function buildHeaders(names: string[] | undefined, codes: string[] | undefined, count: number): string[] {
-  const used = new Set<string>()
+  // Pre-seed the metadata column names: an indicator literally named "date" /
+  // "security" / "name" must get a suffixed header, not overwrite the metadata.
+  const used = new Set<string>(["date", "security", "name"])
   const headers: string[] = []
   for (let i = 0; i < count; i++) {
     const base = String(names?.[i] ?? codes?.[i] ?? `col${i}`)

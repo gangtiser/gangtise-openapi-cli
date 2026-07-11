@@ -52,9 +52,9 @@
 
 | Module | Responsibility |
 |:--|:--|
-| `transport.ts` | Shared `undici.Agent` (keep-alive pool) · `withRetry` exponential-backoff retry · `runWithConcurrency` concurrency control |
+| `transport.ts` | Shared `undici.Agent` (keep-alive pool) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for per-call billed endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control |
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
-| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`--security all`) & fund-flow (`--security aShares`) · truncation + partial-failure tolerance (`partial` / `failedShards`) |
+| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`--security all`) & fund-flow (`--security aShares`) · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
 | `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / time-series `values` matrix flattened into a wide table |
 | `printer.ts` | `printData`: normalize + render + title-cache writeback |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |
@@ -151,7 +151,7 @@ Concurrent requests coalesce into a single in-flight refresh promise (no duplica
 |:--|:--|
 | **Endpoint Registry** | Declarative · O(1) key lookup · keys derived from `ENDPOINT_DEFS` record keys via `Object.fromEntries` (key drift impossible) |
 | **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint · MAX_PAGES=1000 safety limit |
-| **Partial-Result Tolerance** | Pagination (`requestPaginated`) and sharding (`quoteSharding`) return already-fetched rows + `partial` / `failedPages` / `failedShards` markers on a non-retryable error and stop, instead of discarding everything · process exit code 3 |
+| **Partial-Result Tolerance** | Pagination (`requestPaginated`) and sharding (`quoteSharding`) return already-fetched rows + `partial` / `failedPages` / `failedShards` / `truncatedShards` markers on a non-retryable error and stop, instead of discarding everything · process exit code 3 |
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **EDE Double-Envelope + Matrix Flatten** | Indicator endpoints double-wrap (`unwrapIndicatorData` peels the inner envelope); cross-section / time-series `values` matrices flattened by `indicatorMatrix` into `{date, security, name, indicator:value}` wide rows |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, localDateString, maybeArray, parseChoiceList, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNumberList, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -195,6 +195,23 @@ describe("parseIndicatorParams", () => {
   it("throws when the code or key is empty", () => {
     expect(() => parseIndicatorParams([":adjustmentType=1"])).toThrow(ValidationError)
     expect(() => parseIndicatorParams(["qte_close:=1"])).toThrow(ValidationError)
+  })
+})
+
+describe("isVersionNewer", () => {
+  it("compares numerically per segment, not as strings", () => {
+    expect(isVersionNewer("0.10.0", "0.9.0")).toBe(true)
+    expect(isVersionNewer("0.9.0", "0.10.0")).toBe(false)
+  })
+
+  it("is false when equal or when the registry lags behind a just-published local version", () => {
+    expect(isVersionNewer("0.27.0", "0.27.0")).toBe(false)
+    expect(isVersionNewer("0.26.0", "0.27.0")).toBe(false)
+  })
+
+  it("handles different segment counts and junk defensively", () => {
+    expect(isVersionNewer("1.0.0.1", "1.0.0")).toBe(true)
+    expect(isVersionNewer("not-a-version", "0.27.0")).toBe(false)
   })
 })
 

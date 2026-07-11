@@ -14,8 +14,9 @@ jobs:
 
     strategy:
       matrix:
-        # 20 = package.json engines floor; 24 = the version publish.yml builds with.
-        node-version: ["20", "24"]
+        # 20.18.1 = the exact engines floor (undici requirement); 24 = the
+        # version publish.yml builds with.
+        node-version: ["20.18.1", "24"]
 
     steps:
       - uses: actions/checkout@v6
@@ -26,4 +27,16 @@ jobs:
 
       - run: npm ci
 
+      - run: npm run typecheck
+
       - run: npm test
+
+      # The tarball is the product: install it like a user would and smoke it,
+      # so a broken dist/ or a files-list miss fails here instead of post-publish.
+      - name: Pack & install smoke test
+        if: matrix.node-version == '24'
+        run: |
+          npm pack
+          npm install -g ./gangtise-openapi-cli-*.tgz
+          gangtise --help > /dev/null
+          test -f "$(npm root -g)/gangtise-openapi-cli/gangtise-openapi/SKILL.md"
