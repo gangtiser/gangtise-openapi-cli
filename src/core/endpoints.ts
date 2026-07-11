@@ -13,6 +13,12 @@ export interface EndpointDefinition {
    * re-bill the generation. `resolveTimeoutMs` lifts the request timeout to this
    * value (never lowering a higher user-configured timeout). */
   timeoutMs?: number
+  /** "no-replay": never resend a request the server may already have executed
+   * (no 5xx/timeout/999999 retry; connect-phase errors, 429 and token self-heal
+   * still retry). Billing probed 2026-07-11: the platform charges per call with
+   * no cache-hit exemption, so a replay on these expensive (🔴-tier) endpoints
+   * double-bills. */
+  retry?: "no-replay"
 }
 
 /** Effective request timeout: the endpoint's floor, or the config timeout if higher
@@ -418,6 +424,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-data/ai/search/knowledge/batch",
     kind: "json",
     description: "Batch knowledge search",
+    retry: "no-replay",
   },
   "ai.knowledge-resource.download": {
     method: "GET",
@@ -438,6 +445,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Generate one pager",
     timeoutMs: 120_000,
+    retry: "no-replay",
   },
   "ai.investment-logic": {
     method: "POST",
@@ -445,6 +453,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Generate investment logic",
     timeoutMs: 120_000,
+    retry: "no-replay",
   },
   "ai.peer-comparison": {
     method: "POST",
@@ -452,12 +461,14 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Generate peer comparison",
     timeoutMs: 120_000,
+    retry: "no-replay",
   },
   "ai.earnings-review.get-id": {
     method: "POST",
     path: "/application/open-ai/agent/earnings-review-getid",
     kind: "json",
     description: "Get earnings review ID",
+    retry: "no-replay",
   },
   "ai.earnings-review.get-content": {
     method: "POST",
@@ -471,6 +482,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Get theme tracking daily report",
     timeoutMs: 120_000,
+    retry: "no-replay",
   },
   "ai.research-outline": {
     method: "POST",
@@ -478,6 +490,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Get company research outline",
     timeoutMs: 120_000,
+    retry: "no-replay",
   },
   "ai.hot-topic": {
     method: "POST",
@@ -485,6 +498,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "List hot topic reports",
     pagination: { enabled: true, maxPageSize: 20 },
+    retry: "no-replay",
   },
   "ai.management-discuss-announcement": {
     method: "POST",
@@ -492,6 +506,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Management discussion from financial reports (half-year/annual)",
     timeoutMs: 120_000,
+    retry: "no-replay",
   },
   "ai.management-discuss-earnings-call": {
     method: "POST",
@@ -499,12 +514,14 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Management discussion from earnings calls",
     timeoutMs: 120_000,
+    retry: "no-replay",
   },
   "ai.viewpoint-debate.get-id": {
     method: "POST",
     path: "/application/open-ai/agent/viewpoint-debate-getid",
     kind: "json",
     description: "Get viewpoint debate ID",
+    retry: "no-replay",
   },
   "ai.viewpoint-debate.get-content": {
     method: "POST",
@@ -599,12 +616,14 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-alternative/concept/info",
     kind: "json",
     description: "Query latest concept (theme index) profile by conceptId",
+    retry: "no-replay",
   },
   "alternative.concept-securities": {
     method: "POST",
     path: "/application/open-alternative/concept/securities",
     kind: "json",
     description: "Query concept (theme index) constituent securities, grouped",
+    retry: "no-replay",
   },
 
   // ─── indicator (EDE: security-level data indicators) ───

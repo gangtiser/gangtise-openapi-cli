@@ -118,6 +118,67 @@ describe("withRetry", () => {
       vi.useRealTimers()
     }
   })
+
+  it("retries connect-phase ECONNREFUSED under the default policy", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("connect ECONNREFUSED 1.2.3.4:443"), { code: "ECONNREFUSED" }))
+      .mockResolvedValue("ok")
+    expect(await withRetry(fn, { retries: 2, baseDelayMs: 1 })).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+})
+
+// Billing probed 2026-07-11: per-call charging with NO cache-hit exemption, so a
+// replay of a request the server may already have executed double-bills. Under
+// "no-replay" only errors proving the request never reached the server (connect
+// phase), 429 (rejected before processing), and the explicit token-self-heal
+// mark may retry.
+describe("withRetry no-replay policy (per-call billed endpoints)", () => {
+  it("does not retry a 5xx (server may have executed and billed)", async () => {
+    const err = new ApiError("server error", undefined, 503)
+    const fn = vi.fn().mockRejectedValue(err)
+    await expect(withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).rejects.toBe(err)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not retry a response timeout (request already sent)", async () => {
+    const err = Object.assign(new Error("headers timeout"), { code: "UND_ERR_HEADERS_TIMEOUT" })
+    const fn = vi.fn().mockRejectedValue(err)
+    await expect(withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).rejects.toBe(err)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not retry the generic 999999 system code", async () => {
+    const err = new ApiError("系统内部错误", "999999", 500)
+    const fn = vi.fn().mockRejectedValue(err)
+    await expect(withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).rejects.toBe(err)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("still retries connect-phase and DNS failures (request never left the machine)", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }))
+      .mockRejectedValueOnce(Object.assign(new Error("getaddrinfo EAI_AGAIN"), { code: "EAI_AGAIN" }))
+      .mockResolvedValue("ok")
+    expect(await withRetry(fn, { retries: 3, baseDelayMs: 1, policy: "no-replay" })).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(3)
+  })
+
+  it("still retries a 429 (rate-limited before processing, not billed)", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new ApiError("rate limited", undefined, 429))
+      .mockResolvedValue("ok")
+    expect(await withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it("still honors the explicit retryable mark (token self-heal replay is safe)", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(markRetryable(new ApiError("token invalid", "8000014", 200)))
+      .mockResolvedValue("ok")
+    expect(await withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe("decodeResponseBody", () => {

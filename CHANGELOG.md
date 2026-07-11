@@ -2,6 +2,22 @@
 
 本项目完整版本历史。README 顶部仅展示最近几个版本。
 
+### v0.26.0 — 2026-07-11
+
+**资金安全（重要）**
+- 13 个贵档端点（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`×2 / `hot-topic` / `knowledge-batch` / `earnings-review get-id` / `viewpoint-debate get-id` / `concept-info` / `concept-securities`）改为 **no-replay 重试策略**：5xx / 超时 / `999999` 不再自动重放——实测（2026-07-11）平台按次计费且**缓存命中不豁免**，同参数重放每次都扣分；仅连接期错误（`ECONNREFUSED`/DNS，请求未发出）、429 限流和 token 自愈仍重试。便宜按条计费的 list 类维持原全量重试（失败响应没有数据行、不计费）
+- 连接失败 `ECONNREFUSED` / `UND_ERR_CONNECT_TIMEOUT` 纳入默认重试范围（此前这两类不重试）
+
+**文件安全**
+- 所有 `--output` 落盘（导出、流式下载主路径、签名 URL 跟随下载）改为原子写：先写同目录 `.part` 成功后 rename——重跑失败不再毁掉已有旧文件；顺带修掉中止路径上 `.part` 因流懒打开竞态残留的问题
+- 签名 URL 跟随下载改走 transport 层：遵守 `GANGTISE_TIMEOUT_MS`（此前裸 `fetch` 无超时，慢滴速 CDN 可无限挂起）、网络错误自动重试、跟随最多 3 跳重定向（undici 不自动跟随，超限/缺 `Location` 报错而非把跳转页存成文件）、`--verbose` 日志剥离签名 query 只留 origin+path
+- 自动命名去重后缀试尽 `-1`…`-99` 仍冲突时报错，不再静默覆盖最早的文件
+
+**修复 / 加固**
+- 下载重定向超过 3 跳或缺 `Location` 时报错，不再把跳转页 HTML 当文件内容保存
+- 损坏的 gzip 响应包装为带请求上下文的 `ApiError`（此前抛裸 zlib `Z_DATA_ERROR`，与请求无关联且不可定位）
+- `alternative edb-search --limit` ≤200、`indicator search --limit` ≤100 本地上限校验——实测服务端对超限值静默截断（201→200、101→100），与 v0.25.0 的 `--top` 同类同修法
+
 ### v0.25.0 — 2026-07-10
 
 **新增接口（4）**

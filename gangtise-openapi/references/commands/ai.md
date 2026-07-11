@@ -2,7 +2,7 @@
 
 注意：`ai one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `viewpoint-debate-check` / `earnings-review-check` 返回 `{content: "markdown文本"}`；这类命令仍然加 `--format json`，但呈现给用户时直接取 `content` 字段，不要展示 JSON 包装层。
 
-**⏱ 同步生成命令务必前置 `GANGTISE_TIMEOUT_MS=120000`**：`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `stock-summary` / `theme-tracking` / `hot-topic` / `management-discuss-*` 首次生成常 >30s，默认 30s 超时会触发重试 ×2（白等 ~92s 且可能重复扣积分）。**复制命令时别漏掉这个前缀**（运行示例见下方 `stock-summary` / `theme-tracking` 及 `examples.md` 例3）。 `earnings-review` / `viewpoint-debate` 是异步——用 `--wait`（工具超时 ≥360s）或 `*-check` 轮询，不吃这个超时。
+**⏱ 超时与重复扣分**：7 个 agent 类（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`）CLI 已内置 120s 超时下限，**无需前缀**；`stock-summary` / `hot-topic` 首次生成也常 >30s，仍建议前置 `GANGTISE_TIMEOUT_MS=120000`。自 v0.26.0 起**贵档端点超时/5xx 不再自动重试**（重放=重复扣分）——超时报错后内容可能已在服务端生成并扣费，同参数再调会**再扣一次**（实测按次计费、无缓存命中豁免），所以一次调用给足超时比失败重跑省钱；拿到的生成内容自行留存复用，别为"刷新"重调。`earnings-review` / `viewpoint-debate` 是异步——用 `--wait`（工具超时 ≥360s）或 `*-check` 轮询，不吃这个超时。
 
 ---
 

@@ -409,9 +409,20 @@ export class GangtiseClient {
       // response reads as text directly (and keeps existing behavior on that path).
       const encoding = response.headers['content-encoding']
       const gzipped = (Array.isArray(encoding) ? encoding[0] : encoding)?.toLowerCase().trim() === 'gzip'
-      const text = gzipped
-        ? decodeResponseBody(new Uint8Array(await response.body.arrayBuffer()), encoding)
-        : await response.body.text()
+      let text: string
+      if (gzipped) {
+        // A proxy/middlebox can declare gzip and deliver garbage — surface that as
+        // an ApiError with request context instead of a bare zlib Z_DATA_ERROR.
+        const bytes = new Uint8Array(await response.body.arrayBuffer())
+        try {
+          text = decodeResponseBody(bytes, encoding)
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          throw new ApiError(`Failed to decode gzip response for ${endpoint.method} ${endpoint.path}: ${detail}`, undefined, response.statusCode)
+        }
+      } else {
+        text = await response.body.text()
+      }
       logTiming(`${endpoint.method} ${endpoint.path}`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
 
       // Parse Retry-After once so every error path below (JSON parse failure AND the
@@ -441,6 +452,7 @@ export class GangtiseClient {
         throw error
       }
     }, {
+      policy: endpoint.retry === "no-replay" ? "no-replay" : "default",
       onRetry: (attempt, error, delay) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)
@@ -489,6 +501,14 @@ export class GangtiseClient {
           bodyTimeout: this.config.timeoutMs,
           dispatcher,
         })
+      }
+
+      // The loop above can exit with a 3xx still in hand (hop limit exceeded, or a
+      // redirect without Location) — that response must never be treated as file
+      // content: its HTML placeholder body would be saved as the "downloaded file".
+      if (response.statusCode >= 300 && response.statusCode < 400) {
+        await response.body.text().catch(() => {})
+        throw new ApiError(`Download failed: unresolved redirect (HTTP ${response.statusCode})`, undefined, response.statusCode)
       }
 
       const contentType = Array.isArray(response.headers['content-type']) ? response.headers['content-type'][0] : response.headers['content-type']
@@ -559,13 +579,16 @@ export class GangtiseClient {
       // Stream directly to disk when caller already knows the destination
       if (options?.streamTo) {
         await fs.mkdir(path.dirname(options.streamTo), { recursive: true })
+        // Stream into a .part sibling and rename over the target only on success:
+        // writing to the target directly would truncate an existing file on the
+        // FIRST byte and delete it on failure — a failed re-download (or each
+        // withRetry attempt) must never destroy the user's previous good file.
+        const partPath = `${options.streamTo}.part`
         try {
-          await pipeline(response.body, createWriteStream(options.streamTo))
+          await pipeline(response.body, createWriteStream(partPath))
+          await fs.rename(partPath, options.streamTo)
         } catch (error) {
-          // A mid-stream failure leaves a truncated file on disk; remove it so a
-          // failed download never looks like a complete one. withRetry may still
-          // replay the request (the next attempt re-creates the file).
-          await fs.unlink(options.streamTo).catch(() => {})
+          await fs.unlink(partPath).catch(() => {})
           throw error
         }
         logTiming(`GET ${endpoint.path} (stream)`, Date.now() - startedAt, `${response.statusCode}`)

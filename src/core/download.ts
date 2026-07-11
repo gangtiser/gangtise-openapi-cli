@@ -28,7 +28,9 @@ function truncateFilename(name: string, maxBytes = 200): string {
 /** Pick a non-existing path by suffixing -1, -2, … before the extension, so batch
  * downloads whose titles collide ("2025年第一季度报告" from several companies) don't
  * silently overwrite each other. Only auto-derived names go through this — an
- * explicit --output path keeps plain overwrite semantics. */
+ * explicit --output path keeps plain overwrite semantics. Throws instead of
+ * falling back to the original path once the suffixes run out: returning `p`
+ * there would silently overwrite the very first file. */
 export async function uniquePath(p: string): Promise<string> {
   const exists = (f: string) => fs.access(f).then(() => true, () => false)
   if (!(await exists(p))) return p
@@ -38,7 +40,7 @@ export async function uniquePath(p: string): Promise<string> {
     const candidate = `${stem}-${i}${ext}`
     if (!(await exists(candidate))) return candidate
   }
-  return p
+  throw new DownloadError(`Refusing to overwrite: 100 files already share the name "${p}" — pass --output or clean up the directory`)
 }
 
 export interface DownloadResult {
@@ -130,21 +132,68 @@ export async function resolveTitle(
 
 async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
   const { createWriteStream } = await import("node:fs")
-  const { Readable } = await import("node:stream")
   const { pipeline } = await import("node:stream/promises")
   const { dirname } = await import("node:path")
+  const { request } = await import("undici")
+  const { getDispatcher, logTiming, withRetry } = await import("./transport.js")
+  const { loadConfig } = await import("./config.js")
 
-  const response = await fetch(url)
-  if (!response.ok || !response.body) {
-    throw new DownloadError(`Failed to fetch download URL (HTTP ${response.status})`)
-  }
+  // Through the transport layer instead of a bare global fetch: the configured
+  // timeout applies (a slow-drip CDN can no longer hang the CLI indefinitely),
+  // network-level failures retry, and --verbose logs the request.
+  const timeoutMs = loadConfig().timeoutMs
   await fs.mkdir(dirname(outputPath), { recursive: true })
-  try {
-    await pipeline(Readable.fromWeb(response.body as import("node:stream/web").ReadableStream), createWriteStream(outputPath))
-  } catch (error) {
-    await fs.unlink(outputPath).catch(() => {})
-    throw error
+  // Signed URLs carry credentials in the query string — verbose logs must strip
+  // search/hash so signatures never land in terminal/CI logs.
+  const redactUrl = (u: string): string => {
+    try {
+      const parsed = new URL(u)
+      return parsed.origin + parsed.pathname
+    } catch {
+      return "signed-url"
+    }
   }
+  // .part + rename so a failed follow-download never destroys an existing file.
+  const partPath = `${outputPath}.part`
+  await withRetry(async () => {
+    const startedAt = Date.now()
+    const requestOptions = {
+      method: "GET" as const,
+      headersTimeout: timeoutMs,
+      bodyTimeout: timeoutMs,
+      dispatcher: getDispatcher(),
+    }
+    let currentUrl = url
+    let response = await request(currentUrl, requestOptions)
+    // undici does not follow redirects (the old global fetch did): a signed URL
+    // may 302 to the real CDN object. Follow a bounded number of hops; no
+    // Authorization header is involved on this path, so nothing leaks cross-origin.
+    for (let hops = 0; hops < 3 && response.statusCode >= 300 && response.statusCode < 400; hops++) {
+      const locationHeader = response.headers.location
+      const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader
+      if (!location) break
+      await response.body.text().catch(() => {})
+      currentUrl = new URL(location, currentUrl).toString()
+      response = await request(currentUrl, requestOptions)
+    }
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      await response.body.text().catch(() => {})
+      throw new DownloadError(`Failed to fetch download URL: unresolved redirect (HTTP ${response.statusCode})`)
+    }
+    if (response.statusCode >= 400) {
+      await response.body.text().catch(() => {})
+      // DownloadError (not retried): signed URLs expire — replaying a 403 is useless.
+      throw new DownloadError(`Failed to fetch download URL (HTTP ${response.statusCode})`)
+    }
+    try {
+      await pipeline(response.body, createWriteStream(partPath))
+    } catch (error) {
+      await fs.unlink(partPath).catch(() => {})
+      throw error
+    }
+    logTiming(`GET ${redactUrl(currentUrl)}`, Date.now() - startedAt, String(response.statusCode))
+  })
+  await fs.rename(partPath, outputPath)
 }
 
 export async function saveDownloadResult(result: unknown, fallbackName: string, output?: string): Promise<void> {

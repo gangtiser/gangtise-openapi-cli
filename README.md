@@ -4,6 +4,22 @@
 
 ## Changelog
 
+### v0.26.0 — 2026-07-11
+
+**资金安全（重要）**
+- 13 个贵档端点（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`×2 / `hot-topic` / `knowledge-batch` / `earnings-review get-id` / `viewpoint-debate get-id` / `concept-info` / `concept-securities`）改为 **no-replay 重试策略**：5xx / 超时 / `999999` 不再自动重放——实测（2026-07-11）平台按次计费且**缓存命中不豁免**，同参数重放每次都扣分；仅连接期错误（`ECONNREFUSED`/DNS，请求未发出）、429 限流和 token 自愈仍重试。便宜按条计费的 list 类维持原全量重试（失败响应没有数据行、不计费）
+- 连接失败 `ECONNREFUSED` / `UND_ERR_CONNECT_TIMEOUT` 纳入默认重试范围（此前这两类不重试）
+
+**文件安全**
+- 所有 `--output` 落盘（导出、流式下载主路径、签名 URL 跟随下载）改为原子写：先写同目录 `.part` 成功后 rename——重跑失败不再毁掉已有旧文件；顺带修掉中止路径上 `.part` 因流懒打开竞态残留的问题
+- 签名 URL 跟随下载改走 transport 层：遵守 `GANGTISE_TIMEOUT_MS`（此前裸 `fetch` 无超时，慢滴速 CDN 可无限挂起）、网络错误自动重试、跟随最多 3 跳重定向（undici 不自动跟随，超限/缺 `Location` 报错而非把跳转页存成文件）、`--verbose` 日志剥离签名 query 只留 origin+path
+- 自动命名去重后缀试尽 `-1`…`-99` 仍冲突时报错，不再静默覆盖最早的文件
+
+**修复 / 加固**
+- 下载重定向超过 3 跳或缺 `Location` 时报错，不再把跳转页 HTML 当文件内容保存
+- 损坏的 gzip 响应包装为带请求上下文的 `ApiError`（此前抛裸 zlib `Z_DATA_ERROR`，与请求无关联且不可定位）
+- `alternative edb-search --limit` ≤200、`indicator search --limit` ≤100 本地上限校验——实测服务端对超限值静默截断（201→200、101→100），与 v0.25.0 的 `--top` 同类同修法
+
 ### v0.25.0 — 2026-07-10
 
 **新增接口（4）**
@@ -59,31 +75,6 @@
 
 **文档 / Skill**（随 `/sync-skill` 分发，不影响 CLI 行为）
 - gangtise-openapi Agent Skill 经 fable5 审计 + 多轮 review 优化：官方积分计费速查表 + 高积分 pre-flight 闸门、AI 同步生成命令 `GANGTISE_TIMEOUT_MS=120000` 超时前置、大结果集 `--output` 落盘、异步 `--wait` 主路径、行业码口径收敛到单一权威、市值量纲实测（`qte_mkt_cptl` 仅 A 股 / 默认原始「元」/ `scale`+`currency`）等文档补全与消歧
-
-### v0.22.0 — 2026-07-02
-
-**行为变更（注意）**
-- ⚠️ 自动翻页接口省略 `--size` 现在一律拉全量（不再区分是否传时间范围）；需要只取前 N 条时请显式传 `--size N`。数据量未知时可先用 `--size 1` 从 stderr 的 `Total: N` 探明量级
-- 部分结果可机器识别：翻页页失败、K 线分片失败、或服务端提前短页但仍报告更大 `total` 时，结果会带 `partial: true`（页失败另有 `failedPages`，分片为 `failedShards`），非 json 行式输出仍只输出数据行，但进程退出码为 3
-
-**修复（鉴权 / 请求可靠性）**
-- Token 自愈覆盖服务端 `0000001008` 踢线失效，并能处理 HTTP 4xx 错误信封；`GANGTISE_TOKEN` + AK/SK 场景下环境 token 失效后不再反复回放旧 token
-- 并发请求同时遇到旧 token 失效时复用一次刷新结果；若刚拿到的新 token 本身被踢掉，则强制再次登录，避免"刚登录窗口期"误跳过刷新
-- 自动重试范围扩展到 429、DNS/网络临时错误与 undici 超时类错误；`GANGTISE_BASE_URL` 带路径前缀时 URL 拼接不再丢前缀
-
-**修复（下载 / 输出 / 数据正确性）**
-- 下载接口跟随最多 3 次 30x 跳转；跨域跳到对象存储签名 URL 时不携带 Authorization；服务端返回 `{url}` 且用户传 `--output` 时会真正下载文件，而不是把 URL 字符串写进文件
-- 自动文件名补齐清洗、截断与去重：服务端文件名、标题缓存名和 fallback 名都不会把 `/`、控制字符、过长中文名或重复标题变成路径/覆盖问题
-- `table`/`markdown` 输出清理控制字符、正确按 CJK 宽字符对齐，并转义 markdown 表头中的 `|`；CSV 输出转义表头、文件输出带 UTF-8 BOM，流式 CSV 遇全标量列表时回退到正常渲染而不是只写 BOM
-- `indicator search` / `cross-section` / `time-series` 的内层失败信封即使没有 `data` 字段也会抛出 `ApiError`，不再把"无权限/参数错误"渲染成成功结果
-- `--indicator-param` 等逗号列表支持全角逗号 `，`；日期型时间参数按本地零点解析，避免 `yyyy-MM-dd` 被当作 UTC 造成查询窗口偏移
-- `fundamental earning-forecast` 省略 `--start-date` 时按传入的 `--end-date` 往前一年计算，不再总是按今天往前一年
-- AI 异步 `--wait` 对 `410111` 终态失败只提示"不要重试"，超时才提示稍后用 check 命令查询；等待说明同步为最长约 5 分钟
-
-**CLI / 工程**
-- `raw call` 会在本地拒绝 JSON endpoint 的 `--query` 和 download endpoint 的 `--body`，避免静默丢参数；`--format` 在发请求前校验，格式拼错不再先消耗接口调用
-- `gangtise ... | head` 遇 stdout `EPIPE` 时安静退出；只有首个参数是 `--version` / `-V` 时才触发版本快捷路径
-- Endpoint registry 的 `key` 改为由记录键自动派生，减少映射漂移；新增真实 CLI 选项到请求体的 stub 测试；测试 272 → 323
 
 > 更早版本及完整更新历史见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -311,7 +302,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / 429 / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 超时类）/ `999999` 系统错误自动指数退避重试 2 次。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档生成类端点例外**（one-pager 等 13 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。
 - **Token 自愈**：调用返回 8000014/8000015 时自动强制刷新 Token 并重试一次。
 - **K线/资金流向自动分片**：`quote day-kline --security all`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。

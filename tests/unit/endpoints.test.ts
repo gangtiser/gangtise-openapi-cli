@@ -452,6 +452,37 @@ describe("ENDPOINTS", () => {
     expect(ep.pagination).toBeUndefined()
   })
 
+  it("marks per-call billed generation/submission endpoints as no-replay", () => {
+    // Billing probed 2026-07-11: the platform charges per call with NO cache-hit
+    // exemption, so replaying a 5xx/timeout on these fixed-price endpoints
+    // double-bills. Per-ROW billed lists stay on the default policy — a failed
+    // response returned no rows, so nothing was billed.
+    const NO_REPLAY_KEYS = [
+      "ai.one-pager",
+      "ai.investment-logic",
+      "ai.peer-comparison",
+      "ai.theme-tracking",
+      "ai.research-outline",
+      "ai.management-discuss-announcement",
+      "ai.management-discuss-earnings-call",
+      "ai.hot-topic",
+      "ai.knowledge-batch",
+      "ai.earnings-review.get-id",
+      "ai.viewpoint-debate.get-id",
+      "alternative.concept-info",
+      "alternative.concept-securities",
+    ]
+    for (const key of NO_REPLAY_KEYS) {
+      expect(ENDPOINTS[key], key).toBeDefined()
+      expect(ENDPOINTS[key].retry, key).toBe("no-replay")
+    }
+    // Per-row billed / read-only endpoints keep the default full-retry policy.
+    expect(ENDPOINTS["ai.stock-summary.list"].retry).toBeUndefined()
+    expect(ENDPOINTS["ai.earnings-review.get-content"].retry).toBeUndefined()
+    expect(ENDPOINTS["ai.viewpoint-debate.get-content"].retry).toBeUndefined()
+    expect(ENDPOINTS["insight.qa.list"].retry).toBeUndefined()
+  })
+
   // Endpoint keys appear as bare string literals throughout cli.ts
   // (client.call("..."), addDownloadCommand({ endpointKey: "..." }), addKlineCommand(...)).
   // A typo only surfaces at runtime as "Unknown endpoint key"; this catches it at

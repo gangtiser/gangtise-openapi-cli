@@ -380,6 +380,19 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured).toHaveLength(0)
   }, 30_000)
 
+  it("rejects --limit above the documented cap before any request goes out (server silently truncates)", async () => {
+    // Probed 2026-07-11: edb-search --limit 201 returns exactly 200 rows and
+    // indicator search --limit 101 returns exactly 100 — no server error, so the
+    // CLI must fail locally, same treatment as the v0.25.0 --top caps.
+    const edb = await cli(["alternative", "edb-search", "--keyword", "空调", "--limit", "201"])
+    expect(edb.code).not.toBe(0)
+    expect(edb.out).toContain("<= 200")
+    const ede = await cli(["indicator", "search", "--keyword", "率", "--limit", "101"])
+    expect(ede.code).not.toBe(0)
+    expect(ede.out).toContain("<= 100")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
   it("rejects a misspelled reference-search --category before any request goes out", async () => {
     // Probed 2026-07-10: the server never rejects a bogus category — securities-search
     // silently IGNORES the filter (returns all categories), institution-search and

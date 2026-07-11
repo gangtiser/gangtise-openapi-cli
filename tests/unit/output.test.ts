@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { renderOutput, streamOutputToFile } from "../../src/core/output.js"
+import { renderOutput, saveOutputIfNeeded, streamOutputToFile } from "../../src/core/output.js"
 
 describe("streamOutputToFile error handling", () => {
   const dir = path.join(os.tmpdir(), `gangtise-output-test-${process.pid}`)
@@ -21,6 +21,51 @@ describe("streamOutputToFile error handling", () => {
     await fs.mkdir(target, { recursive: true })
     const rows = Array.from({ length: 1000 }, (_, i) => ({ id: i }))
     await expect(streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).rejects.toThrow()
+  })
+
+  it("preserves the old file when a streamed re-export fails mid-write", async () => {
+    // Re-exporting over an existing file must not destroy it on failure: the
+    // write goes to a .part sibling and only replaces the target on success.
+    const target = path.join(dir, "atomic.jsonl")
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(target, "OLD\n")
+    const rows: Array<Record<string, unknown>> = Array.from({ length: 1100 }, (_, i) => ({ id: i }))
+    rows[500].boom = 10n // JSON.stringify throws on BigInt mid-stream
+    await expect(streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).rejects.toThrow()
+    expect(await fs.readFile(target, "utf8")).toBe("OLD\n")
+    await expect(fs.access(target + ".part")).rejects.toThrow()
+  })
+
+  it("leaves no .part file behind after a successful streamed write", async () => {
+    const target = path.join(dir, "clean.jsonl")
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ id: i }))
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).toBe(true)
+    expect((await fs.readFile(target, "utf8")).trimEnd().split("\n")).toHaveLength(1000)
+    await expect(fs.access(target + ".part")).rejects.toThrow()
+  })
+
+  it("saveOutputIfNeeded preserves the old file when the fresh write cannot be created", async () => {
+    const lockedDir = path.join(dir, "locked")
+    await fs.mkdir(lockedDir, { recursive: true })
+    const target = path.join(lockedDir, "out.txt")
+    await fs.writeFile(target, "OLD")
+    await fs.chmod(lockedDir, 0o555) // .part creation now fails EACCES
+    try {
+      await expect(saveOutputIfNeeded("NEW", target)).rejects.toThrow()
+      await fs.chmod(lockedDir, 0o755)
+      expect(await fs.readFile(target, "utf8")).toBe("OLD")
+    } finally {
+      await fs.chmod(lockedDir, 0o755).catch(() => {})
+    }
+  })
+
+  it("saveOutputIfNeeded replaces content on success with no .part left behind", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const target = path.join(dir, "replace.txt")
+    await fs.writeFile(target, "OLD")
+    await saveOutputIfNeeded("NEW", target)
+    expect(await fs.readFile(target, "utf8")).toBe("NEW")
+    await expect(fs.access(target + ".part")).rejects.toThrow()
   })
 
   it("streams ≥1000 jsonl rows to disk and every line parses back", async () => {

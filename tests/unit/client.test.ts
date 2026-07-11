@@ -224,6 +224,41 @@ describe("GangtiseClient pagination", () => {
     expect(secondHeaders.Authorization).toBeUndefined() // bearer must not leak to storage hosts
   })
 
+  it("throws instead of saving the redirect page when redirects exceed the hop limit", async () => {
+    // Endless 302 chain: the loop follows a bounded number of hops; when the
+    // final response is still a 3xx it must become an ApiError instead of
+    // flowing into the content branches and being saved as the "downloaded file".
+    requestMock.mockImplementation(() => Promise.resolve({
+      statusCode: 302,
+      headers: { location: "/loop.pdf", "content-type": "text/html" },
+      body: { text: vi.fn().mockResolvedValue("<html>moved</html>"), arrayBuffer: vi.fn() },
+    }))
+    const client = createClient()
+    await expect(client.call("insight.research.download", undefined, { reportId: "1" })).rejects.toMatchObject({ statusCode: 302 })
+  })
+
+  it("throws when a redirect carries no Location header instead of saving its body", async () => {
+    requestMock.mockResolvedValueOnce({
+      statusCode: 302,
+      headers: { "content-type": "text/html" },
+      body: { text: vi.fn().mockResolvedValue("<html>moved</html>"), arrayBuffer: vi.fn() },
+    })
+    const client = createClient()
+    await expect(client.call("insight.research.download", undefined, { reportId: "1" })).rejects.toBeInstanceOf(ApiError)
+  })
+
+  it("wraps a corrupt gzip body in an ApiError instead of leaking a bare zlib error", async () => {
+    // A proxy/middlebox can declare gzip and deliver garbage; the bare
+    // Z_DATA_ERROR from zlib carries no request context and confuses users.
+    requestMock.mockResolvedValueOnce({
+      statusCode: 200,
+      headers: { "content-encoding": "gzip", "content-type": "application/json" },
+      body: { arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]).buffer), text: vi.fn() },
+    })
+    const client = createClient()
+    await expect(client.call("insight.qa.list", { securityCode: "601012.SH", from: 0, size: 1 })).rejects.toBeInstanceOf(ApiError)
+  })
+
   it("keeps the raw filename when content-disposition has a bare % (invalid URI encoding)", async () => {
     // decodeURIComponent throws URIError on "增长100%.pdf"; the download must not
     // fail over a cosmetic filename hint — fall back to the undecoded value.
@@ -522,6 +557,29 @@ describe("GangtiseClient envelope unwrapping", () => {
     await expect(client.call("ai.one-pager", { securityCode: "x" })).rejects.toMatchObject({
       message: "Failed to parse API response",
     })
+  })
+})
+
+describe("GangtiseClient retry policy wiring", () => {
+  beforeEach(() => {
+    requestMock.mockReset()
+  })
+
+  it("sends exactly one request when a no-replay endpoint hits a 5xx", async () => {
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "999999", msg: "系统内部错误" }, 503))
+    const client = createClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toBeInstanceOf(ApiError)
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("still replays a 5xx on a default-policy endpoint", async () => {
+    requestMock
+      .mockResolvedValueOnce(rawJsonResponse({ code: "999999", msg: "系统内部错误" }, 503))
+      .mockResolvedValue(jsonResponse({ total: 0, list: [] }))
+    const client = createClient()
+    const result = await client.call("insight.qa.list", { securityCode: "601012.SH", from: 0, size: 1 }) as { total: number }
+    expect(result.total).toBe(0)
+    expect(requestMock).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -862,6 +920,28 @@ describe("GangtiseClient streaming download", () => {
     expect(result.savedPath).toBe(streamTo)
     expect(result.filename).toBe("report.pdf")
     expect(await fs.readFile(streamTo, "utf8")).toBe("hello world")
+    await expect(fs.access(streamTo + ".part")).rejects.toThrow() // no .part litter
+  })
+
+  it("preserves an existing file at the destination when a re-download fails mid-stream", async () => {
+    // The stream must write to a .part sibling and only rename on success —
+    // otherwise a failed re-download (or each withRetry attempt) truncates and
+    // then deletes the user's previous good file.
+    await fs.writeFile(streamTo, "OLD")
+    function* boom() {
+      yield Buffer.from("partial bytes")
+      throw new Error("stream boom")
+    }
+    requestMock.mockResolvedValueOnce({
+      statusCode: 200,
+      headers: { "content-type": "application/octet-stream" },
+      body: Readable.from(boom()),
+    })
+
+    const client = createClient()
+    await expect(client.call("insight.research.download", undefined, { reportId: "1" }, { streamTo })).rejects.toThrow("stream boom")
+    expect(await fs.readFile(streamTo, "utf8")).toBe("OLD")
+    await expect(fs.access(streamTo + ".part")).rejects.toThrow()
   })
 
   it("removes the partial file when the stream fails mid-download", async () => {

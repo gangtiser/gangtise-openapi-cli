@@ -168,7 +168,10 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   const { createWriteStream } = await import("node:fs")
   await fs.mkdir(dirname(outputPath), { recursive: true })
 
-  const stream = createWriteStream(outputPath, { encoding: "utf8" })
+  // Stream into a .part sibling and rename over the target only on success, so a
+  // failed re-export never destroys the previous good file.
+  const partPath = `${outputPath}.part`
+  const stream = createWriteStream(partPath, { encoding: "utf8" })
   // A stream 'error' with no listener (EACCES on open, ENOSPC mid-write) crashes the
   // process before any write callback fires. Swallow the event here — the failure
   // still surfaces through the write/end callbacks below.
@@ -189,10 +192,19 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
     await new Promise<void>((resolve, reject) => {
       stream.end((err?: Error | null) => err ? reject(err) : resolve())
     })
+    await fs.rename(partPath, outputPath)
   } catch (error) {
     // Mirror the download path: never leave a truncated file that looks complete.
+    // createWriteStream opens lazily — an early abort can reach unlink BEFORE the
+    // open() creates the file, so wait for 'close' (fd released or open aborted)
+    // or the .part would reappear right after being "removed".
     stream.destroy()
-    await fs.unlink(outputPath).catch(() => {})
+    // Already-closed happens when the failure was the rename (stream ended fine);
+    // then 'close' has fired and waiting for it again would hang forever.
+    if (!stream.closed) {
+      await new Promise<void>((resolve) => stream.once("close", resolve))
+    }
+    await fs.unlink(partPath).catch(() => {})
     throw error
   }
   return true
@@ -249,10 +261,18 @@ export async function saveOutputIfNeeded(content: string | Uint8Array, outputPat
   const { dirname } = await import("node:path")
   await fs.mkdir(dirname(outputPath), { recursive: true })
 
-  if (typeof content === "string") {
-    await fs.writeFile(outputPath, content, "utf8")
-    return
+  // Write to a .part sibling and rename over the target only on success, so a
+  // failed re-export/download never destroys the previous good file.
+  const partPath = `${outputPath}.part`
+  try {
+    if (typeof content === "string") {
+      await fs.writeFile(partPath, content, "utf8")
+    } else {
+      await fs.writeFile(partPath, content)
+    }
+    await fs.rename(partPath, outputPath)
+  } catch (error) {
+    await fs.unlink(partPath).catch(() => {})
+    throw error
   }
-
-  await fs.writeFile(outputPath, content)
 }

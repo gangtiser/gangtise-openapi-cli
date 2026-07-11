@@ -1,12 +1,24 @@
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { Readable } from "node:stream"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { extFromContentType, resolveTitle, saveDownloadResult } from "../../src/core/download.js"
+import { extFromContentType, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
 import { DownloadError } from "../../src/core/errors.js"
 import { readTitleCache } from "../../src/core/titleCache.js"
+
+const { requestMock } = vi.hoisted(() => ({
+  requestMock: vi.fn(),
+}))
+
+// downloadUrlTo goes through the transport layer (shared undici request); mock it
+// so signed-URL tests control status/body/timeout without a real server.
+vi.mock("undici", async () => {
+  const actual = await vi.importActual<typeof import("undici")>("undici")
+  return { ...actual, request: requestMock }
+})
 
 // resolveTitle reads the on-disk title cache via readTitleCache(); stub it to an
 // empty cache so these tests stay hermetic and fast (the real cache can be large).
@@ -77,6 +89,7 @@ describe("saveDownloadResult", () => {
 
   beforeEach(() => {
     outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    requestMock.mockReset()
   })
 
   afterEach(async () => {
@@ -161,28 +174,117 @@ describe("saveDownloadResult", () => {
     // The old behavior wrote the URL STRING into x.pdf — a "corrupt file" from the
     // user's point of view. With an output path we must fetch the actual content.
     const bytes = new Uint8Array([80, 75, 3, 4])
-    const fetchMock = vi.fn().mockResolvedValue(new Response(bytes, { status: 200 }))
-    vi.stubGlobal("fetch", fetchMock)
+    requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from(bytes)) })
+    const out = path.join(dir, "followed.pdf")
+    await saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)
+    expect(String(requestMock.mock.calls[0][0])).toBe("https://signed.example.com/f.pdf")
+    expect(new Uint8Array(await fs.readFile(out))).toEqual(bytes)
+    expect(stdout().trim()).toBe(out)
+  })
+
+  it("applies the configured timeout to signed-URL downloads (no unbounded fetch)", async () => {
+    // The bare global fetch had no timeout: a slow-drip CDN could hang the CLI
+    // indefinitely. The transport path must carry GANGTISE_TIMEOUT_MS.
+    vi.stubEnv("GANGTISE_TIMEOUT_MS", "1234")
     try {
-      const out = path.join(dir, "followed.pdf")
+      requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from([1])) })
+      const out = path.join(dir, "timed.pdf")
       await saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)
-      expect(fetchMock).toHaveBeenCalledWith("https://signed.example.com/f.pdf")
-      expect(new Uint8Array(await fs.readFile(out))).toEqual(bytes)
-      expect(stdout().trim()).toBe(out)
+      const opts = requestMock.mock.calls[0][1] as { headersTimeout?: number; bodyTimeout?: number }
+      expect(opts.headersTimeout).toBe(1234)
+      expect(opts.bodyTimeout).toBe(1234)
     } finally {
-      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
     }
   })
 
   it("throws DownloadError when the followed URL responds with an error status", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("expired", { status: 403 })))
+    requestMock.mockResolvedValue({ statusCode: 403, headers: {}, body: { text: vi.fn().mockResolvedValue("expired") } })
+    const out = path.join(dir, "expired.pdf")
+    await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toBeInstanceOf(DownloadError)
+    await expect(fs.access(out)).rejects.toThrow() // no half-written file
+  })
+
+  it("follows a signed-URL redirect chain to the final content", async () => {
+    // undici does not follow redirects (the old global fetch did) — without
+    // explicit handling the 302 placeholder body gets saved as the "file".
+    const finalBytes = new Uint8Array([37, 80, 68, 70])
+    requestMock
+      .mockResolvedValueOnce({ statusCode: 302, headers: { location: "https://cdn.example.com/real.pdf" }, body: { text: vi.fn().mockResolvedValue("") } })
+      .mockResolvedValueOnce({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from(finalBytes)) })
+    const out = path.join(dir, "redirected.pdf")
+    await saveDownloadResult({ url: "https://signed.example.com/start.pdf" }, "fallback", out)
+    expect(String(requestMock.mock.calls[1][0])).toBe("https://cdn.example.com/real.pdf")
+    expect(new Uint8Array(await fs.readFile(out))).toEqual(finalBytes)
+  })
+
+  it("resolves a relative redirect Location against the current URL", async () => {
+    requestMock
+      .mockResolvedValueOnce({ statusCode: 302, headers: { location: "/real.pdf" }, body: { text: vi.fn().mockResolvedValue("") } })
+      .mockResolvedValueOnce({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from([1])) })
+    const out = path.join(dir, "relative.pdf")
+    await saveDownloadResult({ url: "https://signed.example.com/a/start.pdf" }, "fallback", out)
+    expect(String(requestMock.mock.calls[1][0])).toBe("https://signed.example.com/real.pdf")
+  })
+
+  it("throws instead of saving the redirect page when hops exceed the limit or Location is missing", async () => {
+    requestMock.mockImplementation(() => Promise.resolve({
+      statusCode: 302,
+      headers: { location: "https://signed.example.com/loop.pdf" },
+      body: { text: vi.fn().mockResolvedValue("REDIRECT BODY") },
+    }))
+    const looped = path.join(dir, "loop.pdf")
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(looped, "OLD")
+    await expect(saveDownloadResult({ url: "https://signed.example.com/start.pdf" }, "fallback", looped)).rejects.toBeInstanceOf(DownloadError)
+    expect(await fs.readFile(looped, "utf8")).toBe("OLD") // old file untouched
+
+    requestMock.mockReset()
+    requestMock.mockResolvedValue({ statusCode: 302, headers: {}, body: { text: vi.fn().mockResolvedValue("REDIRECT BODY") } })
+    const noLocation = path.join(dir, "no-location.pdf")
+    await expect(saveDownloadResult({ url: "https://signed.example.com/start.pdf" }, "fallback", noLocation)).rejects.toBeInstanceOf(DownloadError)
+    await expect(fs.access(noLocation)).rejects.toThrow()
+  })
+
+  it("redacts the signed-URL query string from verbose logs", async () => {
+    const { setVerbose } = await import("../../src/core/transport.js")
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    setVerbose(true)
     try {
-      const out = path.join(dir, "expired.pdf")
-      await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toBeInstanceOf(DownloadError)
-      await expect(fs.access(out)).rejects.toThrow() // no half-written file
+      requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from([1])) })
+      const out = path.join(dir, "redacted.pdf")
+      await saveDownloadResult({ url: "https://oss.example.com/f.pdf?X-Signature=TOPSECRET&Expires=1" }, "fallback", out)
+      const logged = errSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(logged).toContain("oss.example.com/f.pdf")
+      expect(logged).not.toContain("TOPSECRET")
     } finally {
-      vi.unstubAllGlobals()
+      setVerbose(false)
+      errSpy.mockRestore()
     }
+  })
+
+  it("preserves an existing file when the followed download dies mid-stream", async () => {
+    const out = path.join(dir, "keep.pdf")
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(out, "OLD")
+    const broken = new Readable({
+      read() {
+        this.push(Buffer.from("partial"))
+        this.destroy(new Error("connection cut"))
+      },
+    })
+    requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: broken })
+    await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toThrow()
+    expect(await fs.readFile(out, "utf8")).toBe("OLD") // re-download failure must not destroy the old file
+    await expect(fs.access(out + ".part")).rejects.toThrow() // no .part litter
+  })
+
+  it("uniquePath throws instead of overwriting the original after 99 suffix collisions", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const base = path.join(dir, "dup.pdf")
+    await fs.writeFile(base, "x")
+    await Promise.all(Array.from({ length: 99 }, (_, i) => fs.writeFile(path.join(dir, `dup-${i + 1}.pdf`), "x")))
+    await expect(uniquePath(base)).rejects.toBeInstanceOf(DownloadError)
   })
 
   it("still prints the URL to stdout when no output path is given", async () => {

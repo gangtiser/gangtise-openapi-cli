@@ -660,7 +660,7 @@ program.addCommand(ai)
 const alternative = new Command("alternative").description("Alternative data APIs")
 alternative.command("edb-search").requiredOption("--keyword <text>", "Search keyword (e.g. '空调')").option("--limit <number>", "Max results (default: 100, max: 200)", "100").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.edb-search", {
     keyword: options.keyword,
-    limit: parseNumberOption(options.limit, "--limit", { integer: true, min: 1 }),
+    limit: parseNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 200 }),
   })))
 alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (repeat, max 10)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)").requiredOption("--end-date <date>", "End date (yyyy-MM-dd)").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
@@ -690,7 +690,7 @@ indicator.command("search").requiredOption("--keyword <text>", "Search keyword, 
   const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.search", {
     keyword: options.keyword,
-    limit: parseNumberOption(options.limit, "--limit", { integer: true, min: 1 }),
+    limit: parseNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 100 }),
   })
   await printData(unwrapIndicatorData(raw), format, options.output)
 }))
