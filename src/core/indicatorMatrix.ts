@@ -36,7 +36,11 @@ export function unwrapIndicatorData(raw: unknown): unknown {
       // (status/msg/data) so a non-envelope object that merely carries a `code`
       // field can't be misread as a failure.
       if (!ok && ("status" in record || "msg" in record || "data" in record)) {
-        throw new ApiError(typeof record.msg === "string" && record.msg ? record.msg : "Indicator API request failed", code)
+        // Pass `record` as details: the inner envelope carries no traceId of its
+        // own, but unwrapEnvelope attached the outer one to this object and
+        // ApiError.traceId falls back to it. Without it these failures — the EDE
+        // 999999 / 130001 that most need reporting — reach the user trace-less.
+        throw new ApiError(typeof record.msg === "string" && record.msg ? record.msg : "Indicator API request failed", code, undefined, record)
       }
       if (ok && "data" in record) return record.data
     }

@@ -891,6 +891,91 @@ describe("GangtiseClient auth recovery", () => {
     expect(listCalls).toBe(2) // initial 0000001008 + retry after forced re-login
   })
 
+  it("auto-recovers on the renumbered 999002 TOKEN_INVALID (401) the same as on 0000001008", async () => {
+    // 2026-07-17 renumbering. The token filter still emits 0000001008 today, but
+    // self-heal must not silently stop working the day it switches over.
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      if (listCalls === 1) return Promise.resolve(rawJsonResponse({ code: 999002, errorType: "TOKEN_INVALID", msg: "令牌无效或已过期" }, 401))
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    const client = loginClient()
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 42 })
+    expect(listCalls).toBe(2) // initial 999002 + retry after forced re-login
+  })
+
+  it("does not replay 999011 CREDENTIAL_INVALID — bad AK/SK will not fix itself", async () => {
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      return Promise.resolve(rawJsonResponse({ code: 999011, errorType: "CREDENTIAL_INVALID", msg: "开发账号凭证无效（ak/sk 匹配失败）" }, 401))
+    })
+
+    const client = loginClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toMatchObject({ code: "999011" })
+    expect(listCalls).toBe(1)
+  })
+
+  it("surfaces the envelope traceId on the raised ApiError", async () => {
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve(rawJsonResponse({ code: 130002, errorType: "RESOURCE_NOT_FOUND", msg: "资源不存在", traceId: "830970758816235520" }, 404))
+    })
+
+    const client = loginClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" }))
+      .rejects.toMatchObject({ code: "130002", traceId: "830970758816235520" })
+  })
+
+  it("carries the envelope traceId onto the payload so double-wrapped EDE failures keep it", async () => {
+    // EDE nests a second envelope inside `data` and raises its own failures from it
+    // (indicatorMatrix.unwrapIndicatorData), by which point the outer envelope — the
+    // only layer carrying a traceId, probed 2026-07-20 — has already been stripped.
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve(rawJsonResponse({
+        code: "000000", status: true, traceId: "830886133018902528",
+        data: { code: 130001, status: false, msg: "指标无权限" },
+      }))
+    })
+
+    const client = loginClient()
+    const inner = await client.call("indicator.cross-section", { date: "2026-07-17" })
+    expect(new ApiError("指标无权限", "130001", undefined, inner).traceId).toBe("830886133018902528")
+  })
+
+  it("keeps the server's Retry-After when the error arrives as a 200-wrapped envelope", async () => {
+    // throwHttpError passes it on for 4xx/5xx, but Gangtise also returns errors
+    // inside an HTTP 200 envelope — that route used to discard the server's own
+    // backoff window.
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve({
+        statusCode: 200,
+        headers: { "content-type": "application/json", "retry-after": "5" },
+        body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: 999006, status: false, msg: "调用超出限制" })) },
+      })
+    })
+
+    const client = loginClient()
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" }))
+      .rejects.toMatchObject({ code: "999006", retryAfterMs: 5000 })
+  })
+
   it("does not loop back to a stale injected env token after self-heal (TOKEN + AK/SK)", async () => {
     // config has BOTH an injected env token (now stale) AND AK/SK. The stale token is
     // rejected; self-heal logs in for a fresh token and the retry must use THAT, not
@@ -919,6 +1004,25 @@ describe("GangtiseClient auth recovery", () => {
 
     expect(result).toEqual({ answer: 42 }) // retry used the fresh token, not the stale one
     expect(listCalls).toBe(2) // initial stale-token reject + one successful retry
+  })
+
+  it("keeps the server's Retry-After on a download error delivered as a JSON envelope", async () => {
+    // The download JSON path unwraps its envelope too and used to drop the
+    // retryAfterMs that the main JSON path preserves (client.ts throwHttpError passes
+    // it, unwrapEnvelope did not).
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve({
+        statusCode: 200,
+        headers: { "content-type": "application/json", "retry-after": "5" },
+        body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: 999006, status: false, msg: "调用超出限制" })) },
+      })
+    })
+    const client = loginClient()
+    await expect(client.call("insight.research.download", undefined, { reportId: "123" }))
+      .rejects.toMatchObject({ code: "999006", retryAfterMs: 5000 })
   })
 
   it("auto-recovers a download from an auth error by refreshing the token once", async () => {

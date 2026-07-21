@@ -304,6 +304,53 @@ describe("cli smoke", () => {
     expect(out).toContain("--query")
   }, 30_000)
 
+  it("management-discuss --report-date is validated as YYYY-MM-DD before any spend (dateArg wired)", async () => {
+    // Regression for the dateArg wiring on the two management-discuss commands: it
+    // is the only guard stopping a year-last report-date from reaching a 10-credit
+    // endpoint that may misread it. base-url points at an unreachable host, so the
+    // validation message can only come from a wired dateArg — a dropped wiring
+    // would instead surface a connection/auth error.
+    for (const cmd of ["management-discuss-announcement", "management-discuss-earnings-call"]) {
+      const bad = await cli(["ai", cmd, "--report-date", "07/01/2026", "--security-code", "000001.SZ", "--dimension", "businessOperation"])
+      expect(bad.code, cmd).toBe(1)
+      expect(bad.out, cmd).toContain("expected YYYY-MM-DD")
+
+      // A well-formed date clears validation (and only then fails on the host).
+      const ok = await cli(["ai", cmd, "--report-date", "2025-06-30", "--security-code", "000001.SZ", "--dimension", "businessOperation"])
+      expect(ok.out, cmd).not.toContain("expected YYYY-MM-DD")
+    }
+  }, 30_000)
+
+  it("pass-through datetime options reject year-last dates before any request (datetimeArg wired)", async () => {
+    // --start-time/--end-time on the Insight/Vault/minute-kline list commands reach
+    // the server as a raw string, where a year-last date is silently misread as a
+    // different day (probed 2026-07-21: research list read 07/01/2026 as 2026-01-07
+    // but 07-01-2026 as 2026-07-01). base-url is unreachable, so the validation
+    // message can only come from a wired datetimeArg — covers the helper, a manual
+    // option, a no-description option, and the quote command.
+    const cases = [
+      ["insight", "research", "list", "--keyword", "x", "--start-time", "07/01/2026"],
+      ["insight", "summary", "list", "--start-time", "07-01-2026"],
+      ["vault", "drive-list", "--start-time", "07/01/2026"],
+      ["quote", "minute-kline", "--security", "600519.SH", "--start-time", "07/01/2026"],
+    ]
+    for (const args of cases) {
+      const { code, out } = await cli(args)
+      expect(code, args.join(" ")).toBe(1)
+      expect(out, args.join(" ")).toContain("expected a Unix timestamp")
+    }
+  }, 30_000)
+
+  it("knowledge-batch --start-time is validated before any spend (parseTimestamp13, not a bare integer check)", async () => {
+    // Body-level guard, not an argParser: a year-last string used to sail through
+    // parseOptionalNumberOption's integer check unconverted, and a 10-digit seconds
+    // value was sent as millis (a 1970 window). parseTimestamp13 refuses year-last
+    // and normalizes seconds→millis. Reaches the guard before the billed call.
+    const { code, out } = await cli(["ai", "knowledge-batch", "--query", "x", "--start-time", "07/01/2026"])
+    expect(code).toBe(1)
+    expect(out).toContain("expected a Unix timestamp")
+  }, 30_000)
+
   it("auth login exposes --show-token (token redacted by default)", async () => {
     const { code, out } = await cli(["auth", "login", "--help"])
     expect(code).toBe(0)

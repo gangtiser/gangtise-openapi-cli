@@ -182,7 +182,7 @@
      gangtise ai earnings-review-check --data-id xxx --format json
    - 若 {status: "pending"} → 再等再 check（最多 3 次）
    - 若 {date, content} → 取 content 呈现
-   - 若 410111 → 终态失败，告知用户重试
+   - 若 410111（新码 140002）→ 终态失败，**不要重提同一任务**（会再扣 50 积分且结果相同）；改参数后再提交，或直接告知用户该期数据暂不可用
 ```
 
 ## 例 13：题材画像 ＋ 成分股（先查 ID 再拉两接口）

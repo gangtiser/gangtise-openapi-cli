@@ -9,14 +9,14 @@
 ## 知识库搜索 `ai knowledge-batch`
 
 ```bash
-gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>] [--start-time <ms>] [--end-time <ms>]
+gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>] [--start-time <ts|datetime>] [--end-time <ts|datetime>]
 ```
 
 - `--query`（**必选**，可重复，最多 5 个）：缺失时本地报错，不发空请求
 - `--top` 默认 10，最大 20
 - `--resource-type`：`10` 券商研报 | `11` 外资研报 | `20` 内部报告 | `40` 首席观点 | `50` 公司公告 | `51` 港股公告 | `60` 会议平台纪要 | `70` 调研纪要公告 | `80` 网络资源纪要 | `90` 产业公众号
 - `--knowledge-name`：`system_knowledge_doc` 系统知识库 | `tenant_knowledge_doc` 机构知识库
-- `--start-time` / `--end-time`：13 位毫秒时间戳，按时间范围过滤
+- `--start-time` / `--end-time`：13/10 位时间戳或 `YYYY-MM-DD[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔；CLI 统一转 13 位毫秒，10 位秒自动 ×1000），按时间范围过滤
 
 ## 知识资源下载 `ai knowledge-resource-download`
 
@@ -24,7 +24,7 @@ gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--reso
 gangtise ai knowledge-resource-download --resource-type <n> --source-id <id> [--output <path>]
 ```
 
-`resourceType + sourceId` 必须匹配（来自 knowledge-batch 返回），错配返回 `433007`。
+`resourceType + sourceId` 必须匹配（来自 knowledge-batch 返回），错配返回 `250001`（旧 `433007`）。
 
 ## 投研线索 `ai security-clue`
 
@@ -86,7 +86,7 @@ gangtise ai earnings-review-check --data-id <id>
 - `--period`：`年份+报告期`，如 `2025q3`（q1/interim/q3/annual），仅 A 股，覆盖最近 6 期
 - `--wait`（**推荐**）：阻塞等待到出结果（最长约 5 分钟：14 次指数退避轮询 5s→30s，累计 ≈316s）——**用它时把工具/命令超时设到 ≥360s**，否则外层先超时
 - 不带 `--wait` 的手动轮询：① `earnings-review` → 拿 `{dataId, status, hint}` → ② 间隔 ~30s `*-check`（预算 ~2-3 分钟）→ pending 继续 → 多次仍 pending 交用户稍后手动 check
-- 错误码：`410110` 生成中（继续等待）；`410111` 生成失败（终态，不重试）
+- 错误码：`140001`（旧 `410110`）生成中，继续等待；`140002`（旧 `410111`）生成失败，终态不重试。CLI 两代码都识别
 
 ## 观点 PK `ai viewpoint-debate`（异步）
 

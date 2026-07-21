@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.27.0"
+version: "0.28.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -33,7 +33,7 @@ description: |-
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
    - 5xx / `429` / 网络错误 / `999999` → 自动指数退避重试（🔴 贵档端点例外：仅连接失败 / 429 / token 自愈重试，5xx/超时不重放防重复扣分，v0.26.0；`indicator` 端点对 `999999` 不重试——该码=查询无数据，v0.27.0）
-   - Token 失效（`0000001008` 服务端失效 / `8000014` / `8000015` AK/SK 错误）→ 自动重新登录并重试一次
+   - Token 失效（`0000001008` / `999002`，含已废弃的 `8000014`/`8000015`）→ 自动重新登录并重试一次；凭证错 `999011` → **不重试**（AK/SK 不对不会自己好），查环境变量
 8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`（例外：`ai stock-summary` 用 `--security`，`ai security-clue` 用 `--gts-code`）。
 9. **调试**：`--verbose` 或 `GANGTISE_VERBOSE=1` 打印每个请求的耗时/字节数到 stderr。
 
@@ -69,7 +69,7 @@ description: |-
 - **免费**：所有 `quote` 行情、`fundamental` 报表/主营/估值/股东（**盈利预测除外**）、`reference`/`constant` 查询（含 `official-account-search`）、`alternative edb-search`、`vault`（record/wechat/股票池/drive/AI云盘）、`insight report-image list`
 - **0.1/条 list**：research / foreign-report / official-account / announcement(A/港/美) / summary / qa 的 list、`vault my-conference-list`；`insight report-image download` 0.1/张
 - **按条（观点/含详情类 list）**：independent-opinion list 与 `ai security-clue` 5；roadshow/site-visit/strategy/forum list 20；opinion / foreign-opinion list 30；`fundamental earning-forecast` 0.5；`ai stock-summary` 3（无看点的证券不返回也不扣）；`alternative edb-data` 30
-- **各 download（/篇）**：announcement / official-account 10；research / announcement-hk / announcement-us 20；independent-opinion 30；summary / foreign-report / my-conference 50
+- **各 download（/篇）**：announcement / official-account / research 10；announcement-hk / announcement-us 20；independent-opinion 30；summary / foreign-report / my-conference 50
 - 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**；`ai hot-topic` 50/篇
 - 🔴 **极贵**：`alternative concept-info` / `concept-securities` **500/次**
 - ⚠️ **同参数重复调用不免费**：按次计费无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）——生成类结果拿到后自行留存复用，别为"刷新"重调；CLI 已对上述 🔴 贵档端点关闭 5xx/超时自动重放（v0.26.0），50/篇 的 `summary` / `foreign-report` / `my-conference` download 同样不重放（v0.27.0），正是为防重复扣分
@@ -110,7 +110,7 @@ description: |-
 | 投资者问答 / 互动平台 / 电话会议 / 调研纪要 QA | `insight qa list`（按证券，`--security-code` 必填；`--source`/`--question-category`/`--answer-important` 精筛） |
 | 研报图表 / 研报图片搜索 | `insight report-image list`（`--keyword`；下载原图 `insight report-image download --chunk-id`） |
 | 跨类型语义搜索（研报+纪要+...） | `ai knowledge-batch`（多个 `--resource-type`） |
-| 知识库原文下载（搜到后取全文） | `ai knowledge-resource-download`（前置：`knowledge-batch` 拿 `resourceType`+`sourceId`；`433007`=组合不匹配） |
+| 知识库原文下载（搜到后取全文） | `ai knowledge-resource-download`（前置：`knowledge-batch` 拿 `resourceType`+`sourceId`；`250001`/旧 `433007`=组合不匹配） |
 | 一页通 / 投资逻辑 / 同业对比 / 调研提纲 | `ai one-pager / investment-logic / peer-comparison / research-outline` |
 | 个股看点 / 投研总结 / 公司速览 | `ai stock-summary`（`--security` 代码或 `aShares`/`hkStocks` 全市场；仅 A 股/港股） |
 | 业绩点评（异步） | `ai earnings-review` |
@@ -198,7 +198,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | **下载** | 各 `download` | stdout = 文件路径字符串 | 直接读 stdout 整行 |
 | **AI 内容** | one-pager / investment-logic / peer-comparison / research-outline | `{content: "markdown文本"}` | 取 `content` 直接呈现 |
 | **K 线** | quote * | `{list: [{tradeDate, ...}]}` | 按 tradeDate 排序，取需要的尾部 |
-| **异步（含 *-check）** | earnings-review / viewpoint-debate / earnings-review-check / viewpoint-debate-check | 提交 `{dataId, status, hint}`；check 成功 `{date, content}` / pending `{status:"pending"}` 或抛 `410110` | 见下方"异步任务流程" |
+| **异步（含 *-check）** | earnings-review / viewpoint-debate / earnings-review-check / viewpoint-debate-check | 提交 `{dataId, status, hint}`；check 成功 `{date, content}` / pending `{status:"pending"}` 或抛 `140001`（旧 `410110`） | 见下方"异步任务流程" |
 
 完整字段对照见 `references/response-schema.md`。
 
@@ -209,7 +209,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 - **`--wait`（推荐）**：命令带 `--wait` 阻塞到出结果（CLI 内轮询最长 ≈316s）。**把工具/命令超时设到 ≥360s**，否则外层先超时。直接拿 `{date, content}` 呈现。
 - **手动轮询**（不带 `--wait`）：① 提交 → 拿 `{dataId, status, hint}`；② 间隔 ~30s 调 `*-check --data-id <id>`（预算给足 ~2-3 分钟）；③ `{date, content}`=成功 / `{status:"pending"}`=继续等 / 终态失败=换参重试；④ 多次仍 pending → 把 `dataId` 交用户稍后再 check。
 
-**别把原始码甩给用户**：`410110`=生成中（继续等）、`410111`=终态失败（换参），按 `status` + 退出码判断后用人话说明。
+**别把原始码甩给用户**：`140001`/旧 `410110`=生成中（继续等）、`140002`/旧 `410111`=终态失败（换参），按 `status` + 退出码判断后用人话说明。
 
 ### 呈现规范
 
@@ -232,34 +232,75 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | 最新一期 / 最新报告期（财报） | — | — | 省略 `--fiscal-year`，传 `--period latest`（默认） |
 | 最新观点 / 今日观点 | 1 天范围 + `--rank-type 2` | — | — |
 
-参数命名：Insight/Vault/AI 用 `--start-time` / `--end-time`（datetime）；Quote/Fundamental 用 `--start-date` / `--end-date`（date）。**三个例外**：`ai knowledge-batch` 的 `--start-time`/`--end-time` 收 **13 位毫秒时间戳**（传 datetime 字符串会报 `expected a finite number`）；`ai hot-topic` 用 `--start-date`/`--end-date`（date）；`quote minute-kline` 虽属 Quote 却用 `--start-time`/`--end-time` 且为 datetime。
+日期参数**按参数名判断、不按命令组**（命令组会误导——AI 里既有 `--start-time` 又有 `--date`/`--report-date`）：名字带 `-date` 的（`--start-date`/`--end-date`/`--date`/`--report-date`）一律 `YYYY-MM-DD`，覆盖 Quote/Fundamental、AI 的 `theme-tracking`(`--date`)/`hot-topic`/`management-discuss-*`(`--report-date`)、Alternative `edb-data`、Indicator `cross-section`(`--date`)/`time-series`；名字带 `-time` 的（`--start-time`/`--end-time`）用 `YYYY-MM-DD[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔）或 10/13 位时间戳，覆盖 Insight/Vault 各 list、`quote minute-kline`、`ai security-clue`、`ai knowledge-batch`。其中 **A 股公告（`insight announcement list`）与 `knowledge-batch` 会把输入转成 13 位毫秒**（10 位秒自动 ×1000），其余 `-time` 命令（含 `announcement-hk`/`announcement-us`）原样透传字符串；CLI 输入统一接受 10/13 位纯数字或 `YYYY-MM-DD[ HH:mm[:ss]]`（同上：秒可省、空格或 `T` 分隔）。
 
 支持时间倒序的命令加 `--rank-type 2`：opinion / summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。其他 list 命令按 API 默认排序。
 
 ## 异常处理
 
+服务端 2026-07-17 重排了错误码（41 个公开码，三层：`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层），信封新增 `errorType` 和 `traceId`。
+
+**2026-07-20 逐码实测的结论：迁移是按「错误处理层」而非按业务模块进行的，不能假定文档即现状。**
+- 判别方式：**新码 `code` 是 JSON 数字且带 `errorType`；旧码是字符串且没有**。但这判断的是**这一条错误路径**切没切，不是整个接口——同一个 Insight 接口内，参数校验已发新码 `100003`、路由不存在发新码 `999010`，方法用错却仍发旧码 `900002`。（成功响应也没有 `errorType`，别拿它当判据。）
+- **异步端点（`earnings-review` / `viewpoint-debate`）的生成状态没切**——实测仍是 `410110`/`410111`，HTTP 400，无 `errorType`
+- **token 过滤器没切**——仍是 `0000001007`/`0000001008`；方法路由层的 `900002` 同理
+- 参数校验层、路由层已切
+- 更外层的未知路径（不属于任何已识别路由）**根本不返回统一信封**，是纯文本 `default backend - 404`
+- CLI 对两代都认，报错行带 `[trace <id>]`，**报障给 Gangtise 时务必带上这个 traceId**
+
+**实测确认在用的码**（按遇到概率排；✅=已实测复现）
+
 | 错误码 | 含义 | CLI 行为 | Agent 是否介入 |
 |--------|------|---------|--------------|
-| `999999` | 系统错误；但 **`indicator`（EDE）仍会用此码 + HTTP 500 表示查询无数据**（节假日 / 未来日期 / 未覆盖标的，2026-07-11 实测）——单元格级缺值才是 `null` | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试（CLI hint 会直接提示「多为查询无数据」） | `indicator` 遇到先检查日期/标的是否该有数据，别盲目重试 |
-| `410110` | 异步生成中 | 异步轮询逻辑视为 pending | 继续等 |
-| `410111` | 异步生成失败 | 终态 | **不重试**，建议换参数 |
-| `410106` / 缺参 | `indicator` **缺必填参数**（服务端现直接指明缺哪个，如「必填参数 periodNum 不能为空」；以 HTTP 500 返回故 CLI 重试 ×2） | **自动重试 ×2** | 读 `indicator search --format json` 的 `parameterList`，补 `required:true` 参数（periodNum/startDate/fiscalYear） |
-| `0000001008` | Token 服务端失效（他处登录挤掉） | **强制重新登录并重试一次** | 无 AK/SK 时无法自愈，提示重新登录 |
-| `8000014` / `8000015` | AK/SK 错误 | **自动刷新 token 并重试一次** | 再失败提示检查 env |
-| `8000016` / `8000018` | 账号异常 / 到期 | — | 提示联系管理员 |
-| `999997` | 未开通权限 | — | 联系管理员 |
-| `999995` | 积分不足 | — | 联系管理员 |
-| `903301` | 今日调用上限 | **不重试** | 告知用户次日重试或升级配额 |
-| `433007` | 数据源不匹配 | — | 检查 `resourceType + sourceId` 组合 |
-| `410004` | 数据未找到，或**该指标无权限**（服务端复用此码；`indicator` 内层失败会带具体 msg 如"指标无权限"） | — | 检查查询条件与指标权限 |
-| `430007` | 行情查询超出限制 | — | 缩短日期范围；全市场场景应已自动分片 |
-| `430004` | 研报下载报错（官方未文档化，实测出现于 download） | — | 确认 reportId 有效；换 `--file-type` 或换一篇验证 |
-| `900001` | 请求参数缺失 | — | 检查必填项（如 `--indicator` / `--date`） |
-| `100003` | 参数值非法（服务端不指明是哪个参数） | — | 对照命令 `--help` 检查枚举参数拼写/取值（如 `--source` / `--question-category` / `--answer-important`），**不要重试同命令** |
-| `900002` | 请求缺少 uid | — | `gangtise auth status` 查登录状态，重登后重试 |
-| `10011401` | 白名单未开通 | — | 联系管理员 |
-| HTTP 5xx / `ECONNRESET` / 超时 | 网络/服务端 | **自动指数退避重试 ×2** | 仍失败提示用户 |
-| `ValidationError` | 本地参数校验失败 | — | 检查 `--from` / `--size` / `--limit` 数值，**不要重试同命令** |
+| ✅ `100003` | 参数值非法——**最宽的兜底码**：类型错、`limit` 越界都归这里。**msg 通常已指明字段**（如「请求体字段类型不匹配: size 期望类型 Integer」「limit 最小为 1，最大为 10000」），先读 msg 再猜 | — | 按 msg 指的字段改；msg 没指明才对照 `--help` 查枚举拼写，**不要重试同命令** |
+| ✅ `999999` | 系统错误；但 **`indicator`（EDE）用此码 + HTTP 500 表示查询无数据**（节假日 / 未来日期 / 未覆盖标的，2026-07-11 实测）——单元格级缺值才是 `null` | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | `indicator` 遇到先检查日期/标的是否该有数据，别盲目重试 |
+| ✅ `410110` | **异步生成中**（HTTP 400，旧码未切）。新码 `140001`，CLI 两码都认 | 轮询视为 pending | 继续等 |
+| ✅ `410111` | **异步生成失败**（HTTP 400，旧码未切）。新码 `140002`，CLI 两码都认 | 终态 | **不重试**，换参数 |
+| ✅ `130002` | 资源不存在——**下载类的兜底码**：`reportId` 不存在 / 非数字 / `fileType` 非法**全归这里**（`130003`/`130004`/`130005` 实测均未启用） | — | 确认 ID 有效且本账号可见；换 `--file-type` 或换一篇验证 |
+| ✅ `130001` | 数据未找到，或**该指标无权限**（`indicator` 内层失败会带具体 msg 如"指标无权限"） | — | 检查查询条件与指标权限 |
+| ✅ `100001` | 缺必填参数——**msg 带字段名**（「缺少必填参数: reportId」） | — | 按 msg 指的字段补上 |
+| ✅ `110001` / `110002` | 日期格式错（msg 带字段名）/ 起晚于止。**哪个格式报错、哪个被静默误读是端点相关的**（实测 `fundamental` 对 `2020/01/01` 报 110001，`insight research list` 对 `30/06/2025` 却宽松解析返回数据）——别按命令组预判 | — | 按参数名：`--*-date` 用 `YYYY-MM-DD`、`--*-time` 用 `YYYY-MM-DD HH:mm:ss`；`ai knowledge-batch` 的 --start-time/--end-time 收时间戳或 datetime，CLI 统一转 13 位毫秒 |
+| ✅ `120001` | 证券代码无效——msg 带原因（「非有效A股」）。**只有 Fundamental 系报**，Quote 系静默返回空 | — | `reference securities-search` 确认代码与后缀（`600519.SH` / `00700.HK`） |
+| ✅ `100006` | 查询/下载数量超限——**取代旧 `430007`**；实测 `fund-flow` 全市场不传日期即此码 | — | 缩短日期范围或调小 `--size`/`--limit`；全市场场景应已自动分片 |
+| ✅ `240001` | 财报期未披露或超出查询期（`earnings-review` 提交阶段就报，**不扣积分**） | — | 换更早的 `--period`（`2025q3` → `2025interim`） |
+| ✅ `250001` | 不支持的数据源——**取代旧 `433007`** | — | 检查 `resourceType + sourceId` 组合 |
+| ✅ `999011` | 开发账号凭证无效——**取代旧 `8000014`/`8000015`，已合并，不再区分 AK 错还是 SK 错** | 登录即失败，**不重试** | 检查 `GANGTISE_ACCESS_KEY`/`GANGTISE_SECRET_KEY` 是否写反或未 export |
+| ✅ `999010` | 接口地址不存在 | — | `raw call` 的 key 可能已下线，用 `gangtise raw list` 核对 |
+| ✅ `0000001008` | Token 服务端失效（他处登录挤掉）——**旧码未切，token 自愈依赖它** | **强制重新登录并重试一次** | 无 AK/SK 时无法自愈，提示重新登录 |
+| ✅ `0000001007` | 请求未携带 Bearer token | — | 检查 `GANGTISE_TOKEN` / AK/SK 是否已 export |
+| ✅ `900002` | **请求方法不正确**（msg「请求类型有误」，HTTP 405）——旧文档写作"缺少 uid"是错的 | — | `raw call` 时确认该 endpoint 是 GET 还是 POST |
+| `410106` / 缺参 | `indicator` 缺必填参数（msg 直接指明，如「必填参数 periodNum 不能为空」；HTTP 500 故 CLI 重试 ×2） | **自动重试 ×2** | 读 `indicator search --format json` 的 `parameterList` 补 `required:true` 参数 |
+
+**⚠️ 实测发现的坑（都是"不报错"型，最难发现）**
+- 🔴 **日期只写 `YYYY-MM-DD`、时间只写 `YYYY-MM-DD HH:mm:ss`（或 10/13 位时间戳）；CLI v0.28.0 起 date 与 datetime 两类、含所有 insight/vault 透传参数都本地拦截**。服务端对「年在后」格式**日月顺序随分隔符翻转**且静默误解析（HTTP 200、不回显实际用的日期）：`07/01/2026`（斜杠）读成 **2026-01-07**、`07-01-2026`（横杠）读成 **2026-07-01**，差半年。实测 `insight research list --start-time`：`07/01/2026` 命中 1562 条、`07-01-2026` 命中 210 条（分别 = 标准 `2026-01-07` / `2026-07-01`）；`quote day-kline`/`kline-hk`/`kline-us`/`index`、`fundamental balance-sheet` 同理。v0.28.0 前透传命令（research/summary/announcement-hk/us/vault/minute-kline 等）**静默放行**，且同值在本地转时间戳的 `announcement`（A 股）与透传的 hk/us 之间还会差半年、都 exit 0。现在全部在发请求前报 `ValidationError`，**但绕过 CLI 直连接口务必自己保证格式**
+- **财报接口的日期按「报告期末」过滤**，不是公告日：`fundamental balance-sheet` 等的 `--start-date`/`--end-date` 匹配的是 `endDate` 字段（如 `20200630`），响应里的 `announcementDate`（如 `20200729`）只是公告日。**查某期财报要传季度末日期**（`2020-06-30` / `2020-03-31` / `2020-09-30` / `2020-12-31`）；传 `2020-07-01` 这类非报告期日期会返回 0 行，属正常行为，不是没数据
+- 🔴 **Quote 系对非法证券代码不报错**，静默返回 `total:0` 空列表——无法区分"代码写错"和"该票该区间真无数据"。**空结果先回头核对代码后缀**。Fundamental 系会正常报 `120001`
+- **枚举值拼错、分页参数越界服务端不报错**——静默忽略该条件返回全量/正常结果。所以 `100004`/`100005` 实测触发不到。CLI 只对**部分**参数加了本地白名单（`--top` 上限；`--category` 仅 `reference securities-search` / `institution-search` / `official-account-search` 三个命令），**`insight research --category` 等仍是自由字符串、拼错不报错也不生效**。**拼错的筛选条件会伪装成"结果正常"，枚举拼写要自己保证**
+- **`viewpoint-debate` 传敏感内容不会被提前拦截**——实测不返回 `240002`，而是照常受理、扣满 50 积分、生成阶段才以 `410111` 失败。**提交前自己把关措辞**
+- **`ai one-pager` 的非法 `mode` 被静默忽略**，照常生成并扣 50 积分
+
+**官方文档列出、但实测未触发的码**（遇到再查，多数被上面的兜底码接管）
+
+| 错误码 | 含义 | 实测情况 |
+|--------|------|---------|
+| `999001` / `999002` | 缺 token / token 无效 | 实际返回旧码 `0000001007` / `0000001008` |
+| `999007` / `999008` / `999009` | 方法/媒体类型/请求体不支持 | 实际返回 `900002` / `999999` / `100003` |
+| `999003` / `999004` / `999005` / `999006` | 无接口权限 / 无资源权限 / 积分不足 / 限流 | 未构造出（需特定账号状态） |
+| `999012`–`999016` | 账号禁用/过期、租户失效、无长期 token、IP 不合规 | 未构造出 |
+| `100002` / `100004` / `100005` | 类型错 / 分页非法 / 枚举非法 | 类型错归 `100003`；后两者服务端静默忽略 |
+| `110003` | 超出时间范围限制 | 未触发（1900 年至今的范围仍正常返回） |
+| `130003` / `130004` / `130005` | 无文件可下 / ID 非数字 / 文件类型不支持 | 全部归 `130002` |
+| `140001` / `140002` | 结果生成中 / 处理失败 | 异步端点仍用 `410110` / `410111` |
+| `210001` / `220001` / `230001` | 研报/观点/分享文件不支持下载 | 未构造出 |
+| `240002` / `240003` | 敏感词 / 模式不支持 | 敏感词走 `410111`；`one-pager` 的非法 `mode` 被静默忽略 |
+| `903301` / `10011401` | 今日调用上限 / 白名单未开通 | 历史遗留，**均未实测触发**。不臆断对应新码——`10011401` 按语义更接近 `999003`（未开通接口权限）而非 `999016`（IP 限制），别据此去查 IP |
+
+**非错误码**
+
+| 情形 | CLI 行为 | Agent 是否介入 |
+|------|---------|--------------|
+| HTTP 5xx / `ECONNRESET` / 超时 | **自动指数退避重试 ×2**（🔴 贵档端点不重放） | 仍失败提示用户 |
+| `ValidationError` | 本地参数校验失败 | 检查 `--from` / `--size` / `--limit` 数值，**不要重试同命令** |
 
 **其他场景**：
 - CLI 未安装 → `npm install -g gangtise-openapi-cli`
@@ -284,21 +325,23 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 3. 行业 ID 用错体系：`--industry`（用 `citicIndustry` 码 `1008001xx`）/ `--research-area`（用 `gangtiseIndustry`：行业 `1008001xx` + 方向 `122000xxx`）/ `--gts-code`（申万 `821xxx.SWI`）——三套体系不同，详见 `references/commands/reference-and-lookup.md`
 4. `--rating` / `--category` 等枚举值拼错（参考对应命令的 references 文件）
 
-**`8000014` / `8000015` 反复**（CLI 已自动重试一次仍失败）
+**`999011` 凭证无效**（旧码 `8000014`/`8000015`；服务端已合并为一个码，不再指明是 AK 错还是 SK 错，**登录直接失败、CLI 不重试**）
 1. `echo $GANGTISE_ACCESS_KEY` 验环境变量是否 export
 2. AK 和 SK 是否写反
-3. 账号是否到期 / 异常（`gangtise auth status`）
+3. 账号是否到期 / 异常（`gangtise auth status`；对应 `999012`/`999013`）
 
-**异步任务 `410111` 反复**（该报告期数据未生成）
-1. 换更早的 `--period`（如 `2025q3` → `2025interim`）
-2. `report-date` 用已发布的标准期：`xxxx-06-30` / `xxxx-12-31`
-3. 直接告知用户该期数据暂不可用
+**异步任务 `410111` 反复**（生成失败，终态）
+1. `viewpoint-debate`：先检查观点措辞——实测敏感内容不会被提前拦截，会扣满 50 积分再以 `410111` 失败
+2. `earnings-review`：换更早的 `--period`（如 `2025q3` → `2025interim`）
+3. `report-date` 用已发布的标准期：`xxxx-06-30` / `xxxx-12-31`
+4. 若提交阶段就返回 `240001`（财报期未披露），说明该期不可查且**未扣积分**，别再换参数试
+5. 直接告知用户该期数据暂不可用
 
 **K 线返回的不是"最近"几条** → 只用 `--limit` 截的是窗口开头。必须改用 `--start-date`/`--end-date` 拉范围，再从结果尾部按 `tradeDate` 取最近 N 条。
 
 **翻页很慢 / 卡住** → `--verbose` 看哪一页慢；可 `GANGTISE_PAGE_CONCURRENCY=10` 提速，或缩小时间范围。
 
-**`--security all` 报 `430007`** → 单日数据仍超 10K 行（极端情况）→ 临时改用更窄的 `--start-date`/`--end-date`，或改为单只 `--security` 单独拉。
+**`--security all` 报 `100006`**（旧码 `430007`）→ 单日数据仍超 10K 行（极端情况）→ 临时改用更窄的 `--start-date`/`--end-date`，或改为单只 `--security` 单独拉。
 
 **AI agent 命令（one-pager 等）超时** → 服务端生成耗时长，CLI 默认 30s → `GANGTISE_TIMEOUT_MS=120000` 后重试。
 

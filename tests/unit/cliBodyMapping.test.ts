@@ -130,6 +130,21 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     })
   }, 30_000)
 
+  it("knowledge-batch converts date / 10-digit / 13-digit --start-time to 13-digit millis in the body", async () => {
+    // Locks the parseTimestamp13 body contract without a paid live call: a date maps
+    // to local-midnight millis, 10-digit seconds are ×1000'd, 13-digit millis pass
+    // through. (This positive path previously needed a billed knowledge-batch call.)
+    await cli(["ai", "knowledge-batch", "--query", "x", "--start-time", "2026-07-20", "--format", "json"])
+    await cli(["ai", "knowledge-batch", "--query", "x", "--start-time", "1784476800", "--format", "json"])
+    await cli(["ai", "knowledge-batch", "--query", "x", "--start-time", "1784476800000", "--format", "json"])
+    expect(captured.map((c) => (c.body as { startTime?: number }).startTime)).toEqual([
+      new Date(2026, 6, 20).getTime(), // date → local midnight
+      1784476800000, // 10-digit seconds ×1000
+      1784476800000, // 13-digit verbatim
+    ])
+    expect(captured[0].path).toBe("/application/open-data/ai/search/knowledge/batch")
+  }, 30_000)
+
   it("insight roadshow list (addScheduleList factory) only sends the fields its endpoint supports", async () => {
     const { code } = await cli([
       "insight", "roadshow", "list",

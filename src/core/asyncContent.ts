@@ -18,8 +18,38 @@ interface AsyncContentClient {
   call(endpointKey: string, body?: unknown, query?: Record<string, string | number>): Promise<unknown>
 }
 
+// Probed 2026-07-20 against a real viewpoint-debate job: the async endpoints are
+// still entirely on the legacy codes — 410110 "正在生成中" and 410111 "生成失败",
+// both string-typed, both HTTP 400, neither carrying the new `errorType` field.
+// The 2026-07-17 spec renumbers them to 140001 RESULT_GENERATING (409) and
+// 140002 PROCESSING_FAILED (500); those are listed ahead of the switchover
+// because the failure mode is expensive and silent — a `--wait` that does not
+// recognize the pending code aborts the poll on a job already billed 50 credits.
+const PENDING_CODES = new Set(["410110", "140001"])
+const FAILED_CODES = new Set(["410111", "140002"])
+
 function isAsyncPending(error: unknown): boolean {
-  return error instanceof ApiError && error.code === "410110"
+  return error instanceof ApiError && error.code !== undefined && PENDING_CODES.has(error.code)
+}
+
+function isAsyncFailed(error: unknown): boolean {
+  return error instanceof ApiError && error.code !== undefined && FAILED_CODES.has(error.code)
+}
+
+/** Terminal failures are swallowed here rather than rethrown, so this line is the
+ * user's only record of them — it has to carry what the global handler in cli.ts
+ * would have printed (code, msg, traceId). Without the traceId the failure is
+ * unreportable to Gangtise support, and README promises every error line has one. */
+function terminalFailureLine(error: unknown): string {
+  const api = error instanceof ApiError ? error : undefined
+  const code = api?.code ? ` ${api.code}` : ""
+  const trace = api?.traceId ? ` [trace ${api.traceId}]` : ""
+  const detail = api?.message ? `: ${api.message}` : ""
+  // Name the *submit* endpoint explicitly: re-running a `*-check` is a free
+  // lookup, it is resubmitting the generation job that re-bills 50 credits for a
+  // verdict that will not change (probed 2026-07-20 on sensitive content).
+  return `Content generation failed (terminal${code})${trace}${detail}\n`
+    + "This dataId is final — re-checking it will not change. Resubmitting the generation task bills again for the same result; change the parameters first.\n"
 }
 
 /** "ok" = content printed; "failed" = terminal 410111 (retrying is pointless, a
@@ -44,8 +74,8 @@ export async function pollAsyncContent(
         return "ok"
       }
     } catch (error) {
-      if (error instanceof ApiError && error.code === "410111") {
-        process.stderr.write("Content generation failed (terminal). Do not retry.\n")
+      if (isAsyncFailed(error)) {
+        process.stderr.write(terminalFailureLine(error))
         return "failed"
       }
       if (!isAsyncPending(error)) {
@@ -81,8 +111,8 @@ export async function checkAsyncContent(
       return
     }
   } catch (error) {
-    if (error instanceof ApiError && error.code === "410111") {
-      process.stderr.write("Content generation failed (terminal). Do not retry.\n")
+    if (isAsyncFailed(error)) {
+      process.stderr.write(terminalFailureLine(error))
       process.exitCode = 1
       return
     }

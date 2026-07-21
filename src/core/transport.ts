@@ -89,6 +89,19 @@ export const PAGE_CONCURRENCY = resolvePageConcurrency(process.env.GANGTISE_PAGE
 const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])
 const RETRYABLE_NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"])
 const RETRYABLE_API_CODES = new Set(["999999"])
+// Never replayed on any HTTP status:
+// - 999011 CREDENTIAL_INVALID: bad AK/SK, only from auth.login (useAuth=false, so it
+//   never consults AUTH_RETRY_CODES, and it declares no retry policy) — a 5xx would
+//   otherwise be retried twice by the status rule.
+// - 140002 PROCESSING_FAILED: the async *-check endpoints (get-content) declare no
+//   retry policy, so a 140002@500 would be retried 2× by the default policy BEFORE
+//   asyncContent's FAILED_CODES gets to call it terminal — that guard sits above
+//   client.call's withRetry and cannot see the retries. 140002 means "generation
+//   failed" (terminal by definition) and only those async endpoints can return it,
+//   so a blanket rule is safe and skips the wasted retries. Server still emits the
+//   legacy 410111 today (410111@400 isn't retryable anyway); this is a forward guard
+//   for the documented 140002@500.
+const TERMINAL_API_CODES = new Set(["999011", "140002"])
 // Connect-phase / DNS failures: the request provably never reached the server, so a
 // replay cannot double-execute (or double-bill) anything even under "no-replay".
 const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"])
@@ -107,6 +120,7 @@ function isRetryableError(error: unknown, policy: RetryPolicy): boolean {
     return true
   }
   if (error instanceof ApiError) {
+    if (error.code && TERMINAL_API_CODES.has(error.code)) return false
     if (error.statusCode === 429) return true
     if (policy === "no-replay") return false
     if (error.code && RETRYABLE_API_CODES.has(error.code)) return policy !== "no-999999"

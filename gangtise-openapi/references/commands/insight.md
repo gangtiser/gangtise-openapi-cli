@@ -70,6 +70,7 @@ gangtise insight research download --report-id <id> [--file-type <n>] [--output 
 - `--rating-change`：`upgrade` | `maintain` | `downgrade` | `initiate`
 - `--source`：`1` PDF研报 | `2` 公众号
 - `--file-type`（download）：`1` 原始PDF（默认）| `2` Markdown
+- **积分**：list 0.1/条；download 10/篇
 
 ## 外资研报 `insight foreign-report list/download`
 

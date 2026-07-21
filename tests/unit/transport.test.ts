@@ -216,6 +216,53 @@ describe("withRetry no-999999 policy (EDE indicator endpoints)", () => {
   })
 })
 
+// 140002 PROCESSING_FAILED (2026-07-17 renumbering) is a terminal verdict shipped
+// on HTTP 500 — the status rule alone would retry it under every policy.
+describe("withRetry terminal API codes", () => {
+  it("does not retry 140002 even on a retryable HTTP 500", async () => {
+    // The async *-check endpoints have no retry policy, and asyncContent's FAILED_CODES
+    // sits above client.call's withRetry — so without this guard a terminal 140002@500
+    // would be white-retried 2× before being recognized as failed.
+    const err = new ApiError("业务处理失败", "140002", 500)
+    const fn = vi.fn().mockRejectedValue(err)
+    await expect(withRetry(fn, { retries: 2, baseDelayMs: 1 })).rejects.toBe(err)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not retry 999011 CREDENTIAL_INVALID, whatever status it rides in on", async () => {
+    // Bad AK/SK only ever comes back from auth.login, which runs useAuth=false and so
+    // never reaches AUTH_RETRY_CODES — leaving 999011 out of that set guarantees
+    // nothing. auth.login also declares no retry policy, so on a 5xx the status rule
+    // alone would replay a credential error that cannot fix itself.
+    const err = new ApiError("开发账号凭证无效（ak/sk 匹配失败）", "999011", 500)
+    const fn = vi.fn().mockRejectedValue(err)
+    await expect(withRetry(fn, { retries: 2, baseDelayMs: 1 })).rejects.toBe(err)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("still retries a plain 500 that carries no terminal code", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new ApiError("系统内部错误", "999999", 500))
+      .mockResolvedValue("ok")
+    expect(await withRetry(fn, { retries: 2, baseDelayMs: 1 })).toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries 999006@500 under the default policy but not under no-replay (matches the hint)", async () => {
+    // 999006 is a rate limit; on a 5xx it follows the HTTP-status rule, so default
+    // policy retries and no-replay (billed endpoints) opts out. The hint promises
+    // exactly this — lock both so the two can't drift apart again.
+    const ok = vi.fn().mockRejectedValueOnce(new ApiError("限流", "999006", 500)).mockResolvedValue("ok")
+    expect(await withRetry(ok, { retries: 2, baseDelayMs: 1 })).toBe("ok")
+    expect(ok).toHaveBeenCalledTimes(2)
+
+    const err = new ApiError("限流", "999006", 500)
+    const billed = vi.fn().mockRejectedValue(err)
+    await expect(withRetry(billed, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).rejects.toBe(err)
+    expect(billed).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("decodeResponseBody", () => {
   it("gunzips a gzip-encoded body back to utf-8", () => {
     const json = JSON.stringify({ hello: "世界", n: 1 })

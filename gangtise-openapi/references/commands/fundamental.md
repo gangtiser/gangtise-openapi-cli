@@ -74,7 +74,7 @@ gangtise fundamental main-business --security-code <code> [--breakdown <type>] [
 - `--breakdown`（默认 `product`）：`product` 按产品 | `industry` 按行业 | `region` 按地区
 - `--period`：`interim` 中报 | `annual` 年报（可重复）
 - 默认时间窗：`endDate` 当前日期、`startDate` 三年前
-- **不支持 `--fiscal-year`**（误传触发 900001）；按年份筛选用 `--start-date`/`--end-date`
+- **不支持 `--fiscal-year`**（误传触发 `100001`/`100003`，旧 `900001`）；按年份筛选用 `--start-date`/`--end-date`
 
 ## 估值分析 `fundamental valuation-analysis`
 

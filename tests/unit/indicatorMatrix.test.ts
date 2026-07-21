@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { ApiError } from "../../src/core/errors.js"
+import { ApiError, attachEnvelopeTraceId } from "../../src/core/errors.js"
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
 
 // Field names + value shapes below mirror the LIVE EDE responses (verified
@@ -206,5 +206,20 @@ describe("unwrapIndicatorData", () => {
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).code).toBe("410004")
     expect((err as ApiError).message).toBe("指标无权限")
+  })
+
+  it("surfaces the outer envelope's traceId on an inner failure", () => {
+    // Probed 2026-07-20: EDE puts traceId on the OUTER envelope only, and the client
+    // discards that envelope before this function runs. The id is handed over on the
+    // payload instead — without it the EDE failures that most need reporting
+    // (999999 / 130001) print with no trace, contradicting the README.
+    const raw = attachEnvelopeTraceId({ code: "130001", status: false, msg: "指标无权限" }, "830886132209999872")
+    let err: unknown
+    try {
+      unwrapIndicatorData(raw)
+    } catch (e) {
+      err = e
+    }
+    expect((err as ApiError).traceId).toBe("830886132209999872")
   })
 })

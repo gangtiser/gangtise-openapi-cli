@@ -87,7 +87,7 @@ gangtise quote index-day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [
 gangtise quote minute-kline --security <code> [--start-time <datetime>] [--end-time <datetime>] [--limit <n>] [--field <name>]
 ```
 
-- 仅支持 A 股，**必须传 `--security`**（否则返回 430007）
+- 仅支持 A 股，**必须传 `--security`**（否则返回 `100003`，msg 为「securityCode不可为空」；2026-07-20 实测）
 - `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全）
 - `--limit` 默认 6000，上限 10000
 - 常用字段：`securityCode` `tradeTime` `open` `high` `low` `close` `change` `pctChange` `volume` `amount`

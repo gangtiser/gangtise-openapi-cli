@@ -7,7 +7,7 @@ import { request } from "undici"
 
 import type { CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
-import { ApiError, ValidationError } from "./errors.js"
+import { ApiError, attachEnvelopeTraceId, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
 import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, runWithConcurrency, withRetry } from "./transport.js"
@@ -19,11 +19,19 @@ interface Envelope<T> {
   status?: boolean
   success?: boolean
   data?: T
+  /** Server-side correlation id, added by the 2026-07-17 envelope. */
+  traceId?: string | number
 }
-// Auth errors that warrant a forced re-login + one replay. 8000014/8000015 are
-// AK/SK errors; 0000001008 is a server-side token invalidation (the token still
-// looks valid by local expiry, so only a forced refresh recovers it).
-const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008"])
+// Auth errors that warrant a forced re-login + one replay: the token was rejected
+// server-side while still looking valid by local expiry, so only a forced refresh
+// recovers it. 0000001008 is the legacy code (probed 2026-07-20: still what the
+// token filter emits); 999002 TOKEN_INVALID is its 2026-07-17 replacement, listed
+// ahead of the rollout so self-heal does not silently die when the filter switches.
+// 8000014/8000015 are the retired AK/SK codes, kept for older server builds.
+// 999011 CREDENTIAL_INVALID is not here and could not act if it were — it comes from
+// auth.login, which runs useAuth=false and so never reaches this check. Its "never
+// replay" guarantee lives in transport's TERMINAL_API_CODES instead.
+const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008", "999002"])
 
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
@@ -157,7 +165,7 @@ export class GangtiseClient {
     throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed, retryAfterMs)
   }
 
-  private unwrapEnvelope<T>(parsed: Envelope<T>, statusCode?: number): T {
+  private unwrapEnvelope<T>(parsed: Envelope<T>, statusCode?: number, retryAfterMs?: number): T {
     if (!this.isEnvelope<T>(parsed)) {
       return parsed as T
     }
@@ -166,11 +174,14 @@ export class GangtiseClient {
     const ok = parsed.status === true || parsed.success === true || code === "000000" || code === "0"
 
     if (!ok) {
-      throw new ApiError(parsed.msg || "API request failed", code, statusCode, parsed)
+      throw new ApiError(parsed.msg || "API request failed", code, statusCode, parsed, retryAfterMs)
     }
 
     if ('data' in parsed) {
-      return parsed.data as T
+      // Carry the envelope's traceId onto the payload: the EDE endpoints wrap a
+      // second envelope inside `data` and raise their own failures from it, by
+      // which point this is the only traceId in reach.
+      return attachEnvelopeTraceId(parsed.data, parsed.traceId) as T
     }
 
     return parsed as T
@@ -453,7 +464,7 @@ export class GangtiseClient {
         if (response.statusCode >= 400) {
           this.throwHttpError(parsed, response.statusCode, retryAfterMs)
         }
-        return this.unwrapEnvelope(parsed, response.statusCode)
+        return this.unwrapEnvelope(parsed, response.statusCode, retryAfterMs)
       } catch (error) {
         await this.refreshAuthIfRecoverable(error, useAuth, authState, usedAuthorization)
         throw error
@@ -550,7 +561,7 @@ export class GangtiseClient {
           if (response.statusCode >= 400) {
             this.throwHttpError(parsed, response.statusCode, retryAfterMs)
           }
-          data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
+          data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode, retryAfterMs)
         } catch (error) {
           await this.refreshAuthIfRecoverable(error, true, authState, authorization)
           throw error
