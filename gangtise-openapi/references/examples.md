@@ -222,37 +222,42 @@
 5. 呈现：total + 前 20 只列表
 ```
 
-## 例 15：指标取数（search → cross-section / time-series）
+## 例 15：多证券已实现财务 / 估值指标（EDE 多截面，按日期语义拆分）
 
-**用户**："茅台和泡泡玛特上周的收盘价、成交量对比一下"
+**用户**："把茅台、五粮液、宁德时代 2025 年营收和已实现 EPS，与最新 PE/PB 做成一张表"
+
+> 示例日期为**截至 2026-07-23 的实测快照**：`2026-07-22`=当时最新交易日、`2026-03-31`=当时最近有 PB 的报告期末；实跑时替换为当下的最新交易日 / 最近报告期末。
 
 ```
-1. 路由 → indicator（证券级指标，需证券代码 → EDE，不是 alternative edb）
-2. 先拿 indicatorCode（绝不猜）：
-     gangtise indicator search --keyword 收盘价 --format table   → qte_close
-     gangtise indicator search --keyword 成交量 --format table   → qte_vol
-3. 取数二选一：
-   - 单日横向对比 → cross-section（多指标 × 多证券）：
-       gangtise indicator cross-section \
-         --indicator qte_close --indicator qte_vol \
-         --security 600519.SH --security 09992.HK \
-         --date 2026-05-22 --format table
-       → 每行一只证券，列 = date/security/name/日收盘价/成交量
-   - 一段区间走势 → time-series（这里两只证券 → 只能单指标 × 多证券）：
-       gangtise indicator time-series --indicator qte_close \
-         --security 600519.SH --security 09992.HK \
-         --start-date 2026-05-18 --end-date 2026-05-22 --format table
-       → 每行一个日期，列 = date/贵州茅台/泡泡玛特
-4. 复权：要前复权收盘价加 --indicator-param "qte_close:adjustmentType=2"
-   （参数 key 以 indicator search --format json 的 parameterList 为准）
-5. 陷阱：time-series 不能多指标 × 多证券同时（报 410001），那种情况用 cross-section
-6. 必填参数：很多指标默认调用会缺参报错（服务端指明缺哪个，如「必填参数 periodNum 不能为空」）→ 先看 parameterList 的 required，补
-   periodNum（N期统计）/startDate（区间周期类，如 qte_amp_mo）/fiscalYear（年度分红）：
-     gangtise indicator cross-section --indicator finc_roe_avg_avg --security 600519.SH \
-       --date 2026-03-31 --indicator-param "finc_roe_avg_avg:periodNum=4"
-7. 无数据：截面/时序对无此科目的**格**返回 null（不丢行）；**整个查询无数据**（节假日/未来日期/未覆盖标的）
-   仍报 999999+HTTP 500，CLI 不重试并提示检查条件 → 财务用报告期末、现金流附注用年报
-   日期(2025-12-31)、行情用交易日；银行/券商/保险科目不同，换对公司类型。详见 commands/indicator.md
+1. 路由 → indicator：多证券批量取一组已实现财务 / 估值指标；不是逐只 fundamental，也不是 EDB。
+   若改成单票、盈利预测/一致预期、估值历史分位、完整报表或 OHLCV/K 线，则分别走 fundamental / quote 专用命令。
+2. 每个概念都先 search --format json（绝不猜 code，也不能只取第一条）：
+     gangtise indicator search --keyword 营业收入 --limit 10 --format json
+     gangtise indicator search --keyword 基本每股收益 --limit 10 --format json
+     gangtise indicator search --keyword 市盈率 --limit 10 --format json
+     gangtise indicator search --keyword 市净率 --limit 10 --format json
+   对每个候选同时核对：
+   - indicatorName + description：累计/单季、营业收入/营业总收入、已实现/预测等语义准确
+   - scopeList：覆盖全部三只 A 股；缺失/null/空也视为不通过
+   - parameterList：补 required 参数并核对枚举
+   任一不符 → 回退相应专用接口。
+3. 三类指标日期语义不同 → 拆三次截面（省略 reportType 即取合并口径；⚠️ 该枚举 label 与实测不符、value=2/4 会 999999，需指定报表口径改用 fundamental income-statement --report-type）：
+   a) 财务（营收/EPS）用报告期末 2025-12-31：
+     gangtise indicator cross-section \
+       --indicator is_op_rev --indicator is_eps_bas \
+       --security 600519.SH --security 000858.SZ --security 300750.SZ \
+       --date 2025-12-31 --format json
+   b) PE 日频，用最新交易日 2026-07-22（此日 PB 为 null，勿并入）：
+     gangtise indicator cross-section --indicator finc_pe_ttm \
+       --security 600519.SH --security 000858.SZ --security 300750.SZ \
+       --date 2026-07-22 --format json
+   c) PB(MRQ) 只在报告期末打值，用最近报告期末 2026-03-31：
+     gangtise indicator cross-section --indicator finc_pb_mrq \
+       --security 600519.SH --security 000858.SZ --security 300750.SZ \
+       --date 2026-03-31 --format json
+4. 按 security 合并三张宽表（各取所需日期的值）；不要把不同日期语义的指标塞进同一个 --date。
+5. 计费：search 免费；三次取数各按请求单元格数量计费，每次不足 100 单元格按 100 计。
+6. 无数据：单元格缺值返回 null 且不丢证券行；整个查询无数据仍可能报 999999，先核对日期语义、scopeList、公司类型和指标参数。
 ```
 
 ## 例 16：A 股资金流向（个股 vs 全市场按日分片）

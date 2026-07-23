@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.28.0"
+version: "0.28.1"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -127,12 +127,12 @@ description: |-
 | 分钟 K（A 股） | `quote minute-kline` |
 | 实时行情（A / 港 / 美） | `quote realtime` |
 | A股资金流向（主力/大单净流入，日频） | `quote fund-flow`（`--security` 或 `aShares` 全市场〔须带 `--start-date`/`--end-date`，按日自动分片〕；免费） |
-| A股利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
-| 港股利润表 / 资产负债 / 现金流 | `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` |
-| 美股利润表 / 资产负债 / 现金流 | `fundamental income-statement-us / balance-sheet-us / cash-flow-us` |
-| 主营业务 / 收入结构 | `fundamental main-business` |
-| 估值 / PE / PB | `fundamental valuation-analysis` |
-| 盈利预测 / 一致预期 | `fundamental earning-forecast` |
+| 单证券 A股完整利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
+| 单证券 港股完整利润表 / 资产负债 / 现金流 | `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` |
+| 单证券 美股完整利润表 / 资产负债 / 现金流 | `fundamental income-statement-us / balance-sheet-us / cash-flow-us` |
+| 单证券主营业务 / 收入结构 | `fundamental main-business` |
+| A股单证券估值序列 / PE / PB / 历史分位 | `fundamental valuation-analysis` |
+| A股盈利预测 / 一致预期 | `fundamental earning-forecast` |
 | 前十大股东 | `fundamental top-holders` |
 | 云盘文件 | `vault drive-list / drive-download` |
 | 录音速记 | `vault record-list / record-download` |
@@ -143,9 +143,9 @@ description: |-
 | 行业指标时序数据（EDB） | `alternative edb-data` |
 | 题材画像 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件 | `alternative concept-info`（前置：`reference concept-search` 拿 `concept-id`） |
 | 题材成分股 / 题材深度 F8 / 题材龙头 | `alternative concept-securities`（前置：`reference concept-search` 拿 `concept-id`） |
-| 指标搜索 / 找指标编码（收盘价/成交量/总市值/财务指标的 code） | `indicator search` |
-| 指标截面数据（多指标 × 多证券，单日快照） | `indicator cross-section`（前置：`indicator search` 拿 indicatorCode） |
-| 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间） | `indicator time-series`（前置：`indicator search` 拿 indicatorCode） |
+| 多证券已实现财务 / 估值指标搜索（含总市值） | `indicator search` |
+| 多证券已实现指标截面（多指标 × 多证券，同一查询日期） | `indicator cross-section`（前置：`indicator search --format json` 通过三项校验） |
+| 多证券已实现指标时序（单指标 × 多证券，按区间） | `indicator time-series`（前置：`indicator search --format json` 通过三项校验） |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
 | 首席 ID / 分析师 ID 搜索 | `reference chiefs-search`（按姓名/机构/团队，用于 `insight opinion --chief`） |
 | 机构 ID 搜索（内资券商/外资/牵头/观点机构） | `reference institution-search`（按机构名，用于 `--institution` / `--broker`；免费） |
@@ -160,11 +160,15 @@ description: |-
 - "搜索 X" → 数据维度精确（按行业/券商）走对应 `insight ... list`；跨类型语义搜索走 `ai knowledge-batch`
 - 港股代码用在 `insight foreign-opinion --security` 还是 `quote day-kline-hk --security`？前者要"境外"格式（`UBER.N`），后者要 `.HK`
 - "成分股" → 题材深度（分组/重点标记/纳入理由）走 `alternative concept-securities`；板块（行业/概念分类树，纯代码名单）走 `reference sector-constituents`
-- "指标" → 证券级指标（总市值/估值分位/财务指标等，需 `--security` 证券代码）走 `indicator`（EDE）；**但基础行情（收盘价/开高低收/成交量/成交额/涨跌幅）优先 `quote`**（免费、可 `--security all` 自动分片；`indicator` 按单元格计费且需先 search 拿 code）；行业/宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），三套接口不同
-- `indicator` 取数二选一：单日多标的横向对比 → `cross-section`；时间区间纵向走势 → `time-series`（且 `time-series` 不能多指标 × 多证券同时，截面才可以）
-- `indicator` 取数前**先 `search --format json` 看 `parameterList`**：很多指标有必填参数（`periodNum`/`startDate`/`fiscalYear`），不补会报错（服务端现直接指明「必填参数 X 不能为空」）；**无数据已统一返回 `null`**（截面不再抛 `999999`、不丢行），换公司类型/年报日期可取到对应类型科目的数。**取"最新"值别踩空**：行情类 `--date` 填当天且盘中/未入库会整行 `null`（≠无数据，别据此报"无数据"），改用 T-1 交易日；财务类用报告期末（如 `2025-12-31`）。详见 `references/commands/indicator.md`
+- **证券基本面 / 指标先按任务形态路由，不是搜到 EDE 就一律走 EDE**：
+  - 单证券先优先对应 `fundamental` 专用命令（财务、估值、盈利预测、股东、主营或完整三大报表，多数免费 / 低价）。其中 `valuation-analysis` / `earning-forecast` 实测仅支持 A 股；港 / 美股的估值历史分位、盈利预测、以及 PE/PB 等核心估值（EDE 也仅 A 股）当前 CLI 均无可用接口，如实说明不支持、勿用别的语义顶替
+  - 多证券批量取一组**已实现**财务 / 估值指标 → 优先 `indicator search` 后用 EDE 一次拉取，替代逐只循环；单日或同一报告期横向比较用 `cross-section`，区间走势用 `time-series`（后者不能多指标 × 多证券同时）
+  - 始终排除 EDE：A股盈利预测 / 一致预期（含预测 EPS）→ `fundamental earning-forecast`；A股估值历史分位 → `fundamental valuation-analysis`；开高低收 / 成交量等行情与 K 线 → `quote`；单证券完整报表 → 对应三大报表命令。EDE 搜到的基本 / 稀释 EPS 是已实现值，**不能冒充预测 EPS**；港 / 美股缺少上述专用能力时应如实说明不支持，不能用别的语义代替
+  - EDE 取数前必须用 `search --format json` 同时核对：`indicatorName` + `description` 语义准确、`scopeList` 覆盖全部目标市场 / 证券类型、`parameterList` 必填参数与枚举可满足；`scopeList` 缺失 / `null` / 空或任一项不符，都视为无法证明覆盖并回退专用接口。专用接口也不覆盖目标市场时，说明当前不可用，不要硬调。`scopeList` 按指标各不相同，不能因 EDE 服务支持 A / 港 / 美股就假定某个指标三市场都覆盖
+  - `indicator search` 免费，`cross-section` / `time-series` 按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`
+- 行业 / 宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），不要与证券级 EDE 混用
+- EDE 单元格级缺值返回 `null` 且保留证券行；**整个查询无数据仍可能报 `999999`**。日期语义按指标分三类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` 等日频估值=最新交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
 - "业绩点评"双义消歧：**检索已有**（研报/纪要里的业绩点评内容）走 `insight ... list --llm-tag earningsReview`（0.1/条）；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句
-- "多公司最新 PE / 总市值"：单证券估值序列走 `fundamental valuation-analysis`（免费、默认近一年日频、**无总市值指标**）；要总市值或多证券横向快照走 `indicator cross-section`（先 search 拿 code，按单元格计费）。总市值 `qte_mkt_cptl` **仅 A 股**、默认原始「元」（茅台 ≈1.5e12），比大小前用 `scale`/`currency` 统一（详见 indicator.md）
 
 ## 公司名 → 证券代码
 

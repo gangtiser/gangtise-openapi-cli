@@ -2,6 +2,20 @@
 
 本项目完整版本历史。README 顶部仅展示最近几个版本。
 
+### v0.28.1 — 2026-07-23
+
+Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券取一批**已实现**财务/估值指标优先走 EDE `indicator cross-section`/`time-series` 一次拉取，替代逐只 `fundamental` 循环。**本版仅改随包分发的 skill 文档（`gangtise-openapi/`），无 CLI 代码/命令/参数变更。**
+
+**路由规则**
+- 单票财务/估值/盈利预测/股东/主营、单票完整三大报表 → 仍走 `fundamental` 专用命令；行情/K 线 → `quote`（免费批量）
+- 多证券已实现财务/估值指标 → 优先 EDE（`cross-section` 单日快照 / `time-series` 单指标×多证券区间）
+- 始终排除 EDE：盈利预测·一致预期、估值历史分位（实测 EDE 无此两类）、OHLCV/K 线、单票完整报表
+- EDE 取数前三项校验：`indicatorName`+`description` 语义 / `scopeList` 覆盖全部目标市场 / `parameterList` 必填参数，任一不符即回退专用接口
+
+**实测校正（2026-07-23）**
+- `scope` 字段更正为 `scopeList[].market/.securityType`（服务端已返回实际覆盖），覆盖按指标而异：`finc_pe_ttm`/`finc_pb_mrq` 仅 A 股、`is_op_rev` A 股+港股，均不含美股；`valuation-analysis`/`earning-forecast` 仅 A 股
+- `finc_pb_mrq`(市净率 MRQ) 只在报告期末打值（交易日取 `null`），非日频；EDE 财务指标 `reportType` 枚举 label 与实测取数不符（`value=2/4` 直接 `999999`），要指定报表口径改用 `fundamental` 三大报表 `--report-type`
+
 ### v0.28.0 — 2026-07-21
 
 对齐服务端 2026-07-17 更新（内资研报下载调价 + 41 个公开错误码重排）。**41 个码逐个打了线上探针**，结论是迁移按「错误处理层」而非按业务模块进行、文档并不等于现状：同一个接口内，参数校验层与路由层已发新码，方法路由层和 token 过滤器仍发旧码，异步生成状态也仍是旧码。CLI 对两代都识别。

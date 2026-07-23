@@ -1,6 +1,6 @@
 # Fundamental 命令详细参数
 
-通用：所有命令都需 `--security-code`（如 `600519.SH`，注意是 `--security-code` 不是 `--security`）。`--field` 可重复，可用字段见 `references/fields.md`。
+通用：所有命令都需 `--security-code`（如 `600519.SH`，注意是 `--security-code` 不是 `--security`）。`--field` 可重复，可用字段见 `references/fields.md`；A / 港 / 美股三大报表命令都在省略 `--field` 时返回完整报表，指定后只保留基础字段与所选科目。
 
 ---
 
@@ -76,22 +76,24 @@ gangtise fundamental main-business --security-code <code> [--breakdown <type>] [
 - 默认时间窗：`endDate` 当前日期、`startDate` 三年前
 - **不支持 `--fiscal-year`**（误传触发 `100001`/`100003`，旧 `900001`）；按年份筛选用 `--start-date`/`--end-date`
 
-## 估值分析 `fundamental valuation-analysis`
+## A股估值分析 `fundamental valuation-analysis`
 
 ```bash
 gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <date>] [--end-date <date>] [--limit <n>] [--field <name>] [--skip-null]
 ```
 
+- **市场与路由**：本命令实测仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股单证券估值序列与估值历史分位始终优先本命令；多证券批量取一组已实现估值点值，且 `indicator search` 三项校验都通过时，才优先 EDE `cross-section` / `time-series`。港 / 美股估值历史分位当前 CLI 不支持，不能用普通 EDE 点值冒充
 - `--indicator`（**必选**）：`peTtm` 滚动PE | `pbMrq` PB | `peg` PEG | `psTtm` 滚动PS | `pcfTtm` 滚动PCF | `em` 企业倍数
 - `--limit` 默认 2000，省略 `--start-date` 时自动查近一年
 - `--skip-null`：丢弃 `value`/`percentileRank` 为 null 的行（最新交易日可能未入库）
 
-## 盈利预测 `fundamental earning-forecast`
+## A股盈利预测 `fundamental earning-forecast`
 
 ```bash
 gangtise fundamental earning-forecast --security-code <code> [--start-date <date>] [--end-date <date>] [--consensus <name>]
 ```
 
+- **市场与路由**：本命令实测仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股盈利预测 / 一致预期始终走本命令，不走 EDE；EDE 搜索目前没有一致预期语义，搜到的基本 / 稀释 EPS 是已实现值，不能冒充预测 EPS。港 / 美股盈利预测当前 CLI 不支持
 - `--start-date` / `--end-date`：默认近一年
 - `--consensus` 可重复：`netIncome` 归母净利润 | `netIncomeYoy` 同比增速 | `eps` 每股收益 | `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG | `roe` 净资产收益率 | `ps` 市销率
 - 返回结构：`{securityCode, securityName, updateList: [{date, fieldList: [{forecastYear, ...consensus}]}]}` — 每个日期固定返回 3 年预测（如 `2026E` / `2027E` / `2028E`）
