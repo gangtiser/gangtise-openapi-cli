@@ -11,7 +11,7 @@ import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
-import { normalizeRows } from "./core/normalize.js"
+import { normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
 import type { GangtiseClient } from "./core/client.js"
@@ -671,12 +671,8 @@ alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (rep
   }) as { fieldList?: string[], dataList?: unknown[][] } | null
   let data: unknown = raw
   if (raw && Array.isArray(raw.fieldList) && Array.isArray(raw.dataList)) {
-    const list = raw.dataList.map((row) =>
-      (raw.fieldList as string[]).reduce<Record<string, unknown>>((acc, field, i) => {
-        acc[field] = row[i]
-        return acc
-      }, {}),
-    )
+    const fields = raw.fieldList as string[]
+    const list = raw.dataList.map((row) => zipFieldRow(fields, row, raw))
     data = { list, total: list.length }
   }
   await printData(data, format, options.output)

@@ -33,8 +33,28 @@ beforeAll(async () => {
     let raw = ""
     req.on("data", (chunk) => { raw += chunk })
     req.on("end", () => {
-      captured.push({ path: req.url ?? "", body: raw ? JSON.parse(raw) : undefined })
+      const body = raw ? JSON.parse(raw) : undefined
+      captured.push({ path: req.url ?? "", body })
       res.setHeader("content-type", "application/json")
+      if ((req.url ?? "").includes("/quote/realtime")) {
+        // 如实复刻上游对无效字段名的处理（实测 2026-07-24）：值只按**有效**字段返回、
+        // 字段名却按**请求**原样回显。realtime 没有 close，传三个字段只回两个值——
+        // 按位置拍平会把换手率 28.5573 贴成 close（茅台真实价 1297.41）。CLI 必须拒绝
+        // 输出而不是给出这份看着合理、实则是另一个指标的数据。
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 1, fieldList: ["securityCode", "close", "turnoverRate"], list: [["600519.SH", 28.5573]] } }))
+        return
+      }
+      if ((req.url ?? "").includes("/EDB/getData")) {
+        // edb-data 走同一个 zipFieldRow，但它是 {fieldList, dataList} 且没有 --field。
+        // 实测上游会把无效 indicatorId 从名和值里一起剔掉（等长、安全），所以长度不等
+        // 只可能是响应结构变了——仍须拦住，不能拍出错列。
+        const mismatched = ((body as { indicatorIdList?: string[] })?.indicatorIdList ?? []).includes("MISMATCH")
+        // 带上信封 traceId：结构异常的报障指引承诺给出这个 id，必须真的传到报错文案里。
+        res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-edb-1", data: mismatched
+          ? { fieldList: ["date", "S00000093", "S99999999"], dataList: [["20260131", "826.1"]] }
+          : { fieldList: ["date", "S00000093"], dataList: [["20260131", "826.1"], ["20260228", "580.6"]] } }))
+        return
+      }
       if ((req.url ?? "").includes("/daily")) {
         // Fixed 3-row columnar payload for the limit-capped quote endpoints (fund-flow,
         // kline) so a truncation test can drive rows-vs-limit: --limit 3 hits the cap
@@ -92,7 +112,8 @@ beforeEach(() => {
   captured.length = 0
 })
 
-async function cli(args: string[]): Promise<{ code: number; out: string }> {
+// stdout / stderr 分开返回：错列拦截既要断言报错进了 stderr，也要断言 stdout 一行数据都没吐。
+async function cli(args: string[]): Promise<{ code: number; out: string; stdout: string; stderr: string }> {
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
       timeout: 25_000,
@@ -107,10 +128,12 @@ async function cli(args: string[]): Promise<{ code: number; out: string }> {
         GANGTISE_SECRET_KEY: "",
       },
     })
-    return { code: 0, out: stdout + stderr }
+    return { code: 0, out: stdout + stderr, stdout, stderr }
   } catch (error) {
     const e = error as { code?: number; stdout?: string; stderr?: string }
-    return { code: typeof e.code === "number" ? e.code : 1, out: (e.stdout ?? "") + (e.stderr ?? "") }
+    const stdout = e.stdout ?? ""
+    const stderr = e.stderr ?? ""
+    return { code: typeof e.code === "number" ? e.code : 1, out: stdout + stderr, stdout, stderr }
   }
 }
 
@@ -543,5 +566,50 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     const row = (JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]
     expect(row).toMatchObject({ "600519.SH": 20.03, "000858.SZ": 26.36 })
     expect(Object.keys(row)).not.toContain("贵州茅台")
+  }, 30_000)
+
+  it("quote realtime refuses to print a mis-zipped row instead of mislabeling turnoverRate as close", async () => {
+    // 端到端守住 v0.28.3 的错列拦截：normalizeRows 的单测只证明会抛，这里证明**整条
+    // 链路**（printer → 渲染 → 退出码）不会把错列数据吐给用户。stdout 一旦出现
+    // 28.5573，就说明换手率又被当成收盘价发出去了。
+    const { code, stdout, stderr } = await cli([
+      "quote", "realtime", "--security", "600519.SH",
+      "--field", "securityCode", "--field", "close", "--field", "turnoverRate",
+      "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stderr).toContain("ValidationError")
+    expect(stderr).toContain("响应字段数与 fieldList 不匹配")
+    expect(stdout).not.toContain("28.5573")
+    expect(stdout.trim()).toBe("")
+  }, 30_000)
+
+  it("alternative edb-data flattens an equal-length columnar response", async () => {
+    const { code, stdout } = await cli([
+      "alternative", "edb-data", "--indicator-id", "S00000093",
+      "--start-date", "2026-01-01", "--end-date", "2026-02-28", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(JSON.parse(stdout)).toEqual({
+      total: 2,
+      list: [
+        { date: "20260131", S00000093: "826.1" },
+        { date: "20260228", S00000093: "580.6" },
+      ],
+    })
+  }, 30_000)
+
+  it("alternative edb-data rejects a mismatched dataList row (same guard, no --field to blame)", async () => {
+    const { code, stdout, stderr } = await cli([
+      "alternative", "edb-data", "--indicator-id", "MISMATCH", "--indicator-id", "S00000093",
+      "--start-date", "2026-01-01", "--end-date", "2026-02-28", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stderr).toContain("响应字段数与 fieldList 不匹配")
+    // edb-data 没有 --field，文案不能只叫用户去核对 --field
+    expect(stderr).toContain("没有 --field 的命令")
+    // 报障指引承诺的 traceId 必须真的出现——否则这句指引就是空头支票
+    expect(stderr).toContain("trace trace-edb-1")
+    expect(stdout.trim()).toBe("")
   }, 30_000)
 })

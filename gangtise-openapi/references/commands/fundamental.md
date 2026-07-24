@@ -2,6 +2,8 @@
 
 通用：所有命令都需 `--security-code`（如 `600519.SH`，注意是 `--security-code` 不是 `--security`）。`--field` 可重复，可用字段见 `references/fields.md`；A / 港 / 美股三大报表命令都在省略 `--field` 时返回完整报表，指定后只保留基础字段与所选科目。
 
+**`--field` 字段名必须核对**（v0.28.3 起传错直接报错）：三大报表遇到不存在的字段名会补 `null`（安全），但 `main-business` / `valuation-analysis` 是**只丢值、字段名照请求回显**，按位置拍平会把值贴到错误的字段上（同 `quote realtime`，详见 `references/commands/quote.md`）。CLI 现在长度不匹配就直接失败（退出码 1），不输出错位数据。不确定字段名就别传 `--field`。
+
 ---
 
 ## A股三大报表（累计） `income-statement` / `balance-sheet` / `cash-flow`
@@ -15,6 +17,7 @@ gangtise fundamental <income-statement|balance-sheet|cash-flow> --security-code 
 - `--fiscal-year` 可重复：`--fiscal-year 2023 --fiscal-year 2024`
 - `--start-date`/`--end-date` 有值时覆盖 `--fiscal-year`
 - **固定返回字段**（无需 `--field` 指定）：`securityCode` `companyName` `category` `announcementDate` `endDate` `fiscalYear` `period` `reportType` `companyType` `currency` `unit`
+- ⚠️ **本节两个命令的 `companyType` / `currency` 值是反的**（实测 2026-07-24，服务端字段名映射问题，与公司类型无关）：A 股累计口径的 `balance-sheet` / `cash-flow` 返回 `companyType=人民币`、`currency=一般企业`（工行则是 `currency=银行`）；**`income-statement` 是对的**。另：A 股 `*-quarterly` 单季表的 `companyType` 返回未映射的数字码（如 `102119999`）、`currency` 正确；**港股 / 美股三表实测均正常**（`companyType=一般企业`、`currency=人民币`/`美元`）。读这两列时按**值**判断语义，别按列名——科目数字本身不受影响
 
 **常用字段速查：**
 - 利润表：`totalOpRev` 营收 | `netProfit` 净利润 | `netProfitAttrParent` 归母 | `basicEPS` EPS | `rdExp` 研发
@@ -75,6 +78,7 @@ gangtise fundamental main-business --security-code <code> [--breakdown <type>] [
 - `--period`：`interim` 中报 | `annual` 年报（可重复）
 - 默认时间窗：`endDate` 当前日期、`startDate` 三年前
 - **不支持 `--fiscal-year`**（误传触发 `100001`/`100003`，旧 `900001`）；按年份筛选用 `--start-date`/`--end-date`
+- `--field` 只认 `references/fields.md` 「主营业务」小节的字段（`opRevenue` / `grossProfit` 等）；`securityCode`、`itemName` 这类**不是**该接口字段，传了会报「响应字段数与 fieldList 不匹配」（前 3 列 `periodName` / `periodEndDate` / `categoryName` 恒定返回）
 
 ## A股估值分析 `fundamental valuation-analysis`
 
@@ -86,6 +90,7 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 - `--indicator`（**必选**）：`peTtm` 滚动PE | `pbMrq` PB | `peg` PEG | `psTtm` 滚动PS | `pcfTtm` 滚动PCF | `em` 企业倍数
 - `--limit` 默认 2000，省略 `--start-date` 时自动查近一年
 - `--skip-null`：丢弃 `value`/`percentileRank` 为 null 的行（最新交易日可能未入库）
+- **返回字段只有 7 个**（实测 2026-07-24）：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`。**没有 `securityCode`**——误传会拿到一列重复的 `tradeDate`（长度相等，CLI 拦不住），传其他不存在的字段名则直接报错。**建议不传 `--field`**，证券代码本来就是你自己传进去的
 
 ## A股盈利预测 `fundamental earning-forecast`
 

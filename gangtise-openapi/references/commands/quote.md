@@ -2,6 +2,8 @@
 
 通用：`--field` 可重复（`--field open --field close`），可用字段见 `references/fields.md`。
 
+**`--field` 字段名必须核对**（v0.28.3 起传错直接报错）：上游对不存在的字段名有两套处理——day-kline / minute-kline / fund-flow 把字段名和值一起丢掉（安全）；但 `quote realtime`（及 `fundamental main-business` / `valuation-analysis`）**只丢值、字段名照请求回显**，按位置拍平就把值贴到了错误的字段上。实测 `quote realtime --field securityCode --field close --field turnoverRate`：realtime 根本没有 `close`，返回的 2 个值被拍成 `close = 28.5573`（那是换手率，茅台真实价 1297.41）——不报错、数字看着合理、却完全是另一个指标。CLI 现在长度不匹配就直接失败（退出码 1），不输出错位数据。**不确定字段名就别传 `--field`**（返回全量最稳）。
+
 **关键规则**：查"最近"K线必须显式 `--start-date`/`--end-date` 拉范围，再从 `tradeDate` 取尾部最近 N 条；不要只用 `--limit N`（会截取查询窗口开头）。
 
 **自动分片**（v0.12.0；v0.14.2 修正分片粒度并注入 limit=10000）：`--security all` 跨日期范围 CLI 会自动按日切片并并发执行（A 股 1 天/片，美股 1 天/片，HK 2 天/片，指数 30 天/片），合并结果返回。CLI 在 `--security all` 路径会自动把 `limit` 抬到 10000（API 上限），避免默认 6000 行截断。无需手动按季度分批。
@@ -50,6 +52,8 @@ gangtise quote realtime [--security <code>] [--field <name>]
 - **全市场关键字**：`--security aShares` 全部 A 股 / `--security hkStocks` 全部港股 / `--security usStocks` 全部美股；建议配合 `--field` 精简返回字段
 - 返回**最新时刻**的行情快照（最新价/开高低/涨跌/成交量额/振幅）
 - 非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照
+- **实测全量字段（16 个，2026-07-24）**：`securityCode` `exchange` `tradeDate` `tradeTime` `open` `high` `low` `latestPrice` `preClose` `change` `pctChange` `volume` `amount` `turnoverRate` `amplitude` `volumeRatio`
+- **没有 `close`**——收盘价语义用 `latestPrice`（非交易时间即为收盘价），或改用 `quote day-kline` 的 `close`；**也没有市值**，总市值走 `indicator cross-section --indicator qte_mkt_cptl`（仅 A 股）
 - 字段速查：见 `references/fields.md` 中的"实时行情"小节
 
 ## A股资金流向 `quote fund-flow`

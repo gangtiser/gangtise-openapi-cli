@@ -241,7 +241,7 @@
    - scopeList：覆盖全部三只 A 股；缺失/null/空也视为不通过
    - parameterList：补 required 参数并核对枚举
    任一不符 → 回退相应专用接口。
-3. 三类指标日期语义不同 → 拆三次截面，均加 `--key-by code`（列头用 indicatorCode，跨三张表按 code 稳定合并、免受同名/服务端重排干扰；省略 reportType 即取合并口径，⚠️ 该枚举 label 与实测不符、value=2/4 会 999999，需指定口径改用 fundamental income-statement --report-type）：
+3. 三类指标日期语义不同 → 拆三次截面，均加 `--key-by code`（列头用 indicatorCode，跨三张表按 code 稳定合并、免受同名/服务端重排干扰；省略 reportType 即取合并口径，⚠️ 该枚举 label 与实际取数错位——实际 1=合并 2=合并(调整) 3=母公司 4=母公司(调整)，要母公司口径传 3、别按 label 传 1）：
    a) 财务（营收/EPS）用报告期末 2025-12-31：
      gangtise indicator cross-section \
        --indicator is_op_rev --indicator is_eps_bas \

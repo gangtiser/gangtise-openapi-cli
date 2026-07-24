@@ -4,6 +4,20 @@
 
 ## Changelog
 
+### v0.28.3 — 2026-07-24
+
+🔴 **数据完整性修复**：`--field` 传错字段名会导致**静默错列**（值贴到错误的字段上）。
+
+**修复**
+- 列式响应（`{fieldList, list}`）拍平时校验字段数与行长度，不匹配直接报错（`ValidationError`，退出码 1），不再输出错位数据。上游对不存在的字段名有两套处理：`day-kline` / `minute-kline` / `fund-flow` 名值同丢、三大报表补 `null`（长度相等，安全）；但 **`quote realtime` / `fundamental main-business` / `valuation-analysis` 只丢值、字段名照请求回显**——实测 `quote realtime --field securityCode --field close --field turnoverRate`（realtime 根本没有 `close`）把换手率 `28.5573` 拍成了 `close`，茅台真实价 1297.41。不报错、数字看着合理、却完全是另一个指标。`alternative edb-data` 的同款拍平一并纳入校验
+
+**文档（随包 skill）**
+- SKILL.md 必备规则加第 10 条：`--field` 不确定就别传；`quote realtime` **无 `close`**（用 `latestPrice`）、**无市值**（总市值走 `indicator cross-section --indicator qte_mkt_cptl`，仅 A 股）
+- `quote realtime` 补全 16 个实测字段（此前 `fields.md` 漏 `turnoverRate` / `volumeRatio`）；`valuation-analysis` 标注只有 7 个字段、无 `securityCode`（误传会拿到一列重复的 `tradeDate`，长度相等拦不住）
+- **推翻 07-23 关于 EDE `reportType` 的结论**（复测 2026-07-24）：旧文档写「枚举不可信、`value=2/4` 直接 `999999`、指定口径请改用 `fundamental --report-type`」。实测是 label 与 value **错位但映射稳定**：`1`=合并（默认）、`2`=合并(调整)、`3`=母公司、`4`=母公司(调整)，四值与三大报表逐一对得上；`2`/`4` 为空只是该报告期尚无调整表。**EDE 可以指定口径——母公司传 `3`，合并省略即可**
+- 修正 `response-schema.md` 里会**反向诱导传错字段**的陈旧记录：`main-business` 行原写 `endDate` / `breakdownName` / `revenue`（实测均不存在），改为真实的 `periodName` / `periodEndDate` / `categoryName` + `opRevenue` / `grossProfit` 等 15 个字段
+- 标注上游 meta 字段错位（实测边界）：**A 股累计口径的 `balance-sheet` / `cash-flow`** 的 `companyType` 与 `currency` 值互换（`companyType=人民币`、`currency=银行`），A 股 `income-statement`、港股/美股三表均正确；A 股 `*-quarterly` 单季表另有 `companyType` 返回未映射数字码（`102119999`）的问题——读这两列按值判断语义，科目数字不受影响
+
 ### v0.28.2 — 2026-07-24
 
 EDE 指标批量取数优化（基于对上游 990 个指标的实测）。
@@ -31,6 +45,7 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 **实测校正（2026-07-23）**
 - `scope` 字段更正为 `scopeList[].market/.securityType`（服务端已返回实际覆盖），覆盖按指标而异：`finc_pe_ttm`/`finc_pb_mrq` 仅 A 股、`is_op_rev` A 股+港股，均不含美股；`valuation-analysis`/`earning-forecast` 仅 A 股
 - `finc_pb_mrq`(市净率 MRQ) 只在报告期末打值（交易日取 `null`），非日频；EDE 财务指标 `reportType` 枚举 label 与实测取数不符（`value=2/4` 直接 `999999`），要指定报表口径改用 `fundamental` 三大报表 `--report-type`
+  - ⚠️ **本条 `reportType` 结论已被 v0.28.3 复测推翻，勿据此路由**：实际是 `1`=合并 / `2`=合并(调整) / `3`=母公司 / `4`=母公司(调整)，EDE 可直接指定口径，见上方 v0.28.3 条目（`finc_pb_mrq` 部分仍成立）
 
 ### v0.28.0 — 2026-07-21
 

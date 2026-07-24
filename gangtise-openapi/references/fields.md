@@ -30,6 +30,9 @@
 | `low` | 最低价 | `change` | 涨跌额 |
 | `pctChange` | 涨跌幅(%) | `volume` | 成交量(股，当日累计) |
 | `amount` | 成交总额(当日累计) | `amplitude` | 振幅(%) |
+| `turnoverRate` | 换手率(%) | `volumeRatio` | 量比 |
+
+**以上 16 个就是全部**（实测 2026-07-24）：**无 `close`**（用 `latestPrice`）、**无市值**（走 `indicator cross-section --indicator qte_mkt_cptl`）。realtime 传了不存在的字段名不会被忽略——上游只丢值、字段名照回显，CLI 检测到长度不匹配会直接报错（v0.28.3 起）。
 
 ### 指数日K线（沪深京 `quote index-day-kline`）
 

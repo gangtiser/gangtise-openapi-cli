@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { attachEnvelopeTraceId } from "../../src/core/errors.js"
 import { normalizeRows } from "../../src/core/normalize.js"
 
 describe("normalizeRows", () => {
@@ -63,6 +64,35 @@ describe("normalizeRows", () => {
     expect(result).toEqual([
       { securityCode: "000001.SZ", title: "A" },
     ])
+  })
+
+  // 上游对「fieldList 含该接口不存在的字段名」有两套处理：day-kline / minute-kline /
+  // fund-flow / 三大报表是「名值同丢或补 null」（长度仍相等，安全）；realtime /
+  // main-business / valuation-analysis 却是**值只按有效字段返回、字段名按请求原样回显**。
+  // 后者长度不等，按位置拍平就把值贴到错误的字段上——实测 realtime 传
+  // ["securityCode","close","turnoverRate"]（realtime 无 close）返回 2 个值，
+  // 换手率 28.5573 被贴成 close，读起来就是「茅台收盘价 28.56」（真实价 1297.41）。
+  // 静默错列比缺字段危险得多，必须直接失败。
+  it("throws instead of mis-zipping when the row is shorter than fieldList (invalid field name)", () => {
+    expect(() => normalizeRows({
+      total: 1,
+      fieldList: ["securityCode", "close", "turnoverRate"],
+      list: [["600519.SH", 28.5573]],
+    })).toThrowError(/字段数与 fieldList 不匹配/)
+  })
+
+  it("carries the envelope traceId into the mismatch error so a structural-anomaly report is actionable", () => {
+    const raw = attachEnvelopeTraceId({
+      fieldList: ["date", "S00000093", "S99999999"],
+      list: [["20260131", "826.1"]],
+    }, "trace-123")
+
+    expect(() => normalizeRows(raw)).toThrowError(/trace trace-123/)
+  })
+
+  it("leaves non-array rows in a fieldList response untouched", () => {
+    const raw = { total: 1, fieldList: ["a"], list: [{ already: "object" }] }
+    expect(normalizeRows(raw)).toEqual({ total: 1, list: [{ already: "object" }] })
   })
 
   it("keeps { total, list } for group ID responses (chatroom now returns total + list)", () => {
