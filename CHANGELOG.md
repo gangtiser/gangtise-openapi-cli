@@ -2,6 +2,20 @@
 
 本项目完整版本历史。README 顶部仅展示最近几个版本。
 
+### v0.28.2 — 2026-07-24
+
+EDE 指标批量取数优化（基于对上游 990 个指标的实测）。
+
+**新增**
+- `indicator cross-section` / `time-series` 加 `--key-by name|code`（默认 `name`）：`code` 模式列头用 `indicatorCode`（时序多证券侧用 `securityCode`），唯一且与服务端返回列序无关。**多证券批量按 code 回填必用**——此前拍平只按指标显示名，而多个指标同名（如 `cf_finc_exp`/`_qtr` 都叫「财务费用」）+ 服务端会重排返回列序，导致按名/按位置都错位、只能绕道 raw API 手工回填
+
+**修复**
+- EDE `999999` 无数据提示只对取数端点（`cross-section`/`time-series`）套用，`indicator.search`（同为 no-999999 策略、仅关键词入参）回落通用提示；文案改为「日期匹配指标周期（财务/MRQ 用报告期末、日频估值用交易日）、`scopeList`、`parameterList` 中 required 参数」——修正此前「行情/估值用交易日」与 `finc_pb_mrq` 仅报告期末的矛盾
+
+**文档（随包 skill）**
+- `indicator.md`：`--key-by` 文档 + 两处 synopsis；`periodNum` 补「部分需配年报日期」、`startDate` 补「取值须匹配指标周期」
+- `examples.md` 例15：批量三截面示例改用 `--key-by code`
+
 ### v0.28.1 — 2026-07-23
 
 Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券取一批**已实现**财务/估值指标优先走 EDE `indicator cross-section`/`time-series` 一次拉取，替代逐只 `fundamental` 循环。**本版仅改随包分发的 skill 文档（`gangtise-openapi/`），无 CLI 代码/命令/参数变更。**

@@ -48,6 +48,34 @@ beforeAll(async () => {
         res.end(JPEG_BYTES)
         return
       }
+      if ((req.url ?? "").includes("/EDE/cross-section")) {
+        // EDE double-wraps on success (outer envelope stripped by the client, inner
+        // { code, status, data } peeled by unwrapIndicatorData). Two indicators share
+        // the display name 「财务费用」 so a name-keyed output collides — the --key-by
+        // code path must key columns by the distinct indicatorCode instead.
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+          date: "2026-03-31",
+          securityCodeList: ["600519.SH"],
+          securityNameList: ["贵州茅台"],
+          indicatorCodeList: ["cf_finc_exp", "cf_finc_exp_qtr"],
+          indicatorNameList: ["财务费用", "财务费用"],
+          values: [[100], [40]],
+        } } }))
+        return
+      }
+      if ((req.url ?? "").includes("/EDE/time-series")) {
+        // Single indicator × two securities → columns are securities; --key-by code
+        // must key them by securityCode (600519.SH), not the display name (贵州茅台).
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+          securityCodeList: ["600519.SH", "000858.SZ"],
+          securityNameList: ["贵州茅台", "五粮液"],
+          indicatorCodeList: ["finc_pe_ttm"],
+          indicatorNameList: ["市盈率(TTM)"],
+          dates: ["2026-05-18"],
+          values: [[20.03], [26.36]],
+        } } }))
+        return
+      }
       res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
     })
   })
@@ -483,5 +511,37 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(midVersion.code).toBe(0)
     expect(midVersion.out.trim()).toMatch(/^\d+\.\d+\.\d+$/) // commander's own version flag, no update-check hijack
     expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("indicator cross-section --key-by code keys columns by indicatorCode (not the shared display name)", async () => {
+    // cf_finc_exp and cf_finc_exp_qtr both display as 「财务费用」; only the code
+    // disambiguates. Proves --key-by actually reaches flattenCrossSection, not merely
+    // that the option parses.
+    const { code, out } = await cli([
+      "indicator", "cross-section",
+      "--indicator", "cf_finc_exp", "--indicator", "cf_finc_exp_qtr",
+      "--security", "600519.SH", "--date", "2026-03-31",
+      "--key-by", "code", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    const row = (JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]
+    expect(row).toMatchObject({ cf_finc_exp: 100, cf_finc_exp_qtr: 40 })
+    expect(Object.keys(row)).not.toContain("财务费用")
+  }, 30_000)
+
+  it("indicator time-series --key-by code keys multi-security columns by securityCode", async () => {
+    // Guards the src/cli.ts time-series --key-by passthrough (identical pattern to
+    // cross-section) so it can't be silently dropped without a failing test.
+    const { code, out } = await cli([
+      "indicator", "time-series",
+      "--indicator", "finc_pe_ttm",
+      "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-date", "2026-05-18", "--end-date", "2026-05-18",
+      "--key-by", "code", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    const row = (JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]
+    expect(row).toMatchObject({ "600519.SH": 20.03, "000858.SZ": 26.36 })
+    expect(Object.keys(row)).not.toContain("贵州茅台")
   }, 30_000)
 })

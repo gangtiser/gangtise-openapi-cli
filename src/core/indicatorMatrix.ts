@@ -82,7 +82,11 @@ function buildHeaders(names: string[] | undefined, codes: string[] | undefined, 
 // Cross-section: one row per security, one column per indicator. The live
 // `values` is a 2D [numIndicators][numSecurities] matrix in indicator-major
 // order, so indicator i on security j is values[i][j].
-export function flattenCrossSection(data: unknown): unknown {
+// keyBy "code" makes each indicator column its `indicatorCode` (unique, and
+// independent of the display name or the server's column order) instead of the
+// human name — required for batch code→value mapping, where names collide
+// (many indicators share a display name) and the server reorders columns.
+export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "name"): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
   const securityCode = asStringArray(d.securityCodeList)
@@ -90,7 +94,7 @@ export function flattenCrossSection(data: unknown): unknown {
   if (!Array.isArray(d.values) || !securityCode || !indicators) return data
 
   const securityName = asStringArray(d.securityNameList)
-  const headers = buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length)
+  const headers = buildHeaders(keyBy === "code" ? indicators : asStringArray(d.indicatorNameList), indicators, indicators.length)
 
   const list = securityCode.map((code, j) => {
     const row: Record<string, unknown> = { date: d.date, security: code, name: securityName?.[j] }
@@ -105,7 +109,7 @@ export function flattenCrossSection(data: unknown): unknown {
 // Time-series: one row per date. Columns are the indicators (single-security
 // case) or the securities (single-indicator case) — exactly one dimension
 // varies, per the API contract. `values` is a 2D [series][date] matrix.
-export function flattenTimeSeries(data: unknown): unknown {
+export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
   const dates = asStringArray(d.dates)
@@ -115,8 +119,8 @@ export function flattenTimeSeries(data: unknown): unknown {
 
   const seriesAreIndicators = securityCode.length <= 1
   const headers = seriesAreIndicators
-    ? buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length)
-    : buildHeaders(asStringArray(d.securityNameList), securityCode, securityCode.length)
+    ? buildHeaders(keyBy === "code" ? indicators : asStringArray(d.indicatorNameList), indicators, indicators.length)
+    : buildHeaders(keyBy === "code" ? securityCode : asStringArray(d.securityNameList), securityCode, securityCode.length)
 
   const list = dates.map((date, k) => {
     const row: Record<string, unknown> = { date }

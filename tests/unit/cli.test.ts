@@ -189,7 +189,7 @@ describe("cli smoke", () => {
   it("indicator cross-section exposes the documented flags", async () => {
     const { code, out } = await cli(["indicator", "cross-section", "--help"])
     expect(code).toBe(0)
-    for (const flag of ["--indicator", "--security", "--date", "--currency", "--scale", "--indicator-param"]) {
+    for (const flag of ["--indicator", "--security", "--date", "--currency", "--scale", "--indicator-param", "--key-by"]) {
       expect(out).toContain(flag)
     }
   }, 30_000)
@@ -197,7 +197,7 @@ describe("cli smoke", () => {
   it("indicator time-series exposes the documented flags", async () => {
     const { code, out } = await cli(["indicator", "time-series", "--help"])
     expect(code).toBe(0)
-    for (const flag of ["--indicator", "--security", "--start-date", "--end-date", "--calendar-type", "--currency", "--scale", "--indicator-param"]) {
+    for (const flag of ["--indicator", "--security", "--start-date", "--end-date", "--calendar-type", "--currency", "--scale", "--indicator-param", "--key-by"]) {
       expect(out).toContain(flag)
     }
   }, 30_000)

@@ -72,6 +72,28 @@ describe("flattenCrossSection", () => {
     })
   })
 
+  it("keys indicator columns by code when keyBy is 'code' (stable across duplicate names)", () => {
+    // Batch use-case: cf_finc_exp (累计) and cf_finc_exp_qtr (单季) BOTH display as
+    // 「财务费用」, and the server may reorder columns vs the request — so mapping a
+    // requested code back to its value by name or position is impossible. keyBy:'code'
+    // makes every indicator column its unique code.
+    const out = flattenCrossSection({
+      date: "2026-03-31",
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["cf_finc_exp", "cf_finc_exp_qtr"],
+      indicatorNameList: ["财务费用", "财务费用"],
+      values: [[100], [40]],
+    }, "code") as { list: Record<string, unknown>[] }
+    expect(out.list[0]).toEqual({
+      date: "2026-03-31",
+      security: "600519.SH",
+      name: "贵州茅台",
+      cf_finc_exp: 100,
+      cf_finc_exp_qtr: 40,
+    })
+  })
+
   it("emits null cells and keeps the security row when the matrix has no data", () => {
     // Post-fix server behaviour: no-data is null per cell; the security is NOT
     // dropped and the call does NOT 500 (previously the whole row vanished).
@@ -138,6 +160,30 @@ describe("flattenTimeSeries", () => {
       { date: "2026-05-18", 贵州茅台: 1323.0, 泡泡玛特: 150.7 },
       { date: "2026-05-19", 贵州茅台: 1324.3, 泡泡玛特: 152.5 },
     ])
+  })
+
+  it("keys indicator columns by code when keyBy is 'code' (single security)", () => {
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["qte_close", "qte_vol"],
+      indicatorNameList: ["收盘价", "成交量"],
+      dates: ["2026-05-18"],
+      values: [[1323.0], [4966097]],
+    }, "code") as { list: Record<string, unknown>[] }
+    expect(out.list[0]).toEqual({ date: "2026-05-18", qte_close: 1323.0, qte_vol: 4966097 })
+  })
+
+  it("keys security columns by code when keyBy is 'code' (multiple securities)", () => {
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH", "09992.HK"],
+      securityNameList: ["贵州茅台", "泡泡玛特"],
+      indicatorCodeList: ["qte_close"],
+      indicatorNameList: ["收盘价"],
+      dates: ["2026-05-18"],
+      values: [[1323.0], [150.7]],
+    }, "code") as { list: Record<string, unknown>[] }
+    expect(out.list[0]).toEqual({ date: "2026-05-18", "600519.SH": 1323.0, "09992.HK": 150.7 })
   })
 
   it("returns an empty list when the API resolves no rows (no-data range)", () => {

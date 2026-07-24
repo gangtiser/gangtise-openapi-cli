@@ -241,21 +241,21 @@
    - scopeList：覆盖全部三只 A 股；缺失/null/空也视为不通过
    - parameterList：补 required 参数并核对枚举
    任一不符 → 回退相应专用接口。
-3. 三类指标日期语义不同 → 拆三次截面（省略 reportType 即取合并口径；⚠️ 该枚举 label 与实测不符、value=2/4 会 999999，需指定报表口径改用 fundamental income-statement --report-type）：
+3. 三类指标日期语义不同 → 拆三次截面，均加 `--key-by code`（列头用 indicatorCode，跨三张表按 code 稳定合并、免受同名/服务端重排干扰；省略 reportType 即取合并口径，⚠️ 该枚举 label 与实测不符、value=2/4 会 999999，需指定口径改用 fundamental income-statement --report-type）：
    a) 财务（营收/EPS）用报告期末 2025-12-31：
      gangtise indicator cross-section \
        --indicator is_op_rev --indicator is_eps_bas \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
-       --date 2025-12-31 --format json
+       --date 2025-12-31 --key-by code --format json
    b) PE 日频，用最新交易日 2026-07-22（此日 PB 为 null，勿并入）：
      gangtise indicator cross-section --indicator finc_pe_ttm \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
-       --date 2026-07-22 --format json
+       --date 2026-07-22 --key-by code --format json
    c) PB(MRQ) 只在报告期末打值，用最近报告期末 2026-03-31：
      gangtise indicator cross-section --indicator finc_pb_mrq \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
-       --date 2026-03-31 --format json
-4. 按 security 合并三张宽表（各取所需日期的值）；不要把不同日期语义的指标塞进同一个 --date。
+       --date 2026-03-31 --key-by code --format json
+4. 按 security 合并三张宽表（列头即 indicatorCode，各取所需日期的值）；不要把不同日期语义的指标塞进同一个 --date。
 5. 计费：search 免费；三次取数各按请求单元格数量计费，每次不足 100 单元格按 100 计。
 6. 无数据：单元格缺值返回 null 且不丢证券行；整个查询无数据仍可能报 999999，先核对日期语义、scopeList、公司类型和指标参数。
 ```

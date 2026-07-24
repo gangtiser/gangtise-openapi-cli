@@ -479,10 +479,14 @@ export class GangtiseClient {
     }).catch((error: unknown) => {
       // EDE uses 999999 for "no data for this query" (probed 2026-07-11) — the
       // generic "系统错误，请稍后重试" hint would send the user retrying a query
-      // that will never have data. Swap in a context-specific hint.
-      if (endpoint.retry === 'no-999999' && error instanceof ApiError && error.code === '999999') {
+      // that will never have data. Swap in a fetch-specific hint. Only the data
+      // endpoints take a date/security/params; indicator.search shares the
+      // no-999999 policy but has just a keyword, so it keeps the generic hint
+      // instead of nonsensical date/scope/param guidance.
+      const isIndicatorFetch = endpoint.key === 'indicator.cross-section' || endpoint.key === 'indicator.time-series'
+      if (isIndicatorFetch && error instanceof ApiError && error.code === '999999') {
         throw new ApiError(error.message, error.code, error.statusCode, error.details, error.retryAfterMs,
-          'EDE 的 999999 多为查询无数据（节假日 / 未来日期 / 未覆盖标的）——先检查查询条件，确认应有数据再重试。')
+          'EDE 的 999999 多为查询无数据——先核对：日期匹配指标周期（财务/MRQ 用报告期末如 2025-12-31、日频估值用交易日）、标的在 scopeList 覆盖内、parameterList 中 required 参数已补；确认应有数据再重试。')
       }
       throw error
     })

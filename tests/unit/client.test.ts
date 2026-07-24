@@ -641,7 +641,25 @@ describe("GangtiseClient retry policy wiring", () => {
       caught = error
     }
     expect(caught).toBeInstanceOf(ApiError)
-    expect((caught as ApiError).hint).toContain("无数据")
+    const hint = (caught as ApiError).hint ?? ""
+    expect(hint).toContain("无数据")
+    expect(hint).toContain("指标周期") // routes to the date-per-indicator-period check — the top 999999 cause (财务/MRQ=报告期末, 日频估值=交易日)
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not slap the data-fetch hint on a 999999 from indicator.search (no date/scope/param inputs)", async () => {
+    // search shares the no-999999 policy but takes only a keyword — the cross-section
+    // hint (date period / scopeList / required params) would be nonsensical guidance.
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "999999", msg: "系统内部错误" }, 500))
+    const client = createClient()
+    let caught: unknown
+    try {
+      await client.call("indicator.search", { keyword: "收盘价", limit: 5 })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as ApiError).hint ?? "").not.toContain("scopeList") // scopeList is unique to the data-fetch hint
     expect(requestMock).toHaveBeenCalledTimes(1)
   })
 })
