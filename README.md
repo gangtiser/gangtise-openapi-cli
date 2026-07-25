@@ -4,196 +4,24 @@
 
 ## Changelog
 
-### v0.29.0 — 2026-07-25
+README 仅列最近 5 个版本摘要：
 
-对齐服务端 2026-07-24 更新：新增财报日历（列表 + 原文下载）与 PDF 解析工具，群消息补 `quoteMsg` 引用字段。
+- **v0.29.0 — 2026-07-25**：新增财报日历与 PDF 解析工具，群消息补 `quoteMsg`，并加强大整数 ID 与高积分调用防护。
+- **v0.28.3 — 2026-07-24**：修复列式响应在错误 `--field` 下静默错列的问题，并校正 EDE 与字段文档。
+- **v0.28.2 — 2026-07-24**：EDE 批量取数新增 `--key-by name|code`，优化无数据诊断与相关 Skill 文档。
+- **v0.28.1 — 2026-07-23**：调整 Agent Skill 取数路由，多证券财务与估值指标优先使用 EDE 批量接口。
+- **v0.28.0 — 2026-07-21**：适配新版错误码，强化日期校验、异步状态处理、可观测性与计费安全。
 
-**新增**
-- `insight performance-calendar list` — 财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件，按 `--start-date`/`--end-date`（过滤 `publishDate`）、`--market`、`--security`、`--category` 筛选，自动翻页（单页上限 50）。**它是唯一按 `--*-date` 过滤的 insight list**（其余用 `--start-time`）；`--market` / `--category` 拼错本地直接报错，不会静默返全量。**全表 >12 万条（0.1/条），裸跑会被本地拦下**——必须给一个约束：日期范围、`--security` 或显式 `--size`；`--security` 作为唯一约束时另加 1000 行隐式上限（**仅当 `total` 显示还有未取行时**才标 `partial` + 退出码 3——恰好取满 1000 行且 total 也是 1000 属完整结果，不会误报）
-- `insight performance-calendar download --performance-report-id <id>` — 下载业绩报告原文 PDF（A股 10 积分 / 港美股 20 积分）；仅 `hasAttachment: true` 的记录可下。省略 `--output` 时沿用标题命名
-- `gangtise tool file-parse --file <x.pdf>` — PDF 解析（异步）：上传拿 `taskId`，`--wait` 阻塞轮询（≈316s 预算）直接落盘结果 ZIP（内含 `file.md` + `images/`）；不带 `--wait` 时用 `gangtise tool file-parse-check --task-id <id>` 取结果。**0.8 积分/页，提交时一次性扣费**，取结果免费。本地先校验 PDF 后缀 / 非空 / ≤100MB 再上传；提交端点标 `no-replay`（超时不重放，防重复扣分），单请求超时下限 300s
+### 历史里程碑
 
-**变更**
-- 群消息 `vault wechat-message-list` 返回新增 `quoteMsg`（`quoteMsgId` / `quoteContent` / `quoteUrl`，无引用时为 `null`）。**同时修正随包 skill 里写错的字段名**：正文字段是 `content`、链接是 `url`（旧文档写作 `msgContent` / `contentUrl`，实测 2026-07-25 不存在）
-- `raw call` 现在允许对 POST 型 download 端点传 `--body`（file-parse 取结果用），GET 型仍只收 `--query`；upload 型端点（`tool.file-parse.submit`）明确报错并指向 `tool file-parse`
-- 新增 `EndpointDefinition.bigIntFields`：解析响应前把指定字段的裸数字重新加引号，防止雪花 ID 被 `JSON.parse` 丢位（`1782345678901234567` → `…4700`）。file-parse 的 `taskId` 实测返回字符串、当前不受影响，属前向防护——ID 丢位=已扣费的解析任务取不回结果
-- `--verbose` 的下载日志改用端点真实 method（此前一律打印 `GET`）
+- **v0.26.0–v0.27.0**：建立高积分端点 `no-replay`、原子下载与容错分页机制，并补齐 Skill 分发和发布质量门禁。
+- **v0.22.0–v0.23.0**：统一“省略 `--size` 即拉全量”的分页语义，引入机器可识别的部分结果、Token 自愈，并完成 API 域名迁移与资金流向、机构搜索支持。
+- **v0.19.0–v0.20.0**：上线 EDE 证券指标接口，扩展美股公告与财务报表，同时加强凭证脱敏、CSV 正确性和分页容错。
+- **v0.16.0–v0.18.0**：以服务端参考数据替代多数本地静态表，收紧端点参数，并加入产业公众号资讯。
+- **v0.14.0–v0.15.0**：新增跨市场实时行情、美股日 K 与题材数据，完善全市场 K 线分片和部分失败容错。
+- **v0.12.0–v0.13.0**：奠定并发翻页、连接复用、流式输出与 K 线分片架构，并扩展港股财报、EDB 和股票池。
 
-### v0.28.3 — 2026-07-24
-
-🔴 **数据完整性修复**：`--field` 传错字段名会导致**静默错列**（值贴到错误的字段上）。
-
-**修复**
-- 列式响应（`{fieldList, list}`）拍平时校验字段数与行长度，不匹配直接报错（`ValidationError`，退出码 1），不再输出错位数据。上游对不存在的字段名有两套处理：`day-kline` / `minute-kline` / `fund-flow` 名值同丢、三大报表补 `null`（长度相等，安全）；但 **`quote realtime` / `fundamental main-business` / `valuation-analysis` 只丢值、字段名照请求回显**——实测 `quote realtime --field securityCode --field close --field turnoverRate`（realtime 根本没有 `close`）把换手率 `28.5573` 拍成了 `close`，茅台真实价 1297.41。不报错、数字看着合理、却完全是另一个指标。`alternative edb-data` 的同款拍平一并纳入校验
-
-**文档（随包 skill）**
-- SKILL.md 必备规则加第 10 条：`--field` 不确定就别传；`quote realtime` **无 `close`**（用 `latestPrice`）、**无市值**（总市值走 `indicator cross-section --indicator qte_mkt_cptl`，仅 A 股）
-- `quote realtime` 补全 16 个实测字段（此前 `fields.md` 漏 `turnoverRate` / `volumeRatio`）；`valuation-analysis` 标注只有 7 个字段、无 `securityCode`（误传会拿到一列重复的 `tradeDate`，长度相等拦不住）
-- **推翻 07-23 关于 EDE `reportType` 的结论**（复测 2026-07-24）：旧文档写「枚举不可信、`value=2/4` 直接 `999999`、指定口径请改用 `fundamental --report-type`」。实测是 label 与 value **错位但映射稳定**：`1`=合并（默认）、`2`=合并(调整)、`3`=母公司、`4`=母公司(调整)，四值与三大报表逐一对得上；`2`/`4` 为空只是该报告期尚无调整表。**EDE 可以指定口径——母公司传 `3`，合并省略即可**
-- 修正 `response-schema.md` 里会**反向诱导传错字段**的陈旧记录：`main-business` 行原写 `endDate` / `breakdownName` / `revenue`（实测均不存在），改为真实的 `periodName` / `periodEndDate` / `categoryName` + `opRevenue` / `grossProfit` 等 15 个字段
-- 标注上游 meta 字段错位（实测边界）：**A 股累计口径的 `balance-sheet` / `cash-flow`** 的 `companyType` 与 `currency` 值互换（`companyType=人民币`、`currency=银行`），A 股 `income-statement`、港股/美股三表均正确；A 股 `*-quarterly` 单季表另有 `companyType` 返回未映射数字码（`102119999`）的问题——读这两列按值判断语义，科目数字不受影响
-
-### v0.28.2 — 2026-07-24
-
-EDE 指标批量取数优化（基于对上游 990 个指标的实测）。
-
-**新增**
-- `indicator cross-section` / `time-series` 加 `--key-by name|code`（默认 `name`）：`code` 模式列头用 `indicatorCode`（时序多证券侧用 `securityCode`），唯一且与服务端返回列序无关。**多证券批量按 code 回填必用**——此前拍平只按指标显示名，而多个指标同名（如 `cf_finc_exp`/`_qtr` 都叫「财务费用」）+ 服务端会重排返回列序，导致按名/按位置都错位、只能绕道 raw API 手工回填
-
-**修复**
-- EDE `999999` 无数据提示只对取数端点（`cross-section`/`time-series`）套用，`indicator.search`（同为 no-999999 策略、仅关键词入参）回落通用提示；文案改为「日期匹配指标周期（财务/MRQ 用报告期末、日频估值用交易日）、`scopeList`、`parameterList` 中 required 参数」——修正此前「行情/估值用交易日」与 `finc_pb_mrq` 仅报告期末的矛盾
-
-**文档（随包 skill）**
-- `indicator.md`：`--key-by` 文档 + 两处 synopsis；`periodNum` 补「部分需配年报日期」、`startDate` 补「取值须匹配指标周期」
-- `examples.md` 例15：批量三截面示例改用 `--key-by code`
-
-### v0.28.1 — 2026-07-23
-
-Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券取一批**已实现**财务/估值指标优先走 EDE `indicator cross-section`/`time-series` 一次拉取，替代逐只 `fundamental` 循环。**本版仅改随包分发的 skill 文档（`gangtise-openapi/`），无 CLI 代码/命令/参数变更。**
-
-**路由规则**
-- 单票财务/估值/盈利预测/股东/主营、单票完整三大报表 → 仍走 `fundamental` 专用命令；行情/K 线 → `quote`（免费批量）
-- 多证券已实现财务/估值指标 → 优先 EDE（`cross-section` 单日快照 / `time-series` 单指标×多证券区间）
-- 始终排除 EDE：盈利预测·一致预期、估值历史分位（实测 EDE 无此两类）、OHLCV/K 线、单票完整报表
-- EDE 取数前三项校验：`indicatorName`+`description` 语义 / `scopeList` 覆盖全部目标市场 / `parameterList` 必填参数，任一不符即回退专用接口
-
-**实测校正（2026-07-23）**
-- `scope` 字段更正为 `scopeList[].market/.securityType`（服务端已返回实际覆盖），覆盖按指标而异：`finc_pe_ttm`/`finc_pb_mrq` 仅 A 股、`is_op_rev` A 股+港股，均不含美股；`valuation-analysis`/`earning-forecast` 仅 A 股
-- `finc_pb_mrq`(市净率 MRQ) 只在报告期末打值（交易日取 `null`），非日频；EDE 财务指标 `reportType` 枚举 label 与实测取数不符（`value=2/4` 直接 `999999`），要指定报表口径改用 `fundamental` 三大报表 `--report-type`
-  - ⚠️ **本条 `reportType` 结论已被 v0.28.3 复测推翻，勿据此路由**：实际是 `1`=合并 / `2`=合并(调整) / `3`=母公司 / `4`=母公司(调整)，EDE 可直接指定口径，见上方 v0.28.3 条目（`finc_pb_mrq` 部分仍成立）
-
-### v0.28.0 — 2026-07-21
-
-对齐服务端 2026-07-17 更新（内资研报下载调价 + 41 个公开错误码重排）。**41 个码逐个打了线上探针**，结论是迁移按「错误处理层」而非按业务模块进行、文档并不等于现状：同一个接口内，参数校验层与路由层已发新码，方法路由层和 token 过滤器仍发旧码，异步生成状态也仍是旧码。CLI 对两代都识别。
-
-**错误码体系**
-- `errors.ts` 错误码表按新三层结构（`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层）重写，覆盖 41 个公开码 + 实测仍在线的旧码
-- 异步轮询同时识别 `410110`/`140001`（生成中）与 `410111`/`140002`（终态失败）。实测服务端**仍在用旧码**（HTTP 400、无 `errorType`），新码为预置——服务端切换那天 `--wait` 不会在首次轮询就抛错中止，把已扣的 50 积分作废
-- `140002`（异步 PROCESSING_FAILED，`410111` 的新码）纳入 transport 终态码集合、任何 HTTP 状态都不重试——异步 `*-check`（get-content）端点无 retry 声明、走默认策略，`140002@500` 会被白重试 2 次才轮到 `asyncContent` 的 `FAILED_CODES` 识别（后者在 `client.call` 的 `withRetry` 之上、拦不到重试）；`140002` 语义即「生成失败·终态」、只有那些异步端点会返回它，故全局终态化既安全又省掉白重试。实测服务端仍用 `410111`，此为预置
-- token 自愈补上 `999002`（`0000001008` 的新码）；`999011`（AK/SK 不匹配）加入**终态码集合**，任何 HTTP 状态下都不重试——凭证错不会自己好。注意它只来自 `auth.login`，而 login 走 `useAuth=false` 压根不经过自愈码表，所以「不列进自愈表」并拦不住 `auth.login` 在 5xx 上按默认策略重放两次，必须落在终态码上
-- 修正 `900002` 的错误释义：实测服务端用它表示「请求方法不正确」（HTTP 405），旧文档写作「请求缺少 uid」，据此排查会走错方向
-- 错误提示改为只给下一步动作，不再复述服务端 msg（此前输出形如 `资源不存在 资源不存在，确认 ID 有效`）——新旧两代都过了一遍：留用的 `903301` / `8000016` / `8000018` / `999995` / `999997` / `900001` / `130001` / `410004` / `410110` / `410111` 原本是逐字重复 msg
-- 补上 `410001` / `410106` 两个 EDE 专有旧码的提示——它们没被 2026-07-17 重排收编，却是 `indicator` 取数最常见的两个报错（漏传 `--indicator`/`--security`、漏传 `periodNum` 等必填参数），`indicator.md` 早已把它们列为首要排查项
-- `110002`（日期区间非法）提示改为同时覆盖 `--start-date/--end-date` 与 `--start-time/--end-time`——此前只提 date 参数，而 `insight` 系 list 按 `--start-time` 排序，旧提示指向的是命令根本没有的参数
-- `999006`（限流）提示不再断言「CLI 已退避重试」——仅限流以 429 返回时才全局按 `Retry-After` 退避重试；5xx 形态只有默认策略端点会重试、贵档 no-replay 端点不会，200 错误信封则不重试
-- `130001` 提示改为先给通用「未找到数据/核对查询条件」再限定 EDE 指标权限（此前把通用 DATA_NOT_FOUND 一律导向「未开通指标」）；`130002` 提示补上「非法 `--file-type` 也归此码」（下载类兜底）
-
-**行为变更（本地校验）**
-- 所有 date 参数（`--start-date`/`--end-date`/`--date`/`--report-date`，覆盖 Quote/Fundamental、AI `theme-tracking`/`hot-topic`/`management-discuss-*`、Alternative `edb-data`、Indicator）只接受 `YYYY-MM-DD`，其余格式在发请求前报 `ValidationError`——**服务端额外接受的两种「年在后」格式日月顺序相反**：实测 `07/01/2026`（斜杠）读成 `2026-01-07`、`07-01-2026`（横杠）读成 `2026-07-01`，同样三个数字差半年且都返回 HTTP 200，响应里不回显服务端实际采用的日期（用 `25/12` 与 `12/25` 的互补接受结果交叉验证）。CLI 无从判断用户想要哪个读法，故只转发无歧义写法。`20260701` / `2026/07/01` 这类服务端同样能正确处理的写法也一并拒掉——统一成一种入参形态，好过按端点逐一探针维护白名单；报错文案说明该用哪种写法，不再断言输入本身有歧义
-- **datetime 参数（`--start-time`/`--end-time`）本地拦截覆盖全部透传命令**（insight research/summary/announcement-hk/us、vault 各 list、`quote minute-kline`、`ai security-clue` 等原样透传的 18 处，外加转时间戳的 A 股 `announcement` / `knowledge-batch`）。**服务端对透传的年在后格式静默误解析、并不报 `110001`**：实测 `insight research list` 对 `07/01/2026` 返回 1562 条（=`2026-01-07`）、`07-01-2026` 返回 210 条（=`2026-07-01`），差半年、都 HTTP 200、响应不回显实际日期。新增 `parseDatetimeOption` 做**时区无关**的字段校验（算术闰年、不构造本地 `Date`，故 DST 缺口时刻等对服务端合法的字符串不被客户端时区误伤）后**原样透传**
-- 本地时间校验只认 `YYYY-MM-DD`、`YYYY-MM-DD HH:mm[:ss]`（空格或 `T` 分隔、秒可省）或 10/13 位时间戳；此前 `parseTimestamp13` 用 `new Date()` 兜底还能吞 `.SSS` 毫秒尾、`+08:00` 时区尾、以及 `Infinity`/`1e309`/非整数（数字分支只查 `NaN`，这类会序列化成 null 静默取消过滤），现一律拒绝（时间戳分支改用严格 `^\d{10}$`/`^\d{13}$` 位数正则——这也是科学计数法 / 16 进制 / 空白 / 非标准位数被拒、且 13 位 `1000000000000` 不再落进秒分支的原因）
-
-**修复**
-- EDE 内层信封的报错（`indicator` 取数失败的 `999999` / `130001` 等）此前**永远拿不到 traceId**：实测 `traceId` 只挂在外层信封上，而外层在解包时即被丢弃，内层抛错又没传 details。现在外层 id 以不可枚举属性随 payload 带下去（不进 JSON/CSV 输出），`ApiError.traceId` 兜底读它——这类错误恰恰最需要报障，此前与 README「报错行会带 trace」的表述对不上
-- HTTP 200 包裹的错误信封（Gangtise 也用这种形态）此前会丢掉服务端的 `Retry-After`：主 JSON 路径与下载 JSON 路径两处 `unwrapEnvelope` 都补上（此前只有 4xx/5xx 的 `throwHttpError` 保留），限流响应的退避窗口不再被丢弃
-- `toTimestamp13` 的日历校验补年份与时间 round-trip：`0050-06-15` 曾被 `Date(50,…)` 构造器映射成 1950、DST 缺失时刻（如 America/New_York 的 `02:30`）曾被静默移到 `03:30`——均改为拒绝
-- 异步终态失败（`410111`/`140002`）的报错行补上 code / msg / `traceId` 并提示重提会再次计费——此前只打印一句 "Content generation failed"，把本版新增的 trace 信息吞掉了，与 README「报错行会带 trace」的表述矛盾
-
-**可观测性**
-- 响应信封新增的 `traceId` 透出到 CLI 报错行：`API error (130002) [trace 830965044897325056]: 资源不存在 确认 ID 有效…`——这是 Gangtise 侧唯一能回溯一次失败的抓手，报障时请带上
-
-**计费**
-- `insight research download`（内资研报）**20 → 10 积分/篇**，SKILL.md 积分速查表与 `insight.md` 同步
-
-**文档（实测结论沉淀）**
-- SKILL.md 异常处理表重写为「实测确认在用」与「文档列出但未触发」两组，标注每个码的实测状态与兜底关系（`100003` 是参数类兜底、`130002` 是下载类兜底，`130003`/`130004`/`130005` 均未启用）
-- 记录两个实测坑：**枚举值拼错与分页越界服务端不报错**（静默忽略该筛选条件，拼错会伪装成"结果正常"）；**`viewpoint-debate` 敏感内容不被提前拦截**，扣满 50 积分后才以 `410111` 失败
-- 纠正 SKILL 异常表 `110001`/`110002` 行的日期分类：此前按命令组（「Quote/Fundamental 用 date、Insight/AI 用 datetime」「110001 只有 Insight 系报」）与 AI `management-discuss --report-date`（date 型）及实测都冲突——实测 `fundamental` 对 `2020/01/01` 报 110001、`insight research list` 对 `30/06/2025` 反而宽松解析返回数据，改为按参数名分类、不按命令组预判
-- 新增判别法：新码信封 `code` 是 JSON 数字且带 `errorType`，旧码是字符串且没有——但它判断的是**单条错误路径**切没切，不是整个接口（成功响应也没有 `errorType`，别拿它当判据）
-- README 常见错误表同步重写；Troubleshooting 的 `8000014/8000015` → `999011`、`430007` → `100006`
-
-### v0.27.0 — 2026-07-11
-
-**EDE 指标（体验修复）**
-- `indicator` 三端点对 `999999` 不再自动重试——实测服务端用 `999999` + HTTP 500 表示「查询无数据」（节假日 / 未来日期 / 未覆盖标的），此前每次空查询白烧 3 个请求 + ~4 秒；错误提示改为指向检查查询条件而非「稍后重试」
-
-**资金与下载加固（承接 v0.26.0）**
-- 下载路径同样接入重试策略：50/篇 的 `summary` / `foreign-report` / `my-conference` download 改为 no-replay（与 AI Agent 同价档；下载中断重试可能重复计费），10-30/篇 的下载维持默认重试
-- 签名 URL 下载增加整体硬截止（10× 单请求超时）——headers/body 超时是空闲型，慢滴速传输可无限续命；最终 rename 失败时清理 `.part`
-- `GANGTISE_PAGE_CONCURRENCY` 防御性解析：非法/非正数回退默认 5、上限 32——负值此前被底层钳制成**单 worker 串行**（静默变慢），过大值可能造成过度并发触发限流
-- `--version` 更新提示改为数值分段版本比较（不处理预发布号；本项目只发 x.y.z）——刚发版的 registry 滞后窗口不再把旧版本提示成"可更新"
-
-**体验与正确性小修**
-- `--wait` 异步轮询容忍瞬态错误：5xx/网络抖动只消耗一次尝试并继续等待，不再作废整段等待（积分不足等终态错误仍立即中止）
-- table 输出单元格显示宽度上限 120（超长截断加 `…`）——一个超长字段不再把整列所有行 pad 成同宽（行数 × 宽度的空格放大）
-- markdown 输出先转义反斜杠再转义竖线，字面 `\|` 单元格不再错位列；table/markdown 过滤 C1 控制符（U+009B 单字节 CSI 注入面）
-- 自动文件名按码点截断，emoji 不再被截成 `�`；EDE 矩阵中与 `date`/`security`/`name` 同名的指标列自动加后缀，不再覆盖元数据列
-- 全市场分片截断时输出 `truncatedShards`（具体日期区间，与 `failedShards` 对称），脚本/AI 消费者可定向缩窗补拉
-- 分页端点首页形状漂移（如 `total` 变字符串）时 `--verbose` 下告警，不再完全静默退化单页
-
-**Skill 分发**
-- `gangtise-openapi/` 目录纳入 npm 包；README 安装命令改为从 `$(npm root -g)` 复制——此前的相对路径命令对 npm 用户不可执行
-
-**防漂移门禁（工程，不影响 CLI 行为）**
-- 新增 README↔ENDPOINTS 一致性测试：「自动翻页」清单与注册表 pagination 标记双向比对（此类手抄清单漂移已发生两次）；insight/reference 子命令的 `--help` 覆盖改为从端点注册表派生，新命令漏接线直接测试失败
-- `npm run prepare` 前置断言 README/CHANGELOG 含当前版本条目（写盘前检查，失败零残留）；`npm run typecheck` 纳入 tests/（tsconfig.test.json）
-- CI：`npm pack` 装包冒烟（`--help` + skill 文件存在校验）、测试矩阵 Node 下限改精确 20.18.1、CI typecheck；publish 的 `workflow_dispatch` 必须指向 `v*` tag（关闭无护栏发布通道）
-
-### v0.26.0 — 2026-07-11
-
-**资金安全（重要）**
-- 13 个贵档端点（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`×2 / `hot-topic` / `knowledge-batch` / `earnings-review get-id` / `viewpoint-debate get-id` / `concept-info` / `concept-securities`）改为 **no-replay 重试策略**：5xx / 超时 / `999999` 不再自动重放——实测（2026-07-11）平台按次计费且**缓存命中不豁免**，同参数重放每次都扣分；仅连接期错误（`ECONNREFUSED`/DNS，请求未发出）、429 限流和 token 自愈仍重试。便宜按条计费的 list 类维持原全量重试（失败响应没有数据行、不计费）
-- 连接失败 `ECONNREFUSED` / `UND_ERR_CONNECT_TIMEOUT` 纳入默认重试范围（此前这两类不重试）
-
-**文件安全**
-- 所有 `--output` 落盘（导出、流式下载主路径、签名 URL 跟随下载）改为原子写：先写同目录 `.part` 成功后 rename——重跑失败不再毁掉已有旧文件；顺带修掉中止路径上 `.part` 因流懒打开竞态残留的问题
-- 签名 URL 跟随下载改走 transport 层：遵守 `GANGTISE_TIMEOUT_MS`（此前裸 `fetch` 无超时，慢滴速 CDN 可无限挂起）、网络错误自动重试、跟随最多 3 跳重定向（undici 不自动跟随，超限/缺 `Location` 报错而非把跳转页存成文件）、`--verbose` 日志剥离签名 query 只留 origin+path
-- 自动命名去重后缀试尽 `-1`…`-99` 仍冲突时报错，不再静默覆盖最早的文件
-
-**修复 / 加固**
-- 下载重定向超过 3 跳或缺 `Location` 时报错，不再把跳转页 HTML 当文件内容保存
-- 损坏的 gzip 响应包装为带请求上下文的 `ApiError`（此前抛裸 zlib `Z_DATA_ERROR`，与请求无关联且不可定位）
-- `alternative edb-search --limit` ≤200、`indicator search --limit` ≤100 本地上限校验——实测服务端对超限值静默截断（201→200、101→100），与 v0.25.0 的 `--top` 同类同修法
-
-### v0.25.0 — 2026-07-10
-
-**新增接口（4）**
-- `insight qa list` — 投资者问答 QA：按证券提取互动平台 / 电话会议 / 调研纪要的提问与回答；`--security-code`（必填）、`--source`（`conference`/`interactive`/`survey`）、`--question-category`（11 类，见 `insight.md`）、`--answer-important`（`1` 是 / `0` 否）、`--start-time`/`--end-time`（字符串直传）；自动翻页（单页上限 500）；0.1 积分/条
-- `insight report-image list` / `download` — 研报图表：按关键词搜索研报图片，返回 `chunkId` + 元数据（`--keyword` 必填、`--top` 默认 10 上限 20、`--source-id`、时间过滤；**免费**），再 `download --chunk-id` 下二进制原图（JPEG，0.1 积分/张）
-- `reference official-account-search` — 公众号 ID 搜索：输入公众号名 / 机构 / 关键字返回 `accountId`（喂 `insight official-account list --account-id`）；`--keyword`（必填）、`--category`（`listedCompany`/`broker`/`government`/`media`，可重复；未分类公众号 `category` 为 `null`，传 `--category` 会漏掉）、`--top`（默认 10 上限 10）；免费
-
-**变更**
-- `indicator search` / `cross-section` / `time-series` 市场范围从仅 A 股扩展至 A 股 / 港股 / 美股（服务端变更；CLI 早已支持 `--currency` 与多市场证券代码，无需改动）。⚠️ 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE)，**非 `.US`**——官方示例的 `AAPL.US` 查不到数据，实测须 `AAPL.O`
-
-**修复 / 加固**（承接上一批未单独发版的改动）
-- 分页 / 分片 `partial` 检测补全：`requestPaginated` 的短后续页、`MAX_PAGES` 上限、`total` 漂移、失败页四种场景统一触发 `partial`（退出码 3）——失败页独立成判定条件，避免超额返回的兄弟页把行数补满、掩盖失败页空洞；`quote` 全市场分片硬错后熔断、破损形状分片计入 `failedShards`
-- `--top` 本地上限校验（`report-image` / `knowledge-batch` ≤20，reference 六个搜索命令 ≤10）——实测服务端对超限值**静默截断**不报错，现在发请求前本地报错；`securities-search` / `institution-search` / `official-account-search` 的 `--category` 加本地白名单——实测服务端对拼错的分类**不报错**（securities-search 静默忽略过滤返回全类别、另两个静默返回空），拼写错误不再伪装成"无结果"（`insight qa` 的枚举服务端会报 `100003`，故不做本地白名单）
-- 错误码 `100003`（参数值非法）补充中文提示——服务端不指明是哪个参数，提示对照命令 `--help` 检查枚举参数拼写
-- undici `^7.16.0` → `^7.28.0`（修 keep-alive 队列污染 GHSA-35p6-xmwp-9g52），`engines.node` `>=20` → `>=20.18.1` 对齐 undici 实际最低要求
-
-### v0.24.0 — 2026-07-07
-
-**新增**
-- `raw list` — 列出所有已注册的 endpoint key（含 method / path / description），配合 `raw call <key>` 使用，不必再翻文档记 key；支持 `--format`（默认 table）/ `--output`
-- AI 同步生成端点内置 120s 超时下限（`one-pager` / `investment-logic` / `peer-comparison` / `theme-tracking` / `research-outline` / `management-discuss-announcement` / `management-discuss-earnings-call`）——生成耗时长不再撞 30s 默认超时触发重试，**不必再手动前缀 `GANGTISE_TIMEOUT_MS`**；显式设更大值仍生效（取 max）
-- 429 响应尊重 `Retry-After`（秒或 HTTP-date；覆盖 JSON、非 JSON、下载三类错误路径），优先于默认指数退避，封顶 60s 防挂死
-- 超大结果（≥5 万行且走非流式渲染：table/json/markdown，或 jsonl/csv 未带 `--output`）在 stderr 提示改用 `--format jsonl --output <path>` 流式落盘
-
-**性能**
-- JSON 请求启用 gzip（`accept-encoding: gzip` + 本地解压）——实测 `reference constant-list` 2110B→586B（3.6x），K 线类高重复大 JSON 收益更高；下载二进制路径不变
-- 全市场按日分片（`quote fund-flow` / `day-kline` / `day-kline-us`，均 1 天/片）自动跳过周六日（A/港/美股周末闭市必空），省 ~28% 请求与每日调用配额；多日分片（`day-kline-hk` 2 天、`index-day-kline` 30 天）不受影响
-
-**修复**
-- 表格（table/markdown）显示宽度纳入 emoji 码位区（0x1F000–0x1FAFF），含 emoji 的微信群名/消息不再错位
-- `fundamental earning-forecast` 默认 `--end-date`（"today"）改用运行机器本地日期；此前用 UTC 日期，CST 凌晨 0–8 点会算成"昨天"
-
-**文档 / 工程**（不影响已发布 CLI 行为）
-- `insight announcement`（A 股公告）时间过滤时区说明：`--start-time`/`--end-time` 按运行机器时区换算，跨机器精确边界改传 13 位毫秒时间戳
-- CI 测试矩阵增加 Node 24（此前仅 20；发布用 24）
-
-### v0.23.0 — 2026-07-05
-
-**行为变更（注意）**
-- ⚠️ 默认 API 域名迁移：`https://open.gangtise.com` → `https://openapi.gangtise.com`。旧域名仍可用，CLI 只是切换了默认值（新旧域名多接口实测等价）；如需固定旧域名设 `GANGTISE_BASE_URL=https://open.gangtise.com`
-- `vault wechat-chatroom-list`：服务端接口改版为返回 `{ total, list }`（此前无 `total`、列名 `chatRoomList`）。CLI 相应改为按 `total` 并发翻页（不再串行翻页）；省略 `--size` 仍拉全量、传 `--size N` 取前 N 条，`Total:` 提示恢复
-- 无翻页的行情端点（`quote fund-flow` / `minute-kline` / 显式多标的的日 K：`day-kline`·`-hk`·`-us`·`index-day-kline`）返回行数撞上单次 `--limit` 时标 `partial`（退出码 3）+ stderr 警告，避免被静默截断；`--limit` 现本地校验 ≤ 10000（撞服务端上限也不漏标）。K 线 `--security all` 仍走日期分片自动补全，不受影响
-
-**新增**
-- `quote fund-flow` — A股个股日资金流向（沪深京），含小/中/大/特大单流入流出金额及占比、主力净流入等字段；`--security`（或 `aShares` 全市场）、`--start-date` / `--end-date`、`--limit`（默认 6000，上限 10000）、`--field` 指定返回字段；无积分消耗（单只证券无翻页，撞 `--limit` 时的截断处理见上「行为变更」；**`aShares` 全市场须显式传 `--start-date`/`--end-date`，CLI 按日自动分片并发合并——缺日期会本地报错**）
-- `reference institution-search` — 机构 ID 搜索，输入机构名/简称返回 `institutionId` 及适用接口参数（`usageScopes`）；`--keyword`（必填）、`--category`（`domesticBroker`/`foreignInstitution`/`leadInstitution`/`opinionInstitution`/`foreignOpinionInstitution`，可重复）、`--top`（默认 10，上限 10）；免费。覆盖既有 `--broker`/`--institution` 全部机构类（research/foreign-report/opinion/foreign-opinion/summary/roadshow/site-visit/strategy/my-conference）
-- `vault my-conference-list` 新增 `--source` — 按录制来源筛选（`1`=企微会议助理 `2`=会议服务微信群，可重复；不传返回全部）
-
-> 更早版本及完整更新历史见 [CHANGELOG.md](CHANGELOG.md)。
+> 完整更新明细及更早版本见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 首次安装
 

@@ -1,6 +1,6 @@
 # Changelog
 
-本项目完整版本历史。README 顶部仅展示最近几个版本。
+本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
 ### v0.29.0 — 2026-07-25
 
@@ -436,4 +436,3 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 - 修复信封检测、版本更新检查、端点去重
 - 新增 `quote index-day-kline` 指数日K线
 - 新增 `vault wechat-message-list` / `wechat-chatroom-list` 群消息
-
