@@ -65,6 +65,21 @@ beforeAll(async () => {
         res.end(ZIP_BYTES)
         return
       }
+      if ((req.url ?? "").includes("/performance-calendar/getList")) {
+        const b = body as { size?: number; securityList?: string[] } | undefined
+        // Normal path — the server honors securityList (probed 2026-07-25: an unknown
+        // or malformed code returns total 0). One company's calendar is a few rows.
+        if (b?.securityList?.length && !b.securityList.includes("IGNORED.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 9, list: Array.from({ length: 9 }, (_, i) => ({ performanceReportId: `s${i}`, title: "t" })) } }))
+          return
+        }
+        // IGNORED.XX stands in for a server that STOPPED filtering by securityList:
+        // the "bound" silently covers the whole 3000-row calendar. This is what the
+        // implicit row cap has to contain.
+        const size = b?.size ?? 50
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3000, list: Array.from({ length: size }, (_, i) => ({ performanceReportId: String(i), title: "t" })) } }))
+        return
+      }
       if ((req.url ?? "").includes("/quote/realtime")) {
         // 如实复刻上游对无效字段名的处理（实测 2026-07-24）：值只按**有效**字段返回、
         // 字段名却按**请求**原样回显。realtime 没有 close，传三个字段只回两个值——
@@ -679,8 +694,26 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       captured.length = 0
       const { code } = await cli(["insight", "performance-calendar", "list", ...bound, "--format", "json"])
       expect(code, `bound ${bound.join(" ")}`).toBe(0)
-      expect(captured, `bound ${bound.join(" ")}`).toHaveLength(1)
+      expect(captured.length, `bound ${bound.join(" ")}`).toBeGreaterThan(0)
     }
+  }, 30_000)
+
+  it("caps a --security-only fetch so a server that stopped honoring securityList can't run up the bill", async () => {
+    // --security is a bound only while the server actually filters by it. IGNORED.XX
+    // makes the stub behave like one that doesn't: 3000 rows hide behind the "bound".
+    // The cap must stop at 1000 rows (20 pages × 50) instead of paginating the lot,
+    // and the result must read as partial — not as a complete company calendar.
+    const capped = await cli(["insight", "performance-calendar", "list", "--security", "IGNORED.XX", "--format", "json"])
+    expect(captured).toHaveLength(20)
+    expect(capped.code).toBe(3)
+    expect(capped.stderr).toContain("capped at 1000 rows")
+
+    // An explicit bound keeps plain fetch-all semantics: 3000 rows = 60 pages, exit 0.
+    captured.length = 0
+    const bounded = await cli(["insight", "performance-calendar", "list", "--start-date", "2026-07-01", "--end-date", "2026-07-25", "--format", "json"])
+    expect(captured).toHaveLength(60)
+    expect(bounded.code).toBe(0)
+    expect(bounded.stderr).not.toContain("capped at")
   }, 30_000)
 
   it("rejects a misspelled performance-calendar --category before any request goes out", async () => {

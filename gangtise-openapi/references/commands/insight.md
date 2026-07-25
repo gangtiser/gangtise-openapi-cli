@@ -69,6 +69,7 @@ gangtise insight performance-calendar download --performance-report-id <id> [--o
 - `--market` / `--category` 拼错 CLI 本地直接报错（不是静默返全量）——这两个参数的枚举值不必猜
 - `--security`：证券代码，如 `000001.SZ`（可重复）
 - 自动翻页（`{total,list}`，单页上限 50）。**不加任何筛选时 total 十万量级**（实测 2026-07-25 为 126683，含未来已排期的财报日程）——CLI 因此要求至少一个约束：`--start-date` + `--end-date`、或 `--security`、或显式 `--size`，裸跑直接报 `ValidationError`（不发请求、不扣分）
+- 只给 `--security`（不给日期/`--size`）时，CLI 额外套一个 **1000 行隐式上限**：单只证券的整段日历只有几十条，正常查询感知不到；万一服务端哪天不再按 `securityList` 过滤，结果会在 1000 行截断并标 `partial`（stderr 警告 + 退出码 3），而不是闷头翻完全表。看到这条警告说明筛选没生效，改用日期范围重查
 - 返回字段：`performanceReportId`（下载用）/ `securityCodeList[]`（A+H 同时上市会有多个代码）/ `securityName` / `category` / `publishDate` / `title` / `hasAttachment`
 - 实测 `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`（文档写 `yyyy-MM-dd`），取日期请截前 10 位
 - download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用真实标题命名（走 title-cache，未命中会回查 list 接口，那次回查按 0.1/条 计费——批量下载建议显式 `--output`）

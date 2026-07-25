@@ -281,6 +281,23 @@ addScheduleList(forum, "insight.forum.list", { researchArea: true, location: tru
 // Earnings calendar: the only insight list filtered by DATE (--start-date/--end-date
 // on publishDate), not by the --start-time datetime every sibling uses — so it does
 // not go through addTimeFilters. It also takes no --keyword / --rank-type / --search-type.
+/** Row ceiling applied when `--security` is the only thing bounding a
+ * performance-calendar fetch. Far above any single company's calendar (a whole
+ * A-share history is dozens of rows), far below the 50k the auto-pagination
+ * would otherwise pull if the server ever stopped honoring securityList. */
+const SECURITY_ONLY_ROW_CAP = 1000
+
+/** Warn + mark partial when a `--security`-only fetch lands exactly on the cap:
+ * that is the signature of a filter that did not narrow anything, and the rows
+ * on screen are then a truncated slice of the whole calendar, not a company's. */
+function flagIfImplicitCapHit(data: unknown, cap: number): void {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return
+  const rec = data as Record<string, unknown>
+  if (!Array.isArray(rec.list) || rec.list.length < cap) return
+  rec.partial = true
+  process.stderr.write(`[gangtise] warning: --security was the only bound, so the fetch was capped at ${cap} rows and hit the cap — the filter may not have narrowed anything (total=${String(rec.total)}). Re-run with --start-date/--end-date or an explicit --size.\n`)
+}
+
 const PERFORMANCE_MARKETS = ["aShares", "hkStocks", "usChinaConcept", "usStocks"] as const
 const PERFORMANCE_CATEGORIES = ["performanceForecast", "performanceExpress", "performanceAnnouncement"] as const
 performanceCalendar.command("list").description("Earnings calendar (业绩预告 / 快报 / 公告)")
@@ -300,18 +317,30 @@ performanceCalendar.command("list").description("Earnings calendar (业绩预告
     // Unfiltered, this endpoint holds >120k rows (probed 2026-07-25: 126683, it
     // also carries FUTURE scheduled events) and an omitted --size means "fetch
     // everything" — 50k rows at the 1000-page cap, ~5000 credits at 0.1/row.
-    // Require a bound: a full date range, an explicit --size, or a security
-    // filter (a single company's whole calendar is a few hundred rows).
-    if (!options.size && !(options.startDate && options.endDate) && !options.security.length) {
+    // Require a bound: a full date range, an explicit --size, or a security filter.
+    const explicitlyBounded = Boolean(options.size) || Boolean(options.startDate && options.endDate)
+    if (!explicitlyBounded && !options.security.length) {
       throw new ValidationError("insight performance-calendar list without a bound would auto-paginate the whole calendar (>120k rows at 0.1 credits each): pass --start-date and --end-date, or --security, or an explicit --size")
     }
-    return emit(options, (client) => client.call("insight.performance-calendar.list", {
-      from: parseFrom(options.from), size: parseSize(options.size),
-      startDate: options.startDate, endDate: options.endDate,
-      marketList,
-      securityList: maybeArray(options.security),
-      categoryList,
-    }), { endpointKey: "insight.performance-calendar.list", idField: "performanceReportId" })
+    // --security is only a real bound while the server honors securityList. It does
+    // today (probed 2026-07-25: an unknown or malformed code returns total 0, it is
+    // not silently ignored like a bad enum) — but a five-figure credit bill must not
+    // rest on that staying true. When --security is the ONLY bound, cap the fetch:
+    // one company's whole calendar is dozens of rows, so the cap is invisible in
+    // normal use and turns a filter regression into a truncated result (partial +
+    // exit 3) instead of a 5000-credit pull.
+    const implicitCap = explicitlyBounded ? undefined : SECURITY_ONLY_ROW_CAP
+    return emit(options, async (client) => {
+      const data = await client.call("insight.performance-calendar.list", {
+        from: parseFrom(options.from), size: parseSize(options.size) ?? implicitCap,
+        startDate: options.startDate, endDate: options.endDate,
+        marketList,
+        securityList: maybeArray(options.security),
+        categoryList,
+      })
+      if (implicitCap) flagIfImplicitCapHit(data, implicitCap)
+      return data
+    }, { endpointKey: "insight.performance-calendar.list", idField: "performanceReportId" })
   })
 addDownloadCommand(performanceCalendar, { endpointKey: "insight.performance-calendar.download", idOption: "--performance-report-id", idField: "performanceReportId", fallbackPrefix: "performance-calendar", titleListEndpoint: "insight.performance-calendar.list" })
 
