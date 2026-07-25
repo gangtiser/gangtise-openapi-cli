@@ -105,7 +105,7 @@ description: |-
 | 外资独立观点 / 独立分析师观点 | `insight independent-opinion list` |
 | 纪要 / 会议纪要（外部） | `insight summary list` |
 | 路演 / 调研 / 策略会 / 论坛 | `insight roadshow / site-visit / strategy / forum list` |
-| 财报日历 / 业绩预告 / 业绩快报 / 财报披露排期 | `insight performance-calendar list`（**用 `--start-date`/`--end-date`，不是 `--start-time`**；全表 >12 万条，CLI 强制要求日期范围 / `--security` / `--size` 三者至少其一；只给 `--security` 时另有 1000 行隐式上限，撞上限=筛选没生效（退出码 3），改用日期范围。下载原文 `performance-calendar download --performance-report-id`，仅 `hasAttachment: true` 可下） |
+| 财报日历 / 业绩预告 / 业绩快报 / 财报披露排期 | `insight performance-calendar list`（**用 `--start-date`/`--end-date`，不是 `--start-time`**；全表 >12 万条，CLI 强制要求日期范围 / `--security` / `--size` 三者至少其一；只给 `--security` 时另有 1000 行隐式上限，撞上限且 total 还有剩余=筛选可能没生效（标 `partial`、退出码 3），改用日期范围重查。下载原文 `performance-calendar download --performance-report-id`，仅 `hasAttachment: true` 可下） |
 | A 股公告 / 公告 | `insight announcement list` |
 | 港股公告 / HK 公告 | `insight announcement-hk list` |
 | 美股公告 / US 公告 | `insight announcement-us list` |

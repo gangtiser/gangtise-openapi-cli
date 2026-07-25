@@ -287,15 +287,20 @@ addScheduleList(forum, "insight.forum.list", { researchArea: true, location: tru
  * would otherwise pull if the server ever stopped honoring securityList. */
 const SECURITY_ONLY_ROW_CAP = 1000
 
-/** Warn + mark partial when a `--security`-only fetch lands exactly on the cap:
- * that is the signature of a filter that did not narrow anything, and the rows
- * on screen are then a truncated slice of the whole calendar, not a company's. */
-function flagIfImplicitCapHit(data: unknown, cap: number): void {
+/** Warn + mark partial when a `--security`-only fetch lands on the cap with rows
+ * still unfetched: that is the signature of a filter that did not narrow anything,
+ * and the rows on screen are then a truncated slice of the whole calendar rather
+ * than a company's. `total` decides it — a result that happens to be exactly `cap`
+ * rows long IS complete (from + rows covers total) and must stay exit 0, or every
+ * automated caller reads a full answer as truncated. */
+function flagIfImplicitCapHit(data: unknown, cap: number, from: number): void {
   if (!data || typeof data !== "object" || Array.isArray(data)) return
   const rec = data as Record<string, unknown>
   if (!Array.isArray(rec.list) || rec.list.length < cap) return
+  const total = typeof rec.total === "number" ? rec.total : undefined
+  if (total !== undefined && from + rec.list.length >= total) return
   rec.partial = true
-  process.stderr.write(`[gangtise] warning: --security was the only bound, so the fetch was capped at ${cap} rows and hit the cap — the filter may not have narrowed anything (total=${String(rec.total)}). Re-run with --start-date/--end-date or an explicit --size.\n`)
+  process.stderr.write(`[gangtise] warning: --security was the only bound, so the fetch was capped at ${cap} rows and more remain (total=${String(rec.total)}) — the filter may not have narrowed anything. Re-run with --start-date/--end-date or an explicit --size.\n`)
 }
 
 const PERFORMANCE_MARKETS = ["aShares", "hkStocks", "usChinaConcept", "usStocks"] as const
@@ -330,15 +335,16 @@ performanceCalendar.command("list").description("Earnings calendar (业绩预告
     // normal use and turns a filter regression into a truncated result (partial +
     // exit 3) instead of a 5000-credit pull.
     const implicitCap = explicitlyBounded ? undefined : SECURITY_ONLY_ROW_CAP
+    const from = parseFrom(options.from)
     return emit(options, async (client) => {
       const data = await client.call("insight.performance-calendar.list", {
-        from: parseFrom(options.from), size: parseSize(options.size) ?? implicitCap,
+        from, size: parseSize(options.size) ?? implicitCap,
         startDate: options.startDate, endDate: options.endDate,
         marketList,
         securityList: maybeArray(options.security),
         categoryList,
       })
-      if (implicitCap) flagIfImplicitCapHit(data, implicitCap)
+      if (implicitCap) flagIfImplicitCapHit(data, implicitCap, from)
       return data
     }, { endpointKey: "insight.performance-calendar.list", idField: "performanceReportId" })
   })

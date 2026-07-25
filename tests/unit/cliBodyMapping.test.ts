@@ -67,6 +67,13 @@ beforeAll(async () => {
       }
       if ((req.url ?? "").includes("/performance-calendar/getList")) {
         const b = body as { size?: number; securityList?: string[] } | undefined
+        // EXACT1000.XX: a result whose total lands exactly ON the cap. Complete, not
+        // truncated — the cap check must read `total`, not just the row count.
+        if (b?.securityList?.includes("EXACT1000.XX")) {
+          const n = Math.min(b?.size ?? 50, 50)
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 1000, list: Array.from({ length: n }, (_, i) => ({ performanceReportId: String(i), title: "t" })) } }))
+          return
+        }
         // Normal path — the server honors securityList (probed 2026-07-25: an unknown
         // or malformed code returns total 0). One company's calendar is a few rows.
         if (b?.securityList?.length && !b.securityList.includes("IGNORED.XX")) {
@@ -707,6 +714,15 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured).toHaveLength(20)
     expect(capped.code).toBe(3)
     expect(capped.stderr).toContain("capped at 1000 rows")
+
+    // Exactly-at-the-cap is COMPLETE (total 1000 = rows fetched), not truncated:
+    // flagging it would make every automated caller read a full answer as partial.
+    captured.length = 0
+    const exact = await cli(["insight", "performance-calendar", "list", "--security", "EXACT1000.XX", "--format", "json"])
+    expect(captured).toHaveLength(20)
+    expect(exact.code).toBe(0)
+    expect(exact.stderr).not.toContain("capped at")
+    expect(JSON.parse(exact.stdout).partial).toBeUndefined()
 
     // An explicit bound keeps plain fetch-all semantics: 3000 rows = 60 pages, exit 0.
     captured.length = 0

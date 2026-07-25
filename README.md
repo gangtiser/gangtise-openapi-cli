@@ -9,7 +9,7 @@
 对齐服务端 2026-07-24 更新：新增财报日历（列表 + 原文下载）与 PDF 解析工具，群消息补 `quoteMsg` 引用字段。
 
 **新增**
-- `insight performance-calendar list` — 财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件，按 `--start-date`/`--end-date`（过滤 `publishDate`）、`--market`、`--security`、`--category` 筛选，自动翻页（单页上限 50）。**它是唯一按 `--*-date` 过滤的 insight list**（其余用 `--start-time`）；`--market` / `--category` 拼错本地直接报错，不会静默返全量。**全表 >12 万条（0.1/条），裸跑会被本地拦下**——必须给一个约束：日期范围、`--security` 或显式 `--size`；`--security` 作为唯一约束时另加 1000 行隐式上限（撞上限即标 `partial`、退出码 3，说明服务端筛选未生效）
+- `insight performance-calendar list` — 财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件，按 `--start-date`/`--end-date`（过滤 `publishDate`）、`--market`、`--security`、`--category` 筛选，自动翻页（单页上限 50）。**它是唯一按 `--*-date` 过滤的 insight list**（其余用 `--start-time`）；`--market` / `--category` 拼错本地直接报错，不会静默返全量。**全表 >12 万条（0.1/条），裸跑会被本地拦下**——必须给一个约束：日期范围、`--security` 或显式 `--size`；`--security` 作为唯一约束时另加 1000 行隐式上限（**仅当 `total` 显示还有未取行时**才标 `partial` + 退出码 3——恰好取满 1000 行且 total 也是 1000 属完整结果，不会误报）
 - `insight performance-calendar download --performance-report-id <id>` — 下载业绩报告原文 PDF（A股 10 积分 / 港美股 20 积分）；仅 `hasAttachment: true` 的记录可下。省略 `--output` 时沿用标题命名
 - `gangtise tool file-parse --file <x.pdf>` — PDF 解析（异步）：上传拿 `taskId`，`--wait` 阻塞轮询（≈316s 预算）直接落盘结果 ZIP（内含 `file.md` + `images/`）；不带 `--wait` 时用 `gangtise tool file-parse-check --task-id <id>` 取结果。**0.8 积分/页，提交时一次性扣费**，取结果免费。本地先校验 PDF 后缀 / 非空 / ≤100MB 再上传；提交端点标 `no-replay`（超时不重放，防重复扣分），单请求超时下限 300s
 
