@@ -53,7 +53,9 @@ gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wec
 - `--wechat-group-id`：先用 `vault wechat-chatroom-list` 查；可重复
 - `--category`：`text` | `image` | `documents` | `url`（可重复）
 - `--tag`：`roadShow` | `research` | `strategyMeeting` | `meetingSummary` | `industryComment` | `companyComment` | `earningsReview`（可重复）
-- 返回字段：`msgId` / `msgContent` / `contentUrl` / `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList` / `securityList`（含 `securityCode` / `securityName`）
+- 返回字段（实测 2026-07-25）：`msgId` / **`content`**（正文）/ **`url`**（链接）/ `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList[]{tagCode, tagName}` / `securityList[]{securityCode, securityName}` / `quoteMsg{quoteMsgId, quoteContent, quoteUrl}`。旧版本文档写作 `msgContent` / `contentUrl` 是错的，取值请用 `content` / `url`
+- `quoteMsg`（2026-07-24 新增）：被引用的消息，无引用时为 `null`；`quoteContent` / `quoteUrl` 也可能为空。做上下文还原时用它把「回复」接回原消息
+- 未打标签/未关联证券的消息，`tagList` / `securityList` 返回 `null`（不是空数组）
 
 ## 群 ID 查询 `vault wechat-chatroom-list`
 

@@ -13,6 +13,26 @@ export function decodeResponseBody(buf: Uint8Array, contentEncoding: string | st
   return enc === "gzip" ? gunzipSync(b).toString("utf8") : b.toString("utf8")
 }
 
+/**
+ * Re-quote the *unquoted numeric* values of the named JSON fields so ids past
+ * 2^53 survive JSON.parse: `{"taskId":1782345678901234567}` would otherwise come
+ * back as 1782345678901234700 and address a task that does not exist.
+ *
+ * Probed 2026-07-25: file-parse's submit returns `taskId` as a STRING (matching
+ * the spec), so this is a forward guard, not a live fix — but the failure mode it
+ * covers is silent and expensive (the parse job is already billed, and a rounded
+ * id can never fetch its result). Values already in quotes are left alone: the
+ * pattern only matches a bare number right after the key.
+ */
+export function quoteBigIntFields(text: string, fields?: readonly string[]): string {
+  if (!fields?.length) return text
+  let out = text
+  for (const field of fields) {
+    out = out.replace(new RegExp(`("${field}"\\s*:\\s*)(-?\\d+)`, "g"), '$1"$2"')
+  }
+  return out
+}
+
 /** A Retry-After delay we'll honor even if it exceeds maxDelay — but never past this
  * ceiling, so a hostile/misconfigured header can't hang the CLI for minutes. */
 const RETRY_AFTER_CEILING_MS = 60_000

@@ -3,7 +3,7 @@ import { gzipSync } from "node:zlib"
 import { describe, expect, it, vi } from "vitest"
 
 import { ApiError } from "../../src/core/errors.js"
-import { decodeResponseBody, markRetryable, parseRetryAfterMs, resolvePageConcurrency, runWithConcurrency, withRetry } from "../../src/core/transport.js"
+import { decodeResponseBody, markRetryable, parseRetryAfterMs, quoteBigIntFields, resolvePageConcurrency, runWithConcurrency, withRetry } from "../../src/core/transport.js"
 
 describe("runWithConcurrency", () => {
   it("preserves item order in the results", async () => {
@@ -292,5 +292,20 @@ describe("parseRetryAfterMs", () => {
   it("returns undefined for a missing or unparseable value", () => {
     expect(parseRetryAfterMs(undefined, 0)).toBeUndefined()
     expect(parseRetryAfterMs("soon", 0)).toBeUndefined()
+  })
+})
+
+describe("quoteBigIntFields", () => {
+  it("keeps every digit of an id JSON.parse would round", () => {
+    const raw = '{"data":{"taskId":1782345678901234567}}'
+    // Proof the guard is load-bearing: a plain parse loses the last digits.
+    expect(String(JSON.parse(raw).data.taskId)).toBe("1782345678901234700")
+    expect(JSON.parse(quoteBigIntFields(raw, ["taskId"])).data.taskId).toBe("1782345678901234567")
+  })
+
+  it("leaves already-quoted values, other fields, and unlisted endpoints alone", () => {
+    expect(quoteBigIntFields('{"taskId":"123"}', ["taskId"])).toBe('{"taskId":"123"}')
+    expect(quoteBigIntFields('{"total":126683}', ["taskId"])).toBe('{"total":126683}')
+    expect(quoteBigIntFields('{"taskId":123}', undefined)).toBe('{"taskId":123}')
   })
 })

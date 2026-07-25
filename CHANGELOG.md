@@ -2,6 +2,28 @@
 
 本项目完整版本历史。README 顶部仅展示最近几个版本。
 
+### v0.29.0 — 2026-07-25
+
+对齐服务端 2026-07-24 更新：新增财报日历（列表 + 原文下载）与 PDF 解析工具，群消息补 `quoteMsg` 引用字段。四个接口均已对真实 API 实测通过。
+
+**新增**
+- `insight performance-calendar list` — 财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件。按 `--start-date`/`--end-date`（`yyyy-MM-dd`，过滤 `publishDate`）、`--market`、`--security`、`--category` 筛选，自动翻页（单页上限 50）。**它是唯一按 `--*-date` 过滤的 insight list**（其余用 `--start-time`），也没有 `--keyword`/`--rank-type`/`--search-type`；`--market`/`--category` 走本地白名单，拼错直接 `ValidationError`（服务端对错枚举是静默返全量，按 0.1/条计费，拦在本地才不烧积分）。实测无筛选时 `total` 十万量级（126683，含未来排期），而省略 `--size` 等于拉全量（1000 页上限 = 5 万条 ≈ 5000 积分）——CLI 因此要求至少一个约束：完整日期范围 / `--security` / 显式 `--size`，裸跑本地报 `ValidationError` 且不发请求
+- `insight performance-calendar download --performance-report-id <id>` — 下载业绩报告原文 PDF（A股 10 积分 / 港美股 20 积分）；仅 `hasAttachment: true` 可下。省略 `--output` 走 title-cache → 真实标题命名（实测落盘 `赛诺医疗 · 发布2026半年度业绩预告.PDF`）
+- `gangtise tool file-parse --file <x.pdf>` / `tool file-parse-check --task-id <id>` — PDF 解析（异步）。提交走 multipart 上传拿 `taskId`，`--wait` 阻塞轮询（≈316s 预算，覆盖官方约 3 分钟）后把结果 ZIP（`file.md` + `images/`）落盘。**0.8 积分/页、提交时一次性扣**，取结果免费；提交端点标 `no-replay` + 超时下限 300s（100MB 上传不会被 30s 默认超时掐断，也不会因重放重复扣费）。上传前本地校验后缀/非空/≤100MB
+- 新增 skill 文档 `references/commands/tool.md`；`examples.md` 补例 18（财报日历）/ 例 19（PDF 解析），含「平台自有研报优先 `--file-type 2` 直出 Markdown、别花解析费」的路由提醒
+
+**变更**
+- 群消息 `vault wechat-message-list` 返回新增 `quoteMsg`（`quoteMsgId` / `quoteContent` / `quoteUrl`，无引用为 `null`）
+- **修正随包 skill 里写错的群消息字段名**：正文是 `content`、链接是 `url`（旧文档写作 `msgContent` / `contentUrl`，实测 2026-07-25 不存在这两个字段）；并标注 `tagList` / `securityList` 无值时返回 `null` 而非空数组
+- `raw call` 对 POST 型 download 端点放行 `--body`（file-parse 取结果需要），GET 型仍只收 `--query`；upload 型端点（`tool.file-parse.submit`）明确报错并指向 `tool file-parse`
+- `--verbose` 的下载日志用端点真实 method（此前一律打印 `GET`，POST 型 download 会误导）
+
+**内部**
+- `EndpointDefinition.kind` 增加 `"upload"`；`client.download()` 支持 POST + JSON body；新增 `client.uploadFile()`（multipart，复用 requestJson 的鉴权/重试/信封处理）与 `src/core/fileParse.ts`
+- `asyncContent.ts` 导出 `isAsyncPending` / `nextPollDelayMs` 供 file-parse 复用（生成中的 `140001`/旧 `410110` 判定只此一处）
+- 新增 `EndpointDefinition.bigIntFields` + `transport.quoteBigIntFields`：解析前把指定字段的**裸数字**重新加引号，防止雪花 ID 被 `JSON.parse` 四舍五入（`1782345678901234567` → `…4700`）。file-parse 的 `taskId` 实测 2026-07-25 返回的是字符串、当前不受影响，这是前向防护——ID 一旦丢位，已扣费的解析任务就再也取不回结果
+- `package-lock.json` 根版本补到与 `package.json` 一致（此前停在 0.28.0）
+
 ### v0.28.3 — 2026-07-24
 
 🔴 **数据完整性修复**：`--field` 传错字段名会导致**静默错列**（值贴到错误的字段上）。

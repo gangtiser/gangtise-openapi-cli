@@ -11,7 +11,7 @@ describe("ENDPOINTS", () => {
       expect(ep.key, `${name}.key`).toBeTruthy()
       expect(["GET", "POST"], `${name}.method`).toContain(ep.method)
       expect(ep.path, `${name}.path`).toMatch(/^\//)
-      expect(["json", "download"], `${name}.kind`).toContain(ep.kind)
+      expect(["json", "download", "upload"], `${name}.kind`).toContain(ep.kind)
       expect(ep.description, `${name}.description`).toBeTruthy()
     }
   })
@@ -35,10 +35,15 @@ describe("ENDPOINTS", () => {
     }
   })
 
-  it("download endpoints use GET method", () => {
+  // Every download takes its parameters in the query string — except the file-parse
+  // result endpoint, which the spec defines as POST + `{taskId}` JSON and answers
+  // with the ZIP bytes. New POST downloads must be added here deliberately: the
+  // client only sends a body when the method is POST.
+  it("download endpoints use GET, except the documented POST ones", () => {
+    const POST_DOWNLOADS = new Set(["tool.file-parse.result"])
     const downloadEndpoints = Object.values(ENDPOINTS).filter((ep) => ep.kind === "download")
     for (const ep of downloadEndpoints) {
-      expect(ep.method, `${ep.key}.method`).toBe("GET")
+      expect(ep.method, `${ep.key}.method`).toBe(POST_DOWNLOADS.has(ep.key) ? "POST" : "GET")
     }
   })
 
@@ -331,6 +336,36 @@ describe("ENDPOINTS", () => {
     expect(chatroom.method).toBe("POST")
     // Server switched to { total, list }; auto-paginates by total (no sequential/listKey).
     expect(chatroom.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+  })
+
+  it("performance-calendar endpoints use correct keys and paths", () => {
+    const list = ENDPOINTS["insight.performance-calendar.list"]
+    expect(list.method).toBe("POST")
+    expect(list.path).toBe("/application/open-insight/schedule/performance-calendar/getList")
+    expect(list.kind).toBe("json")
+    expect(list.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+
+    const download = ENDPOINTS["insight.performance-calendar.download"]
+    expect(download.method).toBe("GET")
+    expect(download.path).toBe("/application/open-insight/schedule/performance-calendar/download/file")
+    expect(download.kind).toBe("download")
+  })
+
+  it("file-parse endpoints: submit is a no-replay upload, result is a POST download", () => {
+    const submit = ENDPOINTS["tool.file-parse.submit"]
+    expect(submit.method).toBe("POST")
+    expect(submit.path).toBe("/application/open-tool/file-parse/submit")
+    expect(submit.kind).toBe("upload")
+    // Billed per page at submit time — a replayed upload bills the whole file again.
+    expect(submit.retry).toBe("no-replay")
+    expect(resolveTimeoutMs(30_000, submit)).toBe(300_000)
+
+    const result = ENDPOINTS["tool.file-parse.result"]
+    expect(result.method).toBe("POST")
+    expect(result.path).toBe("/application/open-tool/file-parse/result")
+    expect(result.kind).toBe("download")
+    // Fetching the result is free: leave it on the default retry policy.
+    expect(result.retry).toBeUndefined()
   })
 
   it("indicator (EDE) endpoints use correct keys and paths and are unpaginated", () => {

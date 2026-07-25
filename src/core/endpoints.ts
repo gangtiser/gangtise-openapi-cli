@@ -2,7 +2,9 @@ export interface EndpointDefinition {
   key: string
   method: "GET" | "POST"
   path: string
-  kind: "json" | "download"
+  /** "upload": multipart/form-data file POST — the body is a FormData, not JSON,
+   * and only `client.uploadFile` can send it (`raw call` cannot carry a file). */
+  kind: "json" | "download" | "upload"
   description: string
   pagination?: {
     enabled: true
@@ -21,6 +23,11 @@ export interface EndpointDefinition {
    * "no-999999": EDE answers a no-data query with HTTP 500 + 999999 (probed
    * 2026-07-11) — don't retry that code; everything else stays default. */
   retry?: "no-replay" | "no-999999"
+  /** Response fields that carry snowflake ids and must survive JSON.parse exactly.
+   * `quoteBigIntFields` re-quotes them in the raw text first: a bare JSON number
+   * past 2^53 silently rounds, and a rounded id can never fetch the (already
+   * billed) task it belongs to. */
+  bigIntFields?: readonly string[]
 }
 
 /** Effective request timeout: the endpoint's floor, or the config timeout if higher
@@ -104,6 +111,19 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "List forums",
     pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.performance-calendar.list": {
+    method: "POST",
+    path: "/application/open-insight/schedule/performance-calendar/getList",
+    kind: "json",
+    description: "List earnings calendar events (forecast / express / announcement)",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.performance-calendar.download": {
+    method: "GET",
+    path: "/application/open-insight/schedule/performance-calendar/download/file",
+    kind: "download",
+    description: "Download an earnings report file (A-share 10 credits, HK/US 20)",
   },
   "insight.research.list": {
     method: "POST",
@@ -653,6 +673,28 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
     retry: "no-999999",
+  },
+
+  // ─── tool (open-tool: async file parsing) ───
+  "tool.file-parse.submit": {
+    method: "POST",
+    path: "/application/open-tool/file-parse/submit",
+    kind: "upload",
+    description: "Submit a PDF for parsing (multipart upload), returns taskId",
+    // Billed per page (0.8/页) at submit time, and the upload itself can take
+    // minutes on a 100MB file — never replay it, and don't let the default 30s
+    // headers timeout kill an in-flight upload.
+    timeoutMs: 300_000,
+    retry: "no-replay",
+    // Probed 2026-07-25: taskId comes back as a string today. Guard anyway — if it
+    // ever arrives as a bare number, rounding would strand a paid parse job.
+    bigIntFields: ["taskId"],
+  },
+  "tool.file-parse.result": {
+    method: "POST",
+    path: "/application/open-tool/file-parse/result",
+    kind: "download",
+    description: "Fetch a file-parse result ZIP by taskId (140001 = still generating)",
   },
 }
 

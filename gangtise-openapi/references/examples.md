@@ -294,3 +294,37 @@
      --start-time "2026-06-06 00:00:00" --end-time "2026-07-06 23:59:59" --format json
 4. 只有要「全量枚举」券商/机构表时才用本地 lookup broker-org/meeting-org list（institution-search 是搜索、非全量）
 ```
+
+## 例 18：财报日历（本周谁发业绩预告）
+
+**用户**："这周 A 股有哪些业绩预告"
+
+```
+1. 路由 → insight performance-calendar list（不是 announcement——预告/快报/公告事件走财报日历）
+2. ⚠️ 本命令用 --start-date/--end-date（yyyy-MM-dd，过滤 publishDate），不是其余 insight list 的 --start-time
+   "这周" → 本周一至今天
+3. Pre-flight：不加筛选 total 十万量级（含未来排期）→ 必须带日期范围；0.1 积分/条，先 --size 探量
+4. gangtise insight performance-calendar list \
+     --start-date 2026-07-20 --end-date 2026-07-25 \
+     --market aShares --category performanceForecast \
+     --size 50 --format json
+   → list[].securityName / title / publishDate / performanceReportId / hasAttachment
+5. 用户要原文时：只有 hasAttachment: true 能下（A股 10 积分/篇）
+   gangtise insight performance-calendar download --performance-report-id 33753017 --output ./预告.pdf
+```
+
+## 例 19：外部 PDF 转 Markdown（异步文件解析）
+
+**用户**："把这份 PDF 转成 Markdown 我要读正文"
+
+```
+1. 先判断来源：平台自有研报/公告 → 直接 download --file-type 2 出 Markdown（只花下载积分），不要走解析
+   外部 PDF（用户自己的文件）→ tool file-parse
+2. Pre-flight：🔴 按页计费 0.8/页、提交即扣——先看页数估积分（50 页 = 40 积分）告知用户
+   本地限制 CLI 会先校验：.pdf 后缀 / 非空 / ≤100MB
+3. gangtise tool file-parse --file ./x.pdf --wait --output ./x.zip
+   （--wait 内部轮询 ≈316s；外层工具超时设 ≥360s。不带 --wait 则拿 taskId，稍后
+     gangtise tool file-parse-check --task-id <id> --output ./x.zip——取结果免费）
+4. unzip 后读 file.md（图片在 images/）；正文长先 wc -l / head 采样再呈现
+5. 超时不要重跑 file-parse（会重复扣费），用 file-parse-check 拿同一个 taskId 的结果
+```

@@ -8,7 +8,7 @@ export const POLL_MAX_ATTEMPTS = 14
 const POLL_INITIAL_DELAY_MS = 5_000
 const POLL_MAX_DELAY_MS = 30_000
 
-function nextDelayMs(attempt: number): number {
+export function nextPollDelayMs(attempt: number): number {
   // 5s, 8s, 13s, 20s, 30s, 30s, ...
   const grown = POLL_INITIAL_DELAY_MS * 1.6 ** (attempt - 1)
   return Math.min(POLL_MAX_DELAY_MS, Math.round(grown))
@@ -28,7 +28,9 @@ interface AsyncContentClient {
 const PENDING_CODES = new Set(["410110", "140001"])
 const FAILED_CODES = new Set(["410111", "140002"])
 
-function isAsyncPending(error: unknown): boolean {
+/** Shared by the AI content endpoints and `tool file-parse` — both report
+ * "still generating" with the same codes. */
+export function isAsyncPending(error: unknown): boolean {
   return error instanceof ApiError && error.code !== undefined && PENDING_CODES.has(error.code)
 }
 
@@ -89,7 +91,7 @@ export async function pollAsyncContent(
       }
     }
     if (attempt < POLL_MAX_ATTEMPTS) {
-      const delay = nextDelayMs(attempt)
+      const delay = nextPollDelayMs(attempt)
       process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: content not ready, retrying in ${Math.round(delay / 1000)}s...\n`)
       await new Promise(resolve => setTimeout(resolve, delay))
     }

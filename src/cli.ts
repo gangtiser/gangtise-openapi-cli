@@ -11,6 +11,7 @@ import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
+import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./core/fileParse.js"
 import { normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
@@ -82,14 +83,14 @@ async function runDownload(
   client: { call: (k: string, body?: unknown, q?: Record<string, string | number>, o?: { streamTo?: string }) => Promise<unknown> },
   endpointKey: string,
   query: Record<string, string | number>,
-  options: { output?: string; fallbackName: string; resolveOutputPath?: (result: unknown) => Promise<string | undefined> },
+  options: { output?: string; fallbackName: string; body?: unknown; resolveOutputPath?: (result: unknown) => Promise<string | undefined> },
 ): Promise<void> {
   if (options.output) {
-    const result = await client.call(endpointKey, undefined, query, { streamTo: options.output })
+    const result = await client.call(endpointKey, options.body, query, { streamTo: options.output })
     await saveDownloadResult(result, options.fallbackName, options.output)
     return
   }
-  const result = await client.call(endpointKey, undefined, query)
+  const result = await client.call(endpointKey, options.body, query)
   const resolved = options.resolveOutputPath ? await options.resolveOutputPath(result) : undefined
   // Title-derived names are auto-generated too — dedupe them like the fallback names.
   await saveDownloadResult(result, options.fallbackName, resolved ? await uniquePath(resolved) : undefined)
@@ -191,6 +192,7 @@ const roadshow = new Command("roadshow")
 const siteVisit = new Command("site-visit")
 const strategy = new Command("strategy")
 const forum = new Command("forum")
+const performanceCalendar = new Command("performance-calendar")
 const research = new Command("research")
 const foreignReport = new Command("foreign-report")
 const announcement = new Command("announcement")
@@ -275,6 +277,43 @@ addScheduleList(siteVisit, "insight.site-visit.list", {
 })
 addScheduleList(strategy, "insight.strategy.list", { institution: true, location: true })
 addScheduleList(forum, "insight.forum.list", { researchArea: true, location: true })
+
+// Earnings calendar: the only insight list filtered by DATE (--start-date/--end-date
+// on publishDate), not by the --start-time datetime every sibling uses — so it does
+// not go through addTimeFilters. It also takes no --keyword / --rank-type / --search-type.
+const PERFORMANCE_MARKETS = ["aShares", "hkStocks", "usChinaConcept", "usStocks"] as const
+const PERFORMANCE_CATEGORIES = ["performanceForecast", "performanceExpress", "performanceAnnouncement"] as const
+performanceCalendar.command("list").description("Earnings calendar (业绩预告 / 快报 / 公告)")
+  .option("--from <number>", "Starting offset", "0")
+  .option("--size <number>", "Total rows to return; omit to fetch all")
+  .option("--start-date <date>", "Start date (yyyy-MM-dd), filters publishDate", dateArg("--start-date"))
+  .option("--end-date <date>", "End date (yyyy-MM-dd), filters publishDate", dateArg("--end-date"))
+  .option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, [])
+  .option("--market <name>", `Market: ${PERFORMANCE_MARKETS.join("/")}`, collectList, [])
+  .option("--category <name>", `Event type: ${PERFORMANCE_CATEGORIES.join("/")}`, collectList, [])
+  .option("--format <format>", "Output format", "table").option("--output <path>", "Output path")
+  .action((options) => {
+    // Enum typos first: a misspelled --category is the likelier mistake, and its
+    // message is the more useful one when both checks would fire.
+    const marketList = parseChoiceList(options.market, "--market", PERFORMANCE_MARKETS)
+    const categoryList = parseChoiceList(options.category, "--category", PERFORMANCE_CATEGORIES)
+    // Unfiltered, this endpoint holds >120k rows (probed 2026-07-25: 126683, it
+    // also carries FUTURE scheduled events) and an omitted --size means "fetch
+    // everything" — 50k rows at the 1000-page cap, ~5000 credits at 0.1/row.
+    // Require a bound: a full date range, an explicit --size, or a security
+    // filter (a single company's whole calendar is a few hundred rows).
+    if (!options.size && !(options.startDate && options.endDate) && !options.security.length) {
+      throw new ValidationError("insight performance-calendar list without a bound would auto-paginate the whole calendar (>120k rows at 0.1 credits each): pass --start-date and --end-date, or --security, or an explicit --size")
+    }
+    return emit(options, (client) => client.call("insight.performance-calendar.list", {
+      from: parseFrom(options.from), size: parseSize(options.size),
+      startDate: options.startDate, endDate: options.endDate,
+      marketList,
+      securityList: maybeArray(options.security),
+      categoryList,
+    }), { endpointKey: "insight.performance-calendar.list", idField: "performanceReportId" })
+  })
+addDownloadCommand(performanceCalendar, { endpointKey: "insight.performance-calendar.download", idOption: "--performance-report-id", idField: "performanceReportId", fallbackPrefix: "performance-calendar", titleListEndpoint: "insight.performance-calendar.list" })
 
 addTimeFilters(research.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--broker <id>", "Broker ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--source <type>", "Source type", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.research.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
@@ -382,6 +421,7 @@ insight.addCommand(roadshow)
 insight.addCommand(siteVisit)
 insight.addCommand(strategy)
 insight.addCommand(forum)
+insight.addCommand(performanceCalendar)
 insight.addCommand(research)
 insight.addCommand(foreignReport)
 insight.addCommand(announcement)
@@ -702,6 +742,36 @@ indicator.command("time-series").option("--indicator <code>", "Indicator code, e
 }))
 program.addCommand(indicator)
 
+const tool = new Command("tool").description("Research tool APIs: PDF parsing")
+tool.command("file-parse").description("Parse a PDF into Markdown + images (async; 0.8 credits/page, billed at submit)")
+  .requiredOption("--file <path>", "PDF to upload (max 100MB / 500 pages)")
+  .option("--wait", "Wait for the parse to finish and save the result ZIP (blocking, up to ~5 min)")
+  .option("--output <path>", "Where to save the result ZIP (used with --wait)")
+  .action((options) => withClient(async (client) => {
+    const taskId = await submitFileParse(client, options.file)
+    if (!options.wait) {
+      process.stderr.write(`File parse task submitted. taskId: ${taskId}\n`)
+      process.stdout.write(`${JSON.stringify({ taskId, status: "pending", hint: `Run 'gangtise tool file-parse-check --task-id ${taskId}' in ~3 minutes to download the result ZIP` })}\n`)
+      return
+    }
+    process.stderr.write(`Got taskId: ${taskId}, waiting for the parse to finish...\n`)
+    if (await pollFileParseResult(client, taskId, options.output) !== "ok") {
+      // Fetching the result is free and the task keeps running server-side —
+      // re-checking later costs nothing, resubmitting re-bills the whole file.
+      process.stderr.write(`Parse result not available after ${POLL_MAX_ATTEMPTS} attempts. Try again later with: gangtise tool file-parse-check --task-id ${taskId}\n`)
+      process.exitCode = 1
+    }
+  }))
+tool.command("file-parse-check").description("Download a finished file-parse result ZIP by taskId (free)")
+  .requiredOption("--task-id <id>", "taskId from 'tool file-parse'")
+  .option("--output <path>", "Where to save the result ZIP")
+  .action((options) => withClient(async (client) => {
+    if (await fetchFileParseResult(client, options.taskId, options.output) === "pending") {
+      process.stdout.write(`${JSON.stringify({ taskId: options.taskId, status: "pending", hint: "Parse not finished yet, retry in ~1 minute" })}\n`)
+    }
+  }))
+program.addCommand(tool)
+
 program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
   const endpoint = ENDPOINTS[endpointKey]
   if (!endpoint) {
@@ -720,12 +790,15 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
   // Fail loudly on arguments the endpoint kind can't use — they used to be
   // silently dropped, leaving the user to puzzle over server-side errors.
   if (endpoint.kind === "download") {
-    if (body !== undefined) {
-      throw new ValidationError(`--body is not supported for download endpoints (use --query key=value); ${endpointKey} is kind=download`)
+    // POST download endpoints (file-parse result) take their parameters as a JSON
+    // body; GET ones take --query and can't carry a body at all.
+    if (body !== undefined && endpoint.method !== "POST") {
+      throw new ValidationError(`--body is not supported for GET download endpoints (use --query key=value); ${endpointKey} is kind=download`)
     }
     await runDownload(client, endpointKey, options.query as Record<string, string | number>, {
       output: options.output,
       fallbackName: "download.bin",
+      body,
     })
     return
   }

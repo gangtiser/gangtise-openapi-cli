@@ -4,6 +4,21 @@
 
 ## Changelog
 
+### v0.29.0 — 2026-07-25
+
+对齐服务端 2026-07-24 更新：新增财报日历（列表 + 原文下载）与 PDF 解析工具，群消息补 `quoteMsg` 引用字段。
+
+**新增**
+- `insight performance-calendar list` — 财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件，按 `--start-date`/`--end-date`（过滤 `publishDate`）、`--market`、`--security`、`--category` 筛选，自动翻页（单页上限 50）。**它是唯一按 `--*-date` 过滤的 insight list**（其余用 `--start-time`）；`--market` / `--category` 拼错本地直接报错，不会静默返全量。**全表 >12 万条（0.1/条），裸跑会被本地拦下**——必须给一个约束：日期范围、`--security` 或显式 `--size`
+- `insight performance-calendar download --performance-report-id <id>` — 下载业绩报告原文 PDF（A股 10 积分 / 港美股 20 积分）；仅 `hasAttachment: true` 的记录可下。省略 `--output` 时沿用标题命名
+- `gangtise tool file-parse --file <x.pdf>` — PDF 解析（异步）：上传拿 `taskId`，`--wait` 阻塞轮询（≈316s 预算）直接落盘结果 ZIP（内含 `file.md` + `images/`）；不带 `--wait` 时用 `gangtise tool file-parse-check --task-id <id>` 取结果。**0.8 积分/页，提交时一次性扣费**，取结果免费。本地先校验 PDF 后缀 / 非空 / ≤100MB 再上传；提交端点标 `no-replay`（超时不重放，防重复扣分），单请求超时下限 300s
+
+**变更**
+- 群消息 `vault wechat-message-list` 返回新增 `quoteMsg`（`quoteMsgId` / `quoteContent` / `quoteUrl`，无引用时为 `null`）。**同时修正随包 skill 里写错的字段名**：正文字段是 `content`、链接是 `url`（旧文档写作 `msgContent` / `contentUrl`，实测 2026-07-25 不存在）
+- `raw call` 现在允许对 POST 型 download 端点传 `--body`（file-parse 取结果用），GET 型仍只收 `--query`；upload 型端点（`tool.file-parse.submit`）明确报错并指向 `tool file-parse`
+- 新增 `EndpointDefinition.bigIntFields`：解析响应前把指定字段的裸数字重新加引号，防止雪花 ID 被 `JSON.parse` 丢位（`1782345678901234567` → `…4700`）。file-parse 的 `taskId` 实测返回字符串、当前不受影响，属前向防护——ID 丢位=已扣费的解析任务取不回结果
+- `--verbose` 的下载日志改用端点真实 method（此前一律打印 `GET`）
+
 ### v0.28.3 — 2026-07-24
 
 🔴 **数据完整性修复**：`--field` 传错字段名会导致**静默错列**（值贴到错误的字段上）。
@@ -305,6 +320,7 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | | `site-visit list` | 调研 |
 | | `strategy list` | 策略 |
 | | `forum list` | 论坛 |
+| | `performance-calendar list` / `download` | 财报日历（业绩预告/快报/公告，含原文 PDF 下载） |
 | | `research list` / `download` | 研报（含 Markdown 下载） |
 | | `foreign-report list` / `download` | 外资研报（含中文翻译下载） |
 | | `announcement list` / `download` | A股公告（含 Markdown 下载） |
@@ -363,7 +379,8 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | | `edb-data` | 行业指标时序数据（批量拉取，最多10个指标） |
 | | `concept-info` | 题材指数基本信息（投资逻辑/行业空间/竞争格局/催化事件） |
 | | `concept-securities` | 题材指数成分股（题材深度F8，按分组，标记重点个股） |
-| **Raw** | `call` | 原始接口调用（可访问任意 endpoint） |
+| **Tool** | `file-parse` / `file-parse-check` | PDF 解析为 Markdown + 图片（异步，返回 ZIP） |
+| **Raw** | `call` | 原始接口调用（可访问任意 JSON / download endpoint；upload 型如 `tool.file-parse.submit` 需走 `tool file-parse`，raw 带不了文件） |
 
 ## 命令概览
 
@@ -377,6 +394,7 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 - `gangtise indicator ...`
 - `gangtise alternative ...`
 - `gangtise reference ...`
+- `gangtise tool ...`
 - `gangtise raw call ...` / `gangtise raw list`
 
 ## 推荐工作流
@@ -425,6 +443,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `insight site-visit list`
 - `insight strategy list`
 - `insight forum list`
+- `insight performance-calendar list`
 - `insight research list`
 - `insight foreign-report list`
 - `insight announcement list`
@@ -453,7 +472,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 
 ## 智能文件命名
 
-下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`announcement-hk download`、`announcement-us download`、`official-account download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
+下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`announcement-hk download`、`announcement-us download`、`official-account download`、`performance-calendar download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
 
 1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
 2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
@@ -530,6 +549,12 @@ gangtise insight report-image download --chunk-id image_10_384655917758685184_8 
 
 # 纪要下载（会议平台来源可选 HTML 格式）
 gangtise insight summary download --summary-id 4906813 --file-type 2
+
+# 财报日历：注意用 --start-date/--end-date（按 publishDate 过滤），不是 --start-time
+gangtise insight performance-calendar list --start-date 2026-07-01 --end-date 2026-07-25 \
+  --market aShares --category performanceForecast --size 20 --format json
+# 下载业绩报告原文（仅 hasAttachment: true 的记录；A股 10 积分 / 港美股 20 积分）
+gangtise insight performance-calendar download --performance-report-id 33753017 --output ./业绩预告.pdf
 ```
 
 ### Reference
@@ -763,6 +788,19 @@ gangtise alternative concept-info --concept-id 121000130 --format json
 # 题材成分股（题材深度 F8，按分组返回，标记重点个股）
 gangtise alternative concept-securities --concept-id 121000130 --format json
 ```
+
+### Tool（PDF 解析）
+
+```bash
+# 一步到位：上传 → 阻塞等待 → 结果 ZIP 落盘（含 file.md + images/）
+gangtise tool file-parse --file ./研报.pdf --wait --output ./研报.zip
+
+# 分两步：先提交拿 taskId（此时按页扣费 0.8/页），约 3 分钟后取结果（免费）
+gangtise tool file-parse --file ./研报.pdf
+gangtise tool file-parse-check --task-id 829081108954501120 --output ./研报.zip
+```
+
+限制：单文件 ≤100MB、≤500 页，同一用户最多 10 个并发任务；未就绪时 `file-parse-check` 输出 `{"status":"pending"}`（退出码 0），重试即可，不会重复扣费。
 
 ### Raw
 

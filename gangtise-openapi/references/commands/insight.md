@@ -56,6 +56,24 @@ gangtise insight forum list      [--research-area <id>] [--location <id>]
 - `--market`：路演 `aShares`｜`hkStocks`｜`usChinaConcept`｜`usStocks`；调研 `aShares`｜`hkStocks`｜`usChinaConcept`（无 usStocks）
 - `--research-area`（路演/调研/论坛）：用 `gangtiseIndustry` 码（行业 `1008001xx` + 方向 `122000xxx`，见 `reference-and-lookup.md`）。**strategy 无 `--research-area`，只按 `--institution`/`--location` 筛**
 
+## 财报日历 `insight performance-calendar list/download`
+
+```bash
+gangtise insight performance-calendar list [--start-date <date>] [--end-date <date>] [--market <name>] [--security <code>] [--category <name>] [--from <n>] [--size <n>]
+gangtise insight performance-calendar download --performance-report-id <id> [--output <path>]
+```
+
+- ⚠️ **本命令用 `--start-date` / `--end-date`（`yyyy-MM-dd`），不是其余 insight list 的 `--start-time`**；过滤的是 `publishDate`（财报事件发布日）。也**没有** `--keyword` / `--rank-type` / `--search-type`
+- `--category`：`performanceForecast` 业绩预告 | `performanceExpress` 业绩快报 | `performanceAnnouncement` 业绩公告（可重复）
+- `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`（可重复）
+- `--market` / `--category` 拼错 CLI 本地直接报错（不是静默返全量）——这两个参数的枚举值不必猜
+- `--security`：证券代码，如 `000001.SZ`（可重复）
+- 自动翻页（`{total,list}`，单页上限 50）。**不加任何筛选时 total 十万量级**（实测 2026-07-25 为 126683，含未来已排期的财报日程）——CLI 因此要求至少一个约束：`--start-date` + `--end-date`、或 `--security`、或显式 `--size`，裸跑直接报 `ValidationError`（不发请求、不扣分）
+- 返回字段：`performanceReportId`（下载用）/ `securityCodeList[]`（A+H 同时上市会有多个代码）/ `securityName` / `category` / `publishDate` / `title` / `hasAttachment`
+- 实测 `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`（文档写 `yyyy-MM-dd`），取日期请截前 10 位
+- download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用真实标题命名（走 title-cache，未命中会回查 list 接口，那次回查按 0.1/条 计费——批量下载建议显式 `--output`）
+- **积分**：list 0.1/条；download A 股 10/篇、港美股 20/篇
+
 ## 研报 `insight research list/download`
 
 ```bash

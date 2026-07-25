@@ -3,14 +3,14 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { pipeline } from "node:stream/promises"
 
-import { request } from "undici"
+import { FormData, request } from "undici"
 
 import type { CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, attachEnvelopeTraceId, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
-import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, runWithConcurrency, withRetry } from "./transport.js"
+import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runWithConcurrency, withRetry } from "./transport.js"
 import type { DownloadResult } from "./download.js"
 
 interface Envelope<T> {
@@ -400,12 +400,16 @@ export class GangtiseClient {
     const timeoutMs = resolveTimeoutMs(this.config.timeoutMs, endpoint)
 
     return withRetry(async () => {
+      // An upload endpoint hands undici the FormData itself: undici derives the
+      // multipart content-type (boundary included) from the body, so setting one
+      // here would corrupt the request.
+      const isUpload = endpoint.kind === 'upload'
       const headers: Record<string, string> = {
-        'content-type': 'application/json',
         // undici does not auto-decompress; decodeResponseBody gunzips below. Server
         // gzip cuts JSON payloads ~3-10x (measured 3.6x on constant-list).
         'accept-encoding': 'gzip',
       }
+      if (!isUpload) headers['content-type'] = 'application/json'
       // Keep the header we actually sent: the self-heal check compares it against
       // the current memoCache token to tell "stale token" from "fresh token died".
       let usedAuthorization: string | undefined
@@ -418,7 +422,7 @@ export class GangtiseClient {
       const response = await request(url, {
         method: endpoint.method,
         headers,
-        body: endpoint.method === 'GET' ? undefined : JSON.stringify(body ?? {}),
+        body: endpoint.method === 'GET' ? undefined : (isUpload ? body as FormData : JSON.stringify(body ?? {})),
         headersTimeout: timeoutMs,
         bodyTimeout: timeoutMs,
         dispatcher,
@@ -450,7 +454,7 @@ export class GangtiseClient {
 
       let parsed: Envelope<T>
       try {
-        parsed = JSON.parse(text) as Envelope<T>
+        parsed = JSON.parse(quoteBigIntFields(text, endpoint.bigIntFields)) as Envelope<T>
       } catch {
         const message = response.statusCode >= 400
           ? `API request failed (HTTP ${response.statusCode})`
@@ -492,7 +496,23 @@ export class GangtiseClient {
     })
   }
 
-  async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResult> {
+  /** POST a file as multipart/form-data under the field name `file`. Reuses
+   * requestJson for auth / retry / envelope handling — only the body differs. */
+  async uploadFile<T>(endpointKey: string, file: { filename: string; data: Uint8Array; contentType?: string }): Promise<T> {
+    const endpoint = ENDPOINTS[endpointKey]
+    if (!endpoint || endpoint.kind !== 'upload') {
+      throw new ApiError(`Not an upload endpoint: ${endpointKey}`)
+    }
+    const form = new FormData()
+    // Cast: TS 5.7+ types Uint8Array as Uint8Array<ArrayBufferLike>, which BlobPart
+    // (ArrayBufferView<ArrayBuffer>) rejects; a Node Buffer is always ArrayBuffer-backed.
+    form.append('file', new Blob([file.data as BlobPart], { type: file.contentType ?? 'application/octet-stream' }), file.filename)
+    return this.requestJson<T>(endpoint, form)
+  }
+
+  /** `body` is only sent for POST download endpoints (the file-parse result
+   * endpoint takes `{taskId}` as JSON and answers with the ZIP bytes). */
+  async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }, body?: unknown): Promise<DownloadResult> {
     const dispatcher = getDispatcher()
     const url = this.buildUrl(endpoint.path)
     Object.entries(query).forEach(([key, value]) => {
@@ -505,9 +525,13 @@ export class GangtiseClient {
       const startedAt = Date.now()
       let currentUrl = url
       let auth: string | undefined = authorization
+      const isPost = endpoint.method === 'POST'
       let response = await request(currentUrl, {
         method: endpoint.method,
-        headers: { Authorization: authorization },
+        headers: isPost
+          ? { Authorization: authorization, 'content-type': 'application/json' }
+          : { Authorization: authorization },
+        body: isPost ? JSON.stringify(body ?? {}) : undefined,
         headersTimeout: this.config.timeoutMs,
         bodyTimeout: this.config.timeoutMs,
         dispatcher,
@@ -549,7 +573,7 @@ export class GangtiseClient {
 
       if (contentType?.includes('application/json')) {
         const text = await response.body.text()
-        logTiming(`GET ${endpoint.path} (json)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
+        logTiming(`${endpoint.method} ${endpoint.path} (json)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         let parsed: unknown
         try {
           parsed = JSON.parse(text)
@@ -578,7 +602,7 @@ export class GangtiseClient {
 
       if (contentType?.includes('text/plain') || contentType?.includes('text/html')) {
         const text = await response.body.text()
-        logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
+        logTiming(`${endpoint.method} ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         if (response.statusCode >= 400) {
           throw new ApiError('Download failed', undefined, response.statusCode, text, retryAfterMs)
         }
@@ -622,12 +646,12 @@ export class GangtiseClient {
           await fs.unlink(partPath).catch(() => {})
           throw error
         }
-        logTiming(`GET ${endpoint.path} (stream)`, Date.now() - startedAt, `${response.statusCode}`)
+        logTiming(`${endpoint.method} ${endpoint.path} (stream)`, Date.now() - startedAt, `${response.statusCode}`)
         return { contentType, filename, savedPath: options.streamTo }
       }
 
       const buffer = await response.body.arrayBuffer()
-      logTiming(`GET ${endpoint.path} (binary)`, Date.now() - startedAt, `${response.statusCode}, ${buffer.byteLength}B`)
+      logTiming(`${endpoint.method} ${endpoint.path} (binary)`, Date.now() - startedAt, `${response.statusCode}, ${buffer.byteLength}B`)
       return {
         data: new Uint8Array(buffer),
         contentType,
@@ -651,8 +675,12 @@ export class GangtiseClient {
       throw new ApiError(`Unknown endpoint key: ${endpointKey}`)
     }
 
+    if (endpoint.kind === 'upload') {
+      throw new ValidationError(`${endpointKey} takes a file upload — use 'gangtise tool file-parse --file <path>' ('raw call' cannot send files)`)
+    }
+
     if (endpoint.kind === 'download') {
-      return this.download(endpoint, query ?? {}, options)
+      return this.download(endpoint, query ?? {}, options, body)
     }
 
     if (endpoint.kind === 'json' && endpoint.pagination?.enabled) {

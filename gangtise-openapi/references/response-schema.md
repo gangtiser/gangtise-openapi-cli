@@ -38,6 +38,9 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight official-account list | `{list, total}` | `list[].articleId` / `list[].accountName` / `list[].title` / `list[].publishTime` / `list[].articleCategory` / `list[].summary` / `list[].industryList[].industryName` / `list[].conceptList[].conceptName` / `list[].securityList[].securityCode` |
 | insight official-account download | 文件路径（stdout） | — |
 | insight qa list | `{list, total}` | `list[].source`（conference/interactive/survey）/ `list[].publishTime` / `list[].question` / `list[].answer` / `list[].member` / `list[].securityCode` / `list[].questionCategory[]` / `list[].answerImportant`（1/0） |
+| insight performance-calendar list | `{list, total}` | `list[].performanceReportId`（下载用）/ `list[].securityCodeList[]`（A+H 可能多个）/ `list[].securityName` / `list[].category`（performanceForecast/performanceExpress/performanceAnnouncement）/ `list[].publishDate`（实测带 ` 00:00:00` 后缀）/ `list[].title` / `list[].hasAttachment`（`false` 则无法下载） |
+| insight performance-calendar download | 文件路径（stdout，PDF） | — |
+| tool file-parse | `{taskId, status:"pending", hint}`（提交）；`--wait` 或 `file-parse-check` 就绪后 = 文件路径（stdout，ZIP） | ZIP 内 `file.md` + `images/`；未就绪时 check 输出 `{taskId, status:"pending"}`（退出码 0） |
 | insight report-image list | `[{...}]`（扁平数组，无 `total`） | `[].chunkId`（下载用 `--chunk-id`）/ `[].title` / `[].sourceId` / `[].broker` / `[].category` / `[].page` / `[].totalPages` / `[].imageCaption[]` / `[].imageFootnote[]` / `[].pageContent`（该页 OCR/描述） |
 | insight report-image download | 文件路径（stdout，JPEG） | — |
 | reference securities-search | `{returnedCount, list}` | `list[].gtsCode` / `list[].gtsName` / `list[].category` / `list[].matchScore` / `list[].matchType` |
@@ -73,7 +76,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault record-download | 文件路径（stdout） | — |
 | vault my-conference-list | `{list, total}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
 | vault my-conference-download | 文件路径（stdout） | — |
-| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].msgContent` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList` |
+| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**不是 `msgContent`/`contentUrl`**（旧文档笔误，实测 2026-07-25） |
 | vault wechat-chatroom-list | `{list, total}` | `list[].chatroomName` / `list[].chatroomId` |
 | alternative edb-search | `{list: [...]}` 指标列表 | `indicatorId` / `indicatorName` / `dataSource` / `frequency` / `unit` |
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |

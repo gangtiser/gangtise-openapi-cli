@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { readFile, rm } from "node:fs/promises"
+import { readFile, rm, writeFile } from "node:fs/promises"
 import http from "node:http"
 import os from "node:os"
 import path from "node:path"
@@ -18,6 +18,9 @@ const CLI = path.resolve(process.cwd(), "dist/src/cli.js")
 interface CapturedRequest {
   path: string
   body: unknown
+  contentType: string
+  /** Raw bytes, for the multipart upload case (no JSON body to inspect). */
+  raw: Buffer
 }
 
 const captured: CapturedRequest[] = []
@@ -27,15 +30,41 @@ let baseUrl: string
 // JPEG magic prefix so the download E2E test can assert the binary body
 // reaches disk byte-for-byte (not JSON-mangled or re-encoded).
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x01, 0x02, 0x03])
+// "PK\x03\x04" — the file-parse result arrives as a ZIP stream, not JSON.
+const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00])
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
-    let raw = ""
-    req.on("data", (chunk) => { raw += chunk })
+    const chunks: Buffer[] = []
+    req.on("data", (chunk) => { chunks.push(Buffer.from(chunk)) })
     req.on("end", () => {
-      const body = raw ? JSON.parse(raw) : undefined
-      captured.push({ path: req.url ?? "", body })
+      const raw = Buffer.concat(chunks)
+      const contentType = String(req.headers["content-type"] ?? "")
+      // Only JSON bodies are parsed: the file-parse upload is multipart/form-data,
+      // and JSON.parse on it used to take the whole stub down.
+      const body = raw.length && contentType.includes("application/json") ? JSON.parse(raw.toString("utf8")) : undefined
+      captured.push({ path: req.url ?? "", body, contentType, raw })
       res.setHeader("content-type", "application/json")
+      if ((req.url ?? "").includes("/file-parse/submit")) {
+        // Hand-written JSON on purpose: taskId goes out as a BARE 19-digit number,
+        // which JSON.parse would round to ...4700 (JSON.stringify here would already
+        // have rounded it). The client must re-quote it and keep every digit —
+        // a rounded id can never fetch its already-billed parse result.
+        res.end('{"code":"000000","msg":"任务提交成功","status":true,"data":{"taskId":1782345678901234567}}')
+        return
+      }
+      if ((req.url ?? "").includes("/file-parse/result")) {
+        // taskId PENDING replays the real "still generating" answer (409 + 140001,
+        // probed 2026-07-25); anything else hands back the ZIP.
+        if ((body as { taskId?: string } | undefined)?.taskId === "PENDING") {
+          res.statusCode = 409
+          res.end(JSON.stringify({ code: 140001, errorType: "RESULT_GENERATING", msg: "结果生成中，请稍后重试", status: false }))
+          return
+        }
+        res.setHeader("content-type", "application/zip")
+        res.end(ZIP_BYTES)
+        return
+      }
       if ((req.url ?? "").includes("/quote/realtime")) {
         // 如实复刻上游对无效字段名的处理（实测 2026-07-24）：值只按**有效**字段返回、
         // 字段名却按**请求**原样回显。realtime 没有 close，传三个字段只回两个值——
@@ -518,10 +547,17 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured).toHaveLength(0)
   }, 30_000)
 
-  it("raw call rejects --body on a download endpoint before any request goes out", async () => {
+  it("raw call rejects --body on a GET download endpoint before any request goes out", async () => {
     const { code, out } = await cli(["raw", "call", "insight.research.download", "--body", "{\"reportId\":\"1\"}"])
     expect(code).toBe(1)
-    expect(out).toContain("--body is not supported for download endpoints")
+    expect(out).toContain("--body is not supported for GET download endpoints")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("raw call refuses an upload endpoint instead of sending an empty JSON body", async () => {
+    const { code, out } = await cli(["raw", "call", "tool.file-parse.submit"])
+    expect(code).toBe(1)
+    expect(out).toContain("takes a file upload")
     expect(captured).toHaveLength(0)
   }, 30_000)
 
@@ -611,5 +647,109 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     // 报障指引承诺的 traceId 必须真的出现——否则这句指引就是空头支票
     expect(stderr).toContain("trace trace-edb-1")
     expect(stdout.trim()).toBe("")
+  }, 30_000)
+
+  it("insight performance-calendar list sends dates as startDate/endDate (not the sibling startTime)", async () => {
+    const { code } = await cli([
+      "insight", "performance-calendar", "list",
+      "--start-date", "2026-07-01", "--end-date", "2026-07-25",
+      "--market", "aShares", "--category", "performanceForecast",
+      "--security", "000001.SZ", "--size", "5", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/schedule/performance-calendar/getList")
+    expect(captured[0].body).toEqual({
+      from: 0,
+      size: 5,
+      startDate: "2026-07-01",
+      endDate: "2026-07-25",
+      marketList: ["aShares"],
+      securityList: ["000001.SZ"],
+      categoryList: ["performanceForecast"],
+    })
+  }, 30_000)
+
+  it("refuses an unbounded performance-calendar list (>120k rows at 0.1 credits each)", async () => {
+    const bare = await cli(["insight", "performance-calendar", "list", "--format", "json"])
+    expect(bare.code).toBe(1)
+    expect(bare.out).toContain("without a bound")
+    expect(captured).toHaveLength(0)
+    // Any one of the three bounds is enough — a single security's whole calendar is small.
+    for (const bound of [["--size", "5"], ["--security", "000001.SZ"], ["--start-date", "2026-07-01", "--end-date", "2026-07-25"]]) {
+      captured.length = 0
+      const { code } = await cli(["insight", "performance-calendar", "list", ...bound, "--format", "json"])
+      expect(code, `bound ${bound.join(" ")}`).toBe(0)
+      expect(captured, `bound ${bound.join(" ")}`).toHaveLength(1)
+    }
+  }, 30_000)
+
+  it("rejects a misspelled performance-calendar --category before any request goes out", async () => {
+    // A silently-ignored enum here would bill 0.1/条 for an unfiltered full-market pull.
+    const { code, out } = await cli(["insight", "performance-calendar", "list", "--category", "performanceReport", "--format", "json"])
+    expect(code).toBe(1)
+    expect(out).toContain("Invalid --category")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("tool file-parse uploads the PDF as multipart and reports the taskId", async () => {
+    const pdfPath = path.join(os.tmpdir(), `gangtise-file-parse-${process.pid}.pdf`)
+    try {
+      await writeFile(pdfPath, "%PDF-1.4 stub\n")
+      const { code, stdout } = await cli(["tool", "file-parse", "--file", pdfPath])
+      expect(code).toBe(0)
+      expect(captured).toHaveLength(1)
+      expect(captured[0].path).toBe("/application/open-tool/file-parse/submit")
+      expect(captured[0].contentType).toContain("multipart/form-data")
+      const raw = captured[0].raw.toString("utf8")
+      expect(raw).toContain('name="file"')
+      expect(raw).toContain(`filename="${path.basename(pdfPath)}"`)
+      expect(raw).toContain("%PDF-1.4 stub")
+      expect(JSON.parse(stdout)).toEqual(expect.objectContaining({ taskId: "1782345678901234567", status: "pending" }))
+    } finally {
+      await rm(pdfPath, { force: true })
+    }
+  }, 30_000)
+
+  it("tool file-parse-check streams the result ZIP to --output", async () => {
+    const outPath = path.join(os.tmpdir(), `gangtise-file-parse-${process.pid}.zip`)
+    try {
+      const { code, stdout } = await cli(["tool", "file-parse-check", "--task-id", "T-123", "--output", outPath])
+      expect(code).toBe(0)
+      // POST download: the taskId travels in the JSON body, not the query string.
+      expect(captured[0].path).toBe("/application/open-tool/file-parse/result")
+      expect(captured[0].body).toEqual({ taskId: "T-123" })
+      expect(await readFile(outPath)).toEqual(ZIP_BYTES)
+      expect(stdout.trim()).toBe(outPath)
+    } finally {
+      await rm(outPath, { force: true })
+    }
+  }, 30_000)
+
+  it("tool file-parse --wait chains submit → result and writes the ZIP", async () => {
+    const pdfPath = path.join(os.tmpdir(), `gangtise-file-parse-wait-${process.pid}.pdf`)
+    const outPath = path.join(os.tmpdir(), `gangtise-file-parse-wait-${process.pid}.zip`)
+    try {
+      await writeFile(pdfPath, "%PDF-1.4 stub\n")
+      const { code, stdout } = await cli(["tool", "file-parse", "--file", pdfPath, "--wait", "--output", outPath])
+      expect(code).toBe(0)
+      expect(captured.map((c) => c.path)).toEqual([
+        "/application/open-tool/file-parse/submit",
+        "/application/open-tool/file-parse/result",
+      ])
+      // The taskId from submit has to reach the result call — otherwise --wait
+      // would poll a task nobody created while the paid one runs unclaimed.
+      expect(captured[1].body).toEqual({ taskId: "1782345678901234567" })
+      expect(await readFile(outPath)).toEqual(ZIP_BYTES)
+      expect(stdout.trim()).toBe(outPath)
+    } finally {
+      await rm(pdfPath, { force: true })
+      await rm(outPath, { force: true })
+    }
+  }, 30_000)
+
+  it("tool file-parse-check reports pending (140001) instead of failing", async () => {
+    const { code, stdout } = await cli(["tool", "file-parse-check", "--task-id", "PENDING"])
+    expect(code).toBe(0)
+    expect(JSON.parse(stdout)).toEqual(expect.objectContaining({ taskId: "PENDING", status: "pending" }))
   }, 30_000)
 })

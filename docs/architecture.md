@@ -39,7 +39,7 @@
 | Configuration | Authentication | **Core Dispatcher** |
 |:--|:--|:--|
 | `config.ts` | `auth.ts` | **`client.ts` · GangtiseClient** |
-| GANGTISE_BASE_URL / AK / SK / TIMEOUT | Token cache (0600) · AK/SK login · isTokenCacheValid() | **call() → requestPaginated / requestJson / download** |
+| GANGTISE_BASE_URL / AK / SK / TIMEOUT | Token cache (0600) · AK/SK login · isTokenCacheValid() | **call() → requestPaginated / requestJson / download / uploadFile** |
 
 ### Processing
 
@@ -59,6 +59,7 @@
 | `printer.ts` | `printData`: normalize + render + title-cache writeback |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |
 | `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) · 410110 pending / 410111 failed |
+| `fileParse.ts` | `tool file-parse`: pre-upload validation (PDF / non-empty / ≤100MB) · multipart submit → taskId · poll + stream the result ZIP (140001 = still generating) |
 
 ↓
 
