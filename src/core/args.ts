@@ -270,33 +270,88 @@ export function localDateString(d: Date): string {
   return `${d.getFullYear()}-${month}-${day}`
 }
 
-export interface IndicatorParamGroup {
-  indicatorCode: string
-  parameters: { paramKey: string; paramValue: string }[]
+export interface IndicatorParam {
+  paramKey: string
+  paramValue: string
 }
 
-// Parse repeatable `--indicator-param "code:key=value"` specs into the nested
-// indicatorParamList the EDE cross-section / time-series endpoints expect.
-// Multiple specs for the same code accumulate into one group, first-seen order.
-export function parseIndicatorParams(specs: string[]): IndicatorParamGroup[] | undefined {
-  if (specs.length === 0) return undefined
-  const groups = new Map<string, IndicatorParamGroup>()
+export interface IndicatorParamGroup {
+  indicatorCode: string
+  parameters: IndicatorParam[]
+}
+
+export interface ScreenerIndicator {
+  field: string
+  indicatorCode: string
+  parameters: IndicatorParam[]
+}
+
+// Parse repeatable `"<lhs>:key=value"` specs into per-lhs parameter lists.
+// The left-hand side is an indicator code for cross-section / time-series and a
+// screener variable (F1, F2…) for the screener, so it stays an opaque string
+// here. Multiple specs for the same lhs accumulate, first-seen order.
+function parseParamSpecs(specs: string[], option: string, syntax: string): Map<string, IndicatorParam[]> {
+  const groups = new Map<string, IndicatorParam[]>()
   for (const spec of specs) {
     const colon = spec.indexOf(":")
     const rest = colon === -1 ? "" : spec.slice(colon + 1)
     const eq = rest.indexOf("=")
-    const code = colon === -1 ? "" : spec.slice(0, colon).trim()
+    const lhs = colon === -1 ? "" : spec.slice(0, colon).trim()
     const paramKey = eq === -1 ? "" : rest.slice(0, eq).trim()
     const paramValue = eq === -1 ? "" : rest.slice(eq + 1).trim()
-    if (!code || !paramKey) {
-      throw new ValidationError(`Invalid --indicator-param: expected "code:key=value", got "${spec}"`)
+    if (!lhs || !paramKey) {
+      throw new ValidationError(`Invalid ${option}: expected "${syntax}", got "${spec}"`)
     }
-    let group = groups.get(code)
-    if (!group) {
-      group = { indicatorCode: code, parameters: [] }
-      groups.set(code, group)
+    let params = groups.get(lhs)
+    if (!params) {
+      params = []
+      groups.set(lhs, params)
     }
-    group.parameters.push({ paramKey, paramValue })
+    params.push({ paramKey, paramValue })
   }
-  return [...groups.values()]
+  return groups
+}
+
+// Parse repeatable `--indicator-param "code:key=value"` specs into the nested
+// indicatorParamList the EDE cross-section / time-series endpoints expect.
+export function parseIndicatorParams(specs: string[]): IndicatorParamGroup[] | undefined {
+  if (specs.length === 0) return undefined
+  return [...parseParamSpecs(specs, "--indicator-param", "code:key=value")].map(([indicatorCode, parameters]) => ({ indicatorCode, parameters }))
+}
+
+/** Screener variables are `F` + a positive integer; the server rejects anything
+ * else, and a typo'd variable would otherwise surface as an opaque expression
+ * error rather than pointing at the binding that is wrong. */
+const SCREENER_FIELD = /^F[1-9][0-9]*$/
+
+// Parse the screener's `--indicator "F1:code"` bindings and merge each one's
+// `--indicator-param "F1:key=value"` specs. Params key off the variable, not the
+// code, because the same indicator may legitimately appear under two variables
+// with different parameters (e.g. the same price on two dates).
+export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]): ScreenerIndicator[] {
+  const params = parseParamSpecs(paramSpecs, "--indicator-param", "F1:key=value")
+  const indicators = new Map<string, ScreenerIndicator>()
+  for (const spec of bindings) {
+    const colon = spec.indexOf(":")
+    const field = colon === -1 ? "" : spec.slice(0, colon).trim()
+    const indicatorCode = colon === -1 ? "" : spec.slice(colon + 1).trim()
+    if (!field || !indicatorCode) {
+      throw new ValidationError(`Invalid --indicator: expected "F1:code", got "${spec}"`)
+    }
+    if (!SCREENER_FIELD.test(field)) {
+      throw new ValidationError(`Invalid --indicator variable "${field}": expected F followed by a positive integer, e.g. F1`)
+    }
+    if (indicators.has(field)) {
+      throw new ValidationError(`Duplicate --indicator variable "${field}": each variable must bind exactly one indicator`)
+    }
+    indicators.set(field, { field, indicatorCode, parameters: params.get(field) ?? [] })
+  }
+  // A param for an unbound variable is silently dropped by the server, so the
+  // query would run with a filter the caller believes is applied but is not.
+  for (const field of params.keys()) {
+    if (!indicators.has(field)) {
+      throw new ValidationError(`--indicator-param references "${field}", which no --indicator binds`)
+    }
+  }
+  return [...indicators.values()]
 }

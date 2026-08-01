@@ -1,4 +1,5 @@
-import { maybeArray, parseFrom, parseIndicatorParams, parseOptionalNumberOption, parseSize } from "./args.js"
+import type { IndicatorParamGroup } from "./args.js"
+import { maybeArray, parseFrom, parseIndicatorParams, parseOptionalNumberOption, parseScreenerIndicators, parseSize } from "./args.js"
 
 interface QuoteKlineOptions {
   security: string[]
@@ -51,6 +52,14 @@ interface IndicatorTimeSeriesOptions {
   indicatorParam: string[]
 }
 
+interface IndicatorScreenerOptions {
+  indicator: string[]
+  security: string[]
+  expression: string
+  date?: string
+  indicatorParam: string[]
+}
+
 export function buildQuoteKlineBody(options: QuoteKlineOptions) {
   return {
     securityList: maybeArray(options.security),
@@ -90,26 +99,63 @@ export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
   }
 }
 
+/** Parameter keys that carry an indicator's own query date. The 2026-08-01 EDE
+ * revision dropped the root-level `date`, so `--date` now fans out into each
+ * indicator's `tradeDate`. Report-period indicators read `reportDate`/`sDate`
+ * instead and answer a `tradeDate` with an EMPTY result rather than an error
+ * (probed 2026-08-01 on `is_op_rev_mom`), so a caller-supplied date of any of
+ * these kinds suppresses the injection for that indicator. Injecting into an
+ * indicator that takes no date at all is harmless — `pty_op_scope` still
+ * answers normally with a stray `tradeDate` attached. */
+const DATE_PARAM_KEYS = new Set(["tradeDate", "reportDate", "sDate"])
+
+function withQueryDate(groups: IndicatorParamGroup[] | undefined, codes: string[], date: string): IndicatorParamGroup[] {
+  const merged = new Map<string, IndicatorParamGroup>()
+  for (const group of groups ?? []) merged.set(group.indicatorCode, group)
+  for (const code of codes) {
+    const group = merged.get(code)
+    if (!group) {
+      merged.set(code, { indicatorCode: code, parameters: [{ paramKey: "tradeDate", paramValue: date }] })
+    } else if (!group.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))) {
+      group.parameters.push({ paramKey: "tradeDate", paramValue: date })
+    }
+  }
+  return [...merged.values()]
+}
+
 export function buildIndicatorCrossSectionBody(options: IndicatorCrossSectionOptions) {
   return {
     indicatorCodeList: maybeArray(options.indicator),
-    securityCodeList: maybeArray(options.security),
-    date: options.date,
+    universe: maybeArray(options.security),
     currency: options.currency,
     scale: options.scale,
-    indicatorParamList: parseIndicatorParams(options.indicatorParam),
+    indicatorParamList: withQueryDate(parseIndicatorParams(options.indicatorParam), options.indicator, options.date),
   }
 }
 
 export function buildIndicatorTimeSeriesBody(options: IndicatorTimeSeriesOptions) {
   return {
     indicatorCodeList: maybeArray(options.indicator),
-    securityCodeList: maybeArray(options.security),
+    universe: maybeArray(options.security),
     startDate: options.startDate,
     endDate: options.endDate,
     calendarType: options.calendarType,
     currency: options.currency,
     scale: options.scale,
-    indicatorParamList: parseIndicatorParams(options.indicatorParam),
+    // The endpoint requires the key even with nothing to configure.
+    indicatorParamList: parseIndicatorParams(options.indicatorParam) ?? [],
+  }
+}
+
+export function buildIndicatorScreenerBody(options: IndicatorScreenerOptions) {
+  const indicators = parseScreenerIndicators(options.indicator, options.indicatorParam)
+  return {
+    universe: maybeArray(options.security),
+    expression: options.expression,
+    indicatorList: options.date
+      ? indicators.map((indicator) => (indicator.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
+        ? indicator
+        : { ...indicator, parameters: [...indicator.parameters, { paramKey: "tradeDate", paramValue: options.date as string }] }))
+      : indicators,
   }
 }

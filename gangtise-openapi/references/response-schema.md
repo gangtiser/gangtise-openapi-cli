@@ -82,7 +82,8 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |
 | alternative concept-securities | `{conceptId, conceptName, securityCount, securityDetail}`（单对象，分组） | `securityCount` / `securityDetail[].groupName` / `securityDetail[].securityList[].securityCode` / `.securityName` / `.isKey` / `.inclusionReason`；无成分股时 `securityDetail` 为 `null` |
-| indicator search | `[{indicatorCode, indicatorName, ...}]`（列表） | `indicatorCode` / `indicatorName` / `description` / `scopeList[].market` / `scopeList[].securityType` / `parameterList[].paramKey` / `.enumList[].value`（专属参数及枚举） / `score` |
-| indicator cross-section | CLI 拍平为宽表 `{list, total}` | `list[].date` / `list[].security` / `list[].name` + 每个指标名一列；**单日多指标 × 多证券**，每行一只证券 |
-| indicator time-series | CLI 拍平为宽表 `{list, total}` | `list[].date` + 序列列：单证券时列=各指标、多证券时列=各证券；每行一个日期 |
+| indicator search | `[{indicatorCode, indicatorName, ...}]`（列表） | `indicatorCode` / `indicatorName` / `description` / `scopeList[].market` / `scopeList[].securityType` / `scopeList[].usageRestriction`（接口限制，`null`=无限制） / `parameterList[].paramKey`（**参数名以此为准**） / `.enumList[].value` / `score` |
+| indicator cross-section | CLI 拍平为宽表 `{list, total}` | `list[].security` / `list[].name` + 每个指标名一列；**单日多指标 × 多证券**，每行一只证券。**v0.30.0 起没有 `date` 列**（查询日期改挂在每个指标的参数上，各列可为不同日期）；原始响应的 `values` 为 `[证券][指标]`（2026-08-01 转置） |
+| indicator time-series | CLI 拍平为宽表 `{list, total}` | `list[].date` + 序列列：单证券时列=各指标、多证券时列=各证券；每行一个日期。原始响应 `values` 仍为 `[序列][日期]` |
+| indicator screener | CLI 拍平为宽表 `{list, total}` | 同 `cross-section`：`list[].security` / `list[].name` + 每个指标名一列，每行一只**命中**的证券；无命中返回空表。原始响应的 `indicatorList[]` 多一个 `field`（F1/F2…），CLI 用它给同 code 的重复列去重 |
 | lookup broker-org / meeting-org list | `[...]` | `[].id` / `[].name` |

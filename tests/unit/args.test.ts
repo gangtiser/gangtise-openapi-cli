@@ -309,8 +309,8 @@ describe("parseIndicatorParams", () => {
   })
 
   it("parses a single code:key=value spec", () => {
-    expect(parseIndicatorParams(["qte_close:adjustmentType=1"])).toEqual([
-      { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustmentType", paramValue: "1" }] },
+    expect(parseIndicatorParams(["qte_close:adjustType=1"])).toEqual([
+      { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "1" }] },
     ])
   })
 
@@ -327,19 +327,19 @@ describe("parseIndicatorParams", () => {
   })
 
   it("keeps distinct codes as separate groups in first-seen order", () => {
-    expect(parseIndicatorParams(["qte_close:adjustmentType=1", "qte_vol:scale=4"])).toEqual([
-      { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustmentType", paramValue: "1" }] },
+    expect(parseIndicatorParams(["qte_close:adjustType=1", "qte_vol:scale=4"])).toEqual([
+      { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "1" }] },
       { indicatorCode: "qte_vol", parameters: [{ paramKey: "scale", paramValue: "4" }] },
     ])
   })
 
   it("throws when a spec is missing the ':' or '=' separator", () => {
     expect(() => parseIndicatorParams(["qte_close"])).toThrow(ValidationError)
-    expect(() => parseIndicatorParams(["qte_close:adjustmentType"])).toThrow(ValidationError)
+    expect(() => parseIndicatorParams(["qte_close:adjustType"])).toThrow(ValidationError)
   })
 
   it("throws when the code or key is empty", () => {
-    expect(() => parseIndicatorParams([":adjustmentType=1"])).toThrow(ValidationError)
+    expect(() => parseIndicatorParams([":adjustType=1"])).toThrow(ValidationError)
     expect(() => parseIndicatorParams(["qte_close:=1"])).toThrow(ValidationError)
   })
 })

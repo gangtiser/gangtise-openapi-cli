@@ -5,17 +5,24 @@ import { ApiError } from "./errors.js"
 // flatten that matrix into the wide tabular shape the rest of the pipeline
 // (printData → renderOutput) expects: { list, total }.
 
-// Field names match the live EDE response (not the published doc): the real
-// keys are securityCodeList / securityNameList / indicatorCodeList /
-// indicatorNameList; `values` is a 2D matrix ([indicator][security] for
-// cross-section, [series][date] for time-series).
+// Shapes below match the EDE response as of the 2026-08-01 API revision, which
+// replaced the parallel indicatorCodeList / indicatorNameList arrays with a
+// single structured `indicatorList`, and TRANSPOSED the cross-section matrix.
+// `values` is now [security][indicator] for cross-section and the screener, and
+// stays [series][date] for time-series.
+interface IndicatorMeta {
+  /** Screener only: the F1/F2… variable this column was requested under. */
+  field?: unknown
+  code?: unknown
+  name?: unknown
+  dataType?: unknown
+}
+
 interface MatrixData {
-  date?: unknown
   dates?: unknown
   securityCodeList?: unknown
   securityNameList?: unknown
-  indicatorCodeList?: unknown
-  indicatorNameList?: unknown
+  indicatorList?: unknown
   values?: unknown
 }
 
@@ -52,24 +59,34 @@ function asStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.map((item) => String(item)) : undefined
 }
 
+function asIndicatorMetaList(value: unknown): IndicatorMeta[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.map((item) => (item && typeof item === "object" && !Array.isArray(item) ? (item as IndicatorMeta) : {}))
+}
+
+function optionalString(value: unknown): string | undefined {
+  return value === undefined || value === null ? undefined : String(value)
+}
+
 function rowOf(values: unknown, index: number): unknown[] | undefined {
   const row = (values as unknown[])[index]
   return Array.isArray(row) ? row : undefined
 }
 
 // Build one column header per series. Prefer the human-readable name; on a
-// duplicate name append the code so a column is never silently overwritten.
-function buildHeaders(names: string[] | undefined, codes: string[] | undefined, count: number): string[] {
-  // Pre-seed the metadata column names: an indicator literally named "date" /
-  // "security" / "name" must get a suffixed header, not overwrite the metadata.
-  const used = new Set<string>(["date", "security", "name"])
+// duplicate name append a disambiguator so a column is never silently
+// overwritten. `reserved` pre-seeds the metadata column names, so a series
+// literally named "date" / "security" / "name" gets suffixed rather than
+// clobbering the metadata.
+function buildHeaders(bases: (string | undefined)[], suffixes: (string | undefined)[], reserved: string[]): string[] {
+  const used = new Set<string>(reserved)
   const headers: string[] = []
-  for (let i = 0; i < count; i++) {
-    const base = String(names?.[i] ?? codes?.[i] ?? `col${i}`)
+  for (let i = 0; i < bases.length; i++) {
+    const base = bases[i] ?? suffixes[i] ?? `col${i}`
     let header = base
     let attempt = 1
     while (used.has(header)) {
-      const suffix = codes?.[i] ?? i
+      const suffix = suffixes[i] ?? i
       header = attempt === 1 ? `${base} (${suffix})` : `${base} (${suffix})_${attempt}`
       attempt++
     }
@@ -79,27 +96,42 @@ function buildHeaders(names: string[] | undefined, codes: string[] | undefined, 
   return headers
 }
 
-// Cross-section: one row per security, one column per indicator. The live
-// `values` is a 2D [numIndicators][numSecurities] matrix in indicator-major
-// order, so indicator i on security j is values[i][j].
-// keyBy "code" makes each indicator column its `indicatorCode` (unique, and
-// independent of the display name or the server's column order) instead of the
-// human name — required for batch code→value mapping, where names collide
-// (many indicators share a display name) and the server reorders columns.
+// Column headers for a list of indicator metadata. keyBy "code" makes each
+// column its `code` (unique, and independent of the display name or the
+// server's column order) instead of the human name — required for batch
+// code→value mapping, where names collide (many indicators share a display
+// name) and the server reorders columns relative to the request. The screener
+// disambiguates by `field` instead, because there the SAME code may legitimately
+// appear twice under two variables with different parameters.
+function indicatorHeaders(indicators: IndicatorMeta[], keyBy: "name" | "code", reserved: string[]): string[] {
+  const codes = indicators.map((meta) => optionalString(meta.code))
+  const fields = indicators.map((meta, i) => optionalString(meta.field) ?? codes[i])
+  const bases = keyBy === "code" ? codes : indicators.map((meta) => optionalString(meta.name))
+  return buildHeaders(bases, fields, reserved)
+}
+
+const CROSS_SECTION_COLUMNS = ["security", "name"]
+
+// Cross-section (and the screener, whose payload is the same shape plus a
+// per-indicator `field`): one row per security, one column per indicator.
+// `values` is [security][indicator], so security i's value for indicator j is
+// values[i][j]. There is no row-level date any more — the query date now lives
+// in each indicator's own parameters and may legitimately differ per column.
 export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "name"): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
   const securityCode = asStringArray(d.securityCodeList)
-  const indicators = asStringArray(d.indicatorCodeList)
+  const indicators = asIndicatorMetaList(d.indicatorList)
   if (!Array.isArray(d.values) || !securityCode || !indicators) return data
 
   const securityName = asStringArray(d.securityNameList)
-  const headers = buildHeaders(keyBy === "code" ? indicators : asStringArray(d.indicatorNameList), indicators, indicators.length)
+  const headers = indicatorHeaders(indicators, keyBy, CROSS_SECTION_COLUMNS)
 
-  const list = securityCode.map((code, j) => {
-    const row: Record<string, unknown> = { date: d.date, security: code, name: securityName?.[j] }
-    for (let i = 0; i < indicators.length; i++) {
-      row[headers[i]] = rowOf(d.values, i)?.[j]
+  const list = securityCode.map((code, i) => {
+    const row: Record<string, unknown> = { security: code, name: securityName?.[i] }
+    const cells = rowOf(d.values, i)
+    for (let j = 0; j < headers.length; j++) {
+      row[headers[j]] = cells?.[j]
     }
     return row
   })
@@ -108,19 +140,23 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
 
 // Time-series: one row per date. Columns are the indicators (single-security
 // case) or the securities (single-indicator case) — exactly one dimension
-// varies, per the API contract. `values` is a 2D [series][date] matrix.
+// varies, per the API contract. `values` stays a 2D [series][date] matrix.
 export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
   const dates = asStringArray(d.dates)
   const securityCode = asStringArray(d.securityCodeList)
-  const indicators = asStringArray(d.indicatorCodeList)
+  const indicators = asIndicatorMetaList(d.indicatorList)
   if (!Array.isArray(d.values) || !dates || !securityCode || !indicators) return data
 
+  const securityName = asStringArray(d.securityNameList)
   const seriesAreIndicators = securityCode.length <= 1
+  // Map over securityCode rather than securityNameList directly: a response that
+  // omits the names must still yield one header per security (falling back to
+  // the code), not zero columns.
   const headers = seriesAreIndicators
-    ? buildHeaders(keyBy === "code" ? indicators : asStringArray(d.indicatorNameList), indicators, indicators.length)
-    : buildHeaders(keyBy === "code" ? securityCode : asStringArray(d.securityNameList), securityCode, securityCode.length)
+    ? indicatorHeaders(indicators, keyBy, ["date"])
+    : buildHeaders(securityCode.map((code, i) => (keyBy === "code" ? code : securityName?.[i])), securityCode, ["date"])
 
   const list = dates.map((date, k) => {
     const row: Record<string, unknown> = { date }

@@ -20,8 +20,10 @@ export interface EndpointDefinition {
    * still retry). Billing probed 2026-07-11: the platform charges per call with
    * no cache-hit exemption, so a replay on these expensive (🔴-tier) endpoints
    * double-bills.
-   * "no-999999": EDE answers a no-data query with HTTP 500 + 999999 (probed
-   * 2026-07-11) — don't retry that code; everything else stays default. */
+   * "no-999999": EDE used to answer a no-data query with HTTP 500 + 999999
+   * (probed 2026-07-11). The 2026-08-01 revision returns empty arrays instead
+   * (re-probed 2026-08-01), but the marker stays: 999999 is a generic server
+   * fault code here, and replaying a billed EDE query on it helps nothing. */
   retry?: "no-replay" | "no-999999"
   /** Response fields that carry snowflake ids and must survive JSON.parse exactly.
    * `quoteBigIntFields` re-quotes them in the raw text first: a bare JSON number
@@ -672,6 +674,15 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-indicator/EDE/time-series",
     kind: "json",
     description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
+    retry: "no-999999",
+  },
+  // Note the path: the screener sits directly under open-indicator, NOT under
+  // the EDE/ prefix its three siblings share.
+  "indicator.screener": {
+    method: "POST",
+    path: "/application/open-indicator/screener",
+    kind: "json",
+    description: "Screen securities by an expression over indicator values (条件选股)",
     retry: "no-999999",
   },
 

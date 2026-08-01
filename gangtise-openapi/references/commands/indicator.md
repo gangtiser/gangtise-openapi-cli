@@ -1,9 +1,9 @@
-# Indicator 命令详细参数（数据指标 EDE：证券级指标截面 / 时序）
+# Indicator 命令详细参数（数据指标 EDE：证券级指标截面 / 时序 / 条件选股）
 
-> 本组覆盖 `/application/open-indicator/EDE/*`：证券级**数据指标**的检索与取数，主要用于多证券批量取已实现财务 / 估值指标。即使能搜到收盘价、成交量等行情指标，常规行情与 K 线仍走免费的 `quote`。
+> 本组覆盖 `/application/open-indicator/*`：证券级**数据指标**的检索与取数，主要用于多证券批量取已实现财务 / 估值指标。即使能搜到收盘价、成交量等行情指标，常规行情与 K 线仍走免费的 `quote`。
 > 与 `alternative edb-*`（EDB 行业/宏观指标，无证券维度）是两套接口，别混。
 >
-> **取数前先 `indicator search` 拿 `indicatorCode`**，绝不猜测指标编码。
+> **取数前先 `indicator search` 拿 `indicatorCode` 和 `parameterList`**，绝不猜测指标编码或参数名——服务端调过参数名（`adjustmentType` → `adjustType`），传错名是**静默失效**不是报错。
 
 ## EDE 与专用接口的优先级
 
@@ -27,8 +27,10 @@ gangtise indicator search --keyword <text> [--limit <n>]
 - `--keyword`（**必选**）：按指标名称模糊匹配。用具体词，如 `营业收入` / `基本每股收益` / `市盈率` / `总市值`，**不能用整句白话**（"我想查一批公司的财务估值" ✗）
 - `--limit`：返回条数上限，默认 50，最大 100
 - 默认 `--format table` 只适合浏览名称；正式路由 / 取数前必须加 `--format json`，才能完成语义、`scopeList`、`parameterList` 三项校验
-- 返回字段：`indicatorCode` / `indicatorName` / `description`（算法与口径）/ `scopeList`（该指标适用的市场 + 证券类型）/ `parameterList`（可传的 `--indicator-param` 参数及枚举）/ `score`
-- **市场范围按指标判断**：`scopeList` 现在会返回实际覆盖范围，且指标之间不同；不能笼统写成每个指标都覆盖 A / 港 / 美股。实测 `finc_pe_ttm` / `finc_pb_mrq` 仅 A 股，`is_op_rev` 覆盖 A 股 + 港股，这些财务 / 估值指标均不含美股。目标列表含任一 scope 外证券时，本批 EDE 校验不通过，应回退专用接口
+- 返回字段：`indicatorCode` / `indicatorName` / `description`（算法与口径）/ `scopeList`（该指标适用的市场 + 证券类型 + `usageRestriction`）/ `parameterList`（可传的 `--indicator-param` 参数名及枚举）/ `score`
+- **市场范围按指标判断**：`scopeList` 会返回实际覆盖范围，且指标之间不同；不能笼统写成每个指标都覆盖 A / 港 / 美股。实测 `finc_pe_ttm` / `finc_pb_mrq` 仅 A 股，`is_op_rev_ttm` / `is_shnp_ttm` 覆盖 A 股 + 港股（2026-08-01 新增港股，实测有数）。目标列表含任一 scope 外证券时，本批 EDE 校验不通过，应回退专用接口
+- **`scopeList[].usageRestriction`**：该指标在具体接口上的限制，`null` = 无限制。如「不支持指标时间序列接口」意味着只能用 `cross-section` / `screener`
+- ⚠️ **`scopeList` 是声明不是保证**：`qte_mkt_cptl`/`shr_tot` 声称覆盖港股，实测港股仍返 `null`（2026-08-01）。批量前抽查一行
 - 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE)，**不是 `.US`**——实测 `AAPL.US` 查不到数据，须用 `AAPL.O`（官方示例里的 `AAPL.US` 是笔误）
 
 ```bash
@@ -44,13 +46,15 @@ gangtise indicator cross-section --indicator <code> [--indicator <code2>] \
 ```
 
 - `--indicator`（**至少 1 个**）：指标编码，来自 `search`，可重复传多个
-- `--security`（**至少 1 个**）：证券代码，如 `600519.SH`（A股）/ `09992.HK`（港股）/ `AAPL.O`（美股，用 `.O`/`.N` 后缀，非 `.US`），可重复传多个
-- `--date`（**必选**）：数据日期 `yyyy-MM-dd`；日期语义按指标分三类——财务报表指标=报告期末（可为非交易日，实测 `2024-03-31` 可取数）、`finc_pe_ttm` 等日频估值=交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`，详见下方「日期路由」）。单元格级缺值返回 `null`，整个查询无数据可能报 `999999`
-- `--currency`：币种 `DFT`(原始,默认)/`CNY`/`HKD`/`USD`/`EUR`/`GBP`/`JPY`/`TWD`/`MOP`/`AUD`
+- `--security`（**至少 1 个**）：证券代码，如 `600519.SH`（A股）/ `09992.HK`（港股）/ `AAPL.O`（美股，用 `.O`/`.N` 后缀，非 `.US`），可重复传多个。**也接受板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，如 `1000000287` 中信白酒 → 19 只成分股），代码与板块可混传，服务端取并集去重。⚠️ 中信行业码那类 9 位 ID（`100800109`）**不是** `sectorId`，传进去返 0 只
+- `--date`（**必选**）：数据日期 `yyyy-MM-dd`。**CLI 把它下发为每个指标各自的 `tradeDate`**（2026-08-01 起服务端取消了根级 date）。日期语义按指标分三类——财务报表指标=报告期末（可为非交易日，实测 `2024-03-31` 可取数）、`finc_pe_ttm` 等日频估值=交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`，详见下方「日期路由」）
+  - ⚠️ **吃 `reportDate` / `sDate` 的指标必须显式传**：`--indicator-param "code:reportDate=2024-12-31"`。这类指标收到 `tradeDate` 会**静默返回空结果**（不报错，实测 `is_op_rev_mom`）。CLI 检测到你已为某指标传了 `tradeDate`/`reportDate`/`sDate` 就不再注入 `--date`
+- `--currency`：币种 `DFT`(原始,默认)/`CNY`/`HKD`/`USD`/`EUR`/`GBP`/`JPY`/`TWD`/`MOP`/`AUD`（**大写**，2026-08-01 起服务端枚举已统一大写）
 - `--scale`：量纲 `0`(个,默认)/`3`(千)/`4`(万)/`6`(百万)/`8`(亿)/`9`(十亿)
+  - ⚠️ **根级 `--scale` 会污染不支持 scale 的指标**：`qte_close` 的 `parameterList` 里没有 `scale`，但根级 `--scale 8` 会把收盘价 1350.6 缩成 `0`（实测 2026-08-01，与文档「根级参数仅对支持的指标生效」不符）。价格类和金额类指标混查时，别用根级 `--scale`，改用 `--indicator-param "code:scale=8"` 只作用于该指标
 - **支持多指标 × 多证券**（单日横截面）
-- **输出（宽表）**：每行一只证券，列为 `date / security / name / <各指标名>…`
-- **`--key-by name|code`**（默认 `name`）：指标列头用显示名还是 `indicatorCode`。**批量按 code 回填必用 `--key-by code`**——指标名会碰撞（多个指标同显示名，如 `cf_finc_exp`/`_qtr` 都叫「财务费用」）、服务端还会重排返回列序，唯有 code 唯一且与顺序无关（行轴 `security` 本就是 code，`code` 模式整表可按 code 寻址，免去 raw API 手工回填）
+- **输出（宽表）**：每行一只证券，列为 `security / name / <各指标名>…`。**没有 `date` 列**——查询日期现在挂在每个指标自己的参数上，各列可以是不同日期
+- **`--key-by name|code`**（默认 `name`）：指标列头用显示名还是 `indicatorCode`。**批量按 code 回填必用 `--key-by code`**——指标名会碰撞（多个指标同显示名，如 `cf_finc_exp`/`_qtr` 都叫「财务费用」）、服务端还会重排返回列序（实测请求 `qte_close,qte_vol` 回来是 `qte_vol,qte_close`），唯有 code 唯一且与顺序无关（行轴 `security` 本就是 code，`code` 模式整表可按 code 寻址，免去 raw API 手工回填）
 
 ```bash
 # 多证券 × 同一报告期的已实现财务指标
@@ -58,8 +62,8 @@ gangtise indicator cross-section \
   --indicator is_op_rev --indicator is_eps_bas \
   --security 600519.SH --security 000858.SZ --security 300750.SZ \
   --date 2025-12-31 --format table
-# 列：date / security / name / 营业收入(利润表,累计) / 基本每股收益(利润表,累计)
-# 省略 reportType 即取合并口径（茅台2025=1688亿）。⚠️ 服务端 label 与实际取数错位：实际 1=合并 2=合并(调整) 3=母公司 4=母公司(调整)，按 label 传会取反（详见下方「reportType 口径」）
+# 列：security / name / 营业收入(利润表,累计) / 基本每股收益(利润表,累计)
+# 省略 reportType 即取合并口径（茅台2025=1688亿）；口径映射见下方「reportType 口径」
 ```
 
 ## 指标时间序列 `indicator time-series`
@@ -70,12 +74,13 @@ gangtise indicator time-series --indicator <code> [--indicator <code2>] \
   [--calendar-type <ND|TD|WD>] [--currency <c>] [--scale <s>] [--indicator-param <spec>] [--key-by name|code]
 ```
 
-- `--indicator` / `--security`：同上，但**只允许「多指标 × 单证券」或「单指标 × 多证券」**，不能两边都多个（要多 × 多用 `cross-section`，否则报 `410001`）
-- `--start-date` / `--end-date`（**均必选**）：区间端点 `yyyy-MM-dd`
-- `--calendar-type`：日期类型 `ND`(自然日)/`TD`(交易日,默认)/`WD`(工作日)
-- `--currency` / `--scale`：同 `cross-section`
+- `--indicator` / `--security`：同上，但**只允许「多指标 × 单证券」或「单指标 × 多证券」**，不能两边都多个（要多 × 多用 `cross-section`，否则报 `410001`）。**单指标时 `--security` 才能传板块 ID**；多指标时只能传一个证券代码、不得传板块 ID
+- `--start-date` / `--end-date`（**均必选**）：区间端点 `yyyy-MM-dd`。时序的时间范围由这两个参数统管，**不要**再用 `--indicator-param` 传 `tradeDate` 这类单日期参数
+- `--calendar-type`：日期类型 `ND`(自然日)/`TD`(交易日,默认)/`WD`(工作日)。`TD` 且跨市场时，`date` 列是各市场交易日的**并集**
+- `--currency` / `--scale`：同 `cross-section`（含根级 `--scale` 的污染坑）
 - **输出（宽表）**：每行一个日期，列为 `date / <各序列名>…`；序列在「单证券」时是各**指标**，在「多证券」时是各**证券**
 - **`--key-by name|code`**（默认 `name`）：同 `cross-section`；`code` 模式下单证券列=各 `indicatorCode`、多证券列=各 `securityCode`，批量按 code 回填用它
+- ⚠️ 部分指标**不支持时序接口**：`search` 返回的 `scopeList[].usageRestriction` 会写明（如「不支持指标时间序列接口」），`null` 表示无限制。取数前顺手看一眼，省得白花积分
 
 ```bash
 # 单个已实现估值指标 × 多证券：列 = 证券
@@ -85,31 +90,66 @@ gangtise indicator time-series --indicator finc_pe_ttm \
 # date        贵州茅台    五粮液    宁德时代
 ```
 
-## 复权 / 指标专属参数 `--indicator-param`
-
-通用的币种/量纲用 `--currency` / `--scale`；指标**专属**参数用 `--indicator-param`，格式 `指标code:参数key=值`，可重复。下面的行情复权仅演示底层参数语法；常规行情 / K 线仍优先 `quote`，不要照此例改走 EDE：
+## 条件选股 `indicator screener`
 
 ```bash
-# 茅台收盘价后复权（adjustmentType=3）
-gangtise indicator cross-section --indicator qte_close --security 600519.SH \
-  --date 2026-05-18 --indicator-param "qte_close:adjustmentType=3"
-#   不复权 1323 → 后复权 11487.0308
+gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
+  --security <code|sectorId> [--security <code2>] --expression <expr> \
+  [--date <yyyy-MM-dd>] [--indicator-param <F1:key=value>] [--key-by name|code]
 ```
 
-- `adjustmentType`（复权方式）：`1`=不复权 `2`=前复权 `3`=后复权 `4`=定点复权
+按指标条件从一个证券范围里筛出符合条件的股票，一次调用完成「取数 + 过滤」，比 `cross-section` 拉全量再本地筛更省事。
+
+- `--indicator`（**至少 1 个**）：把变量绑定到指标，格式 `F1:指标code`。变量必须是 `F` + 正整数、同一次请求内不重复；建议从 `F1` 开始连续编号
+- `--security`（**至少 1 个**）：同 `cross-section`，证券代码与板块 ID 可混传取并集
+- `--expression`（**必选**）：筛选表达式，引用上面绑定的变量
+  - 比较：`==` `>` `<` `>=` `<=` `!=`
+  - 文本：`contains` / `notcontains`（不区分大小写，**仅对 `dataType: string` 的指标有效**）
+  - 逻辑：`&&` `||`，分组 `(` `)`
+- `--date`：同 `cross-section`，下发为每个指标的 `tradeDate`（已自带日期参数的指标不覆盖）
+- `--indicator-param`：格式是 **`F1:key=value`（按变量，不是按 code）**——同一个指标 code 允许绑到两个变量取不同参数（如比较两个日期的收盘价），只有变量能区分。引用了没绑定的变量会直接报错，不会静默丢弃
+- **输出（宽表）**：同 `cross-section`，每行一只**命中**的证券，列为 `security / name / <各指标名>…`；无命中返回空表
+- **积分**：与 `cross-section` 同价（按单元格计），但计费基数是**筛选前**的范围 × 指标数，别拿全市场板块随手试
+
+```bash
+# 中信白酒板块里，市值≥500亿 且 PE(TTM)≤30
+gangtise indicator screener \
+  --indicator F1:qte_mkt_cptl --indicator F2:finc_pe_ttm \
+  --indicator-param "F1:scale=8" \
+  --security 1000000287 \
+  --expression "F1 >= 500 && F2 <= 30" \
+  --date 2026-07-31 --format table
+# security / name / 总市值 / 市盈率(TTM) —— 19 只成分股筛出 5 只
+```
+
+## 复权 / 指标专属参数 `--indicator-param`
+
+通用的币种/量纲用 `--currency` / `--scale`；指标**专属**参数用 `--indicator-param`，格式 `指标code:参数key=值`，可重复（screener 例外，按变量索引：`F1:key=值`）。下面的行情复权仅演示底层参数语法；常规行情 / K 线仍优先 `quote`，不要照此例改走 EDE：
+
+```bash
+# 茅台收盘价后复权（adjustType=3）
+gangtise indicator cross-section --indicator qte_close --security 600519.SH \
+  --date 2024-01-02 --indicator-param "qte_close:adjustType=3"
+#   不复权 1685.01 → 前复权 1531.225 → 后复权 13609.6168
+```
+
+- `adjustType`（复权方式）：`1`=不复权(默认) `2`=前复权 `3`=后复权 `4`=定点复权（配 `baseDate` 基期）
+  - ⚠️ **参数名是 `adjustType`，不是 `adjustmentType`**（官方文档示例写的 `adjustmentType` 是错的）。传错名服务端**静默忽略并退回不复权**——实测 `adjustmentType=3` 返回 1685.01（= 不复权），看着正常其实是错数据
+  - 前复权以最新交易日为基准，所以在**最新交易日上前复权价 == 不复权价**；验证复权是否生效要用历史日期
 - 同一指标多个参数 → 重复 `--indicator-param "code:k1=v1" --indicator-param "code:k2=v2"`
-- 三项校验通过后，再从 `indicator search --format json` 的 `parameterList` 读取该指标支持的 `paramKey` 及枚举值（**参数 key 与取值（含大小写）均以 search 返回为准**——如 `currency` 在 parameterList 中可能为小写 `dft`/`cny`）
+- **参数名与取值一律以 `indicator search --format json` 的 `parameterList` 为准**，不要照抄本文档或官方文档的示例名——服务端会调整参数名（`adjustmentType` → `adjustType` 就是一例），且传错名是静默失效而非报错。币种枚举 2026-08-01 起**统一大写**（`DFT`/`CNY`/`HKD`…），历史文档里的小写 `dft`/`cny` 已过时
 - `--indicator-param` 与根级 `--currency`/`--scale` 冲突时，以 `--indicator-param` 为准
 
 ## 必填参数与错误码（取数前必读）
 
-截面/时序**单元格级缺值返回 `null`**（证券行保留、不丢行）；但**整个查询无数据时仍会报 `999999` + HTTP 500**（节假日 / 未来日期 / 未覆盖标的，2026-07-11 实测）。取数报错主要是这几个码：
+截面/时序**单元格级缺值返回 `null`**（证券行保留、不丢行）。**整个查询无数据现在返回空数组**（`securityCodeList`/`values` 皆为 `[]`，CLI 显示 `Total: 0`），不再像 2026-07 那样报 `999999` + HTTP 500 —— 这也意味着**参数写错的失败会以「空表」而不是报错的形式出现**，拿到空表先怀疑日期语义 / 参数名，别当成「确实没数据」。取数报错主要是这几个码：
 
 | 错误码 | 实际含义 | 怎么办 |
 | :--- | :--- | :--- |
-| `410001` | 入参错误：没传指标/证券，或 `time-series` 传了「多指标 × 多证券」 | 补齐 `--indicator`/`--security`；多 × 多改用 `cross-section` |
-| 缺参报错（曾为 `410106`） | **缺必填参数**：服务端现已直接指明缺哪个，如「指标 X 的必填参数 periodNum(期数) 不能为空」（仍以 HTTP 500 返回，CLI 重试 2 次后透出该消息） | 读 `search --format json` 的 `parameterList`，把 `required:true` 的参数用 `--indicator-param` 补上 |
-| `999999` | **多为整查询无数据**（日期语义不符 / 未来日期 / 未覆盖标的；单元格级缺值才是 `null`），也可能是真系统故障——服务端不区分两者 | CLI 对 indicator 端点**不重试此码**（v0.27.0）并在 hint 中提示；先核对日期符合指标语义、标的在覆盖范围，确认应有数据仍报错才按系统故障处理 |
+| `100001` | **缺少必填参数**：如 `universe` 没传 | 补齐 `--indicator`/`--security` |
+| `410001` | 入参错误：`time-series` 传了「多指标 × 多证券」 | 多 × 多改用 `cross-section` |
+| 缺参报错（曾为 `410106`） | **缺指标级必填参数**：服务端会直接指明缺哪个，如「指标 X 的必填参数 periodNum(期数) 不能为空」（仍以 HTTP 500 返回，CLI 重试 2 次后透出该消息） | 读 `search --format json` 的 `parameterList`，把 `required:true` 的参数用 `--indicator-param` 补上 |
+| `999999` | 系统故障。2026-08-01 起「无数据」已改为返回空数组，所以这个码基本只剩真故障（2026-07-26 曾出现 EDE 取数端全线 999999，08-01 已恢复） | CLI 对 indicator 端点**不重试此码**（v0.27.0）；确认参数无误仍报错就是服务端问题 |
 | `130001`（旧 `410004`） | 数据未找到，或**该指标无权限**（内层信封失败会带具体 msg，如"指标无权限"；此码被服务端复用） | 检查查询条件与指标权限；换证券/日期仍失败多为无权限，联系管理员开通 |
 
 ### 必填参数（`410106` 的根因）
@@ -126,7 +166,8 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 
 ## 取数最佳实践
 
-- **先 search 做三项校验**：看 `indicatorName` + `description` 确认语义和口径，看 `scopeList` 确认覆盖全部目标市场 / 证券类型，再看 `parameterList` 补齐必填参数（required）并核对专属参数枚举（`adjustmentType`/`scale`/`currency` 等）；任一不符就回退专用接口。
+- **先 search 做三项校验**：看 `indicatorName` + `description` 确认语义和口径，看 `scopeList` 确认覆盖全部目标市场 / 证券类型（并看 `usageRestriction` 有无接口限制），再看 `parameterList` 补齐必填参数（required）并核对专属参数**名称**与枚举（`adjustType`/`scale`/`currency` 等）；任一不符就回退专用接口。**参数名以 search 返回为准，不要照抄文档示例**——服务端调过参数名，传错名是静默失效不是报错。
+- **`scopeList` 声称覆盖 ≠ 真有数**：`qte_mkt_cptl`/`shr_tot` 的 `scopeList` 写着 A股+港股+美股，但实测港股（`09992.HK`/`00700.HK`）返回 `null`（2026-08-01）。同一次调用里 A 股正常、港股行情类（`qte_close`/`qte_vol`）也正常，说明是这两个指标的港股数据没到位。跨市场批量取数后**逐市场抽查一行**，别默认 scopeList 就是事实。
 - **公司类型决定有没有这个科目**：财务科目分公司类型——银行有「存放同业」、券商有「客户资金存款」、保险有「预收保费」，一般企业没有。某指标对茅台返回 `null`（无此科目），换到对应类型证券（招行/中信/平安）就有数。
 - **日期路由**：
   - 财务报表类（`bs_`/`is_`/`cf_`/`div_`/`shr_`，以及 description 明确按报告期统计的 `finc_`）→ 用**报告期末**（Q1 `2026-03-31`、年报 `2025-12-31`，无需是交易日）
@@ -134,27 +175,28 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
   - 现金流量表附注/间接法科目（多数 `cf_`）→ **只在年报/半年报披露**，季报日期取不到，改用年报日期 `2025-12-31`
   - 行情类（`qte_` 等）→ 用**交易日**，但常规行情仍应改走 `quote`
 - **混合日期语义要拆查询**：同时要“某报告期营收 / EPS”和“估值 PE / PB”时，按各自有效日期分别调用 `cross-section` 再按 `security` 合并（财务=报告期末、PE=最新交易日、PB(MRQ)=最近报告期末）；不要把不同日期语义的指标塞进同一个 `--date`
-- **探索性取数**：单元格级缺值返回 `null` 且保留证券行，时序局部无值可为空行；**整个查询无数据仍可能报 `999999`**。看趋势用 `time-series` + 覆盖报告期的区间，但不能把缺值当成通过语义 / scope 校验。
+- **探索性取数**：单元格级缺值返回 `null` 且保留证券行，时序局部无值可为空行；**整个查询无数据返回空表**（不再报 `999999`）。看趋势用 `time-series` + 覆盖报告期的区间，但不能把缺值当成通过语义 / scope 校验。
 - **名称反查 code 要核对，别取首条**：存在同显示名的兄弟指标——单季 `cf_finc_exp_qtr` 与累计 `cf_finc_exp` 都叫「财务费用」，`bs_fmt`/`cf_fmt`/`is_fmt` 都叫「报表格式」。`search` 按名称模糊匹配，目标 code 高概率在 top1 但不绝对，要看 `indicatorCode` 确认。
-- **批量查询做失败拆分**：某指标**缺必填参数**或入参错误时会整批报错（单元格级无数据按 `null` 返回；整个查询无数据的 `999999` 例外见上），逐指标单查能定位是哪个指标缺参/不可查。
-- **市值量纲（实测 2026-07）**：`qte_mkt_cptl`（总市值）**仅 A 股**——港股/美股返 `null`（换 `currency` 也没用，是 scope 外 ≠ 无数据）；**默认返原始「元」**（茅台 ≈ `1.5e12`，即 1.5 万亿），别误当天文数字。用 `scale` 数字码缩放（`0`元 / `3`千 / `4`万 / `6`百万 / `8`亿 / `9`十亿——`scale=8` → `15038` 亿元）、`currency` 换币种（`dft`本币 / `cny` / `hkd` / `usd` …）。**跨证券比市值前先统一 `scale`+`currency`**。
-- **EDE 财务指标的 `reportType`：label 与 value 错位，但映射本身稳定可用（复测 2026-07-24，修正 07-23 的结论）**。服务端 label 标 `1`母公司/`2`合并/`3`母公司调整/`4`合并调整，**实际取数是**：
+- **批量查询做失败拆分**：某指标**缺必填参数**或入参错误时会整批报错（单元格级无数据按 `null` 返回），逐指标单查能定位是哪个指标缺参/不可查。
+- **市值量纲（复测 2026-08-01）**：`qte_mkt_cptl`（总市值）**实测仅 A 股有数**——`scopeList` 已声称覆盖港/美股，但港股实测仍返 `null`（`shr_tot` 总股本同样）；**默认返原始「元」**（茅台 ≈ `1.7e12`，即 1.7 万亿），别误当天文数字。用 `scale` 数字码缩放（`0`元 / `3`千 / `4`万 / `6`百万 / `8`亿 / `9`十亿——`scale=8` → `16883` 亿元）、`currency` 换币种（**大写** `DFT`本币 / `CNY` / `HKD` / `USD` …）。**跨证券比市值前先统一 `scale`+`currency`**。
+- **币种与汇率（复测 2026-08-01，已修复）**：`DFT`（原始币种）识别正确——A股=CNY、港股行情=HKD、美股=USD；汇率换算自洽（互逆且三角一致，误差 <0.003%）。⚠️ 但**同一只港股，行情类的原始币种是 HKD、财务类可能是 CNY**（如泡泡玛特财报以人民币计），跨市场比财务数据时显式传 `--currency CNY` 别依赖 `DFT`。另：财务类指标的汇率按**报告期**折算、行情类按查询日折算，两者隐含汇率会有细微差异，属正常口径差别。
+- **EDE 财务指标的 `reportType`（2026-08-01 裁决完毕，悬案关闭）**：服务端 enum label 已改正，现在 **label 与实际取数一致**，直接按 label 传即可：
 
-  | value | 实际口径 | 说明 |
+  | value | 口径 | 说明 |
   |-------|---------|------|
   | `1`（默认，省略即此值） | **合并报表** | 绝大多数场景要的就是这个 |
   | `2` | **合并报表（调整）** | 该报告期无重述数时为空 |
   | `3` | **母公司报表** | |
   | `4` | **母公司报表（调整）** | 该报告期无重述数时为空 |
 
-  实测对照（中信证券 `600030.SH` FY2024 营业收入，与 `fundamental income-statement --report-type` 逐一相等）：`1`→637.9亿（合并）、`2`→581.2亿（合并调整）、`3`→321.9亿（母公司）、`4`→321.9亿（母公司调整）；中国神华 `601088.SH` 同期 `1`→3383.75亿、`2`→3397.88亿，两值不同，可排除「2 就是合并原值」。**按 label 传会取反**（想要母公司却传 `1` 拿到合并）——认 value 不认 label：合并省略即可，母公司传 `3`。
+  实测闭环（`is_tot_op_rev` + 中信证券 `600030.SH` FY2024 营业总收入，2026-08-01）：`1`→637.8922亿、`2`→581.19亿、`3`→321.924亿、`4`→321.924亿；与 `fundamental income-statement --security-code 600030.SH --fiscal-year 2024 --period annual` 返回的「合并报表」`totalOpRev = 63,789,215,688.23`（637.892亿）在 `1` 上完全吻合。取数值与 2026-07-24 的历史实测一致——**变的只是服务端 label，取数从未变过**。历史文档里「label 与 value 错位、按 label 传会取反」的警告已作废。
 
-  `2`/`4` 返回空值**不是枚举失效**，是该报告期尚无调整表（如最新年报 FY2025：`1`/`3` 有数、`2`/`4` 无值，与 `fundamental --report-type consolidatedRestated` 同期无数据一致）；查询内所有单元格都无值时才会升级成 `999999`。港股默认口径同样是合并（腾讯 FY2024 营收 6602.57亿）。
+  `2`/`4` 返回空值**不是枚举失效**，是该报告期尚无调整表（如最新年报 FY2025：`1`/`3` 有数、`2`/`4` 无值，与 `fundamental --report-type consolidatedRestated` 同期无数据一致）。港股默认口径同样是合并。
 
 ## 通用说明
 
-- **发现流程**：`indicator search --format json` → 核对 `indicatorName` + `description`、`scopeList`、`parameterList` → 三项都通过才用 `cross-section` / `time-series`
-- **积分**：`search` 免费；`cross-section` / `time-series` 按请求单元格数量计费，标价为每 100 单元格 A 股 0.05 / 港股 0.1 / 美股 0.2 积分，每次查询不足 100 单元格按 100 计
-- **空结果 / 整查询无数据**：时序可能返回空表，截面或整批无数据也可能报 `999999`；先改用符合指标语义的日期 / 有效区间并核对 `scopeList`
+- **发现流程**：`indicator search --format json` → 核对 `indicatorName` + `description`、`scopeList`（含 `usageRestriction`）、`parameterList`（**参数名以此为准**）→ 三项都通过才用 `cross-section` / `time-series` / `screener`
+- **积分**：`search` 免费；`cross-section` / `time-series` / `screener` 按请求单元格数量计费，标价为每 100 单元格 A 股 0.05 / 港股 0.1 / 美股 0.2 积分，每次查询不足 100 单元格按 100 计
+- **空结果排查顺序**：整查询无数据现在返回空表而非报错，所以空表既可能是真无数据、也可能是参数写错。按序排查：① 参数名对不对（`indicator search` 的 `parameterList`）② 日期语义对不对（`tradeDate` vs `reportDate`）③ `scopeList` 覆不覆盖该市场 ④ 才考虑确实没数据
 - **数据权限**：试用账号默认可取近 3 年；正式账号按服务等级
 - 所有格式（table/json/jsonl/csv/markdown）均可用；导出宽表给 Excel 直接用 `--format csv --output xxx.csv`

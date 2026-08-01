@@ -55,7 +55,7 @@
 | `transport.ts` | Shared `undici.Agent` (keep-alive pool) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for per-call billed endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control |
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
 | `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`--security all`) & fund-flow (`--security aShares`) · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
-| `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / time-series `values` matrix flattened into a wide table |
+| `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / screener / time-series `values` matrix flattened into a wide table |
 | `printer.ts` | `printData`: normalize + render + title-cache writeback |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |
 | `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) · 410110 pending / 410111 failed |
@@ -122,7 +122,7 @@
 | **Reference** | `/application/open-reference/` | securities/search / chiefs/search / institutions/search / officialAccount/search / constants/category / constants/getList / concepts/search / sectors/search / sectors/constituents |
 | **Quote** | `/application/open-quote/` | kline/daily / kline-hk/daily / kline-us/daily / index/kline/daily / kline/minute / quote/realtime / fund-flow/daily |
 | **Fundamental** | `/application/open-fundamental/` | income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / income-statement-hk / balance-sheet-hk / cash-flow-hk / income-statement-us / balance-sheet-us / cash-flow-us / main-business / valuation-analysis / top-holders / earning-forecast |
-| **Indicator** | `/application/open-indicator/` | EDE/search / EDE/cross-section / EDE/time-series |
+| **Indicator** | `/application/open-indicator/` | EDE/search / EDE/cross-section / EDE/time-series / screener |
 | **AI** | `/application/open-ai/` · knowledge-* → `/application/open-data/ai/` | stock-summary / knowledge-batch / knowledge-resource / security-clue / hot-topic / one-pager / investment-logic / peer-comparison / earnings-review / viewpoint-debate / theme-tracking / research-outline / management-discuss |
 | **Vault** | `/application/open-vault/` | drive / record / my-conference / wechatgroupmsg / stock-pool |
 | **Alternative** | `/application/open-alternative/` | EDB/search / EDB/getData / concept/info / concept/securities |
@@ -154,7 +154,7 @@ Concurrent requests coalesce into a single in-flight refresh promise (no duplica
 | **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint · MAX_PAGES=1000 safety limit |
 | **Partial-Result Tolerance** | Pagination (`requestPaginated`) and sharding (`quoteSharding`) return already-fetched rows + `partial` / `failedPages` / `failedShards` / `truncatedShards` markers on a non-retryable error and stop, instead of discarding everything · process exit code 3 |
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
-| **EDE Double-Envelope + Matrix Flatten** | Indicator endpoints double-wrap (`unwrapIndicatorData` peels the inner envelope); cross-section / time-series `values` matrices flattened by `indicatorMatrix` into `{date, security, name, indicator:value}` wide rows |
+| **EDE Double-Envelope + Matrix Flatten** | Indicator endpoints double-wrap (`unwrapIndicatorData` peels the inner envelope); `values` matrices flattened by `indicatorMatrix` into wide rows — `{security, name, indicator:value}` for cross-section / screener (`values` is `[security][indicator]`), `{date, series:value}` for time-series |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
 | **Async Task Polling** | Shared `pollAsyncContent()` / `checkAsyncContent()` helpers · `--wait` flag · 410110/410111 handling |
 | **Token Refresh Dedup** | Single in-flight refresh promise · concurrent calls coalesce |

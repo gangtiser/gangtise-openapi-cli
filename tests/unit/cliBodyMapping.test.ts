@@ -125,12 +125,13 @@ beforeAll(async () => {
         // the display name 「财务费用」 so a name-keyed output collides — the --key-by
         // code path must key columns by the distinct indicatorCode instead.
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
-          date: "2026-03-31",
           securityCodeList: ["600519.SH"],
           securityNameList: ["贵州茅台"],
-          indicatorCodeList: ["cf_finc_exp", "cf_finc_exp_qtr"],
-          indicatorNameList: ["财务费用", "财务费用"],
-          values: [[100], [40]],
+          indicatorList: [
+            { code: "cf_finc_exp", name: "财务费用", dataType: "double" },
+            { code: "cf_finc_exp_qtr", name: "财务费用", dataType: "double" },
+          ],
+          values: [[100, 40]],
         } } }))
         return
       }
@@ -140,10 +141,18 @@ beforeAll(async () => {
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
           securityCodeList: ["600519.SH", "000858.SZ"],
           securityNameList: ["贵州茅台", "五粮液"],
-          indicatorCodeList: ["finc_pe_ttm"],
-          indicatorNameList: ["市盈率(TTM)"],
+          indicatorList: [{ code: "finc_pe_ttm", name: "市盈率(TTM)", dataType: "double" }],
           dates: ["2026-05-18"],
           values: [[20.03], [26.36]],
+        } } }))
+        return
+      }
+      if ((req.url ?? "").includes("/open-indicator/screener")) {
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+          securityCodeList: ["600519.SH"],
+          securityNameList: ["贵州茅台"],
+          indicatorList: [{ field: "F1", code: "qte_mkt_cptl", name: "总市值", dataType: "double" }],
+          values: [[16883.6021]],
         } } }))
         return
       }
@@ -608,6 +617,46 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     const row = (JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]
     expect(row).toMatchObject({ cf_finc_exp: 100, cf_finc_exp_qtr: 40 })
     expect(Object.keys(row)).not.toContain("财务费用")
+  }, 30_000)
+
+  it("indicator cross-section sends universe + per-indicator tradeDate, not securityCodeList + a root date", async () => {
+    // Regression guard for the 2026-08-01 EDE revision: the old body shape is a
+    // hard 100001 「缺少必填参数」 server-side, and a root-level `date` is silently
+    // ignored (probed: it returns an EMPTY result rather than erroring).
+    const { code } = await cli([
+      "indicator", "cross-section",
+      "--indicator", "cf_finc_exp", "--security", "600519.SH",
+      "--date", "2026-03-31", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-indicator/EDE/cross-section")
+    expect(captured[0].body).toEqual({
+      indicatorCodeList: ["cf_finc_exp"],
+      universe: ["600519.SH"],
+      indicatorParamList: [
+        { indicatorCode: "cf_finc_exp", parameters: [{ paramKey: "tradeDate", paramValue: "2026-03-31" }] },
+      ],
+    })
+  }, 30_000)
+
+  it("indicator screener sends the variable bindings and expression", async () => {
+    const { code, out } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:qte_mkt_cptl", "--security", "600519.SH",
+      "--expression", "F1 >= 800", "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-indicator/screener")
+    expect(captured[0].body).toEqual({
+      universe: ["600519.SH"],
+      expression: "F1 >= 800",
+      indicatorList: [
+        { field: "F1", indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] },
+      ],
+    })
+    expect((JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]).toEqual({
+      security: "600519.SH", name: "贵州茅台", 总市值: 16883.6021,
+    })
   }, 30_000)
 
   it("indicator time-series --key-by code keys multi-security columns by securityCode", async () => {

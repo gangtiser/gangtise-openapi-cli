@@ -6,6 +6,7 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.30.0 — 2026-08-02**：适配 EDE 接口重构（`universe` 取代 `securityCodeList`、截面矩阵转置、指标元数据结构化），新增 `indicator screener` 条件选股，并修正复权参数名。
 - **v0.29.0 — 2026-07-25**：新增财报日历与 PDF 解析工具，群消息补 `quoteMsg`，并加强大整数 ID 与高积分调用防护。
 - **v0.28.3 — 2026-07-24**：修复列式响应在错误 `--field` 下静默错列的问题，并校正 EDE 与字段文档。
 - **v0.28.2 — 2026-07-24**：EDE 批量取数新增 `--key-by name|code`，优化无数据诊断与相关 Skill 文档。
@@ -91,7 +92,7 @@ gangtise-openapi/
     │   ├── ai.md                     #   AI 能力命令（one-pager / earnings-review / viewpoint-debate 等）
     │   ├── alternative.md            #   行业指标数据库（EDB search / EDB data）
     │   ├── fundamental.md            #   财务数据命令（A股/港股三大报表 / 估值 / 盈利预测 / 股东）
-    │   ├── indicator.md              #   证券级数据指标 EDE（search / 截面 / 时序）
+    │   ├── indicator.md              #   证券级数据指标 EDE（search / 截面 / 时序 / 条件选股）
     │   ├── insight.md                #   投研内容命令（研报 / 观点 / 纪要 / 公告 / 外资）
     │   ├── quote.md                  #   行情命令（A股/港股/指数 K 线）
     │   ├── reference-and-lookup.md   #   GTS Code 搜索与枚举速查
@@ -203,6 +204,7 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | **Indicator** | `search` | 证券级数据指标搜索（按名称匹配，返回 indicatorCode 及可传参数 parameterList） |
 | | `cross-section` | 指标截面数据（多指标 × 多证券，单日快照；前置 `search` 拿 code） |
 | | `time-series` | 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间） |
+| | `screener` | 条件选股（按指标表达式从证券/板块范围筛股；前置 `search` 拿 code） |
 | **Alternative** | `edb-search` | 行业指标搜索（按关键词匹配，返回 indicatorId 等元信息） |
 | | `edb-data` | 行业指标时序数据（批量拉取，最多10个指标） |
 | | `concept-info` | 题材指数基本信息（投资逻辑/行业空间/竞争格局/催化事件） |
@@ -256,7 +258,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等 13 个生成/提交类 + 50/篇 的 summary/foreign-report/my-conference 下载，共 16 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——该码实为「查询无数据」（实测），重试纯浪费。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等 13 个生成/提交类 + 50/篇 的 summary/foreign-report/my-conference 下载，共 16 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现已改为返回空数组）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
 - **Token 自愈**：调用返回 `0000001008` / `999002` 时自动强制刷新 Token 并重试一次。
 - **K线/资金流向自动分片**：`quote day-kline --security all`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
@@ -567,19 +569,31 @@ gangtise indicator search --keyword 收盘价 --format table             # → q
 gangtise indicator search --keyword 平均ROE --limit 5 --format json    # 看 parameterList
 
 # 截面：多指标 × 多证券，单日快照（行情类用交易日；财务类用报告期末，如 2026-03-31）
+# --security 也接受板块 ID（reference sector-search 的 10 位 sectorId），与代码混传取并集
 gangtise indicator cross-section \
   --indicator qte_close --indicator qte_vol --indicator qte_mkt_cptl \
   --security 600519.SH --security 09992.HK \
-  --date 2026-05-18 --format table
+  --date 2026-07-31 --format table
+# 输出列：security / name / <各指标名>…（v0.30.0 起无 date 列——日期挂在每个指标的参数上）
 
 # 时间序列：多指标 × 单证券 或 单指标 × 多证券（不能多 × 多，否则报 410001）
 gangtise indicator time-series --indicator qte_close \
   --security 600519.SH --security 09992.HK \
-  --start-date 2026-05-12 --end-date 2026-05-18 --format table
+  --start-date 2026-07-29 --end-date 2026-07-31 --format table
 
-# 复权 / 指标专属参数用 --indicator-param "code:key=value"，参数 key 以 search 的 parameterList 为准
+# 条件选股：F1/F2… 绑定指标，用表达式组合筛选（--indicator-param 按变量索引，不是按 code）
+gangtise indicator screener \
+  --indicator F1:qte_mkt_cptl --indicator F2:finc_pe_ttm \
+  --indicator-param "F1:scale=8" \
+  --security 1000000287 \
+  --expression "F1 >= 500 && F2 <= 30" \
+  --date 2026-07-31 --format table
+
+# 复权 / 指标专属参数用 --indicator-param "code:key=value"
+# ⚠️ 参数名必须以 search 的 parameterList 为准：传错名服务端静默忽略、退回默认值，不报错
 gangtise indicator cross-section --indicator qte_close --security 600519.SH \
-  --date 2026-05-18 --indicator-param "qte_close:adjustmentType=3"   # 1不复权/2前复权/3后复权
+  --date 2024-01-02 --indicator-param "qte_close:adjustType=3"   # 1不复权/2前复权/3后复权/4定点
+# 不复权 1685.01 → 前复权 1531.225 → 后复权 13609.6168（前复权在最新交易日等于不复权，验证要用历史日）
 
 # 必填参数：很多指标默认调用报 410106（缺必填参数），按 parameterList 的 required 补齐再取：
 #   N 期统计补 periodNum、区间/周期类（如 qte_amp_mo 月振幅）补 startDate、年度/分红类补 fiscalYear
@@ -681,7 +695,7 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 | `999010` | 接口地址不存在（`raw call` 的 key 可能已下线，用 `raw list` 核对） |
 | `999012` / `999013` / `999014` | 账号禁用 / 已过期 / 租户失效 |
 | `999016` | 调用方 IP 不在允许范围 |
-| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点此码多为查询无数据） |
+| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点无数据已改为返回空表，此码基本只剩真故障） |
 | `100003` | 参数值非法——**最宽的兜底码**；msg 通常已指明字段（如「limit 最小为 1，最大为 10000」），先读 msg |
 | `100001` | 缺必填参数（msg 带字段名，如「缺少必填参数: reportId」） |
 | `100006` | 查询/下载数量超限——**取代旧 `430007`** |

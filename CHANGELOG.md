@@ -2,6 +2,39 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.30.0 — 2026-08-02
+
+🔴 **破坏性修复**：服务端 2026-08-01 重构了 EDE 取数接口，v0.29.0 的 `indicator cross-section` / `time-series` **已完全不可用**（旧 body 一律 `100001 缺少必填参数`）。本版对齐新契约并新增条件选股。所有改动均对真实 API 实测通过。
+
+**新增**
+- `gangtise indicator screener` — 条件选股：`--indicator F1:qte_mkt_cptl` 把变量绑到指标，`--expression "F1 >= 500 && F2 <= 30"` 组合筛选，从证券/板块范围里筛出命中的股票。支持 `contains`/`notcontains` 文本匹配（仅 `dataType: string` 指标）。`--indicator-param` 按**变量**索引（`F1:scale=8`）而非按 code——同一指标可绑到两个变量取不同参数（如比较两个日期的收盘价），只有变量能区分；引用未绑定的变量直接 `ValidationError`，不静默丢弃。输出同 `cross-section` 宽表。实测：中信白酒板块 19 只 → 市值≥500亿 且 PE≤30 筛出 5 只
+- `indicator cross-section` / `time-series` / `screener` 的 `--security` 现在也接受**板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，与证券代码混传取并集去重）。⚠️ 中信行业码那类 9 位 ID（`100800109`，官方文档示例里用的就是它）**不是** `sectorId`，实测返 0 只
+
+**破坏性变更（服务端契约）**
+- 请求体 `securityCodeList` → `universe`（cross-section / time-series 均改）。不改就是 `100001` 硬报错
+- **根级 `date` 已废弃**：CLI 现在把 `--date` 下发为**每个指标各自的 `tradeDate`**。⚠️ 吃 `reportDate`/`sDate` 的指标必须显式传 `--indicator-param "code:reportDate=..."`——这类指标收到 `tradeDate` 会**静默返回空结果**（实测 `is_op_rev_mom`：`reportDate=2024-12-31` → 29.03，`tradeDate` → 空）。CLI 检测到某指标已有 `tradeDate`/`reportDate`/`sDate` 就不再注入 `--date`
+- **响应结构重写**：`indicatorCodeList`/`indicatorNameList` 两个平行数组 → 单个结构化 `indicatorList: [{code, name, dataType}]`；**cross-section 的 `values` 矩阵转置**成 `[证券][指标]`（此前是 `[指标][证券]`，按旧逻辑读会整表错位）；time-series 的 `values` 仍是 `[序列][日期]`
+- **cross-section / screener 输出不再有 `date` 列**：查询日期现在挂在每个指标自己的参数上，各列可以是不同日期，行级单一 `date` 会误导
+- 服务端**会重排**返回顺序（实测请求 `qte_close,qte_vol` 回来是 `qte_vol,qte_close`；请求 `600519,09992` 回来是 `09992,600519`），CLI 一律按返回的 `indicatorList`/`securityCodeList` 对齐——批量按 code 回填继续用 `--key-by code`
+
+**修复**
+- 🔴 **复权参数名写错，导致静默取到错数据**：正确参数名是 **`adjustType`**，CLI 帮助文案、SKILL.md、README、references 此前全写成 `adjustmentType`（官方文档示例也是错的）。服务端对错误参数名**静默忽略并退回不复权**，用户照抄拿到的数看着正常实则错——实测茅台 `2024-01-02`：`adjustmentType=3` → 1685.01（= 不复权），`adjustType=3` → 13609.6168（真后复权），`adjustType=2` → 1531.225（前复权）。已全线改正并在文档中标注这个坑
+- **EDE `reportType` 悬案裁决关闭**：服务端 enum label 已改正，现在 label 与实际取数**一致**，直接按 label 传即可（`1`=合并 `2`=合并(调整) `3`=母公司 `4`=母公司(调整)）。实测闭环：`is_tot_op_rev` + 中信证券 `600030.SH` FY2024 → `1`=637.8922亿 / `2`=581.19亿 / `3`=`4`=321.924亿，与 `fundamental income-statement` 的「合并报表」`totalOpRev` 637.892亿 在 `1` 上吻合。取数值与 2026-07-24 历史实测一致——**变的只是服务端 label，取数从未变过**，文档里「按 label 传会取反」的警告已作废
+- `prepare.cjs` 的发版门禁按 README 的新条目式 changelog 格式匹配（README 改版后门禁一直找不到 `### vX.Y.Z`，形同虚设）
+
+**文档（均为实测修正）**
+- **无数据不再报 `999999`**：整查询无数据现在返回空数组（`Total: 0`）。这意味着**参数写错也表现为空表**而不是报错——文档补了空表排查顺序：① 参数名（`indicator search` 的 `parameterList`）② 日期语义 ③ `scopeList` ④ 才考虑真没数据
+- **根级 `--scale` 会污染不声明 `scale` 的指标**：`qte_close` 的 `parameterList` 里没有 `scale`，但根级 `--scale 8` 把收盘价 1350.6 缩成 `0`（与官方「根级参数仅对支持的指标生效」的说法不符）。价格与金额混查改用 `--indicator-param "code:scale=8"`
+- **`scopeList` 是声明不是保证**：`qte_mkt_cptl`/`shr_tot` 已声称覆盖港股，但实测 `09992.HK`/`00700.HK` 仍返 `null`（同一次调用里 A 股正常、港股行情类 `qte_close`/`qte_vol` 也正常）。港股**财务类**指标确已可用（`is_op_rev_ttm` 泡泡玛特 371.2亿 / 腾讯 7682.02亿）
+- **币种与汇率已修复**：`DFT` 原始币种识别正确（A股=CNY、港股行情=HKD、美股=USD），汇率互逆且三角一致（误差 <0.003%）。⚠️ 同一只港股**行情类原始币种是 HKD、财务类可能是 CNY**（泡泡玛特财报以人民币计），跨市场比财务数据要显式传 `--currency`；币种枚举 2026-08-01 起**统一大写**，旧文档里的小写 `dft`/`cny` 已过时
+- `indicator search` 返回新增 `scopeList[].usageRestriction`（如「不支持指标时间序列接口」，`null`=无限制），已写入 skill 与响应字段文档
+- 全线强调：**指标参数名一律以 `indicator search` 的 `parameterList` 为准**，不要照抄任何文档示例——服务端会改参数名且传错是静默失效
+
+**内部**
+- `args.ts`：`parseIndicatorParams` 抽出通用的 `parseParamSpecs`；新增 `parseScreenerIndicators`（校验 `F+正整数` 变量名、拒绝重复变量与未绑定变量）
+- `indicatorMatrix.ts`：`buildHeaders` 改为接受 bases/suffixes/reserved 三元组，screener 用 `field` 而非 code 做去重后缀（同一 code 可绑两个变量）；多证券时序的列数改从 `securityCodeList` 派生，响应缺 `securityNameList` 时不再退化成 0 列
+- 测试 536 → 551：矩阵转置回归守卫、`reportDate` 不被 `--date` 覆盖、screener body 组装与变量校验，以及一条端到端断言 `universe` 上线的守卫（防止旧 body 悄悄回归）
+
 ### v0.29.0 — 2026-07-25
 
 对齐服务端 2026-07-24 更新：新增财报日历（列表 + 原文下载）与 PDF 解析工具，群消息补 `quoteMsg` 引用字段。四个接口均已对真实 API 实测通过。

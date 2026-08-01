@@ -5,9 +5,14 @@ const p = JSON.parse(f.readFileSync("package.json", "utf8"))
 // half-synced. Shipping with a stale README/CHANGELOG has happened twice
 // (v0.18.0 missed README, v0.25.0 nearly shipped a wrong pagination list);
 // README is the npmjs.org landing page — fail the build instead.
-for (const doc of ["README.md", "CHANGELOG.md"]) {
-  if (!f.readFileSync(doc, "utf8").includes(`### v${p.version} `)) {
-    throw new Error(`${doc}: no "### v${p.version}" changelog entry — add it before building this version`)
+// The two docs carry the version differently: CHANGELOG has a full `### vX.Y.Z`
+// section per release, README only a one-line `- **vX.Y.Z — date**:` summary of
+// the most recent five. Matching one pattern against both silently stopped
+// guarding README when it moved to the condensed list.
+const RELEASE_MARKER = { "README.md": (v) => `**v${v} `, "CHANGELOG.md": (v) => `### v${v} ` }
+for (const [doc, marker] of Object.entries(RELEASE_MARKER)) {
+  if (!f.readFileSync(doc, "utf8").includes(marker(p.version))) {
+    throw new Error(`${doc}: no "${marker(p.version).trim()}" changelog entry — add it before building this version`)
   }
 }
 

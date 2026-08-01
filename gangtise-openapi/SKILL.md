@@ -1,12 +1,12 @@
 ---
 name: gangtise-openapi
-version: "0.29.0"
+version: "0.30.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
   **触发词**：调接口 / CLI / openapi / 导出 / 下载研报 / 批量查 / 拉数据 / 跑一下 / 钢尼斯 / gtIC（Gangtise 语音误识别）
 
-  **适用**：原始数据导出、批量 jsonl/csv、下载 PDF/MD、行情 K 线、财务报表、估值指标、证券级数据指标（EDE 截面/时序）、财报日历（业绩预告/快报/公告）、PDF 解析为 Markdown、AI 能力（一页通/投资逻辑/同业对比/个股看点·投研总结/投研线索/业绩点评/观点PK·多空辩论/主题跟踪/热点话题/管理层讨论/调研提纲/知识库搜索）、云盘文件管理（Vault）
+  **适用**：原始数据导出、批量 jsonl/csv、下载 PDF/MD、行情 K 线、财务报表、估值指标、证券级数据指标（EDE 截面/时序/条件选股）、财报日历（业绩预告/快报/公告）、PDF 解析为 Markdown、AI 能力（一页通/投资逻辑/同业对比/个股看点·投研总结/投研线索/业绩点评/观点PK·多空辩论/主题跟踪/热点话题/管理层讨论/调研提纲/知识库搜索）、云盘文件管理（Vault）
 
   **不适用**：不脱离 OpenAPI 自行撰写研报、编造投研结论或做自由问答——观点总结、多空 PK 等 AI 产物本 skill 只经由 Gangtise 平台 AI 接口获取，不自行生成
 
@@ -32,7 +32,7 @@ description: |-
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取
    - K 线 `--security all` 跨日期 → 自动按日切片并合并
-   - 5xx / `429` / 网络错误 / `999999` → 自动指数退避重试（🔴 贵档端点例外：仅连接失败 / 429 / token 自愈重试，5xx/超时不重放防重复扣分，v0.26.0；`indicator` 端点对 `999999` 不重试——该码=查询无数据，v0.27.0）
+   - 5xx / `429` / 网络错误 / `999999` → 自动指数退避重试（🔴 贵档端点例外：仅连接失败 / 429 / token 自愈重试，5xx/超时不重放防重复扣分，v0.26.0；`indicator` 端点对 `999999` 不重试，v0.27.0）
    - Token 失效（`0000001008` / `999002`，含已废弃的 `8000014`/`8000015`）→ 自动重新登录并重试一次；凭证错 `999011` → **不重试**（AK/SK 不对不会自己好），查环境变量
 8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`（例外：`ai stock-summary` 用 `--security`，`ai security-clue` 用 `--gts-code`）。
 9. **调试**：`--verbose` 或 `GANGTISE_VERBOSE=1` 打印每个请求的耗时/字节数到 stderr。
@@ -75,7 +75,7 @@ description: |-
 - 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**；`ai hot-topic` 50/篇
 - 🔴 **极贵**：`alternative concept-info` / `concept-securities` **500/次**
 - ⚠️ **同参数重复调用不免费**：按次计费无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）——生成类结果拿到后自行留存复用，别为"刷新"重调；CLI 已对上述 🔴 贵档端点关闭 5xx/超时自动重放（v0.26.0），50/篇 的 `summary` / `foreign-report` / `my-conference` download 同样不重放（v0.27.0），正是为防重复扣分
-- **按单元格**：`indicator cross-section` / `time-series`（A股 0.05 / 港股 0.1 / 美股 0.2 积分每 100 单元格，见 `indicator.md`）；`ai knowledge-resource-download` 按下游资源计费
+- **按单元格**：`indicator cross-section` / `time-series` / `screener`（A股 0.05 / 港股 0.1 / 美股 0.2 积分每 100 单元格；screener 按**筛选前**范围计费，见 `indicator.md`）；`ai knowledge-resource-download` 按下游资源计费
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -149,6 +149,7 @@ description: |-
 | 多证券已实现财务 / 估值指标搜索（含总市值） | `indicator search` |
 | 多证券已实现指标截面（多指标 × 多证券，同一查询日期） | `indicator cross-section`（前置：`indicator search --format json` 通过三项校验） |
 | 多证券已实现指标时序（单指标 × 多证券，按区间） | `indicator time-series`（前置：`indicator search --format json` 通过三项校验） |
+| 条件选股 / 按指标筛股票（市值+PE+经营范围等多条件组合） | `indicator screener`（前置：`indicator search` 拿 code；范围可传板块 ID，见 `reference sector-search`） |
 | 证券代码 / gtsCode 搜索 | `reference securities-search` |
 | 首席 ID / 分析师 ID 搜索 | `reference chiefs-search`（按姓名/机构/团队，用于 `insight opinion --chief`） |
 | 机构 ID 搜索（内资券商/外资/牵头/观点机构） | `reference institution-search`（按机构名，用于 `--institution` / `--broker`；免费） |
@@ -171,7 +172,8 @@ description: |-
   - EDE 取数前必须用 `search --format json` 同时核对：`indicatorName` + `description` 语义准确、`scopeList` 覆盖全部目标市场 / 证券类型、`parameterList` 必填参数与枚举可满足；`scopeList` 缺失 / `null` / 空或任一项不符，都视为无法证明覆盖并回退专用接口。专用接口也不覆盖目标市场时，说明当前不可用，不要硬调。`scopeList` 按指标各不相同，不能因 EDE 服务支持 A / 港 / 美股就假定某个指标三市场都覆盖
   - `indicator search` 免费，`cross-section` / `time-series` 按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`
 - 行业 / 宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），不要与证券级 EDE 混用
-- EDE 单元格级缺值返回 `null` 且保留证券行；**整个查询无数据仍可能报 `999999`**。日期语义按指标分三类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` 等日频估值=最新交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
+- EDE 单元格级缺值返回 `null` 且保留证券行；**整个查询无数据返回空表**（2026-08-01 起不再报 `999999`）——所以**参数写错也表现为空表**，拿到空表先查参数名和日期语义，别当成真没数据。日期语义按指标分三类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` 等日频估值=最新交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
+- **EDE 指标参数名一律以 `indicator search --format json` 的 `parameterList` 为准**，不要凭记忆或照抄示例：服务端会改参数名（`adjustmentType` → `adjustType`，2026-08-01），**传错名是静默忽略、退回默认值**而不是报错——实测 `adjustmentType=3` 返回的是不复权价，看着正常实则错数据。`--indicator` / `--security` 支持板块 ID（`reference sector-search` 的 10 位 `sectorId`）。⚠️ 根级 `--scale` 会污染不声明 `scale` 的指标（`qte_close` 被 `--scale 8` 缩成 `0`），价格与金额混查时改用 `--indicator-param "code:scale=8"`
 - "业绩点评"双义消歧：**检索已有**（研报/纪要里的业绩点评内容）走 `insight ... list --llm-tag earningsReview`（0.1/条）；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句
 
 ## 公司名 → 证券代码
@@ -262,7 +264,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | 错误码 | 含义 | CLI 行为 | Agent 是否介入 |
 |--------|------|---------|--------------|
 | ✅ `100003` | 参数值非法——**最宽的兜底码**：类型错、`limit` 越界都归这里。**msg 通常已指明字段**（如「请求体字段类型不匹配: size 期望类型 Integer」「limit 最小为 1，最大为 10000」），先读 msg 再猜 | — | 按 msg 指的字段改；msg 没指明才对照 `--help` 查枚举拼写，**不要重试同命令** |
-| ✅ `999999` | 系统错误；但 **`indicator`（EDE）用此码 + HTTP 500 表示查询无数据**（节假日 / 未来日期 / 未覆盖标的，2026-07-11 实测）——单元格级缺值才是 `null` | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | `indicator` 遇到先检查日期/标的是否该有数据，别盲目重试 |
+| ✅ `999999` | 系统错误。**`indicator`（EDE）2026-08-01 前用此码表示查询无数据，现已改为返回空数组**，所以这个码基本只剩真故障 | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | 确认参数无误仍报此码即服务端故障 |
 | ✅ `410110` | **异步生成中**（HTTP 400，旧码未切）。新码 `140001`，CLI 两码都认 | 轮询视为 pending | 继续等 |
 | ✅ `410111` | **异步生成失败**（HTTP 400，旧码未切）。新码 `140002`，CLI 两码都认 | 终态 | **不重试**，换参数 |
 | ✅ `130002` | 资源不存在——**下载类的兜底码**：`reportId` 不存在 / 非数字 / `fileType` 非法**全归这里**（`130003`/`130004`/`130005` 实测均未启用） | — | 确认 ID 有效且本账号可见；换 `--file-type` 或换一篇验证 |
@@ -372,7 +374,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 - knowledge-batch / security-clue / 个股看点（stock-summary）/ AI agent / 异步任务 / 主题跟踪 / 热点 / 管理层讨论 → `references/commands/ai.md`
 - drive / record / my-conference / wechat / 股票池 → `references/commands/vault.md`
 - 行业指标数据库（EDB）/ 题材指数画像与成分股（concept-info / concept-securities）→ `references/commands/alternative.md`
-- 数据指标（EDE：search / cross-section / time-series，证券级指标截面与时序）→ `references/commands/indicator.md`
+- 数据指标（EDE：search / cross-section / time-series / screener，证券级指标截面、时序与条件选股）→ `references/commands/indicator.md`
 - PDF 解析（file-parse：上传 PDF → Markdown + 图片 ZIP）→ `references/commands/tool.md`
 - securities-search / chiefs-search（首席 ID）/ institution-search（机构 ID）/ official-account-search（公众号 ID）/ 常量查询（constant-category / constant-list）/ 题材 ID（concept-search）/ 板块（sector-search / sector-constituents）/ lookup 本地表 / 行业别名 / raw call → `references/commands/reference-and-lookup.md`
 

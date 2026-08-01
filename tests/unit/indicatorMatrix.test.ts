@@ -3,68 +3,80 @@ import { describe, expect, it } from "vitest"
 import { ApiError, attachEnvelopeTraceId } from "../../src/core/errors.js"
 import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
 
-// Field names + value shapes below mirror the LIVE EDE responses (verified
-// against open.gangtise.com), which differ from the published doc: the real
-// keys are securityCodeList/securityNameList/indicatorCodeList/indicatorNameList,
-// and `values` is a 2D matrix — [indicator][security] for cross-section,
-// [series][date] for time-series.
+// Field names + value shapes below mirror the LIVE EDE responses as of the
+// 2026-08-01 API revision (probed against openapi.gangtise.com): indicator
+// metadata arrives as a structured `indicatorList` of {code, name, dataType}
+// (plus `field` for the screener), and `values` is a 2D matrix —
+// [security][indicator] for cross-section and the screener (TRANSPOSED from the
+// previous revision), [series][date] for time-series. There is no longer a
+// root-level `date`: the query date lives in each indicator's own parameters.
 
 describe("flattenCrossSection", () => {
   const data = {
-    date: "2026-05-18",
     securityCodeList: ["600519.SH", "09992.HK"],
     securityNameList: ["贵州茅台", "泡泡玛特"],
-    indicatorCodeList: ["qte_close", "qte_vol", "qte_mkt_cptl"],
-    indicatorNameList: ["收盘价", "成交量", "总市值"],
-    dataTypes: ["double", "integer", "double"],
-    // [indicator][security]: row i = indicator i across [茅台, 泡泡玛特]
+    indicatorList: [
+      { code: "qte_close", name: "收盘价", dataType: "double" },
+      { code: "qte_vol", name: "成交量", dataType: "integer" },
+      { code: "qte_mkt_cptl", name: "总市值", dataType: "double" },
+    ],
+    // [security][indicator]: row i = security i across [收盘价, 成交量, 总市值]
     values: [
-      [1323.0, 150.7],
-      [4966097, 15301079],
-      [165675349444, 20209520.2705],
+      [1323.0, 4966097, 165675349444],
+      [150.7, 15301079, 20209520.2705],
     ],
   }
 
   it("suffixes an indicator literally named like a reserved column instead of clobbering it", () => {
     const clash = {
-      date: "2026-05-18",
       securityCodeList: ["600519.SH"],
       securityNameList: ["贵州茅台"],
-      indicatorCodeList: ["qte_close", "x_date"],
-      indicatorNameList: ["收盘价", "date"],
-      values: [[1323.0], [42]],
+      indicatorList: [
+        { code: "qte_close", name: "收盘价" },
+        { code: "pty_name", name: "name" },
+      ],
+      values: [[1323.0, "贵州茅台股份有限公司"]],
     }
     const out = flattenCrossSection(clash) as { list: Record<string, unknown>[] }
     // The metadata column must survive; the clashing indicator gets a suffixed header.
-    expect(out.list[0].date).toBe("2026-05-18")
-    expect(out.list[0]["date (x_date)"]).toBe(42)
+    expect(out.list[0].name).toBe("贵州茅台")
+    expect(out.list[0]["name (pty_name)"]).toBe("贵州茅台股份有限公司")
   })
 
   it("emits one row per security with indicator-name columns", () => {
     const out = flattenCrossSection(data) as { list: Record<string, unknown>[]; total: number }
     expect(out.total).toBe(2)
     expect(out.list).toEqual([
-      { date: "2026-05-18", security: "600519.SH", name: "贵州茅台", 收盘价: 1323.0, 成交量: 4966097, 总市值: 165675349444 },
-      { date: "2026-05-18", security: "09992.HK", name: "泡泡玛特", 收盘价: 150.7, 成交量: 15301079, 总市值: 20209520.2705 },
+      { security: "600519.SH", name: "贵州茅台", 收盘价: 1323.0, 成交量: 4966097, 总市值: 165675349444 },
+      { security: "09992.HK", name: "泡泡玛特", 收盘价: 150.7, 成交量: 15301079, 总市值: 20209520.2705 },
     ])
   })
 
-  it("keeps date/security/name first, then indicators in list order", () => {
+  it("keeps security/name first, then indicators in list order", () => {
     const out = flattenCrossSection(data) as { list: Record<string, unknown>[] }
-    expect(Object.keys(out.list[0])).toEqual(["date", "security", "name", "收盘价", "成交量", "总市值"])
+    expect(Object.keys(out.list[0])).toEqual(["security", "name", "收盘价", "成交量", "总市值"])
+  })
+
+  it("reads values row-major per security, matching the transposed matrix", () => {
+    // Regression guard for the 2026-08-01 transposition: under the OLD
+    // [indicator][security] reading, 茅台 would take 成交量's row and report a
+    // 收盘价 of 4966097. Values must follow the security, not the indicator.
+    const out = flattenCrossSection(data) as { list: Record<string, unknown>[] }
+    expect(out.list[0].收盘价).toBe(1323.0)
+    expect(out.list[1].收盘价).toBe(150.7)
   })
 
   it("disambiguates duplicate indicator names by appending the code", () => {
     const out = flattenCrossSection({
-      date: "2026-05-18",
       securityCodeList: ["600519.SH"],
       securityNameList: ["贵州茅台"],
-      indicatorCodeList: ["qte_close", "qte_close_adj"],
-      indicatorNameList: ["收盘价", "收盘价"],
-      values: [[1323.0], [1290.0]],
+      indicatorList: [
+        { code: "qte_close", name: "收盘价" },
+        { code: "qte_close_adj", name: "收盘价" },
+      ],
+      values: [[1323.0, 1290.0]],
     }) as { list: Record<string, unknown>[] }
     expect(out.list[0]).toEqual({
-      date: "2026-05-18",
       security: "600519.SH",
       name: "贵州茅台",
       收盘价: 1323.0,
@@ -74,19 +86,19 @@ describe("flattenCrossSection", () => {
 
   it("keys indicator columns by code when keyBy is 'code' (stable across duplicate names)", () => {
     // Batch use-case: cf_finc_exp (累计) and cf_finc_exp_qtr (单季) BOTH display as
-    // 「财务费用」, and the server may reorder columns vs the request — so mapping a
-    // requested code back to its value by name or position is impossible. keyBy:'code'
-    // makes every indicator column its unique code.
+    // 「财务费用」, and the server DOES reorder columns vs the request (probed
+    // 2026-08-01) — so mapping a requested code back to its value by name or
+    // position is impossible. keyBy:'code' makes every column its unique code.
     const out = flattenCrossSection({
-      date: "2026-03-31",
       securityCodeList: ["600519.SH"],
       securityNameList: ["贵州茅台"],
-      indicatorCodeList: ["cf_finc_exp", "cf_finc_exp_qtr"],
-      indicatorNameList: ["财务费用", "财务费用"],
-      values: [[100], [40]],
+      indicatorList: [
+        { code: "cf_finc_exp", name: "财务费用" },
+        { code: "cf_finc_exp_qtr", name: "财务费用" },
+      ],
+      values: [[100, 40]],
     }, "code") as { list: Record<string, unknown>[] }
     expect(out.list[0]).toEqual({
-      date: "2026-03-31",
       security: "600519.SH",
       name: "贵州茅台",
       cf_finc_exp: 100,
@@ -98,21 +110,30 @@ describe("flattenCrossSection", () => {
     // Post-fix server behaviour: no-data is null per cell; the security is NOT
     // dropped and the call does NOT 500 (previously the whole row vanished).
     const out = flattenCrossSection({
-      date: "2025-12-31",
       securityCodeList: ["600519.SH"],
       securityNameList: ["贵州茅台"],
-      indicatorCodeList: ["bs_dep_ib", "bs_clnt_dep"],
-      indicatorNameList: ["存放同业款项", "其中:客户资金存款"],
-      values: [[null], [null]],
+      indicatorList: [
+        { code: "bs_dep_ib", name: "存放同业款项" },
+        { code: "bs_clnt_dep", name: "其中:客户资金存款" },
+      ],
+      values: [[null, null]],
     }) as { list: Record<string, unknown>[]; total: number }
     expect(out.total).toBe(1)
     expect(out.list[0]).toEqual({
-      date: "2025-12-31",
       security: "600519.SH",
       name: "贵州茅台",
       存放同业款项: null,
       "其中:客户资金存款": null,
     })
+  })
+
+  it("returns an empty list for a query that matched no securities", () => {
+    expect(flattenCrossSection({
+      securityCodeList: [],
+      securityNameList: [],
+      indicatorList: [],
+      values: [],
+    })).toEqual({ list: [], total: 0 })
   })
 
   it("returns the input unchanged when the shape is not a value matrix", () => {
@@ -121,14 +142,83 @@ describe("flattenCrossSection", () => {
   })
 })
 
+// The screener returns the cross-section payload plus a `field` on every
+// indicator entry, so it reuses flattenCrossSection.
+describe("flattenCrossSection (screener payload)", () => {
+  it("emits one row per matched security with the screened indicator columns", () => {
+    const out = flattenCrossSection({
+      securityCodeList: ["000858.SZ", "600519.SH"],
+      securityNameList: ["五粮液", "贵州茅台"],
+      indicatorList: [
+        { field: "F1", code: "qte_mkt_cptl", name: "总市值", dataType: "double" },
+        { field: "F2", code: "finc_pe_ttm", name: "市盈率(TTM)", dataType: "double" },
+      ],
+      values: [
+        [3817.1733, 28.4929],
+        [17546.4346, 21.2131],
+      ],
+    }) as { list: Record<string, unknown>[]; total: number }
+    expect(out.total).toBe(2)
+    expect(out.list[0]).toEqual({ security: "000858.SZ", name: "五粮液", 总市值: 3817.1733, "市盈率(TTM)": 28.4929 })
+  })
+
+  it("disambiguates the same indicator bound to two variables by field", () => {
+    // A screener may legitimately bind one code twice (e.g. the same price on
+    // two dates), so the code cannot disambiguate — the variable must.
+    const out = flattenCrossSection({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [
+        { field: "F1", code: "qte_close", name: "收盘价" },
+        { field: "F2", code: "qte_close", name: "收盘价" },
+      ],
+      values: [[1323.0, 1685.01]],
+    }) as { list: Record<string, unknown>[] }
+    expect(out.list[0]).toEqual({
+      security: "600519.SH",
+      name: "贵州茅台",
+      收盘价: 1323.0,
+      "收盘价 (F2)": 1685.01,
+    })
+  })
+
+  it("keeps both columns distinct under keyBy 'code' when one code is bound twice", () => {
+    const out = flattenCrossSection({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [
+        { field: "F1", code: "qte_close", name: "收盘价" },
+        { field: "F2", code: "qte_close", name: "收盘价" },
+      ],
+      values: [[1323.0, 1685.01]],
+    }, "code") as { list: Record<string, unknown>[] }
+    expect(out.list[0]).toEqual({
+      security: "600519.SH",
+      name: "贵州茅台",
+      qte_close: 1323.0,
+      "qte_close (F2)": 1685.01,
+    })
+  })
+
+  it("returns an empty list when nothing passed the filter", () => {
+    expect(flattenCrossSection({
+      securityCodeList: [],
+      securityNameList: [],
+      indicatorList: [],
+      values: [],
+    })).toEqual({ list: [], total: 0 })
+  })
+})
+
 describe("flattenTimeSeries", () => {
   it("uses indicator columns when there is a single security", () => {
     const out = flattenTimeSeries({
       securityCodeList: ["600519.SH"],
       securityNameList: ["贵州茅台"],
-      indicatorCodeList: ["qte_close", "qte_vol"],
-      indicatorNameList: ["收盘价", "成交量"],
-      dataTypes: ["double", "integer"],
+      indicatorList: [
+        { code: "qte_close", name: "收盘价", dataType: "double" },
+        { code: "qte_vol", name: "成交量", dataType: "integer" },
+      ],
       dates: ["2026-05-18", "2026-05-19", "2026-05-20"],
       values: [
         [1323.0, 1324.3, 1315.0],
@@ -147,8 +237,7 @@ describe("flattenTimeSeries", () => {
     const out = flattenTimeSeries({
       securityCodeList: ["600519.SH", "09992.HK"],
       securityNameList: ["贵州茅台", "泡泡玛特"],
-      indicatorCodeList: ["qte_close"],
-      indicatorNameList: ["收盘价"],
+      indicatorList: [{ code: "qte_close", name: "收盘价", dataType: "double" }],
       dates: ["2026-05-18", "2026-05-19"],
       values: [
         [1323.0, 1324.3],
@@ -166,8 +255,10 @@ describe("flattenTimeSeries", () => {
     const out = flattenTimeSeries({
       securityCodeList: ["600519.SH"],
       securityNameList: ["贵州茅台"],
-      indicatorCodeList: ["qte_close", "qte_vol"],
-      indicatorNameList: ["收盘价", "成交量"],
+      indicatorList: [
+        { code: "qte_close", name: "收盘价" },
+        { code: "qte_vol", name: "成交量" },
+      ],
       dates: ["2026-05-18"],
       values: [[1323.0], [4966097]],
     }, "code") as { list: Record<string, unknown>[] }
@@ -178,11 +269,23 @@ describe("flattenTimeSeries", () => {
     const out = flattenTimeSeries({
       securityCodeList: ["600519.SH", "09992.HK"],
       securityNameList: ["贵州茅台", "泡泡玛特"],
-      indicatorCodeList: ["qte_close"],
-      indicatorNameList: ["收盘价"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
       dates: ["2026-05-18"],
       values: [[1323.0], [150.7]],
     }, "code") as { list: Record<string, unknown>[] }
+    expect(out.list[0]).toEqual({ date: "2026-05-18", "600519.SH": 1323.0, "09992.HK": 150.7 })
+  })
+
+  it("falls back to the security code when the response omits the name list", () => {
+    // Guard against deriving the column count from securityNameList: a missing
+    // name list must still yield one column per security, not zero.
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH", "09992.HK"],
+      securityNameList: null,
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      dates: ["2026-05-18"],
+      values: [[1323.0], [150.7]],
+    }) as { list: Record<string, unknown>[] }
     expect(out.list[0]).toEqual({ date: "2026-05-18", "600519.SH": 1323.0, "09992.HK": 150.7 })
   })
 
@@ -190,9 +293,7 @@ describe("flattenTimeSeries", () => {
     expect(flattenTimeSeries({
       securityCodeList: [],
       securityNameList: null,
-      indicatorCodeList: [],
-      indicatorNameList: ["收盘价"],
-      dataTypes: ["double"],
+      indicatorList: [],
       dates: [],
       values: [],
     })).toEqual({ list: [], total: 0 })
