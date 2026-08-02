@@ -154,6 +154,13 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/EDE/time-series")) {
+        // NULLDATA.XX: a success envelope whose inner payload is null. It cannot
+        // carry the non-enumerable traceId, so the check has to run before the
+        // envelope is discarded or the failure arrives untraceable.
+        if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("NULLDATA.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-null", data: { code: "000000", status: true, data: null } }))
+          return
+        }
         // BROKEN.XX: every other axis present and well-formed, only `dates` is
         // null. This used to pass straight through — raw envelope on stdout,
         // exit 0, silent stderr — which defeats every shape guard.
@@ -774,6 +781,17 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stdout.trim()).toBe("")
     expect(stderr).toContain("indicatorList")
     expect(stderr).toContain("trace-ede-noaxis")
+  }, 30_000)
+
+  it("fails loudly with a traceId when a success envelope carries a null payload", async () => {
+    const { code, stdout, stderr } = await cli([
+      "indicator", "time-series",
+      "--indicator", "NULLDATA.XX", "--security", "600519.SH",
+      "--start-date", "2026-07-30", "--end-date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stdout.trim()).toBe("") // `null` must not reach stdout as a "result"
+    expect(stderr).toContain("trace-ede-null")
   }, 30_000)
 
   it("marks a screener result unreliable and exits 3 when one indicator is bound twice", async () => {

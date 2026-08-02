@@ -200,15 +200,46 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
  * be a matrix, and a missing or mistyped axis is then a broken response rather
  * than an unrelated one: passing it through would print the raw envelope and
  * exit 0, indistinguishable from success. */
-function hasNoMatrixFields(d: MatrixData): boolean {
-  return d.securityCodeList === undefined && d.securityNameList === undefined
+function assertMatrixPayload(data: unknown, d: MatrixData): void {
+  const bare = d.securityCodeList === undefined && d.securityNameList === undefined
     && d.indicatorList === undefined && d.dates === undefined && d.values === undefined
+  if (bare) {
+    throw new ApiError("Indicator matrix shape mismatch: the response carries none of the matrix fields — the response layout may have changed", undefined, undefined, data)
+  }
 }
 
 function assertAxis<T>(data: unknown, axis: T | undefined, key: string): asserts axis is T {
   if (axis === undefined) {
     throw new ApiError(`Indicator matrix shape mismatch: the response is missing \`${key}\` or it is not an array — the response layout may have changed`, undefined, undefined, data)
   }
+}
+
+/** `securityNameList` is optional — absent or `null` simply means "fall back to
+ * the code". But a SHORT list is not a fallback, it is a misalignment: names are
+ * consumed positionally, so `["泡泡玛特"]` against `["600519.SH","09992.HK"]`
+ * labels 茅台's series 泡泡玛特 and leaves the second row with no `name` key at
+ * all (probed 2026-08-02). Structure is not checked in `isEmptyMatrix` — a null
+ * there cannot misalign anything — but once the list exists it must line up. */
+function assertSecurityNames(data: unknown, names: unknown, expected: number): void {
+  if (names === undefined || names === null) return
+  if (!Array.isArray(names) || names.length !== expected) {
+    throw new ApiError(`Indicator matrix shape mismatch: securityNameList has ${Array.isArray(names) ? names.length : "no array of"} entries for ${expected} securities — names are positional, so this would mislabel rows`, undefined, undefined, data)
+  }
+}
+
+/** The matrix endpoints cannot legitimately answer with a non-object payload:
+ * `indicator search` never reaches the flatteners (it prints the unwrapped list
+ * directly) and `raw call` bypasses them entirely, so there is no caller for
+ * which `null`, an array, or a foreign object is a valid cross-section /
+ * time-series / screener body. Checked here, BEFORE the envelope is discarded,
+ * because a `data: null` cannot carry the non-enumerable traceId — passing the
+ * envelope as details is the only way such a failure stays traceable. */
+export function requireIndicatorMatrix(raw: unknown): Record<string, unknown> {
+  const data = unwrapIndicatorData(raw)
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new ApiError(`Indicator API returned no matrix object (got ${data === null ? "null" : Array.isArray(data) ? "an array" : typeof data}) — the response layout may have changed`, undefined, undefined, raw)
+  }
+  return data as Record<string, unknown>
 }
 
 function assertValuesPresent(data: unknown, values: unknown): asserts values is unknown[] {
@@ -235,10 +266,11 @@ function assertMatrixShape(data: unknown, values: unknown[], rows: number, rowAx
 // values[i][j]. There is no row-level date any more — the query date now lives
 // in each indicator's own parameters and may legitimately differ per column.
 export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "name"): unknown {
-  if (!data || typeof data !== "object") return data
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new ApiError(`Indicator API returned no matrix object (got ${data === null ? "null" : Array.isArray(data) ? "an array" : typeof data}) — the response layout may have changed`, undefined, undefined, data)
+  }
   const d = data as MatrixData
-  // Nothing matrix-shaped at all → a foreign payload; hand it back untouched.
-  if (hasNoMatrixFields(d)) return data
+  assertMatrixPayload(data, d)
   // Past this point the payload claims to be a matrix, so every axis it needs
   // must actually be there. A `null` or absent axis is a broken response.
   const securityCode = asStringArray(d.securityCodeList)
@@ -248,6 +280,7 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   assertValuesPresent(data, d.values)
   assertMatrixShape(data, d.values, securityCode.length, "securities", indicators.length, "indicators")
 
+  assertSecurityNames(data, d.securityNameList, securityCode.length)
   const securityName = asStringArray(d.securityNameList)
   const headers = indicatorHeaders(indicators, keyBy, CROSS_SECTION_COLUMNS)
 
@@ -282,9 +315,11 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
 //       still be labelled by security (probed 2026-08-02: `finc_pe_ttm` over
 //       600519.SH + 09992.HK).
 export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name", requestedUniverse?: string[]): unknown {
-  if (!data || typeof data !== "object") return data
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new ApiError(`Indicator API returned no matrix object (got ${data === null ? "null" : Array.isArray(data) ? "an array" : typeof data}) — the response layout may have changed`, undefined, undefined, data)
+  }
   const d = data as MatrixData
-  if (hasNoMatrixFields(d)) return data
+  assertMatrixPayload(data, d)
   const dates = asStringArray(d.dates)
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
@@ -293,6 +328,7 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   assertAxis(data, indicators, "indicatorList")
   assertValuesPresent(data, d.values)
 
+  assertSecurityNames(data, d.securityNameList, securityCode.length)
   const securityName = asStringArray(d.securityNameList)
   // A universe entry without a `.` is a sector ID — the server expands it, so
   // neither its presence nor the entry count says anything about the axis.

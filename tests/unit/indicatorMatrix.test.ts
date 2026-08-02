@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { ApiError, attachEnvelopeTraceId } from "../../src/core/errors.js"
-import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
+import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
 
 // Field names + value shapes below mirror the LIVE EDE responses as of the
 // 2026-08-01 API revision (probed against openapi.gangtise.com): indicator
@@ -172,9 +172,33 @@ describe("flattenCrossSection", () => {
     })).toThrow(ApiError)
   })
 
-  it("returns the input unchanged when the shape is not a value matrix", () => {
-    expect(flattenCrossSection(null)).toBeNull()
-    expect(flattenCrossSection({ foo: 1 })).toEqual({ foo: 1 })
+  it("rejects a payload that is not a matrix at all", () => {
+    // Nothing legitimately reaches the flatteners but a cross-section body:
+    // `indicator search` prints its unwrapped list directly and `raw call`
+    // bypasses them, so null / an array / a foreign object is a protocol failure,
+    // not a shape to hand back.
+    expect(() => flattenCrossSection(null)).toThrow(ApiError)
+    expect(() => flattenCrossSection([1, 2])).toThrow(ApiError)
+    expect(() => flattenCrossSection({ foo: 1 })).toThrow(ApiError)
+  })
+
+  it("rejects a securityNameList that does not line up with the codes", () => {
+    // Names are consumed positionally: a short list labels 茅台's row 泡泡玛特
+    // and leaves the second row with no `name` key at all (probed 2026-08-02).
+    expect(() => flattenCrossSection({
+      securityCodeList: ["600519.SH", "09992.HK"], securityNameList: ["泡泡玛特"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }], values: [[1350.6], [162.6]],
+    })).toThrow(ApiError)
+  })
+
+  it("accepts an absent or null securityNameList and falls back to the code", () => {
+    for (const securityNameList of [undefined, null]) {
+      const out = flattenCrossSection({
+        securityCodeList: ["600519.SH"], securityNameList,
+        indicatorList: [{ code: "qte_close", name: "收盘价" }], values: [[1350.6]],
+      }) as { list: Record<string, unknown>[] }
+      expect(out.list[0].security).toBe("600519.SH")
+    }
   })
 })
 
@@ -241,10 +265,36 @@ describe("malformed matrices", () => {
     expect(() => flattenCrossSection({ indicatorList: [{ code: "qte_close" }], values: [[1350.6]] })).toThrow(ApiError)
   })
 
-  it("still hands back a payload that is not an EDE matrix at all", () => {
-    // Only a payload carrying NONE of the matrix keys passes through.
-    expect(flattenCrossSection({ foo: 1 })).toEqual({ foo: 1 })
-    expect(flattenTimeSeries({ foo: 1 })).toEqual({ foo: 1 })
+  it("rejects a time-series payload whose names do not line up with the codes", () => {
+    expect(() => flattenTimeSeries({
+      securityCodeList: ["600519.SH", "09992.HK"], securityNameList: ["泡泡玛特"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }], dates: ["2026-07-31"],
+      values: [[1350.6], [162.6]],
+    }, "name", ["600519.SH", "09992.HK"])).toThrow(ApiError)
+  })
+})
+
+describe("requireIndicatorMatrix", () => {
+  it("rejects a success envelope carrying a null payload, keeping the envelope traceId", () => {
+    // `data: null` cannot hold the non-enumerable traceId itself, so the check
+    // has to run before the envelope is discarded.
+    const envelope = attachEnvelopeTraceId({ code: "000000", status: true, data: null }, "826455848369786880")
+    try {
+      requireIndicatorMatrix(envelope)
+      expect.unreachable("expected a protocol failure")
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as ApiError).traceId).toBe("826455848369786880")
+    }
+  })
+
+  it("rejects an array payload (that is a search result, not a matrix)", () => {
+    expect(() => requireIndicatorMatrix({ code: "000000", status: true, data: [{ indicatorCode: "qte_close" }] })).toThrow(ApiError)
+  })
+
+  it("returns the inner payload unchanged for a well-formed matrix", () => {
+    const matrix = { securityCodeList: [], indicatorList: [], values: [] }
+    expect(requireIndicatorMatrix({ code: "000000", status: true, data: matrix })).toEqual(matrix)
   })
 })
 
@@ -589,9 +639,9 @@ describe("flattenTimeSeries", () => {
     })).toEqual({ list: [], total: 0 })
   })
 
-  it("returns the input unchanged when the shape is not a value matrix", () => {
-    expect(flattenTimeSeries(undefined)).toBeUndefined()
-    expect(flattenTimeSeries({ foo: 1 })).toEqual({ foo: 1 })
+  it("rejects a payload that is not a matrix at all", () => {
+    expect(() => flattenTimeSeries(undefined)).toThrow(ApiError)
+    expect(() => flattenTimeSeries({ foo: 1 })).toThrow(ApiError)
   })
 })
 
