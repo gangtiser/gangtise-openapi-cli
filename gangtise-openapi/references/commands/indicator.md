@@ -168,6 +168,8 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 | 某证券对**所有**指标都无数据 | 该证券**整行**从 `securityCodeList` 消失 | CLI 标 `partial` + `omittedSecurities` + **退出码 3** |
 | 整个查询无数据 | `securityCodeList`/`values` 皆 `[]`（`Total: 0`），不再报 `999999` | **退出码 0**、不标 partial（什么都没被丢）。但 🔴 **参数写错也长这样**，stderr 会提醒这一歧义 |
 
+⚠️ 由 ②③ 与 ④ 的分界推出一个不直觉但自洽的结果：**同一个 scope 落空，单查是 0、混查是 3**——`qte_mkt_cptl` 只查 `AAPL.O` 时整体全空（退出 0），和 `600519.SH` 一起查时苹果整行被丢（退出 3 + `omittedSecurities`）。全空时没有任何证据能区分「无覆盖」和「无数据」，只有存在对照物时才有。**想确认某标的是否被某指标覆盖，就把它和一个已知有数的标的一起查。**
+
 实测：3 个指标查港股 `09992.HK` 只回 1 个指标（市值/股本整列消失）；`qte_mkt_cptl` 查 `600519.SH`+`09992.HK` 只回 1 行。**CLI 对这两种标 `partial: true` + `omittedIndicators` / `omittedSecurities` 并以退出码 3 结束**，同时在 stderr 打印被略过的 code（`--format json` 下 stdout 仍是干净 JSON）。脚本按 `!= 0` 判失败的要注意：3 表示「有数据但不完整」，不是硬失败。
 
 取数报错主要是这几个码：
