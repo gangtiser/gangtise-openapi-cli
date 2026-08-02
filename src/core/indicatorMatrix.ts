@@ -119,6 +119,29 @@ function indicatorHeaders(indicators: IndicatorMeta[], keyBy: "name" | "code", r
 
 const CROSS_SECTION_COLUMNS = ["security", "name"]
 
+/** A response carrying neither securities nor indicators: the query as a whole
+ * resolved to nothing. This is NOT a dropped axis — nothing was left out, there
+ * simply is no data (a non-trading range, a date outside coverage), so it must
+ * not be reported as partial. Calling every requested code "omitted" here would
+ * be false metadata: the diff against the request is total by construction.
+ *
+ * The check is deliberately strict about the WHOLE shape, not just the two axis
+ * lists. A no-data answer is exactly five empty arrays (probed 2026-08-02 on a
+ * weekend-only TD range: securityCodeList / securityNameList / indicatorList /
+ * dates / values all `[]`). Accepting anything looser would let a malformed
+ * payload — `values: null`, a missing `values`, or dates with no matrix — pass
+ * as "legitimately empty" and exit 0, which is precisely the protocol
+ * regression this release's shape guards exist to catch. */
+export function isEmptyMatrix(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false
+  const d = data as MatrixData
+  if (asStringArray(d.securityCodeList)?.length !== 0) return false
+  if (asIndicatorMetaList(d.indicatorList)?.length !== 0) return false
+  if (!Array.isArray(d.values) || d.values.length !== 0) return false
+  // `dates` is time-series only; when present it must be empty too.
+  return d.dates === undefined || (Array.isArray(d.dates) && d.dates.length === 0)
+}
+
 /** What the caller asked for that the response does not contain. The server
  * does NOT pad missing data with `null`: an indicator that is empty for every
  * security disappears from `indicatorList`, and a security that is empty for
@@ -133,17 +156,6 @@ const CROSS_SECTION_COLUMNS = ["security", "name"]
  * Universe entries with no `.` are skipped — those are sector IDs, which the
  * server expands into constituents, so their absence from the response is
  * expected rather than a dropped row. */
-/** A response carrying neither securities nor indicators: the query as a whole
- * resolved to nothing. This is NOT a dropped axis — nothing was left out, there
- * simply is no data (a non-trading range, a date outside coverage), so it must
- * not be reported as partial. Calling every requested code "omitted" here would
- * be false metadata: the diff against the request is total by construction. */
-export function isEmptyMatrix(data: unknown): boolean {
-  if (!data || typeof data !== "object") return false
-  const d = data as MatrixData
-  return asStringArray(d.securityCodeList)?.length === 0 && asIndicatorMetaList(d.indicatorList)?.length === 0
-}
-
 export function droppedFromMatrix(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): { securities: string[]; indicators: string[] } {
   const empty = { securities: [], indicators: [] }
   if (!data || typeof data !== "object") return empty
@@ -173,6 +185,15 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
  * `data` rides along as ApiError details so the failure keeps the response's
  * traceId — a shape mismatch is precisely the kind of thing support needs to
  * trace, and without it the error reaches the user trace-less. */
+/** The axis lists identify an EDE matrix, so a `values` that is not an array is
+ * a broken payload rather than an unrelated shape. Returning it untouched would
+ * print the raw envelope and exit 0 — indistinguishable from success. */
+function assertValuesPresent(data: unknown, values: unknown): asserts values is unknown[] {
+  if (!Array.isArray(values)) {
+    throw new ApiError(`Indicator matrix shape mismatch: the response carries axis lists but no \`values\` array — the response layout may have changed`, undefined, undefined, data)
+  }
+}
+
 function assertMatrixShape(data: unknown, values: unknown[], rows: number, rowAxis: string, cols: number, colAxis: string): void {
   if (values.length !== rows) {
     throw new ApiError(`Indicator matrix shape mismatch: got ${values.length} value rows for ${rows} ${rowAxis} — the response layout may have changed`, undefined, undefined, data)
@@ -195,7 +216,11 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   const d = data as MatrixData
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
-  if (!Array.isArray(d.values) || !securityCode || !indicators) return data
+  // No axis lists at all → not an EDE matrix; hand the payload back untouched.
+  if (!securityCode || !indicators) return data
+  // Axis lists present but no matrix → a broken response, not a foreign shape.
+  // Passing it through would print the raw envelope and exit 0.
+  assertValuesPresent(data, d.values)
   assertMatrixShape(data, d.values, securityCode.length, "securities", indicators.length, "indicators")
 
   const securityName = asStringArray(d.securityNameList)
@@ -222,26 +247,42 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
 //     This is what a sector ID produces: the request carries ONE universe entry
 //     and the server expands it into N constituents, so the request count says
 //     nothing about the axis.
-//  3. Both are 1 → genuinely ambiguous, so fall back to what was REQUESTED. The
-//     server drops securities that have no data at all, and a two-security
-//     request that comes back with one must still be labelled by security or
-//     the caller cannot tell whose series they are holding (probed 2026-08-02:
-//     `finc_pe_ttm` over 600519.SH + 09992.HK).
-// A single-entry sector that expands to exactly one constituent lands in (3) and
-// gets the indicator axis — degenerate, and only cosmetic.
-export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name", requestedSecurities?: number): unknown {
+//  3. Both are 1 → genuinely ambiguous, so fall back to what was REQUESTED:
+//     - a universe holding a sector ID always takes the security axis. The
+//       sector may expand to one constituent, or the rest may have been dropped
+//       for lack of data; either way the caller asked "which securities", and an
+//       indicator-named column would erase whose series this is.
+//     - otherwise the entry count decides. The server drops securities with no
+//       data at all, so a two-security request that comes back with one must
+//       still be labelled by security (probed 2026-08-02: `finc_pe_ttm` over
+//       600519.SH + 09992.HK).
+export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name", requestedUniverse?: string[]): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
   const dates = asStringArray(d.dates)
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
-  if (!Array.isArray(d.values) || !dates || !securityCode || !indicators) return data
+  if (!dates || !securityCode || !indicators) return data
+  assertValuesPresent(data, d.values)
 
   const securityName = asStringArray(d.securityNameList)
+  // A universe entry without a `.` is a sector ID — the server expands it, so
+  // neither its presence nor the entry count says anything about the axis.
+  const requested = requestedUniverse === undefined ? undefined : [...new Set(requestedUniverse)]
+  const hasSector = requested?.some((entry) => !entry.includes(".")) ?? false
   const seriesAreIndicators = indicators.length > 1 ? true
     : securityCode.length > 1 ? false
-      : (requestedSecurities ?? securityCode.length) <= 1
-  assertMatrixShape(data, d.values, seriesAreIndicators ? indicators.length : securityCode.length, seriesAreIndicators ? "indicators" : "securities", dates.length, "dates")
+      : hasSector ? false
+        : (requested?.length ?? securityCode.length) <= 1
+  const seriesCount = seriesAreIndicators ? indicators.length : securityCode.length
+  assertMatrixShape(data, d.values, seriesCount, seriesAreIndicators ? "indicators" : "securities", dates.length, "dates")
+  // Dates with no series passes the shape check (0 rows for 0 series) but would
+  // emit one row per date carrying nothing but the date — no security, no
+  // indicator, no way to attribute the row. A genuine no-data answer empties
+  // `dates` too (probed 2026-08-02), so this combination is a broken response.
+  if (dates.length > 0 && seriesCount === 0) {
+    throw new ApiError(`Indicator matrix shape mismatch: ${dates.length} dates with no series to attribute them to — the response layout may have changed`, undefined, undefined, data)
+  }
   // Map over securityCode rather than securityNameList directly: a response that
   // omits the names must still yield one header per security (falling back to
   // the code), not zero columns.

@@ -194,6 +194,42 @@ describe("isEmptyMatrix", () => {
     expect(isEmptyMatrix({ foo: 1 })).toBe(false)
     expect(isEmptyMatrix(null)).toBe(false)
   })
+
+  it("rejects a malformed payload that merely has empty axis lists", () => {
+    // A no-data answer is exactly five empty arrays (probed 2026-08-02). Anything
+    // looser would let a protocol regression exit 0 as "legitimately empty",
+    // bypassing every shape guard in this release.
+    expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [], dates: [], values: null })).toBe(false)
+    expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [], dates: [] })).toBe(false)
+    expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [], dates: ["2026-08-01"], values: [] })).toBe(false)
+    expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [], values: [[1]] })).toBe(false)
+  })
+
+  it("accepts a cross-section empty response, which carries no dates key", () => {
+    expect(isEmptyMatrix({ securityCodeList: [], securityNameList: [], indicatorList: [], values: [] })).toBe(true)
+  })
+})
+
+describe("malformed matrices", () => {
+  it("throws rather than passing through a response with axis lists but no values array", () => {
+    // Returning it untouched would print the raw envelope and exit 0 —
+    // indistinguishable from success.
+    expect(() => flattenCrossSection({ securityCodeList: [], indicatorList: [], values: null })).toThrow(ApiError)
+    expect(() => flattenTimeSeries({ securityCodeList: [], indicatorList: [], dates: [] }, "name", ["600519.SH"])).toThrow(ApiError)
+  })
+
+  it("throws on dates with no matrix instead of emitting identity-less rows", () => {
+    // This shape used to yield [{ date }] — a row with no security and no
+    // indicator, exit 0.
+    expect(() => flattenTimeSeries({
+      securityCodeList: [], indicatorList: [], dates: ["2026-08-01"], values: [],
+    }, "name", ["600519.SH"])).toThrow(ApiError)
+  })
+
+  it("still hands back a payload that is not an EDE matrix at all", () => {
+    expect(flattenCrossSection({ foo: 1 })).toEqual({ foo: 1 })
+    expect(flattenTimeSeries({ foo: 1 })).toEqual({ foo: 1 })
+  })
 })
 
 describe("droppedFromMatrix", () => {
@@ -397,7 +433,7 @@ describe("flattenTimeSeries", () => {
       indicatorList: [{ code: "finc_pe_ttm", name: "市盈率(TTM)" }],
       dates: ["2026-07-30", "2026-07-31"],
       values: [[20.5804, 20.4118]],
-    }, "name", 2) as { list: Record<string, unknown>[] }
+    }, "name", ["600519.SH", "09992.HK"]) as { list: Record<string, unknown>[] }
     expect(Object.keys(out.list[0])).toEqual(["date", "贵州茅台"])
     expect(out.list[0].贵州茅台).toBe(20.5804)
   })
@@ -414,7 +450,7 @@ describe("flattenTimeSeries", () => {
       indicatorList: [{ code: "qte_close", name: "收盘价" }],
       dates: ["2026-07-31"],
       values: [[1350.6], [78.0], [10.56]],
-    }, "name", 1) as { list: Record<string, unknown>[] }
+    }, "name", ["600519.SH"]) as { list: Record<string, unknown>[] }
     expect(Object.keys(out.list[0])).toEqual(["date", "贵州茅台", "五粮液", "泸州老窖"])
   })
 
@@ -428,8 +464,34 @@ describe("flattenTimeSeries", () => {
       ],
       dates: ["2026-07-31"],
       values: [[1350.6], [5512752]],
-    }, "name", 1) as { list: Record<string, unknown>[] }
+    }, "name", ["600519.SH"]) as { list: Record<string, unknown>[] }
     expect(Object.keys(out.list[0])).toEqual(["date", "收盘价", "成交量"])
+  })
+
+  it("keeps the security axis when a sector expands to a single constituent", () => {
+    // A sector may hold one member, or the rest may have been dropped for lack
+    // of data. Either way the caller asked "which securities" — an indicator-named
+    // column would erase whose series this is, and the sector ID is skipped by the
+    // dropped-row check so nothing else would flag it.
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      dates: ["2026-07-31"],
+      values: [[1350.6]],
+    }, "name", ["1000000287"]) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["date", "贵州茅台"])
+  })
+
+  it("keeps the security axis for a sector mixed with a plain code", () => {
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      dates: ["2026-07-31"],
+      values: [[1350.6]],
+    }, "name", ["1000000287", "002594.SZ"]) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["date", "贵州茅台"])
   })
 
   it("uses the indicator axis for a genuinely single-security request", () => {
@@ -439,7 +501,7 @@ describe("flattenTimeSeries", () => {
       indicatorList: [{ code: "finc_pe_ttm", name: "市盈率(TTM)" }],
       dates: ["2026-07-30"],
       values: [[20.5804]],
-    }, "name", 1) as { list: Record<string, unknown>[] }
+    }, "name", ["600519.SH"]) as { list: Record<string, unknown>[] }
     expect(Object.keys(out.list[0])).toEqual(["date", "市盈率(TTM)"])
   })
 
@@ -453,7 +515,7 @@ describe("flattenTimeSeries", () => {
       indicatorList: [{ code: "qte_close", name: "收盘价" }],
       dates: ["2026-07-30", "2026-07-31"],
       values: [[1350.6]],
-    }, "name", 1)).toThrow(ApiError)
+    }, "name", ["600519.SH"])).toThrow(ApiError)
   })
 
   it("throws when a series is not an array at all", () => {
@@ -463,7 +525,7 @@ describe("flattenTimeSeries", () => {
       indicatorList: [{ code: "qte_close", name: "收盘价" }],
       dates: ["2026-07-31"],
       values: [1350.6],
-    }, "name", 1)).toThrow(ApiError)
+    }, "name", ["600519.SH"])).toThrow(ApiError)
   })
 
   it("keeps a holiday-padded null series", () => {
@@ -473,7 +535,7 @@ describe("flattenTimeSeries", () => {
       indicatorList: [{ code: "qte_close", name: "收盘价" }],
       dates: ["2026-07-01", "2026-07-02"],
       values: [[null, 162.6]],
-    }, "name", 1) as { list: Record<string, unknown>[] }
+    }, "name", ["600519.SH"]) as { list: Record<string, unknown>[] }
     expect(out.list.map((row) => row.收盘价)).toEqual([null, 162.6])
   })
 

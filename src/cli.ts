@@ -823,12 +823,12 @@ indicator.command("time-series").option("--indicator <code>", "Indicator code, e
   const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.time-series", buildIndicatorTimeSeriesBody(options))
   const data = unwrapIndicatorData(raw)
-  // Count DISTINCT entries: the server dedupes `universe`, so passing the same
-  // code twice must not read as a two-security request and relabel the column
-  // from the indicator to the security. The count only breaks the tie when the
-  // response is 1×1 anyway — see flattenTimeSeries. Flatten before flagging so a
-  // shape error surfaces on its own.
-  const rows = flattenTimeSeries(data, options.keyBy, new Set(options.security).size)
+  // Pass the universe itself, not a count: flattenTimeSeries needs to know
+  // whether a sector ID is in play (the server expands it, so one entry can mean
+  // many securities) and dedupes internally. The request only breaks the tie when
+  // the response is 1×1 anyway. Flatten before flagging so a shape error surfaces
+  // on its own.
+  const rows = flattenTimeSeries(data, options.keyBy, options.security)
   flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
