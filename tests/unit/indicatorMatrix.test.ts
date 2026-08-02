@@ -182,22 +182,39 @@ describe("flattenCrossSection", () => {
     expect(() => flattenCrossSection({ foo: 1 })).toThrow(ApiError)
   })
 
-  it("rejects a securityNameList that does not line up with the codes", () => {
-    // Names are consumed positionally: a short list labels 茅台's row 泡泡玛特
-    // and leaves the second row with no `name` key at all (probed 2026-08-02).
-    expect(() => flattenCrossSection({
+  it("drops a securityNameList that does not line up, keeping the values", () => {
+    // Names are consumed positionally: a short list would label 茅台's row
+    // 泡泡玛特 (probed 2026-08-02). A name is a caption, not identity — the codes
+    // still carry that — so the list is discarded rather than failing a query
+    // whose numbers are all correct.
+    const out = flattenCrossSection({
       securityCodeList: ["600519.SH", "09992.HK"], securityNameList: ["泡泡玛特"],
       indicatorList: [{ code: "qte_close", name: "收盘价" }], values: [[1350.6], [162.6]],
-    })).toThrow(ApiError)
+    }) as { list: Record<string, unknown>[] }
+    expect(out.list.map((row) => row.security)).toEqual(["600519.SH", "09992.HK"])
+    expect(out.list.map((row) => row.收盘价)).toEqual([1350.6, 162.6])
+    expect(out.list[0].name).toBeUndefined() // never 泡泡玛特
   })
 
-  it("accepts an absent or null securityNameList and falls back to the code", () => {
+  it("falls back to the code for a null or non-string name instead of rendering it", () => {
+    // A `[null]` entry used to stringify into a column literally headed "null".
+    const out = flattenCrossSection({
+      securityCodeList: ["600519.SH"], securityNameList: [null],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }], values: [[1350.6]],
+    }) as { list: Record<string, unknown>[] }
+    expect(out.list[0].name).toBe("600519.SH")
+  })
+
+  it("omits the name column entirely when no securityNameList is sent", () => {
+    // The row axis is `security`; `name` is a caption with nothing to fall back
+    // to at the CELL level, so it is simply absent rather than duplicating the code.
     for (const securityNameList of [undefined, null]) {
       const out = flattenCrossSection({
         securityCodeList: ["600519.SH"], securityNameList,
         indicatorList: [{ code: "qte_close", name: "收盘价" }], values: [[1350.6]],
       }) as { list: Record<string, unknown>[] }
       expect(out.list[0].security).toBe("600519.SH")
+      expect(out.list[0].name).toBeUndefined()
     }
   })
 })
@@ -265,11 +282,25 @@ describe("malformed matrices", () => {
     expect(() => flattenCrossSection({ indicatorList: [{ code: "qte_close" }], values: [[1350.6]] })).toThrow(ApiError)
   })
 
-  it("rejects a time-series payload whose names do not line up with the codes", () => {
-    expect(() => flattenTimeSeries({
+  it("labels time-series columns by code when the names do not line up", () => {
+    const out = flattenTimeSeries({
       securityCodeList: ["600519.SH", "09992.HK"], securityNameList: ["泡泡玛特"],
       indicatorList: [{ code: "qte_close", name: "收盘价" }], dates: ["2026-07-31"],
       values: [[1350.6], [162.6]],
+    }, "name", ["600519.SH", "09992.HK"]) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["date", "600519.SH", "09992.HK"])
+    expect(out.list[0]["600519.SH"]).toBe(1350.6) // 茅台's value never lands under 泡泡玛特
+  })
+
+  it("rejects a response carrying both axes plural, which the endpoint forbids", () => {
+    // Multi-indicator × multi-security is rejected as a REQUEST (100003); as a
+    // RESPONSE it is unattributable — whichever axis becomes the columns, the
+    // other identity is silently lost, and the dropped-axis check sees nothing
+    // missing so it would not even flag.
+    expect(() => flattenTimeSeries({
+      securityCodeList: ["600519.SH", "09992.HK"], securityNameList: ["贵州茅台", "泡泡玛特"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }, { code: "qte_vol", name: "成交量" }],
+      dates: ["2026-07-31"], values: [[1350.6], [162.6]],
     }, "name", ["600519.SH", "09992.HK"])).toThrow(ApiError)
   })
 })

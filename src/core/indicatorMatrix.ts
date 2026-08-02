@@ -195,11 +195,10 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
  * traceId — a shape mismatch is precisely the kind of thing support needs to
  * trace, and without it the error reaches the user trace-less. */
 /** True only when the payload carries NONE of the EDE matrix keys — a foreign
- * shape (indicator search results, a `raw call` payload) that must pass through
- * untouched. The moment any one of these keys appears the payload is claiming to
- * be a matrix, and a missing or mistyped axis is then a broken response rather
- * than an unrelated one: passing it through would print the raw envelope and
- * exit 0, indistinguishable from success. */
+ * shape. Nothing legitimately reaches the flatteners in that state — `indicator
+ * search` prints its unwrapped list directly and `raw call` bypasses them — so
+ * this is a protocol failure, not a payload to hand back: returning it would
+ * print the raw envelope and exit 0, indistinguishable from success. */
 function assertMatrixPayload(data: unknown, d: MatrixData): void {
   const bare = d.securityCodeList === undefined && d.securityNameList === undefined
     && d.indicatorList === undefined && d.dates === undefined && d.values === undefined
@@ -214,17 +213,36 @@ function assertAxis<T>(data: unknown, axis: T | undefined, key: string): asserts
   }
 }
 
-/** `securityNameList` is optional — absent or `null` simply means "fall back to
- * the code". But a SHORT list is not a fallback, it is a misalignment: names are
- * consumed positionally, so `["泡泡玛特"]` against `["600519.SH","09992.HK"]`
- * labels 茅台's series 泡泡玛特 and leaves the second row with no `name` key at
- * all (probed 2026-08-02). Structure is not checked in `isEmptyMatrix` — a null
- * there cannot misalign anything — but once the list exists it must line up. */
-function assertSecurityNames(data: unknown, names: unknown, expected: number): void {
-  if (names === undefined || names === null) return
-  if (!Array.isArray(names) || names.length !== expected) {
-    throw new ApiError(`Indicator matrix shape mismatch: securityNameList has ${Array.isArray(names) ? names.length : "no array of"} entries for ${expected} securities — names are positional, so this would mislabel rows`, undefined, undefined, data)
+/** Resolve the display names for a security axis, degrading instead of failing.
+ *
+ * Names are consumed POSITIONALLY, so a list that does not line up cannot be
+ * trusted at all: `["泡泡玛特"]` against `["600519.SH","09992.HK"]` labels 茅台's
+ * series 泡泡玛特, and a `[null]` element used to render a column literally
+ * headed `"null"` (both probed 2026-08-02). Neither may reach the output.
+ *
+ * But a name is a LABEL, not structure — `securityCodeList` already carries
+ * identity, and every header falls back to the code. So an anomaly here drops
+ * the names and keeps the values, rather than killing an EDE command whose
+ * numbers are all correct. That is a deliberate asymmetry with the other guards
+ * in this module: they protect against MISATTRIBUTED VALUES and must be fatal;
+ * this one protects a caption. */
+function resolveSecurityNames(names: unknown, codes: string[]): string[] | undefined {
+  if (names === undefined || names === null) return undefined
+  if (!Array.isArray(names) || names.length !== codes.length) {
+    process.stderr.write(`[gangtise] warning: securityNameList carries ${Array.isArray(names) ? `${names.length} entries` : "no array"} for ${codes.length} securities — names are positional, so all of them were dropped; columns fall back to the security code.\n`)
+    return undefined
   }
+  let warned = false
+  return names.map((name, i) => {
+    if (typeof name === "string" && name.trim() !== "") return name
+    // An empty or null name is a plausible gap for one security; anything else
+    // (an object, a number) means the field changed type and is worth saying so.
+    if (name !== null && name !== undefined && name !== "" && !warned) {
+      warned = true
+      process.stderr.write(`[gangtise] warning: securityNameList holds non-string entries; those columns fall back to the security code.\n`)
+    }
+    return codes[i]
+  })
 }
 
 /** The matrix endpoints cannot legitimately answer with a non-object payload:
@@ -280,8 +298,7 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   assertValuesPresent(data, d.values)
   assertMatrixShape(data, d.values, securityCode.length, "securities", indicators.length, "indicators")
 
-  assertSecurityNames(data, d.securityNameList, securityCode.length)
-  const securityName = asStringArray(d.securityNameList)
+  const securityName = resolveSecurityNames(d.securityNameList, securityCode)
   const headers = indicatorHeaders(indicators, keyBy, CROSS_SECTION_COLUMNS)
 
   const list = securityCode.map((code, i) => {
@@ -328,8 +345,16 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   assertAxis(data, indicators, "indicatorList")
   assertValuesPresent(data, d.values)
 
-  assertSecurityNames(data, d.securityNameList, securityCode.length)
-  const securityName = asStringArray(d.securityNameList)
+  const securityName = resolveSecurityNames(d.securityNameList, securityCode)
+  // The API permits multi-indicator × single-security OR single-indicator ×
+  // multi-security, never both — the server rejects such a REQUEST with 100003.
+  // A RESPONSE carrying both axes plural is therefore unattributable: whichever
+  // axis becomes the columns, the other one's identity is silently discarded
+  // (probed 2026-08-02: 2×2 rendered as 收盘价/成交量 with both securities gone,
+  // and droppedFromMatrix sees nothing missing so it would not even flag).
+  if (securityCode.length > 1 && indicators.length > 1) {
+    throw new ApiError(`Indicator matrix shape mismatch: the time-series response carries ${securityCode.length} securities AND ${indicators.length} indicators, which the endpoint does not support — one of the two identities would be lost`, undefined, undefined, data)
+  }
   // A universe entry without a `.` is a sector ID — the server expands it, so
   // neither its presence nor the entry count says anything about the axis.
   const requested = requestedUniverse === undefined ? undefined : [...new Set(requestedUniverse)]

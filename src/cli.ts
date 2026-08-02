@@ -928,11 +928,29 @@ async function checkForUpdate(timeoutMs = 2000): Promise<void> {
   } catch { /* best-effort: offline or a slow registry must not break --version */ }
 }
 
+/** Last-resort reporting for anything that escapes main()'s try/catch: an error
+ * thrown inside an event callback or a rejected promise nobody awaited. Node's
+ * default is a multi-line crash dump on stdout/stderr AND a non-zero exit — so a
+ * command whose data was already printed correctly would end up looking like a
+ * hard failure, with a stack trace where a message belongs. This release is
+ * about exit codes meaning what they say; that is the one path that lies. */
+function reportFatal(error: unknown): void {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  process.stderr.write(`${message}\n`)
+  process.exit(1)
+}
+process.on("uncaughtException", reportFatal)
+process.on("unhandledRejection", reportFatal)
+
 // `gangtise ... | head` closes stdout early; without a handler the final big write
 // crashes Node with an unhandled 'error' event. Exit quietly like a normal CLI.
 process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  // Any teardown race on a closed pipe — EPIPE, ERR_STREAM_DESTROYED, EBADF —
+  // means the reader went away, which is not this process's failure. Rethrowing
+  // from an event callback used to surface as an uncaught exception (a crash
+  // dump appended AFTER the correct JSON had already been written).
   if (error?.code === "EPIPE") process.exit(0)
-  throw error
+  reportFatal(error)
 })
 
 async function main() {
