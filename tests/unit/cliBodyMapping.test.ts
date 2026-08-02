@@ -195,6 +195,15 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/open-indicator/screener")) {
+        // DRIFT.XX: the server answers a requested F1 under a variable nobody
+        // asked for. Every value looks fine; only the binding gives it away.
+        if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "DRIFT.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-drift", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+            indicatorList: [{ field: "F9", code: "DRIFT.XX", name: "漂移" }], values: [[1350.6]],
+          } } }))
+          return
+        }
         // NOAXIS.XX: a matrix payload missing indicatorList entirely.
         if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "NOAXIS.XX")) {
           res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-noaxis", data: { code: "000000", status: true, data: {
@@ -807,6 +816,18 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(code).toBe(1)
     expect(stdout.trim()).toBe("") // `null` must not reach stdout as a "result"
     expect(stderr).toContain("trace-ede-null")
+  }, 30_000)
+
+  it("refuses a screener result whose variable bindings drifted from the request", async () => {
+    const { code, stdout, stderr } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:DRIFT.XX", "--security", "600519.SH",
+      "--expression", "F1 > 0", "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stdout.trim()).toBe("") // a screening result nobody can trace to a filter must not print
+    expect(stderr).toContain("F9")
+    expect(stderr).toContain("trace-ede-drift")
   }, 30_000)
 
   it("marks a screener result unreliable and exits 3 when one indicator is bound twice", async () => {

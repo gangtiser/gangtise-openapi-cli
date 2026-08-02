@@ -136,8 +136,10 @@ export class ApiError extends CliError {
     /** Server-specified Retry-After (ms), set on 429 responses so the transport
      * backoff can honor it instead of the default exponential schedule. */
     readonly retryAfterMs?: number,
-    /** Context-specific hint that beats the generic per-code table — e.g. EDE's
-     * 999999 means "no data", not the table's "系统错误，请稍后重试". */
+    /** Context-specific hint that beats the generic per-code table — e.g. the
+     * EDE fetch endpoints replace 999999's generic "系统错误，请稍后重试" with a
+     * parameter checklist, because a wrong param name or date axis there yields
+     * an empty TABLE rather than this code. */
     hintOverride?: string,
   ) {
     super(message)

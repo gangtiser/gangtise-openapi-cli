@@ -5,7 +5,7 @@ import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/a
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
-import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
+import { assertScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
@@ -834,7 +834,8 @@ indicator.command("time-series").option("--indicator <code>", "Indicator code, e
 }))
 indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — required because the screener drops any indicator sent with no parameters at all", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
-  const duplicated = duplicateScreenerCodes(parseScreenerIndicators(options.indicator, options.indicatorParam, options.expression))
+  const bindings = parseScreenerIndicators(options.indicator, options.indicatorParam, options.expression)
+  const duplicated = duplicateScreenerCodes(bindings)
   if (duplicated.length > 0) {
     process.stderr.write(`[gangtise] warning: ${duplicated.join(", ")} bound to more than one variable — the API allows this, but the server currently returns a value for at most ONE of those variables and null for the rest, and the same request sometimes comes back empty instead (probed 2026-08-02). Any comparison involving the null variable is filtering on nothing, so treat these rows as unreliable. Split into separate calls until it is fixed.\n`)
   }
@@ -843,7 +844,11 @@ indicator.command("screener").description("Screen securities by an expression ov
   // column per indicator) with a `field` on each indicator entry. No dropped-row
   // flag here: a security missing from a screener result means it failed the
   // filter, which is the whole point.
-  const rows = flattenCrossSection(requireIndicatorMatrix(raw), options.keyBy)
+  const data = requireIndicatorMatrix(raw)
+  // Before anything is rendered: the returned variable bindings must be the ones
+  // that were asked for, or the columns cannot be traced back to their filters.
+  assertScreenerBindings(data, bindings)
+  const rows = flattenCrossSection(data, options.keyBy)
   if (duplicated.length > 0) flagUnreliable(rows, duplicated)
   await printData(rows, format, options.output)
 }))
@@ -946,20 +951,32 @@ function reportFatal(error: unknown): void {
   // the first line.
   const stack = error instanceof Error ? error.stack : undefined
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-  process.stderr.write(`${isVerbose() && stack ? stack : message}\n`)
-  if (leaving) return
+  const text = `${isVerbose() && stack ? stack : message}\n`
+  if (leaving) {
+    process.stderr.write(text)
+    return
+  }
   leaving = true
   process.exitCode = 1
   // Terminating is not optional: a fatal error with a live handle (a timer, an
   // open socket) would otherwise keep the process running forever on `exitCode`
-  // alone. But `process.exit()` on the spot truncates stdout, which to a pipe is
-  // written ASYNCHRONOUSLY — a handler meant to stop this release from lying
-  // about exit codes must not start dropping correct output to do it. So: give
-  // queued bytes a bounded moment to drain, then leave either way.
-  const leave = (): never => process.exit(1)
-  if (process.stdout.writableLength === 0) leave()
-  process.stdout.once("drain", leave)
-  setTimeout(leave, FATAL_FLUSH_MS)
+  // alone. But `process.exit()` on the spot truncates whatever is still queued —
+  // to a pipe BOTH streams are written asynchronously — and a handler meant to
+  // stop this release from lying about exit codes must not start dropping output
+  // to do it. So wait for the diagnostic itself AND for anything stdout still
+  // owes, each bounded by the same deadline.
+  //
+  // stderr is not merely "check the length": the write is issued right here, so
+  // its callback is the only thing that knows when it actually reached the pipe.
+  // Exiting on the spot truncated a large diagnostic to one 64 KiB buffer.
+  let pending = 1
+  const leave = (): void => { if (--pending === 0) process.exit(1) }
+  if (process.stdout.writableLength > 0) {
+    pending++
+    process.stdout.once("drain", leave)
+  }
+  setTimeout(() => process.exit(1), FATAL_FLUSH_MS)
+  process.stderr.write(text, leave)
 }
 process.on("uncaughtException", reportFatal)
 process.on("unhandledRejection", reportFatal)

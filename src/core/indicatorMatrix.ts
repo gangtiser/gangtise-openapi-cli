@@ -188,6 +188,38 @@ export function isEmptyMatrix(data: unknown): boolean {
  * Universe entries with no `.` are skipped — those are sector IDs, which the
  * server expands into constituents, so their absence from the response is
  * expected rather than a dropped row. */
+/** The screener answers with the variable each column was requested under, and
+ * that binding is the ONLY thing tying a column back to the filter it came from
+ * — nothing else in the payload can catch it going wrong. A swapped or unknown
+ * `field` renders as a perfectly ordinary result (probed 2026-08-02: a response
+ * labelling a requested `F1` as `F9` printed a normal table at exit 0), which
+ * would make every screening decision downstream unfounded.
+ *
+ * Every returned entry must therefore name a REQUESTED variable and carry that
+ * variable's code, and no variable may appear twice. A wholly empty result binds
+ * nothing and is left alone. */
+export function assertScreenerBindings(data: unknown, requested: { field: string; indicatorCode: string }[]): void {
+  if (!data || typeof data !== "object") return
+  const indicators = (data as MatrixData).indicatorList
+  if (!Array.isArray(indicators) || indicators.length === 0) return
+  const wanted = new Map(requested.map((binding) => [binding.field, binding.indicatorCode]))
+  const seen = new Set<string>()
+  for (const [i, meta] of (indicators as IndicatorMeta[]).entries()) {
+    const field = optionalString(meta?.field)
+    const code = optionalString(meta?.code)
+    if (!field || !wanted.has(field)) {
+      throw new ApiError(`Screener binding mismatch: indicatorList[${i}] is bound to ${field ? `"${field}"` : "no variable"}, which --indicator never requested — the column cannot be traced to a filter`, undefined, undefined, data)
+    }
+    if (wanted.get(field) !== code) {
+      throw new ApiError(`Screener binding mismatch: variable ${field} came back as "${code}" but was requested as "${wanted.get(field)}" — the filter and the column disagree`, undefined, undefined, data)
+    }
+    if (seen.has(field)) {
+      throw new ApiError(`Screener binding mismatch: variable ${field} appears twice in the response — the mapping back to a filter is ambiguous`, undefined, undefined, data)
+    }
+    seen.add(field)
+  }
+}
+
 export function droppedFromMatrix(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): { securities: string[]; indicators: string[] } {
   const empty = { securities: [], indicators: [] }
   if (!data || typeof data !== "object") return empty

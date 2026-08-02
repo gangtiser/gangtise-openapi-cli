@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { ApiError, attachEnvelopeTraceId } from "../../src/core/errors.js"
-import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
+import { assertScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
 
 // Field names + value shapes below mirror the LIVE EDE responses as of the
 // 2026-08-01 API revision (probed against openapi.gangtise.com): indicator
@@ -338,6 +338,41 @@ describe("malformed matrices", () => {
       indicatorList: [{ code: "qte_close", name: "收盘价" }, { code: "qte_vol", name: "成交量" }],
       dates: ["2026-07-31"], values: [[1350.6], [162.6]],
     }, "name", ["600519.SH", "09992.HK"])).toThrow(ApiError)
+  })
+})
+
+describe("assertScreenerBindings", () => {
+  const requested = [{ field: "F1", indicatorCode: "qte_close" }, { field: "F2", indicatorCode: "finc_pe_ttm" }]
+
+  it("accepts a response whose bindings match the request", () => {
+    expect(() => assertScreenerBindings({
+      indicatorList: [{ field: "F1", code: "qte_close" }, { field: "F2", code: "finc_pe_ttm" }],
+    }, requested)).not.toThrow()
+  })
+
+  it("rejects a variable that was never requested", () => {
+    // The binding is the only thing tying a column to the filter it came from,
+    // and nothing else in the payload can catch it drifting: a requested F1
+    // returned as F9 used to print an ordinary table at exit 0.
+    expect(() => assertScreenerBindings({ indicatorList: [{ field: "F9", code: "qte_close" }] }, requested)).toThrow(ApiError)
+  })
+
+  it("rejects a variable bound to a different indicator than requested", () => {
+    expect(() => assertScreenerBindings({ indicatorList: [{ field: "F1", code: "finc_pe_ttm" }] }, requested)).toThrow(ApiError)
+  })
+
+  it("rejects a variable that comes back twice", () => {
+    expect(() => assertScreenerBindings({
+      indicatorList: [{ field: "F1", code: "qte_close" }, { field: "F1", code: "qte_close" }],
+    }, requested)).toThrow(ApiError)
+  })
+
+  it("accepts a subset — a filtered-out column is not a binding failure", () => {
+    expect(() => assertScreenerBindings({ indicatorList: [{ field: "F1", code: "qte_close" }] }, requested)).not.toThrow()
+  })
+
+  it("leaves a wholly empty result alone: it binds nothing", () => {
+    expect(() => assertScreenerBindings({ securityCodeList: [], indicatorList: [], values: [] }, requested)).not.toThrow()
   })
 })
 

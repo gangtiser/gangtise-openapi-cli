@@ -523,7 +523,9 @@ describe("ENDPOINTS", () => {
   })
 
   it("marks EDE indicator endpoints as no-999999 (server uses that code for no-data)", () => {
-    // Probed 2026-07-11: a no-data query (holiday date) answers HTTP 500 +
+    // Probed 2026-07-11 (no-data answered HTTP 500 + 999999 back then; since
+    // 2026-08-01 no-data returns an empty array and 999999 is a real fault —
+    // either way replaying a billed EDE query buys nothing). Historically:
     // 999999 — retrying wastes 3 requests + ~4s on every empty query.
     for (const key of ["indicator.search", "indicator.cross-section", "indicator.time-series"]) {
       expect(ENDPOINTS[key], key).toBeDefined()
