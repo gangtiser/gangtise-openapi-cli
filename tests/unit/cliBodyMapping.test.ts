@@ -41,8 +41,19 @@ beforeAll(async () => {
       const raw = Buffer.concat(chunks)
       const contentType = String(req.headers["content-type"] ?? "")
       // Only JSON bodies are parsed: the file-parse upload is multipart/form-data,
-      // and JSON.parse on it used to take the whole stub down.
-      const body = raw.length && contentType.includes("application/json") ? JSON.parse(raw.toString("utf8")) : undefined
+      // and JSON.parse on it used to take the whole stub down. It still can —
+      // anything thrown in this callback is an uncaught exception that kills the
+      // vitest worker, and every remaining test in the file fails with it. That
+      // is a burst of ~25 unrelated failures from one malformed request, which is
+      // indistinguishable from a real regression. Contain it: a bad body becomes
+      // `undefined` (the assertions then fail on their own, pointing at the
+      // actual request) instead of taking the file down.
+      let body: unknown
+      try {
+        body = raw.length && contentType.includes("application/json") ? JSON.parse(raw.toString("utf8")) : undefined
+      } catch {
+        body = undefined
+      }
       captured.push({ path: req.url ?? "", body, contentType, raw })
       res.setHeader("content-type", "application/json")
       if ((req.url ?? "").includes("/file-parse/submit")) {
@@ -213,6 +224,10 @@ beforeAll(async () => {
       res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
     })
   })
+  // A socket-level error (a CLI killed mid-request) would otherwise surface as an
+  // unhandled 'error' event and take the worker down the same way.
+  server.on("clientError", (_error, socket) => { socket.destroy() })
+  server.on("error", () => { /* the assertions report the failure, not a crash */ })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const address = server.address() as { port: number }
   baseUrl = `http://127.0.0.1:${address.port}`
