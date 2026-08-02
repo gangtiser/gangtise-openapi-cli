@@ -145,14 +145,25 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
   }
 }
 
-/** The matrix and its axis labels must agree, or every cell is off by a row.
- * The 2026-08-01 revision transposed cross-section without a version marker, so
- * a future re-transpose has to fail loudly instead of silently relabelling
- * columns. Rows are compared, not cells: the server legitimately returns short
- * rows when a trailing indicator has no data anywhere. */
-function assertRowCount(rows: unknown[], expected: number, axis: string): void {
-  if (rows.length !== expected) {
-    throw new ApiError(`Indicator matrix shape mismatch: got ${rows.length} value rows for ${expected} ${axis} — the response layout may have changed`, undefined)
+/** The matrix and its axis labels must agree on BOTH dimensions, or cells are
+ * dropped or misread. The 2026-08-01 revision transposed cross-section without a
+ * version marker, so a future re-transpose has to fail loudly instead of
+ * silently relabelling columns.
+ *
+ * Row length is checked exactly, not leniently: the server pads a row with
+ * `null` rather than truncating it — probed 2026-08-02 across A/HK/US, where a
+ * US security missing 3 of 4 indicators still came back with a full-length row,
+ * and a cross-market time series padded every security to the union of trading
+ * days. A short or long row is therefore a structural change, not missing data. */
+function assertMatrixShape(values: unknown[], rows: number, rowAxis: string, cols: number, colAxis: string): void {
+  if (values.length !== rows) {
+    throw new ApiError(`Indicator matrix shape mismatch: got ${values.length} value rows for ${rows} ${rowAxis} — the response layout may have changed`, undefined)
+  }
+  for (const [i, row] of values.entries()) {
+    const width = Array.isArray(row) ? row.length : -1
+    if (width !== cols) {
+      throw new ApiError(`Indicator matrix shape mismatch: value row ${i} has ${width < 0 ? "no array of" : String(width)} cells for ${cols} ${colAxis} — the response layout may have changed`, undefined)
+    }
   }
 }
 
@@ -167,7 +178,7 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
   if (!Array.isArray(d.values) || !securityCode || !indicators) return data
-  assertRowCount(d.values, securityCode.length, "securities")
+  assertMatrixShape(d.values, securityCode.length, "securities", indicators.length, "indicators")
 
   const securityName = asStringArray(d.securityNameList)
   const headers = indicatorHeaders(indicators, keyBy, CROSS_SECTION_COLUMNS)
@@ -212,7 +223,7 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   const seriesAreIndicators = indicators.length > 1 ? true
     : securityCode.length > 1 ? false
       : (requestedSecurities ?? securityCode.length) <= 1
-  assertRowCount(d.values, seriesAreIndicators ? indicators.length : securityCode.length, seriesAreIndicators ? "indicators" : "securities")
+  assertMatrixShape(d.values, seriesAreIndicators ? indicators.length : securityCode.length, seriesAreIndicators ? "indicators" : "securities", dates.length, "dates")
   // Map over securityCode rather than securityNameList directly: a response that
   // omits the names must still yield one header per security (falling back to
   // the code), not zero columns.

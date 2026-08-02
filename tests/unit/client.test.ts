@@ -627,23 +627,38 @@ describe("GangtiseClient retry policy wiring", () => {
     expect(requestMock).toHaveBeenCalledTimes(2)
   })
 
-  it("does not retry 999999 on indicator endpoints and hints no-data instead of '稍后重试'", async () => {
-    // Probed 2026-07-11: EDE answers a no-data query (holiday date) with
-    // HTTP 500 + 999999 "系统内部错误" — retrying burns 3 requests and ~4s on
-    // every empty query, then advises the user to retry. Fail fast with an
-    // indicator-specific hint; a genuine 5xx still retries on other endpoints.
+  it("does not retry 999999 on indicator fetches and hints the parameter checklist, not '稍后重试'", async () => {
+    // EDE used 999999 for "no data" until 2026-08-01 (no-data is an empty array
+    // now), so retrying burned 3 requests and ~4s before advising another retry.
+    // Fail fast with a fetch-specific hint. The assertions deliberately avoid the
+    // substring 无数据: the current hint mentions it only to say it is NOT this
+    // code, so matching on it would pass on a negation.
     requestMock.mockResolvedValue(rawJsonResponse({ code: "999999", msg: "系统内部错误" }, 500))
     const client = createClient()
     let caught: unknown
     try {
-      await client.call("indicator.cross-section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-01-01" })
+      await client.call("indicator.cross-section", { indicatorCodeList: ["qte_close"], universe: ["600519.SH"], indicatorParamList: [] })
     } catch (error) {
       caught = error
     }
     expect(caught).toBeInstanceOf(ApiError)
     const hint = (caught as ApiError).hint ?? ""
-    expect(hint).toContain("无数据")
-    expect(hint).toContain("指标周期") // routes to the date-per-indicator-period check — the top 999999 cause (财务/MRQ=报告期末, 日频估值=交易日)
+    expect(hint).toContain("parameterList") // param names come from indicator search — a wrong name fails silently
+    expect(hint).toContain("指标周期") // date must match the indicator's period (财务/MRQ=报告期末, 日频估值=交易日)
+    expect(hint).not.toContain("稍后重试")
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("applies the fetch hint to the screener too, not just cross-section/time-series", async () => {
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "999999", msg: "系统内部错误" }, 500))
+    const client = createClient()
+    let caught: unknown
+    try {
+      await client.call("indicator.screener", { universe: ["600519.SH"], expression: "F1 > 0", indicatorList: [] })
+    } catch (error) {
+      caught = error
+    }
+    expect((caught as ApiError).hint ?? "").toContain("parameterList")
     expect(requestMock).toHaveBeenCalledTimes(1)
   })
 

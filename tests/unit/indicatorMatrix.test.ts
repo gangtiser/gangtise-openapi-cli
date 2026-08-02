@@ -136,6 +136,30 @@ describe("flattenCrossSection", () => {
     })).toEqual({ list: [], total: 0 })
   })
 
+  it("throws when a row has a different cell count than the indicator list", () => {
+    // The server pads a row with null rather than truncating it (probed
+    // 2026-08-02 across A/HK/US with 3 of 4 indicators uncovered), so an unequal
+    // row is a structural change, not missing data — and silently dropping the
+    // extra cell or leaving a phantom column is exactly the failure this API
+    // makes invisible.
+    expect(() => flattenCrossSection({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }, { code: "qte_vol", name: "成交量" }],
+      values: [[1323.0]],
+    })).toThrow(ApiError)
+  })
+
+  it("accepts a fully null-padded row", () => {
+    const out = flattenCrossSection({
+      securityCodeList: ["AAPL.O"],
+      securityNameList: ["苹果"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }, { code: "qte_mkt_cptl", name: "总市值" }],
+      values: [[308.91, null]],
+    }) as { list: Record<string, unknown>[] }
+    expect(out.list[0]).toEqual({ security: "AAPL.O", name: "苹果", 收盘价: 308.91, 总市值: null })
+  })
+
   it("throws instead of relabelling when the matrix row count disagrees with the securities", () => {
     // The 2026-08-01 revision transposed this matrix with no version marker; a
     // future re-transpose must fail loudly rather than pair 茅台's row with
