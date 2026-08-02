@@ -139,8 +139,7 @@ function addTimeFilters(command: Command) {
     .option("--keyword <keyword>", "Keyword")
 }
 
-import { setVerbose } from "./core/transport.js"
-import { isVerbose } from "./core/transport.js"
+import { isVerbose, setVerbose } from "./core/transport.js"
 import { CLI_VERSION } from "./version.js"
 
 const program = new Command()

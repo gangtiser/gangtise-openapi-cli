@@ -382,6 +382,10 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   // `securityCodeList: []` alongside a populated matrix leaves every row
   // belonging to no security at all, and the row/column counts still line up so
   // no other guard notices.
+  // Without this, dates-with-no-series still passes the later shape check (0 rows
+  // for 0 series) and emits one row per date carrying nothing but the date. A
+  // genuine no-data answer empties `dates` too (probed 2026-08-02), so dates
+  // alongside a missing axis is always a broken response.
   if (dates.length > 0 && (securityCode.length === 0 || indicators.length === 0)) {
     throw new ApiError(`Indicator matrix shape mismatch: the time-series response carries ${dates.length} dates but ${securityCode.length} securities and ${indicators.length} indicators — the data could not be attributed`, undefined, undefined, data)
   }
@@ -398,13 +402,6 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
         : (requested?.length ?? securityCode.length) <= 1
   const seriesCount = seriesAreIndicators ? indicators.length : securityCode.length
   assertMatrixShape(data, d.values, seriesCount, seriesAreIndicators ? "indicators" : "securities", dates.length, "dates")
-  // Dates with no series passes the shape check (0 rows for 0 series) but would
-  // emit one row per date carrying nothing but the date — no security, no
-  // indicator, no way to attribute the row. A genuine no-data answer empties
-  // `dates` too (probed 2026-08-02), so this combination is a broken response.
-  if (dates.length > 0 && seriesCount === 0) {
-    throw new ApiError(`Indicator matrix shape mismatch: ${dates.length} dates with no series to attribute them to — the response layout may have changed`, undefined, undefined, data)
-  }
   // Map over securityCode rather than securityNameList directly: a response that
   // omits the names must still yield one header per security (falling back to
   // the code), not zero columns.
