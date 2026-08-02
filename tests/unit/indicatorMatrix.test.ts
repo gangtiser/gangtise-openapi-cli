@@ -425,6 +425,51 @@ describe("flattenTimeSeries", () => {
     expect(Object.keys(out.list[0])).toEqual(["date", "市盈率(TTM)"])
   })
 
+  it("throws when a series is shorter than the date list", () => {
+    // A cross-market TD query pads every security to the union of trading days —
+    // each market's own holidays come back as null (probed 2026-08-02: 09992.HK
+    // null on 07-01, AAPL.O null on 07-03). A short series is a layout change.
+    expect(() => flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      dates: ["2026-07-30", "2026-07-31"],
+      values: [[1350.6]],
+    }, "name", 1)).toThrow(ApiError)
+  })
+
+  it("throws when a series is not an array at all", () => {
+    expect(() => flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      dates: ["2026-07-31"],
+      values: [1350.6],
+    }, "name", 1)).toThrow(ApiError)
+  })
+
+  it("keeps a holiday-padded null series", () => {
+    const out = flattenTimeSeries({
+      securityCodeList: ["09992.HK"],
+      securityNameList: ["泡泡玛特"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      dates: ["2026-07-01", "2026-07-02"],
+      values: [[null, 162.6]],
+    }, "name", 1) as { list: Record<string, unknown>[] }
+    expect(out.list.map((row) => row.收盘价)).toEqual([null, 162.6])
+  })
+
+  it("carries the response through as ApiError details so the traceId survives", () => {
+    const payload = { securityCodeList: ["600519.SH", "09992.HK"], securityNameList: ["贵州茅台", "泡泡玛特"], indicatorList: [{ code: "qte_close" }], values: [[1]] }
+    attachEnvelopeTraceId(payload, "826455848369786880")
+    try {
+      flattenCrossSection(payload)
+      expect.unreachable("expected a shape mismatch")
+    } catch (error) {
+      expect((error as ApiError).traceId).toBe("826455848369786880")
+    }
+  })
+
   it("returns an empty list when the API resolves no rows (no-data range)", () => {
     expect(flattenTimeSeries({
       securityCodeList: [],

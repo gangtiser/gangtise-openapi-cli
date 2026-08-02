@@ -124,6 +124,18 @@ beforeAll(async () => {
         // { code, status, data } peeled by unwrapIndicatorData). Two indicators share
         // the display name 「财务费用」 so a name-keyed output collides — the --key-by
         // code path must key columns by the distinct indicatorCode instead.
+        // DROPPED.XX stands in for the EDE shape where an indicator with no data
+        // for any security vanishes from indicatorList entirely (probed
+        // 2026-08-02) — the response is short, not null-padded.
+        if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("DROPPED.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"],
+            securityNameList: ["贵州茅台"],
+            indicatorList: [{ code: "cf_finc_exp", name: "财务费用", dataType: "double" }],
+            values: [[100]],
+          } } }))
+          return
+        }
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
           securityCodeList: ["600519.SH"],
           securityNameList: ["贵州茅台"],
@@ -148,6 +160,17 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/open-indicator/screener")) {
+        // A duplicate-code screen: the server answers with a value for the first
+        // variable and null for the second (probed 2026-08-02).
+        if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).length === 2) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"],
+            securityNameList: ["贵州茅台"],
+            indicatorList: [{ field: "F1", code: "qte_close", name: "收盘价" }, { field: "F2", code: "qte_close", name: "收盘价" }],
+            values: [[1350.6, null]],
+          } } }))
+          return
+        }
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
           securityCodeList: ["600519.SH"],
           securityNameList: ["贵州茅台"],
@@ -657,6 +680,51 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect((JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]).toEqual({
       security: "600519.SH", name: "贵州茅台", 总市值: 16883.6021,
     })
+  }, 30_000)
+
+  it("marks a cross-section partial and exits 3 when the response drops an indicator entirely", async () => {
+    // EDE does not null-pad an indicator that has no data for any security — it
+    // vanishes from indicatorList. Exit 0 on a short result is how a --key-by code
+    // batch mapping silently loses a key.
+    const { code, stdout, stderr } = await cli([
+      "indicator", "cross-section",
+      "--indicator", "cf_finc_exp", "--indicator", "DROPPED.XX",
+      "--security", "600519.SH", "--date", "2026-03-31", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    // stdout stays parseable JSON — the diagnosis goes to stderr.
+    const payload = JSON.parse(stdout) as { partial?: boolean; omittedIndicators?: string[]; list: unknown[] }
+    expect(payload.partial).toBe(true)
+    expect(payload.omittedIndicators).toEqual(["DROPPED.XX"])
+    expect(payload.list).toHaveLength(1)
+    expect(stderr).toContain("DROPPED.XX")
+  }, 30_000)
+
+  it("exits 0 without a partial flag when the response is complete", async () => {
+    const { code, stdout } = await cli([
+      "indicator", "cross-section",
+      "--indicator", "cf_finc_exp", "--indicator", "cf_finc_exp_qtr",
+      "--security", "600519.SH", "--date", "2026-03-31", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(JSON.parse(stdout)).not.toHaveProperty("partial")
+  }, 30_000)
+
+  it("marks a screener result unreliable and exits 3 when one indicator is bound twice", async () => {
+    // The server returns a value for at most one of the duplicated variables and
+    // null for the rest, so any comparison against the null one filtered on
+    // nothing — the rows are present but untrustworthy, which `partial` would
+    // mis-describe.
+    const { code, stdout } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:qte_close", "--indicator", "F2:qte_close",
+      "--security", "600519.SH", "--expression", "F1 > F2",
+      "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    const payload = JSON.parse(stdout) as { unreliable?: boolean; duplicatedIndicators?: string[] }
+    expect(payload.unreliable).toBe(true)
+    expect(payload.duplicatedIndicators).toEqual(["qte_close"])
   }, 30_000)
 
   it("indicator time-series --key-by code keys multi-security columns by securityCode", async () => {

@@ -35,10 +35,15 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
       const listLen = Array.isArray(meta.list) ? (meta.list as unknown[]).length : 0
       process.stderr.write(`Total: ${meta.total}, showing: ${listLen}\n`)
     }
-    // Partial results (failed pages/shards) exit with code 3: the table/csv/jsonl
+    // Incomplete or untrustworthy results exit with code 3: the table/csv/jsonl
     // renderers only emit the rows, so without a distinct exit code a script or AI
-    // consumer cannot tell a partial export from a complete one.
-    if (meta.partial === true) {
+    // consumer cannot tell such an export from a clean one.
+    // - `partial`: rows are missing (failed pages/shards, a row cap, or an EDE
+    //   response that dropped whole securities/indicators).
+    // - `unreliable`: the rows that ARE here may hold wrong values — currently
+    //   only the screener's duplicate-indicator defect, where a bound variable
+    //   comes back null and every comparison against it filters on nothing.
+    if (meta.partial === true || meta.unreliable === true) {
       process.exitCode = 3
     }
   }

@@ -756,19 +756,40 @@ alternative.command("concept-info").requiredOption("--concept-id <id>", "Concept
 alternative.command("concept-securities").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-securities", { conceptId: options.conceptId })))
 program.addCommand(alternative)
 
-/** Tell the caller what the server left out. EDE does not pad missing data with
+/** Mark and report what the server left out. EDE does not pad missing data with
  * `null`: an indicator empty for every security vanishes from `indicatorList`,
  * a security empty for every indicator vanishes from `securityCodeList` (probed
  * 2026-08-02). Without this the shortfall is invisible — exit code 0, a
  * plausible-looking table, and a `--key-by code` mapping whose key simply is not
- * there. stderr only, so piped output stays machine-readable. */
-function warnDropped(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): void {
+ * there.
+ *
+ * This is the same class of defect as a failed page or a row cap, so it reuses
+ * the same signal: `partial` on the payload (printData → exit 3) plus the
+ * omitted codes, so an automated caller can react without parsing stderr. */
+function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[], requestedIndicators: string[]): void {
   const { securities, indicators } = droppedFromMatrix(data, requestedSecurities, requestedIndicators)
+  if (securities.length === 0 && indicators.length === 0) return
+  if (rows && typeof rows === "object" && !Array.isArray(rows)) {
+    const rec = rows as Record<string, unknown>
+    rec.partial = true
+    if (indicators.length > 0) rec.omittedIndicators = indicators
+    if (securities.length > 0) rec.omittedSecurities = securities
+  }
   const parts: string[] = []
   if (indicators.length > 0) parts.push(`indicators ${indicators.join(", ")}`)
   if (securities.length > 0) parts.push(`securities ${securities.join(", ")}`)
-  if (parts.length > 0) {
-    process.stderr.write(`[gangtise] warning: the response omits ${parts.join(" and ")} entirely (no data for any counterpart, not null) — check scopeList coverage and the date semantics for those indicators.\n`)
+  process.stderr.write(`[gangtise] warning: the response omits ${parts.join(" and ")} entirely (no data for any counterpart, not null) — check scopeList coverage and the date semantics for those indicators. Result marked partial (exit 3).\n`)
+}
+
+/** Mark a screener result whose values cannot be trusted. Distinct from
+ * `partial`: no rows are missing, but a duplicated indicator code makes at most
+ * one of its variables carry data while the rest come back null, so any
+ * comparison against those variables filtered on nothing. */
+function flagUnreliable(rows: unknown, duplicated: string[]): void {
+  if (rows && typeof rows === "object" && !Array.isArray(rows)) {
+    const rec = rows as Record<string, unknown>
+    rec.unreliable = true
+    rec.duplicatedIndicators = duplicated
   }
 }
 
@@ -788,17 +809,20 @@ indicator.command("cross-section").option("--indicator <code>", "Indicator code,
   // Flatten first: a shape error must not be preceded by a dropped-rows warning
   // that reads like the run merely came back short.
   const rows = flattenCrossSection(data, options.keyBy)
-  warnDropped(data, options.security, options.indicator)
+  flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
 indicator.command("time-series").option("--indicator <code>", "Indicator code, e.g. qte_close (repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).requiredOption("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday (default TD)").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode/securityCode, unique & order-stable for batch mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.time-series", buildIndicatorTimeSeriesBody(options))
   const data = unwrapIndicatorData(raw)
-  // The requested count only breaks the tie when the response is 1×1 — see
-  // flattenTimeSeries. Flatten before warning so a shape error surfaces alone.
-  const rows = flattenTimeSeries(data, options.keyBy, options.security.length)
-  warnDropped(data, options.security, options.indicator)
+  // Count DISTINCT entries: the server dedupes `universe`, so passing the same
+  // code twice must not read as a two-security request and relabel the column
+  // from the indicator to the security. The count only breaks the tie when the
+  // response is 1×1 anyway — see flattenTimeSeries. Flatten before flagging so a
+  // shape error surfaces on its own.
+  const rows = flattenTimeSeries(data, options.keyBy, new Set(options.security).size)
+  flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
 indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — required because the screener drops any indicator sent with no parameters at all", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
@@ -810,9 +834,11 @@ indicator.command("screener").description("Screen securities by an expression ov
   const raw = await client.call("indicator.screener", buildIndicatorScreenerBody(options))
   // Same payload shape as cross-section (one row per matched security, one
   // column per indicator) with a `field` on each indicator entry. No dropped-row
-  // warning here: a security missing from a screener result means it failed the
+  // flag here: a security missing from a screener result means it failed the
   // filter, which is the whole point.
-  await printData(flattenCrossSection(unwrapIndicatorData(raw), options.keyBy), format, options.output)
+  const rows = flattenCrossSection(unwrapIndicatorData(raw), options.keyBy)
+  if (duplicated.length > 0) flagUnreliable(rows, duplicated)
+  await printData(rows, format, options.output)
 }))
 program.addCommand(indicator)
 

@@ -147,22 +147,29 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
 
 /** The matrix and its axis labels must agree on BOTH dimensions, or cells are
  * dropped or misread. The 2026-08-01 revision transposed cross-section without a
- * version marker, so a future re-transpose has to fail loudly instead of
- * silently relabelling columns.
+ * version marker, so a re-transpose has to fail loudly rather than silently
+ * relabel columns — with the caveat that this only catches a NON-SQUARE change.
+ * A 2×2 or 1×1 matrix keeps its dimensions when transposed and would still be
+ * read with the axes swapped; nothing in the payload distinguishes the two.
  *
  * Row length is checked exactly, not leniently: the server pads a row with
  * `null` rather than truncating it — probed 2026-08-02 across A/HK/US, where a
  * US security missing 3 of 4 indicators still came back with a full-length row,
  * and a cross-market time series padded every security to the union of trading
- * days. A short or long row is therefore a structural change, not missing data. */
-function assertMatrixShape(values: unknown[], rows: number, rowAxis: string, cols: number, colAxis: string): void {
+ * days (each market's own holidays land as `null`). A short or long row is
+ * therefore a structural change, not missing data.
+ *
+ * `data` rides along as ApiError details so the failure keeps the response's
+ * traceId — a shape mismatch is precisely the kind of thing support needs to
+ * trace, and without it the error reaches the user trace-less. */
+function assertMatrixShape(data: unknown, values: unknown[], rows: number, rowAxis: string, cols: number, colAxis: string): void {
   if (values.length !== rows) {
-    throw new ApiError(`Indicator matrix shape mismatch: got ${values.length} value rows for ${rows} ${rowAxis} — the response layout may have changed`, undefined)
+    throw new ApiError(`Indicator matrix shape mismatch: got ${values.length} value rows for ${rows} ${rowAxis} — the response layout may have changed`, undefined, undefined, data)
   }
   for (const [i, row] of values.entries()) {
     const width = Array.isArray(row) ? row.length : -1
     if (width !== cols) {
-      throw new ApiError(`Indicator matrix shape mismatch: value row ${i} has ${width < 0 ? "no array of" : String(width)} cells for ${cols} ${colAxis} — the response layout may have changed`, undefined)
+      throw new ApiError(`Indicator matrix shape mismatch: value row ${i} has ${width < 0 ? "no array of" : String(width)} cells for ${cols} ${colAxis} — the response layout may have changed`, undefined, undefined, data)
     }
   }
 }
@@ -178,7 +185,7 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
   if (!Array.isArray(d.values) || !securityCode || !indicators) return data
-  assertMatrixShape(d.values, securityCode.length, "securities", indicators.length, "indicators")
+  assertMatrixShape(data, d.values, securityCode.length, "securities", indicators.length, "indicators")
 
   const securityName = asStringArray(d.securityNameList)
   const headers = indicatorHeaders(indicators, keyBy, CROSS_SECTION_COLUMNS)
@@ -223,7 +230,7 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   const seriesAreIndicators = indicators.length > 1 ? true
     : securityCode.length > 1 ? false
       : (requestedSecurities ?? securityCode.length) <= 1
-  assertMatrixShape(d.values, seriesAreIndicators ? indicators.length : securityCode.length, seriesAreIndicators ? "indicators" : "securities", dates.length, "dates")
+  assertMatrixShape(data, d.values, seriesAreIndicators ? indicators.length : securityCode.length, seriesAreIndicators ? "indicators" : "securities", dates.length, "dates")
   // Map over securityCode rather than securityNameList directly: a response that
   // omits the names must still yield one header per security (falling back to
   // the code), not zero columns.
