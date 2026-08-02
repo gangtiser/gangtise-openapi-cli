@@ -1,4 +1,4 @@
-import { ApiError } from "./errors.js"
+import { ApiError, attachEnvelopeTraceId, ENVELOPE_TRACE_ID } from "./errors.js"
 
 // The EDE cross-section / time-series endpoints return a `values` matrix plus
 // parallel code/name/date lists rather than ready-made rows. These helpers
@@ -49,7 +49,11 @@ export function unwrapIndicatorData(raw: unknown): unknown {
         // 999999 / 130001 that most need reporting — reach the user trace-less.
         throw new ApiError(typeof record.msg === "string" && record.msg ? record.msg : "Indicator API request failed", code, undefined, record)
       }
-      if (ok && "data" in record) return record.data
+      // Carry the envelope's traceId onto the inner payload. `unwrapEnvelope`
+      // attached it to THIS object, but everything downstream (the flatteners'
+      // shape guards) only ever sees `record.data` — without this hand-off those
+      // failures, exactly the ones support needs to trace, arrive trace-less.
+      if (ok && "data" in record) return attachEnvelopeTraceId(record.data, (record as Record<PropertyKey, unknown>)[ENVELOPE_TRACE_ID] ?? record.traceId)
     }
   }
   return raw
@@ -125,13 +129,18 @@ const CROSS_SECTION_COLUMNS = ["security", "name"]
  * not be reported as partial. Calling every requested code "omitted" here would
  * be false metadata: the diff against the request is total by construction.
  *
- * The check is deliberately strict about the WHOLE shape, not just the two axis
- * lists. A no-data answer is exactly five empty arrays (probed 2026-08-02 on a
- * weekend-only TD range: securityCodeList / securityNameList / indicatorList /
- * dates / values all `[]`). Accepting anything looser would let a malformed
- * payload — `values: null`, a missing `values`, or dates with no matrix — pass
- * as "legitimately empty" and exit 0, which is precisely the protocol
- * regression this release's shape guards exist to catch. */
+ * The check covers every STRUCTURAL array, not just the two axis lists, because
+ * accepting anything looser would let a malformed payload — `values: null`, a
+ * missing `values`, or dates with no matrix — pass as "legitimately empty" and
+ * exit 0, which is precisely the protocol regression this release's shape guards
+ * exist to catch. Required empty: `securityCodeList`, `indicatorList`, `values`;
+ * plus `dates` when present. Probed 2026-08-02: a time-series no-data answer is
+ * five empty arrays, a cross-section one is four (it carries no `dates` key at
+ * all), hence "absent or empty" rather than a flat count.
+ *
+ * `securityNameList` is deliberately NOT checked: it holds display labels, not
+ * structure, so a `null` there cannot misalign anything — and rejecting it would
+ * re-introduce the false-partial this function exists to prevent. */
 export function isEmptyMatrix(data: unknown): boolean {
   if (!data || typeof data !== "object") return false
   const d = data as MatrixData
@@ -185,9 +194,23 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
  * `data` rides along as ApiError details so the failure keeps the response's
  * traceId — a shape mismatch is precisely the kind of thing support needs to
  * trace, and without it the error reaches the user trace-less. */
-/** The axis lists identify an EDE matrix, so a `values` that is not an array is
- * a broken payload rather than an unrelated shape. Returning it untouched would
- * print the raw envelope and exit 0 — indistinguishable from success. */
+/** True only when the payload carries NONE of the EDE matrix keys — a foreign
+ * shape (indicator search results, a `raw call` payload) that must pass through
+ * untouched. The moment any one of these keys appears the payload is claiming to
+ * be a matrix, and a missing or mistyped axis is then a broken response rather
+ * than an unrelated one: passing it through would print the raw envelope and
+ * exit 0, indistinguishable from success. */
+function hasNoMatrixFields(d: MatrixData): boolean {
+  return d.securityCodeList === undefined && d.securityNameList === undefined
+    && d.indicatorList === undefined && d.dates === undefined && d.values === undefined
+}
+
+function assertAxis<T>(data: unknown, axis: T | undefined, key: string): asserts axis is T {
+  if (axis === undefined) {
+    throw new ApiError(`Indicator matrix shape mismatch: the response is missing \`${key}\` or it is not an array — the response layout may have changed`, undefined, undefined, data)
+  }
+}
+
 function assertValuesPresent(data: unknown, values: unknown): asserts values is unknown[] {
   if (!Array.isArray(values)) {
     throw new ApiError(`Indicator matrix shape mismatch: the response carries axis lists but no \`values\` array — the response layout may have changed`, undefined, undefined, data)
@@ -214,12 +237,14 @@ function assertMatrixShape(data: unknown, values: unknown[], rows: number, rowAx
 export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "name"): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
+  // Nothing matrix-shaped at all → a foreign payload; hand it back untouched.
+  if (hasNoMatrixFields(d)) return data
+  // Past this point the payload claims to be a matrix, so every axis it needs
+  // must actually be there. A `null` or absent axis is a broken response.
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
-  // No axis lists at all → not an EDE matrix; hand the payload back untouched.
-  if (!securityCode || !indicators) return data
-  // Axis lists present but no matrix → a broken response, not a foreign shape.
-  // Passing it through would print the raw envelope and exit 0.
+  assertAxis(data, securityCode, "securityCodeList")
+  assertAxis(data, indicators, "indicatorList")
   assertValuesPresent(data, d.values)
   assertMatrixShape(data, d.values, securityCode.length, "securities", indicators.length, "indicators")
 
@@ -259,10 +284,13 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
 export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name", requestedUniverse?: string[]): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
+  if (hasNoMatrixFields(d)) return data
   const dates = asStringArray(d.dates)
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
-  if (!dates || !securityCode || !indicators) return data
+  assertAxis(data, dates, "dates")
+  assertAxis(data, securityCode, "securityCodeList")
+  assertAxis(data, indicators, "indicatorList")
   assertValuesPresent(data, d.values)
 
   const securityName = asStringArray(d.securityNameList)

@@ -154,6 +154,17 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/EDE/time-series")) {
+        // BROKEN.XX: every other axis present and well-formed, only `dates` is
+        // null. This used to pass straight through — raw envelope on stdout,
+        // exit 0, silent stderr — which defeats every shape guard.
+        if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("BROKEN.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-broken", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+            indicatorList: [{ code: "BROKEN.XX", name: "坏轴" }],
+            dates: null, values: [[1350.6]],
+          } } }))
+          return
+        }
         // Single indicator × two securities → columns are securities; --key-by code
         // must key them by securityCode (600519.SH), not the display name (贵州茅台).
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
@@ -166,6 +177,13 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/open-indicator/screener")) {
+        // NOAXIS.XX: a matrix payload missing indicatorList entirely.
+        if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "NOAXIS.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-noaxis", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"], values: [[1350.6]],
+          } } }))
+          return
+        }
         // A duplicate-code screen: the server answers with a value for the first
         // variable and null for the second (probed 2026-08-02).
         if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).length === 2) {
@@ -732,6 +750,30 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(payload).not.toHaveProperty("omittedSecurities")
     expect(payload.total).toBe(0)
     expect(stderr).toContain("no data at all") // still flags the ambiguity with a wrong param name
+  }, 30_000)
+
+  it("fails loudly with a traceId when a required axis is null instead of passing the payload through", async () => {
+    const { code, stdout, stderr } = await cli([
+      "indicator", "time-series",
+      "--indicator", "BROKEN.XX", "--security", "600519.SH",
+      "--start-date", "2026-07-30", "--end-date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stdout.trim()).toBe("") // nothing renderable reaches stdout
+    expect(stderr).toContain("dates")
+    expect(stderr).toContain("trace-ede-broken") // support needs the trace on exactly this class of failure
+  }, 30_000)
+
+  it("fails loudly with a traceId when a matrix payload omits an axis entirely", async () => {
+    const { code, stdout, stderr } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:NOAXIS.XX", "--security", "600519.SH",
+      "--expression", "F1 > 0", "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stdout.trim()).toBe("")
+    expect(stderr).toContain("indicatorList")
+    expect(stderr).toContain("trace-ede-noaxis")
   }, 30_000)
 
   it("marks a screener result unreliable and exits 3 when one indicator is bound twice", async () => {

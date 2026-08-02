@@ -226,9 +226,38 @@ describe("malformed matrices", () => {
     }, "name", ["600519.SH"])).toThrow(ApiError)
   })
 
+  it("throws when one axis is null while the rest of the matrix is intact", () => {
+    // The pass-through guard used to fire on ANY unparsable axis, so a response
+    // with real securities, indicators and values but `dates: null` printed the
+    // raw envelope and exited 0.
+    expect(() => flattenTimeSeries({
+      securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "qte_close" }], dates: null, values: [[1350.6]],
+    }, "name", ["600519.SH"])).toThrow(ApiError)
+  })
+
+  it("throws when a matrix payload omits an axis entirely", () => {
+    expect(() => flattenCrossSection({ securityCodeList: ["600519.SH"], values: [[1350.6]] })).toThrow(ApiError)
+    expect(() => flattenCrossSection({ indicatorList: [{ code: "qte_close" }], values: [[1350.6]] })).toThrow(ApiError)
+  })
+
   it("still hands back a payload that is not an EDE matrix at all", () => {
+    // Only a payload carrying NONE of the matrix keys passes through.
     expect(flattenCrossSection({ foo: 1 })).toEqual({ foo: 1 })
     expect(flattenTimeSeries({ foo: 1 })).toEqual({ foo: 1 })
+  })
+})
+
+describe("unwrapIndicatorData traceId hand-off", () => {
+  it("carries the envelope traceId onto the inner payload so shape errors stay traceable", () => {
+    const envelope = attachEnvelopeTraceId({ code: "000000", status: true, data: { securityCodeList: [], indicatorList: [], values: null } }, "826455848369786880")
+    const inner = unwrapIndicatorData(envelope)
+    try {
+      flattenCrossSection(inner)
+      expect.unreachable("expected a shape mismatch")
+    } catch (error) {
+      expect((error as ApiError).traceId).toBe("826455848369786880")
+    }
   })
 })
 
