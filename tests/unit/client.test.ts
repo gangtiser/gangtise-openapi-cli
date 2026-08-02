@@ -644,7 +644,7 @@ describe("GangtiseClient retry policy wiring", () => {
     expect(caught).toBeInstanceOf(ApiError)
     const hint = (caught as ApiError).hint ?? ""
     expect(hint).toContain("parameterList") // param names come from indicator search — a wrong name fails silently
-    expect(hint).toContain("指标周期") // date must match the indicator's period (财务/MRQ=报告期末, 日频估值=交易日)
+    expect(hint).toContain("指标周期") // date must match the indicator's period (财务报表类=报告期末; PE/PB 等日频估值=交易日 — finc_pb_mrq went daily on 2026-08-02)
     expect(hint).not.toContain("稍后重试")
     expect(requestMock).toHaveBeenCalledTimes(1)
   })

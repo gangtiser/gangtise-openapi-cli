@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { ApiError, attachEnvelopeTraceId } from "../../src/core/errors.js"
-import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
+import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
 
 // Field names + value shapes below mirror the LIVE EDE responses as of the
 // 2026-08-01 API revision (probed against openapi.gangtise.com): indicator
@@ -175,6 +175,24 @@ describe("flattenCrossSection", () => {
   it("returns the input unchanged when the shape is not a value matrix", () => {
     expect(flattenCrossSection(null)).toBeNull()
     expect(flattenCrossSection({ foo: 1 })).toEqual({ foo: 1 })
+  })
+})
+
+describe("isEmptyMatrix", () => {
+  it("recognises a wholly empty response as empty, not as a dropped axis", () => {
+    // A weekend-only TD range answers with everything empty. Diffing that against
+    // the request would call every requested code "omitted" — false metadata.
+    expect(isEmptyMatrix({ securityCodeList: [], securityNameList: [], indicatorList: [], values: [] })).toBe(true)
+  })
+
+  it("does not call a partial response empty", () => {
+    expect(isEmptyMatrix({ securityCodeList: ["600519.SH"], indicatorList: [], values: [[]] })).toBe(false)
+    expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [{ code: "qte_close" }], values: [] })).toBe(false)
+  })
+
+  it("does not treat a non-matrix payload as empty", () => {
+    expect(isEmptyMatrix({ foo: 1 })).toBe(false)
+    expect(isEmptyMatrix(null)).toBe(false)
   })
 })
 

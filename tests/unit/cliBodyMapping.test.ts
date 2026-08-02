@@ -127,6 +127,12 @@ beforeAll(async () => {
         // DROPPED.XX stands in for the EDE shape where an indicator with no data
         // for any security vanishes from indicatorList entirely (probed
         // 2026-08-02) — the response is short, not null-padded.
+        if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("EMPTY.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+            securityCodeList: [], securityNameList: [], indicatorList: [], values: [],
+          } } }))
+          return
+        }
         if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("DROPPED.XX")) {
           res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
             securityCodeList: ["600519.SH"],
@@ -708,6 +714,24 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     ])
     expect(code).toBe(0)
     expect(JSON.parse(stdout)).not.toHaveProperty("partial")
+  }, 30_000)
+
+  it("exits 0 without partial metadata when the whole query legitimately has no data", async () => {
+    // EMPTY.XX drives the canonical all-empty EDE answer (a non-trading range).
+    // Diffing that against the request would list every code as omitted — the
+    // result is not partial, there is simply nothing.
+    const { code, stdout, stderr } = await cli([
+      "indicator", "cross-section",
+      "--indicator", "EMPTY.XX", "--security", "600519.SH",
+      "--date", "2026-08-01", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    const payload = JSON.parse(stdout) as Record<string, unknown>
+    expect(payload).not.toHaveProperty("partial")
+    expect(payload).not.toHaveProperty("omittedIndicators")
+    expect(payload).not.toHaveProperty("omittedSecurities")
+    expect(payload.total).toBe(0)
+    expect(stderr).toContain("no data at all") // still flags the ambiguity with a wrong param name
   }, 30_000)
 
   it("marks a screener result unreliable and exits 3 when one indicator is bound twice", async () => {

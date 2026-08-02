@@ -133,6 +133,17 @@ const CROSS_SECTION_COLUMNS = ["security", "name"]
  * Universe entries with no `.` are skipped — those are sector IDs, which the
  * server expands into constituents, so their absence from the response is
  * expected rather than a dropped row. */
+/** A response carrying neither securities nor indicators: the query as a whole
+ * resolved to nothing. This is NOT a dropped axis — nothing was left out, there
+ * simply is no data (a non-trading range, a date outside coverage), so it must
+ * not be reported as partial. Calling every requested code "omitted" here would
+ * be false metadata: the diff against the request is total by construction. */
+export function isEmptyMatrix(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false
+  const d = data as MatrixData
+  return asStringArray(d.securityCodeList)?.length === 0 && asIndicatorMetaList(d.indicatorList)?.length === 0
+}
+
 export function droppedFromMatrix(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): { securities: string[]; indicators: string[] } {
   const empty = { securities: [], indicators: [] }
   if (!data || typeof data !== "object") return empty

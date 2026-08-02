@@ -172,7 +172,7 @@ description: |-
   - EDE 取数前必须用 `search --format json` 同时核对：`indicatorName` + `description` 语义准确、`scopeList` 覆盖全部目标市场 / 证券类型、`parameterList` 必填参数与枚举可满足；`scopeList` 缺失 / `null` / 空或任一项不符，都视为无法证明覆盖并回退专用接口。专用接口也不覆盖目标市场时，说明当前不可用，不要硬调。`scopeList` 按指标各不相同，不能因 EDE 服务支持 A / 港 / 美股就假定某个指标三市场都覆盖
   - `indicator search` 免费，`cross-section` / `time-series` 按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`
 - 行业 / 宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），不要与证券级 EDE 混用
-- EDE 缺数据分三档，**别只认 `null`**：部分缺 → 单元格 `null`（行列都在）；某指标对所有证券都无数据 → **整列消失**；某证券对所有指标都无数据 → **整行消失**；整个查询无数据 → **空表**（2026-08-01 起不再报 `999999`）。后三种退出码都是 0，`--key-by code` 回填时 key 会直接不存在。CLI 已在 stderr 提示被整个略过的指标/证券。**参数写错也表现为空表**，拿到空表先查参数名和日期语义，别当成真没数据。日期语义按指标分三类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` 等日频估值=最新交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
+- EDE 缺数据分三档，**别只认 `null`**：①部分缺 → 单元格 `null`（行列都在），**退出码 0**；②某指标对所有证券都无数据 → 该指标**整列消失**；③某证券对所有指标都无数据 → 该证券**整行消失**——②③ CLI 会标 `partial: true` + `omittedIndicators`/`omittedSecurities` 并**退出码 3**（`--key-by code` 回填时 key 会直接不存在，务必先看这两个字段）；④整个查询无数据 → **空表**（2026-08-01 起不再报 `999999`），**退出码 0**、不标 partial（什么都没被丢，就是没数据），但 stderr 会提醒这也可能是参数名写错。**参数写错表现为空表**，拿到空表先查参数名和日期语义，别当成真没数据。日期语义按指标分两类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` / `finc_pb_mrq` 等日频估值=最新交易日（⚠️ MRQ 口径 2026-08-02 已改为日频，旧文档「只在报告期末打值」已作废，照旧写法会取到几个月前的陈值）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
 - **EDE 指标参数名一律以 `indicator search --format json` 的 `parameterList` 为准**，不要凭记忆或照抄示例：服务端会改参数名（`adjustmentType` → `adjustType`，2026-08-01），**传错名是静默忽略、退回默认值**而不是报错——实测 `adjustmentType=3` 返回的是不复权价，看着正常实则错数据。`--security` 支持板块 ID（`reference sector-search` 的 10 位 `sectorId`；`--indicator` 只收指标编码）。⚠️ 根级 `--scale` 会污染不声明 `scale` 的指标（`qte_close` 被 `--scale 8` 缩成 `0`），价格与金额混查时改用 `--indicator-param "code:scale=8"`
 - "业绩点评"双义消歧：**检索已有**（研报/纪要里的业绩点评内容）走 `insight ... list --llm-tag earningsReview`（0.1/条）；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句
 
@@ -315,7 +315,10 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 **其他场景**：
 - CLI 未安装 → `npm install -g gangtise-openapi-cli`
-- **退出码 3 = 部分结果**：翻页/K线分片有页失败、或服务端返回行数与 `total` 矛盾（提前短页）时，已取到的数据保留——stderr 有 warning，`--format json` 可见 `partial: true`（页失败另有 `failedPages`；分片失败为 `failedShards`、分片撞行数上限为 `truncatedShards`，均带具体日期区间可定向缩窗补拉）；table/csv/jsonl 只有数据行、看不出缺失。拿部分数据继续前必须告知用户缺了哪段
+- **退出码 3 = 结果不完整或不可信**（两种语义，都保留已取到的数据；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题）：
+  - **`partial: true` = 少了数据**。翻页/K线分片有页失败、服务端返回行数与 `total` 矛盾（提前短页）、或 **EDE 整指标/整证券被服务端略过**。附带定位字段：页失败 `failedPages`；分片失败 `failedShards`、分片撞行数上限 `truncatedShards`（均带日期区间可缩窗补拉）；EDE 为 `omittedIndicators` / `omittedSecurities`（那几个 code 一个值都没有，先查 `scopeList` 覆盖和日期语义）
+  - **`unreliable: true` = 在场的值不可信**。目前只有 EDE 条件选股把同一指标绑到多个变量时会出现（服务端缺陷：被重复绑定的变量恒为 `null`，针对它的比较等于没筛），附 `duplicatedIndicators`。**这类结果不能直接用于结论**，拆成多次调用重跑
+  - 拿到 3 就必须告知用户缺了哪段 / 哪些值不可信，不能当成功静默继续
 - 空结果（list 为空数组） → 建议扩大时间范围、换关键词、去掉部分筛选
 - 模糊公司名匹配多只（"平安" → 中国平安 / 平安银行 / ...） → 列出让用户选
 - 下载文件路径冲突 → 询问覆盖

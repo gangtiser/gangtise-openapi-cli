@@ -5,7 +5,7 @@ import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/a
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
-import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "./core/indicatorMatrix.js"
+import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
@@ -767,6 +767,13 @@ program.addCommand(alternative)
  * the same signal: `partial` on the payload (printData → exit 3) plus the
  * omitted codes, so an automated caller can react without parsing stderr. */
 function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[], requestedIndicators: string[]): void {
+  // A wholly empty response is a legitimate answer, not a partial one: the diff
+  // against the request would list everything as "omitted", which is false —
+  // nothing was dropped, there is no data. Exit 0, but say why it is ambiguous.
+  if (isEmptyMatrix(data)) {
+    process.stderr.write("[gangtise] note: the query returned no data at all. That is a normal answer for a non-trading range or a date outside coverage — but since 2026-08-01 it is ALSO what a wrong parameter name or the wrong date field (tradeDate vs reportDate) produces. Cross-check against 'gangtise indicator search --format json'.\n")
+    return
+  }
   const { securities, indicators } = droppedFromMatrix(data, requestedSecurities, requestedIndicators)
   if (securities.length === 0 && indicators.length === 0) return
   if (rows && typeof rows === "object" && !Array.isArray(rows)) {
