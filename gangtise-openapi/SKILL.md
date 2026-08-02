@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.30.0"
+version: "0.30.1"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -172,8 +172,8 @@ description: |-
   - EDE 取数前必须用 `search --format json` 同时核对：`indicatorName` + `description` 语义准确、`scopeList` 覆盖全部目标市场 / 证券类型、`parameterList` 必填参数与枚举可满足；`scopeList` 缺失 / `null` / 空或任一项不符，都视为无法证明覆盖并回退专用接口。专用接口也不覆盖目标市场时，说明当前不可用，不要硬调。`scopeList` 按指标各不相同，不能因 EDE 服务支持 A / 港 / 美股就假定某个指标三市场都覆盖
   - `indicator search` 免费，`cross-section` / `time-series` 按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`
 - 行业 / 宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），不要与证券级 EDE 混用
-- EDE 单元格级缺值返回 `null` 且保留证券行；**整个查询无数据返回空表**（2026-08-01 起不再报 `999999`）——所以**参数写错也表现为空表**，拿到空表先查参数名和日期语义，别当成真没数据。日期语义按指标分三类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` 等日频估值=最新交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
-- **EDE 指标参数名一律以 `indicator search --format json` 的 `parameterList` 为准**，不要凭记忆或照抄示例：服务端会改参数名（`adjustmentType` → `adjustType`，2026-08-01），**传错名是静默忽略、退回默认值**而不是报错——实测 `adjustmentType=3` 返回的是不复权价，看着正常实则错数据。`--indicator` / `--security` 支持板块 ID（`reference sector-search` 的 10 位 `sectorId`）。⚠️ 根级 `--scale` 会污染不声明 `scale` 的指标（`qte_close` 被 `--scale 8` 缩成 `0`），价格与金额混查时改用 `--indicator-param "code:scale=8"`
+- EDE 缺数据分三档，**别只认 `null`**：部分缺 → 单元格 `null`（行列都在）；某指标对所有证券都无数据 → **整列消失**；某证券对所有指标都无数据 → **整行消失**；整个查询无数据 → **空表**（2026-08-01 起不再报 `999999`）。后三种退出码都是 0，`--key-by code` 回填时 key 会直接不存在。CLI 已在 stderr 提示被整个略过的指标/证券。**参数写错也表现为空表**，拿到空表先查参数名和日期语义，别当成真没数据。日期语义按指标分三类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` 等日频估值=最新交易日、`finc_pb_mrq`(MRQ) 等=最近报告期末（交易日取 `null`）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
+- **EDE 指标参数名一律以 `indicator search --format json` 的 `parameterList` 为准**，不要凭记忆或照抄示例：服务端会改参数名（`adjustmentType` → `adjustType`，2026-08-01），**传错名是静默忽略、退回默认值**而不是报错——实测 `adjustmentType=3` 返回的是不复权价，看着正常实则错数据。`--security` 支持板块 ID（`reference sector-search` 的 10 位 `sectorId`；`--indicator` 只收指标编码）。⚠️ 根级 `--scale` 会污染不声明 `scale` 的指标（`qte_close` 被 `--scale 8` 缩成 `0`），价格与金额混查时改用 `--indicator-param "code:scale=8"`
 - "业绩点评"双义消歧：**检索已有**（研报/纪要里的业绩点评内容）走 `insight ... list --llm-tag earningsReview`（0.1/条）；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句
 
 ## 公司名 → 证券代码
@@ -280,7 +280,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | ✅ `0000001008` | Token 服务端失效（他处登录挤掉）——**旧码未切，token 自愈依赖它** | **强制重新登录并重试一次** | 无 AK/SK 时无法自愈，提示重新登录 |
 | ✅ `0000001007` | 请求未携带 Bearer token | — | 检查 `GANGTISE_TOKEN` / AK/SK 是否已 export |
 | ✅ `900002` | **请求方法不正确**（msg「请求类型有误」，HTTP 405）——旧文档写作"缺少 uid"是错的 | — | `raw call` 时确认该 endpoint 是 GET 还是 POST |
-| `410106` / 缺参 | `indicator` 缺必填参数（msg 直接指明，如「必填参数 periodNum 不能为空」；HTTP 500 故 CLI 重试 ×2） | **自动重试 ×2** | 读 `indicator search --format json` 的 `parameterList` 补 `required:true` 参数 |
+| ✅ `140002` | 终态参数错：AI 异步生成失败，或 `indicator` 的指标必填参数缺失 / 枚举越界 / 表达式语法错（实测 2026-08-02） | **不重试**（终态码） | 按 msg 改参数重提；EDE 的参数名与枚举读 `indicator search --format json` 的 `parameterList` |
 
 **⚠️ 实测发现的坑（都是"不报错"型，最难发现）**
 - 🔴 **日期只写 `YYYY-MM-DD`、时间只写 `YYYY-MM-DD HH:mm:ss`（或 10/13 位时间戳）；CLI v0.28.0 起 date 与 datetime 两类、含所有 insight/vault 透传参数都本地拦截**。服务端对「年在后」格式**日月顺序随分隔符翻转**且静默误解析（HTTP 200、不回显实际用的日期）：`07/01/2026`（斜杠）读成 **2026-01-07**、`07-01-2026`（横杠）读成 **2026-07-01**，差半年。实测 `insight research list --start-time`：`07/01/2026` 命中 1562 条、`07-01-2026` 命中 210 条（分别 = 标准 `2026-01-07` / `2026-07-01`）；`quote day-kline`/`kline-hk`/`kline-us`/`index`、`fundamental balance-sheet` 同理。v0.28.0 前透传命令（research/summary/announcement-hk/us/vault/minute-kline 等）**静默放行**，且同值在本地转时间戳的 `announcement`（A 股）与透传的 hk/us 之间还会差半年、都 exit 0。现在全部在发请求前报 `ValidationError`，**但绕过 CLI 直连接口务必自己保证格式**

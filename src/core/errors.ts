@@ -85,7 +85,10 @@ const ERROR_HINTS: Record<string, string> = {
   "130004": "下载 ID 需为数字，检查该命令的 --*-id 参数是否传对。",
   "130005": "对照命令 --help 检查 --file-type / --content-type 取值。",
   "140001": "稍后用对应 *-check 命令查询。",
-  "140002": "异步生成失败（终态）——换参数重新提交，重试同一 dataId 不会变。",
+  // 两类来源共用此码：AI 异步生成失败，以及 EDE 的参数/表达式错误（实测 2026-08-02：
+  // 枚举越界「参数 adjustType 的值 99 不在有效范围内 [1,2,3,4]」、表达式语法错误）。
+  // 两者都是终态、都不该重试，所以文案只说「换参数重来」而不预设是哪一类。
+  "140002": "终态失败，重试同一请求不会变——按 msg 改参数后重新提交；EDE 的指标参数名/枚举以 indicator search 的 parameterList 为准。",
 
   // ── 接口专有 2xxxxx ──
   "210001": "换一篇，或改用 list 取正文摘要。",
@@ -102,10 +105,11 @@ const ERROR_HINTS: Record<string, string> = {
   "900001": "对照命令 --help 检查必填项。",
   "900002": "请求方法不正确（服务端 msg 为「请求类型有误」）——`raw call` 时检查该 endpoint 是 GET 还是 POST。",
   "903301": "次日再试，或联系客户经理提额。",
-  // EDE 专有旧码，未被 2026-07-17 重排收编但仍是 indicator 取数的主要报错
-  // （references/commands/indicator.md 把这两个列为首要排查项）。
+  // EDE 专有旧码。2026-08-02 复测已不再出现——入参/表达式错走 100003，指标必填
+  // 参数缺失与枚举越界走 140002。保留兜底：错误码是按模块分批迁移的，回滚或未迁完
+  // 的路径仍可能吐旧码，届时给条能用的提示比 fallthrough 强。
   "410001": "补齐 --indicator / --security；`time-series` 不支持「多指标 × 多证券」，改用 `indicator cross-section`。",
-  "410106": "读 `indicator search --format json` 的 parameterList，用 --indicator-param 补上 required:true 的参数（如 periodNum / startDate / fiscalYear）。",
+  "410106": "读 `indicator search --format json` 的 parameterList，用 --indicator-param 补上 required:true 的参数（如 periodNum / sDate / fiscalYear）。",
   "410004": "换证券或日期确认该条件下本应有数据；仍失败多为未开通该指标，联系客户经理。",
   "410110": "稍后用对应 *-check 命令查询。",
   "410111": "终态，换参数后重新提交，重试同一请求不会变。",

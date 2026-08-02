@@ -6,12 +6,11 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.30.1 — 2026-08-02**：修复 `sDate` 吞掉查询日期导致的区间指标静默错数，让条件选股的文本筛选真正可用，并在服务端整行/整列丢数据时给出警告。
 - **v0.30.0 — 2026-08-02**：适配 EDE 接口重构（`universe` 取代 `securityCodeList`、截面矩阵转置、指标元数据结构化），新增 `indicator screener` 条件选股，并修正复权参数名。
 - **v0.29.0 — 2026-07-25**：新增财报日历与 PDF 解析工具，群消息补 `quoteMsg`，并加强大整数 ID 与高积分调用防护。
 - **v0.28.3 — 2026-07-24**：修复列式响应在错误 `--field` 下静默错列的问题，并校正 EDE 与字段文档。
 - **v0.28.2 — 2026-07-24**：EDE 批量取数新增 `--key-by name|code`，优化无数据诊断与相关 Skill 文档。
-- **v0.28.1 — 2026-07-23**：调整 Agent Skill 取数路由，多证券财务与估值指标优先使用 EDE 批量接口。
-- **v0.28.0 — 2026-07-21**：适配新版错误码，强化日期校验、异步状态处理、可观测性与计费安全。
 
 ### 历史里程碑
 
@@ -576,17 +575,23 @@ gangtise indicator cross-section \
   --date 2026-07-31 --format table
 # 输出列：security / name / <各指标名>…（v0.30.0 起无 date 列——日期挂在每个指标的参数上）
 
-# 时间序列：多指标 × 单证券 或 单指标 × 多证券（不能多 × 多，否则报 410001）
+# 时间序列：多指标 × 单证券 或 单指标 × 多证券（不能多 × 多，否则报 100003）
 gangtise indicator time-series --indicator qte_close \
   --security 600519.SH --security 09992.HK \
   --start-date 2026-07-29 --end-date 2026-07-31 --format table
 
 # 条件选股：F1/F2… 绑定指标，用表达式组合筛选（--indicator-param 按变量索引，不是按 code）
+# --date 必填：screener 会丢弃 parameters 为空的指标，CLI 靠它给每个指标挂上日期
 gangtise indicator screener \
   --indicator F1:qte_mkt_cptl --indicator F2:finc_pe_ttm \
   --indicator-param "F1:scale=8" \
   --security 1000000287 \
   --expression "F1 >= 500 && F2 <= 30" \
+  --date 2026-07-31 --format table
+
+# 文本筛选：经营范围含「酒」（contains/notcontains 只对 string 类型指标有效）
+gangtise indicator screener --indicator F1:pty_op_scope \
+  --security 1000000287 --expression "F1 contains '酒'" \
   --date 2026-07-31 --format table
 
 # 复权 / 指标专属参数用 --indicator-param "code:key=value"
@@ -595,10 +600,14 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
   --date 2024-01-02 --indicator-param "qte_close:adjustType=3"   # 1不复权/2前复权/3后复权/4定点
 # 不复权 1685.01 → 前复权 1531.225 → 后复权 13609.6168（前复权在最新交易日等于不复权，验证要用历史日）
 
-# 必填参数：很多指标默认调用报 410106（缺必填参数），按 parameterList 的 required 补齐再取：
-#   N 期统计补 periodNum、区间/周期类（如 qte_amp_mo 月振幅）补 startDate、年度/分红类补 fiscalYear
+# 必填参数：部分指标缺必填参数会报 140002，按 parameterList 的 required 补齐再取：
+#   N 期统计补 periodNum、区间类补 sDate（起始日，tradeDate 仍是终点）、年度/分红类补 fiscalYear
 gangtise indicator cross-section --indicator finc_roe_avg_avg --security 600519.SH \
   --date 2026-03-31 --indicator-param "finc_roe_avg_avg:periodNum=4"
+
+# 区间指标：sDate 是起点、--date 下发的 tradeDate 是终点，两者共存
+gangtise indicator cross-section --indicator qte_vol_intvl --security 600519.SH \
+  --date 2024-01-31 --indicator-param "qte_vol_intvl:sDate=2024-01-02"
 ```
 
 ### Alternative（行业指标数据库 EDB）
@@ -696,6 +705,7 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 | `999012` / `999013` / `999014` | 账号禁用 / 已过期 / 租户失效 |
 | `999016` | 调用方 IP 不在允许范围 |
 | `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点无数据已改为返回空表，此码基本只剩真故障） |
+| `140002` | 终态失败：AI 异步生成失败，或 `indicator` 的参数/表达式错误（枚举越界、语法错）——改参数重提，不重试 |
 | `100003` | 参数值非法——**最宽的兜底码**；msg 通常已指明字段（如「limit 最小为 1，最大为 10000」），先读 msg |
 | `100001` | 缺必填参数（msg 带字段名，如「缺少必填参数: reportId」） |
 | `100006` | 查询/下载数量超限——**取代旧 `430007`** |

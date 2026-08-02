@@ -93,6 +93,23 @@ describe("command request body builders", () => {
     })
   })
 
+  it("still sends tradeDate when the caller supplied only sDate (interval start, not a substitute)", () => {
+    // qte_vol_intvl declares tradeDate REQUIRED (the interval end) and sDate
+    // optional (the start). Treating sDate as a replacement dropped --date and
+    // moved the interval end silently: probed 2026-08-02, 茅台 with sDate alone
+    // returned 2,265,873,849 vs 65,687,435 with tradeDate=2024-01-31 — both exit 0.
+    expect(buildIndicatorCrossSectionBody({
+      indicator: ["qte_vol_intvl"],
+      security: ["600519.SH"],
+      date: "2024-01-31",
+      indicatorParam: ["qte_vol_intvl:sDate=2024-01-02"],
+    })).toMatchObject({
+      indicatorParamList: [
+        { indicatorCode: "qte_vol_intvl", parameters: [{ paramKey: "sDate", paramValue: "2024-01-02" }, { paramKey: "tradeDate", paramValue: "2024-01-31" }] },
+      ],
+    })
+  })
+
   it("leaves a report-period indicator on its own reportDate instead of adding tradeDate", () => {
     // Probed 2026-08-01: is_op_rev_mom answers a tradeDate with an EMPTY result,
     // not an error — injecting one alongside reportDate would silently blank the
@@ -185,12 +202,18 @@ describe("command request body builders", () => {
     })
   })
 
-  it("binds the same indicator to two screener variables without merging them", () => {
+  it("keeps two variables on the same indicator separate, each with its own date", () => {
+    // This asserts the BODY only. The API specifies one code under two variables
+    // (the same price on two dates), but the server currently answers such a
+    // request with an empty result — probed 2026-08-02, and a fix is in flight.
+    // `indicator screener` warns on stderr; the body must already be correct so
+    // the feature works the moment the server does.
     expect(buildIndicatorScreenerBody({
       indicator: ["F1:qte_close", "F2:qte_close"],
       security: ["600519.SH"],
       expression: "F1 > F2",
-      indicatorParam: ["F1:tradeDate=2026-07-31", "F2:tradeDate=2024-01-02"],
+      date: "2026-07-31",
+      indicatorParam: ["F2:tradeDate=2024-01-02"],
     })).toEqual({
       universe: ["600519.SH"],
       expression: "F1 > F2",
@@ -201,16 +224,23 @@ describe("command request body builders", () => {
     })
   })
 
-  it("emits an empty parameter list for a screener indicator that takes no parameters", () => {
+  it("still attaches a date to a screener indicator that declares no parameters", () => {
+    // pty_op_scope's parameterList is empty, so `parameters: []` looks right —
+    // but the screener DROPS any indicator sent that way: probed 2026-08-02,
+    // `F1 contains '酒'` matches nothing with an empty list and correctly returns
+    // 五粮液/贵州茅台 once a (meaningless, for this indicator) tradeDate rides
+    // along. The official doc's own `F3 contains '酒'` example cannot work as
+    // written. Sending the date unconditionally is what makes string filters work.
     expect(buildIndicatorScreenerBody({
       indicator: ["F1:pty_op_scope"],
       security: ["600519.SH"],
       expression: "F1 contains '酒'",
+      date: "2026-07-31",
       indicatorParam: [],
     })).toEqual({
       universe: ["600519.SH"],
       expression: "F1 contains '酒'",
-      indicatorList: [{ field: "F1", indicatorCode: "pty_op_scope", parameters: [] }],
+      indicatorList: [{ field: "F1", indicatorCode: "pty_op_scope", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] }],
     })
   })
 
@@ -219,8 +249,30 @@ describe("command request body builders", () => {
       indicator: ["F1:qte_close"],
       security: ["600519.SH"],
       expression: "F1 > 0",
+      date: "2026-07-31",
       indicatorParam: ["F2:tradeDate=2026-07-31"],
     })).toThrow(/F2/)
+  })
+
+  it("rejects an expression referencing a variable no --indicator binds", () => {
+    // The server does catch this (100003), but only after a billed round trip.
+    expect(() => buildIndicatorScreenerBody({
+      indicator: ["F1:qte_close"],
+      security: ["600519.SH"],
+      expression: "F1 > 0 && F2 <= 30",
+      date: "2026-07-31",
+      indicatorParam: [],
+    })).toThrow(/F2/)
+  })
+
+  it("does not mistake an F-token inside a string literal for a variable reference", () => {
+    expect(buildIndicatorScreenerBody({
+      indicator: ["F1:pty_op_scope"],
+      security: ["600519.SH"],
+      expression: "F1 contains 'F2 系列'",
+      date: "2026-07-31",
+      indicatorParam: [],
+    })).toMatchObject({ expression: "F1 contains 'F2 系列'" })
   })
 })
 

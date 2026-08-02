@@ -116,11 +116,12 @@ const RETRYABLE_API_CODES = new Set(["999999"])
 // - 140002 PROCESSING_FAILED: the async *-check endpoints (get-content) declare no
 //   retry policy, so a 140002@500 would be retried 2× by the default policy BEFORE
 //   asyncContent's FAILED_CODES gets to call it terminal — that guard sits above
-//   client.call's withRetry and cannot see the retries. 140002 means "generation
-//   failed" (terminal by definition) and only those async endpoints can return it,
-//   so a blanket rule is safe and skips the wasted retries. Server still emits the
-//   legacy 410111 today (410111@400 isn't retryable anyway); this is a forward guard
-//   for the documented 140002@500.
+//   client.call's withRetry and cannot see the retries. 140002 is terminal in both
+//   of its meanings — async "generation failed", and (probed 2026-08-02) the EDE
+//   indicator endpoints' parameter/expression errors, e.g. an out-of-range enum or
+//   a malformed screener expression — so the blanket rule stays correct and skips
+//   the wasted retries. Server still emits the legacy 410111 today (410111@400
+//   isn't retryable anyway); this is a forward guard for the documented 140002@500.
 const TERMINAL_API_CODES = new Set(["999011", "140002"])
 // Connect-phase / DNS failures: the request provably never reached the server, so a
 // replay cannot double-execute (or double-bill) anything even under "no-replay".
@@ -130,8 +131,9 @@ const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN
  * cache-hit exemption): never resend a request the server may have executed.
  * Only connect-phase errors, 429 (rejected before processing) and the explicit
  * token-self-heal mark retry; 5xx / response timeouts / 999999 fail fast.
- * "no-999999" (EDE indicator endpoints): the server answers a no-data query with
- * HTTP 500 + 999999 (probed 2026-07-11) — retrying that is pure waste; everything
+ * "no-999999" (EDE indicator endpoints): 999999 is a server-side fault here (it
+ * also meant "no data" until 2026-08-01, which now returns an empty array) and
+ * replaying an already-billed query buys nothing; everything
  * else follows the default policy. */
 export type RetryPolicy = "default" | "no-replay" | "no-999999"
 

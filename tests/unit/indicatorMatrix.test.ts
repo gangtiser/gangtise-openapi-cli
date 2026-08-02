@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { ApiError, attachEnvelopeTraceId } from "../../src/core/errors.js"
-import { flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
+import { droppedFromMatrix, flattenCrossSection, flattenTimeSeries, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
 
 // Field names + value shapes below mirror the LIVE EDE responses as of the
 // 2026-08-01 API revision (probed against openapi.gangtise.com): indicator
@@ -136,9 +136,50 @@ describe("flattenCrossSection", () => {
     })).toEqual({ list: [], total: 0 })
   })
 
+  it("throws instead of relabelling when the matrix row count disagrees with the securities", () => {
+    // The 2026-08-01 revision transposed this matrix with no version marker; a
+    // future re-transpose must fail loudly rather than pair 茅台's row with
+    // 泡泡玛特's values.
+    expect(() => flattenCrossSection({
+      securityCodeList: ["600519.SH", "09992.HK"],
+      securityNameList: ["贵州茅台", "泡泡玛特"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      values: [[1323.0, 150.7]],
+    })).toThrow(ApiError)
+  })
+
   it("returns the input unchanged when the shape is not a value matrix", () => {
     expect(flattenCrossSection(null)).toBeNull()
     expect(flattenCrossSection({ foo: 1 })).toEqual({ foo: 1 })
+  })
+})
+
+describe("droppedFromMatrix", () => {
+  it("reports the indicators and securities the response left out entirely", () => {
+    // Probed 2026-08-02: EDE does NOT pad with null — an indicator empty for
+    // every security disappears from indicatorList, a security empty for every
+    // indicator disappears from securityCodeList.
+    expect(droppedFromMatrix(
+      { securityCodeList: ["600519.SH"], indicatorList: [{ code: "qte_close" }], values: [[1350.6]] },
+      ["600519.SH", "09992.HK"],
+      ["qte_close", "qte_mkt_cptl", "shr_tot"],
+    )).toEqual({ securities: ["09992.HK"], indicators: ["qte_mkt_cptl", "shr_tot"] })
+  })
+
+  it("does not report a sector ID as dropped (the server expands it into constituents)", () => {
+    expect(droppedFromMatrix(
+      { securityCodeList: ["600519.SH", "000858.SZ"], indicatorList: [{ code: "qte_close" }], values: [[1], [2]] },
+      ["1000000287"],
+      ["qte_close"],
+    )).toEqual({ securities: [], indicators: [] })
+  })
+
+  it("reports nothing when the response is complete", () => {
+    expect(droppedFromMatrix(
+      { securityCodeList: ["600519.SH"], indicatorList: [{ code: "qte_close" }], values: [[1350.6]] },
+      ["600519.SH"],
+      ["qte_close"],
+    )).toEqual({ securities: [], indicators: [] })
   })
 })
 
@@ -162,9 +203,10 @@ describe("flattenCrossSection (screener payload)", () => {
     expect(out.list[0]).toEqual({ security: "000858.SZ", name: "五粮液", 总市值: 3817.1733, "市盈率(TTM)": 28.4929 })
   })
 
-  it("disambiguates the same indicator bound to two variables by field", () => {
-    // A screener may legitimately bind one code twice (e.g. the same price on
-    // two dates), so the code cannot disambiguate — the variable must.
+  it("labels EVERY column of a repeated indicator with its variable, not just the second", () => {
+    // A screener may bind one code twice (the same price on two dates). Leaving
+    // the first column bare makes `收盘价` read as "the" close price when it is
+    // only whichever variable the server listed first.
     const out = flattenCrossSection({
       securityCodeList: ["600519.SH"],
       securityNameList: ["贵州茅台"],
@@ -177,7 +219,7 @@ describe("flattenCrossSection (screener payload)", () => {
     expect(out.list[0]).toEqual({
       security: "600519.SH",
       name: "贵州茅台",
-      收盘价: 1323.0,
+      "收盘价 (F1)": 1323.0,
       "收盘价 (F2)": 1685.01,
     })
   })
@@ -195,9 +237,22 @@ describe("flattenCrossSection (screener payload)", () => {
     expect(out.list[0]).toEqual({
       security: "600519.SH",
       name: "贵州茅台",
-      qte_close: 1323.0,
+      "qte_close (F1)": 1323.0,
       "qte_close (F2)": 1685.01,
     })
+  })
+
+  it("leaves a screener's distinct indicators unsuffixed", () => {
+    const out = flattenCrossSection({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [
+        { field: "F1", code: "qte_mkt_cptl", name: "总市值" },
+        { field: "F2", code: "finc_pe_ttm", name: "市盈率(TTM)" },
+      ],
+      values: [[16883.6021, 20.4118]],
+    }) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["security", "name", "总市值", "市盈率(TTM)"])
   })
 
   it("returns an empty list when nothing passed the filter", () => {
@@ -287,6 +342,33 @@ describe("flattenTimeSeries", () => {
       values: [[1323.0], [150.7]],
     }) as { list: Record<string, unknown>[] }
     expect(out.list[0]).toEqual({ date: "2026-05-18", "600519.SH": 1323.0, "09992.HK": 150.7 })
+  })
+
+  it("keeps the security axis when the server drops an uncovered security from a multi-security request", () => {
+    // Probed 2026-08-02: finc_pe_ttm over 600519.SH + 09992.HK returns only the
+    // A-share, because HK has no PE coverage. Deriving the axis from the response
+    // would flip to the indicator axis and render a bare 市盈率(TTM) column with
+    // nothing saying whose series it is.
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "finc_pe_ttm", name: "市盈率(TTM)" }],
+      dates: ["2026-07-30", "2026-07-31"],
+      values: [[20.5804, 20.4118]],
+    }, "name", 2) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["date", "贵州茅台"])
+    expect(out.list[0].贵州茅台).toBe(20.5804)
+  })
+
+  it("uses the indicator axis for a genuinely single-security request", () => {
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "finc_pe_ttm", name: "市盈率(TTM)" }],
+      dates: ["2026-07-30"],
+      values: [[20.5804]],
+    }, "name", 1) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["date", "市盈率(TTM)"])
   })
 
   it("returns an empty list when the API resolves no rows (no-data range)", () => {

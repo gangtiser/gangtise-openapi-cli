@@ -107,10 +107,54 @@ function indicatorHeaders(indicators: IndicatorMeta[], keyBy: "name" | "code", r
   const codes = indicators.map((meta) => optionalString(meta.code))
   const fields = indicators.map((meta, i) => optionalString(meta.field) ?? codes[i])
   const bases = keyBy === "code" ? codes : indicators.map((meta) => optionalString(meta.name))
-  return buildHeaders(bases, fields, reserved)
+  // On a screener payload every column carries its variable, so a repeated base
+  // can suffix ALL of its occurrences instead of leaving the first one bare.
+  // A bare `收盘价` next to `收盘价 (F2)` reads as "the" close price when it is
+  // really just whichever variable the server happened to list first.
+  const screener = indicators.some((meta) => meta.field !== undefined)
+  if (!screener) return buildHeaders(bases, fields, reserved)
+  const repeated = new Set(bases.filter((base, i) => base !== undefined && bases.indexOf(base) !== i))
+  return buildHeaders(bases.map((base, i) => (base !== undefined && repeated.has(base) ? `${base} (${fields[i] ?? i})` : base)), fields, reserved)
 }
 
 const CROSS_SECTION_COLUMNS = ["security", "name"]
+
+/** What the caller asked for that the response does not contain. The server
+ * does NOT pad missing data with `null`: an indicator that is empty for every
+ * security disappears from `indicatorList`, and a security that is empty for
+ * every indicator disappears from `securityCodeList` (probed 2026-08-02 — three
+ * indicators over 09992.HK came back with one, two securities over
+ * `qte_mkt_cptl` came back with one). Only partial gaps become `null`.
+ *
+ * That is the dangerous shape: `--key-by code` batch mapping finds no key at
+ * all rather than a null, and a cross-market pull quietly returns fewer rows
+ * than requested with exit code 0.
+ *
+ * Universe entries with no `.` are skipped — those are sector IDs, which the
+ * server expands into constituents, so their absence from the response is
+ * expected rather than a dropped row. */
+export function droppedFromMatrix(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): { securities: string[]; indicators: string[] } {
+  const empty = { securities: [], indicators: [] }
+  if (!data || typeof data !== "object") return empty
+  const d = data as MatrixData
+  const returnedSecurities = new Set(asStringArray(d.securityCodeList) ?? [])
+  const returnedIndicators = new Set((asIndicatorMetaList(d.indicatorList) ?? []).map((meta) => optionalString(meta.code)))
+  return {
+    securities: requestedSecurities.filter((code) => code.includes(".") && !returnedSecurities.has(code)),
+    indicators: requestedIndicators.filter((code) => !returnedIndicators.has(code)),
+  }
+}
+
+/** The matrix and its axis labels must agree, or every cell is off by a row.
+ * The 2026-08-01 revision transposed cross-section without a version marker, so
+ * a future re-transpose has to fail loudly instead of silently relabelling
+ * columns. Rows are compared, not cells: the server legitimately returns short
+ * rows when a trailing indicator has no data anywhere. */
+function assertRowCount(rows: unknown[], expected: number, axis: string): void {
+  if (rows.length !== expected) {
+    throw new ApiError(`Indicator matrix shape mismatch: got ${rows.length} value rows for ${expected} ${axis} — the response layout may have changed`, undefined)
+  }
+}
 
 // Cross-section (and the screener, whose payload is the same shape plus a
 // per-indicator `field`): one row per security, one column per indicator.
@@ -123,6 +167,7 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   const securityCode = asStringArray(d.securityCodeList)
   const indicators = asIndicatorMetaList(d.indicatorList)
   if (!Array.isArray(d.values) || !securityCode || !indicators) return data
+  assertRowCount(d.values, securityCode.length, "securities")
 
   const securityName = asStringArray(d.securityNameList)
   const headers = indicatorHeaders(indicators, keyBy, CROSS_SECTION_COLUMNS)
@@ -141,7 +186,14 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
 // Time-series: one row per date. Columns are the indicators (single-security
 // case) or the securities (single-indicator case) — exactly one dimension
 // varies, per the API contract. `values` stays a 2D [series][date] matrix.
-export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"): unknown {
+//
+// `requestedSecurities` decides the axis. Deriving it from the RESPONSE is
+// wrong: the server drops securities that have no data at all, so a
+// single-indicator × two-security query where one security is uncovered comes
+// back with one security and silently relabels the column as the indicator —
+// the caller then cannot tell whose series they are holding (probed 2026-08-02:
+// `finc_pe_ttm` over 600519.SH + 09992.HK renders a bare 市盈率(TTM) column).
+export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name", requestedSecurities?: number): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
   const dates = asStringArray(d.dates)
@@ -150,7 +202,8 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   if (!Array.isArray(d.values) || !dates || !securityCode || !indicators) return data
 
   const securityName = asStringArray(d.securityNameList)
-  const seriesAreIndicators = securityCode.length <= 1
+  const seriesAreIndicators = (requestedSecurities ?? securityCode.length) <= 1
+  assertRowCount(d.values, seriesAreIndicators ? indicators.length : securityCode.length, seriesAreIndicators ? "indicators" : "securities")
   // Map over securityCode rather than securityNameList directly: a response that
   // omits the names must still yield one header per security (falling back to
   // the code), not zero columns.

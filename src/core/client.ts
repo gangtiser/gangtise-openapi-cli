@@ -481,16 +481,18 @@ export class GangtiseClient {
         process.stderr.write(`[gangtise] retry ${attempt} after ${delay.toFixed(0)}ms: ${msg.slice(0, 120)}\n`)
       },
     }).catch((error: unknown) => {
-      // EDE uses 999999 for "no data for this query" (probed 2026-07-11) — the
-      // generic "系统错误，请稍后重试" hint would send the user retrying a query
-      // that will never have data. Swap in a fetch-specific hint. Only the data
+      // Until 2026-08-01 EDE answered a no-data query with 999999, so this hint
+      // led with "多为查询无数据". No-data now comes back as an empty array, which
+      // leaves 999999 meaning an actual server fault — but the parameter checklist
+      // is still the right first move, because a wrong param name or date axis
+      // silently yields an EMPTY TABLE rather than this error. Only the data
       // endpoints take a date/security/params; indicator.search shares the
       // no-999999 policy but has just a keyword, so it keeps the generic hint
       // instead of nonsensical date/scope/param guidance.
-      const isIndicatorFetch = endpoint.key === 'indicator.cross-section' || endpoint.key === 'indicator.time-series'
+      const isIndicatorFetch = endpoint.key === 'indicator.cross-section' || endpoint.key === 'indicator.time-series' || endpoint.key === 'indicator.screener'
       if (isIndicatorFetch && error instanceof ApiError && error.code === '999999') {
         throw new ApiError(error.message, error.code, error.statusCode, error.details, error.retryAfterMs,
-          'EDE 的 999999 多为查询无数据——先核对：日期匹配指标周期（财务/MRQ 用报告期末如 2025-12-31、日频估值用交易日）、标的在 scopeList 覆盖内、parameterList 中 required 参数已补；确认应有数据再重试。')
+          'EDE 取数故障。先核对参数再重试：参数名以 indicator search 的 parameterList 为准（传错名是静默失效）、日期匹配指标周期（财务/MRQ 用报告期末如 2025-12-31、日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意「查询无数据」现在返回空表而不是此码。')
       }
       throw error
     })

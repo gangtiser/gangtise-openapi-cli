@@ -324,11 +324,17 @@ export function parseIndicatorParams(specs: string[]): IndicatorParamGroup[] | u
  * error rather than pointing at the binding that is wrong. */
 const SCREENER_FIELD = /^F[1-9][0-9]*$/
 
+/** Variable references inside a screener expression, e.g. the F1/F2 in
+ * `F1 >= 800 && F2 <= 30`. String literals are stripped first, so a
+ * `contains 'F2 系列'` operand is not mistaken for a reference. */
+const SCREENER_FIELD_REF = /\bF[1-9][0-9]*\b/g
+const SCREENER_STRING_LITERAL = /'[^']*'|"[^"]*"/g
+
 // Parse the screener's `--indicator "F1:code"` bindings and merge each one's
 // `--indicator-param "F1:key=value"` specs. Params key off the variable, not the
 // code, because the same indicator may legitimately appear under two variables
 // with different parameters (e.g. the same price on two dates).
-export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]): ScreenerIndicator[] {
+export function parseScreenerIndicators(bindings: string[], paramSpecs: string[], expression?: string): ScreenerIndicator[] {
   const params = parseParamSpecs(paramSpecs, "--indicator-param", "F1:key=value")
   const indicators = new Map<string, ScreenerIndicator>()
   for (const spec of bindings) {
@@ -353,5 +359,29 @@ export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]
       throw new ValidationError(`--indicator-param references "${field}", which no --indicator binds`)
     }
   }
+  // The server does reject this (100003), but only after a round trip — and the
+  // symmetric mistake (binding a variable the expression never uses) it accepts
+  // silently while still billing the extra column.
+  for (const ref of (expression ?? "").replace(SCREENER_STRING_LITERAL, "").match(SCREENER_FIELD_REF) ?? []) {
+    if (!indicators.has(ref)) {
+      throw new ValidationError(`--expression references "${ref}", which no --indicator binds`)
+    }
+  }
   return [...indicators.values()]
+}
+
+/** Indicator codes bound to more than one screener variable, in first-seen
+ * order. The API is specified to allow this (one code under two variables with
+ * different parameters), but the server currently answers such a request with an
+ * empty result set — probed 2026-08-02. Callers warn rather than reject: the
+ * capability is intended and a server-side fix is in flight, so a hard block
+ * here would have to be reverted. */
+export function duplicateScreenerCodes(indicators: ScreenerIndicator[]): string[] {
+  const seen = new Set<string>()
+  const duplicated = new Set<string>()
+  for (const { indicatorCode } of indicators) {
+    if (seen.has(indicatorCode)) duplicated.add(indicatorCode)
+    seen.add(indicatorCode)
+  }
+  return [...duplicated]
 }
