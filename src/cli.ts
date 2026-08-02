@@ -785,24 +785,27 @@ indicator.command("cross-section").option("--indicator <code>", "Indicator code,
   const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.cross-section", buildIndicatorCrossSectionBody(options))
   const data = unwrapIndicatorData(raw)
+  // Flatten first: a shape error must not be preceded by a dropped-rows warning
+  // that reads like the run merely came back short.
+  const rows = flattenCrossSection(data, options.keyBy)
   warnDropped(data, options.security, options.indicator)
-  await printData(flattenCrossSection(data, options.keyBy), format, options.output)
+  await printData(rows, format, options.output)
 }))
 indicator.command("time-series").option("--indicator <code>", "Indicator code, e.g. qte_close (repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).requiredOption("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday (default TD)").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode/securityCode, unique & order-stable for batch mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const raw = await client.call("indicator.time-series", buildIndicatorTimeSeriesBody(options))
   const data = unwrapIndicatorData(raw)
+  // The requested count only breaks the tie when the response is 1×1 — see
+  // flattenTimeSeries. Flatten before warning so a shape error surfaces alone.
+  const rows = flattenTimeSeries(data, options.keyBy, options.security.length)
   warnDropped(data, options.security, options.indicator)
-  // Pass the REQUESTED security count: the server drops securities with no data,
-  // and deriving the axis from the response turns a single-indicator ×
-  // two-security query into an unlabelled indicator column when one is uncovered.
-  await printData(flattenTimeSeries(data, options.keyBy, options.security.length), format, options.output)
+  await printData(rows, format, options.output)
 }))
 indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — required because the screener drops any indicator sent with no parameters at all", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const duplicated = duplicateScreenerCodes(parseScreenerIndicators(options.indicator, options.indicatorParam, options.expression))
   if (duplicated.length > 0) {
-    process.stderr.write(`[gangtise] warning: ${duplicated.join(", ")} bound to more than one variable — the API allows this but the server currently answers such a request with an empty result (probed 2026-08-02). Split into separate calls until it is fixed.\n`)
+    process.stderr.write(`[gangtise] warning: ${duplicated.join(", ")} bound to more than one variable — the API allows this, but the server currently returns a value for at most ONE of those variables and null for the rest, and the same request sometimes comes back empty instead (probed 2026-08-02). Any comparison involving the null variable is filtering on nothing, so treat these rows as unreliable. Split into separate calls until it is fixed.\n`)
   }
   const raw = await client.call("indicator.screener", buildIndicatorScreenerBody(options))
   // Same payload shape as cross-section (one row per matched security, one

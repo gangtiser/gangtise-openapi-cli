@@ -79,7 +79,7 @@ gangtise indicator time-series --indicator <code> [--indicator <code2>] \
 - `--start-date` / `--end-date`（**均必选**）：区间端点 `yyyy-MM-dd`。时序的时间范围由这两个参数统管，**不要**再用 `--indicator-param` 传 `tradeDate` 这类单日期参数
 - `--calendar-type`：日期类型 `ND`(自然日)/`TD`(交易日,默认)/`WD`(工作日)。`TD` 且跨市场时，`date` 列是各市场交易日的**并集**
 - `--currency` / `--scale`：同 `cross-section`（含根级 `--scale` 的污染坑）
-- **输出（宽表）**：每行一个日期，列为 `date / <各序列名>…`；序列在「单证券」时是各**指标**，在「多证券」时是各**证券**
+- **输出（宽表）**：每行一个日期，列为 `date / <各序列名>…`；序列在「单指标」时是各**证券**，在「单证券多指标」时是各**指标**。**板块 ID 算多证券**——传 1 个 `sectorId` 服务端会展开成 N 只成分股，列就是这 N 只（实测中信白酒 → 19 列）
 - **`--key-by name|code`**（默认 `name`）：同 `cross-section`；`code` 模式下单证券列=各 `indicatorCode`、多证券列=各 `securityCode`，批量按 code 回填用它
 - ⚠️ 部分指标标注**不支持时序接口**：`search` 返回的 `scopeList[].usageRestriction` 会写明（如「不支持指标时间序列接口」），`null` 表示无限制。**但它不是硬约束**——实测 `qte_vol_intvl` 带着该标注调时序照样返回数据，服务端不拦。把它当"口径可能不对、结果别当真"的提示，而不是"会报错"的保证
 
@@ -117,7 +117,7 @@ gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
 
 | 现象 | 影响 | 现在怎么办 |
 | :--- | :--- | :--- |
-| **同一 `indicatorCode` 绑到两个变量** → 返回空结果 | 「同一指标比两个日期」这类用法暂时不可用 | CLI 会在 stderr 警告。拆成两次 `cross-section` 再本地比 |
+| **同一 `indicatorCode` 绑到两个变量** → 结果不可信且不稳定 | 至多一个变量拿得到值、其余恒为 `null`，同一请求有时又整体返空。涉及 null 变量的比较等于没筛 | CLI 会在 stderr 警告。拆成两次 `cross-section` 再本地比 |
 | **`contains` / `notcontains` 需要指标带参数才生效** | 官方文档的招牌示例 `F3 contains '酒'`（`parameters: []`）0 命中 | CLI 已通过必填 `--date` 自动绕过，正常可用 |
 
 ```bash

@@ -187,12 +187,19 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
 // case) or the securities (single-indicator case) — exactly one dimension
 // varies, per the API contract. `values` stays a 2D [series][date] matrix.
 //
-// `requestedSecurities` decides the axis. Deriving it from the RESPONSE is
-// wrong: the server drops securities that have no data at all, so a
-// single-indicator × two-security query where one security is uncovered comes
-// back with one security and silently relabels the column as the indicator —
-// the caller then cannot tell whose series they are holding (probed 2026-08-02:
-// `finc_pe_ttm` over 600519.SH + 09992.HK renders a bare 市盈率(TTM) column).
+// Axis rule, in priority order:
+//  1. More than one indicator came back → multi-indicator × single-security.
+//  2. More than one security came back → single-indicator × multi-security.
+//     This is what a sector ID produces: the request carries ONE universe entry
+//     and the server expands it into N constituents, so the request count says
+//     nothing about the axis.
+//  3. Both are 1 → genuinely ambiguous, so fall back to what was REQUESTED. The
+//     server drops securities that have no data at all, and a two-security
+//     request that comes back with one must still be labelled by security or
+//     the caller cannot tell whose series they are holding (probed 2026-08-02:
+//     `finc_pe_ttm` over 600519.SH + 09992.HK).
+// A single-entry sector that expands to exactly one constituent lands in (3) and
+// gets the indicator axis — degenerate, and only cosmetic.
 export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name", requestedSecurities?: number): unknown {
   if (!data || typeof data !== "object") return data
   const d = data as MatrixData
@@ -202,7 +209,9 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   if (!Array.isArray(d.values) || !dates || !securityCode || !indicators) return data
 
   const securityName = asStringArray(d.securityNameList)
-  const seriesAreIndicators = (requestedSecurities ?? securityCode.length) <= 1
+  const seriesAreIndicators = indicators.length > 1 ? true
+    : securityCode.length > 1 ? false
+      : (requestedSecurities ?? securityCode.length) <= 1
   assertRowCount(d.values, seriesAreIndicators ? indicators.length : securityCode.length, seriesAreIndicators ? "indicators" : "securities")
   // Map over securityCode rather than securityNameList directly: a response that
   // omits the names must still yield one header per security (falling back to

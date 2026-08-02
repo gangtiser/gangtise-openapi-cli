@@ -360,6 +360,36 @@ describe("flattenTimeSeries", () => {
     expect(out.list[0].贵州茅台).toBe(20.5804)
   })
 
+  it("uses the security axis when ONE universe entry expands into many securities", () => {
+    // A sector ID is a single --security entry that the server expands into its
+    // constituents, so the request count says nothing about the axis. Reading it
+    // as single-security both mislabels the columns and — once the shape guard
+    // exists — kills the query outright, which is the only way a sector ID is
+    // allowed to be used on this endpoint (v0.30.1 regression).
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH", "000858.SZ", "000568.SZ"],
+      securityNameList: ["贵州茅台", "五粮液", "泸州老窖"],
+      indicatorList: [{ code: "qte_close", name: "收盘价" }],
+      dates: ["2026-07-31"],
+      values: [[1350.6], [78.0], [10.56]],
+    }, "name", 1) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["date", "贵州茅台", "五粮液", "泸州老窖"])
+  })
+
+  it("uses the indicator axis for a multi-indicator response regardless of the request count", () => {
+    const out = flattenTimeSeries({
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [
+        { code: "qte_close", name: "收盘价" },
+        { code: "qte_vol", name: "成交量" },
+      ],
+      dates: ["2026-07-31"],
+      values: [[1350.6], [5512752]],
+    }, "name", 1) as { list: Record<string, unknown>[] }
+    expect(Object.keys(out.list[0])).toEqual(["date", "收盘价", "成交量"])
+  })
+
   it("uses the indicator axis for a genuinely single-security request", () => {
     const out = flattenTimeSeries({
       securityCodeList: ["600519.SH"],
