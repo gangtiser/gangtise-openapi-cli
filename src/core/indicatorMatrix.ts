@@ -63,9 +63,32 @@ function asStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.map((item) => String(item)) : undefined
 }
 
-function asIndicatorMetaList(value: unknown): IndicatorMeta[] | undefined {
+/** An IDENTITY axis — the security codes a row belongs to, the dates a column
+ * belongs to. `String(item)` would turn a `null` into the literal `"null"` and
+ * render it as a perfectly plausible label (probed 2026-08-02: `dates: [null]`
+ * produced `date: "null"`, `securityCodeList: [null]` produced
+ * `security: "null"`), so a fabricated identity would reach the output at exit
+ * 0. Nothing here may be coerced: every entry must already be a non-empty string. */
+function asIdentityArray(data: unknown, value: unknown, key: string): string[] | undefined {
   if (!Array.isArray(value)) return undefined
-  return value.map((item) => (item && typeof item === "object" && !Array.isArray(item) ? (item as IndicatorMeta) : {}))
+  const bad = value.findIndex((item) => typeof item !== "string" || item.trim() === "")
+  if (bad !== -1) {
+    throw new ApiError(`Indicator matrix shape mismatch: ${key}[${bad}] is not a usable identifier (${JSON.stringify(value[bad])}) — rows would be labelled with a value that identifies nothing`, undefined, undefined, data)
+  }
+  return value as string[]
+}
+
+/** Indicator metadata is an identity axis too: `--key-by code` addresses columns
+ * by `code`, so an entry without one cannot be mapped back to what was asked
+ * for. A non-object entry used to collapse into `{}` and surface as `col0`. */
+function asIndicatorMetaList(data: unknown, value: unknown): IndicatorMeta[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const bad = value.findIndex((item) => !item || typeof item !== "object" || Array.isArray(item)
+    || typeof (item as IndicatorMeta).code !== "string" || String((item as IndicatorMeta).code).trim() === "")
+  if (bad !== -1) {
+    throw new ApiError(`Indicator matrix shape mismatch: indicatorList[${bad}] carries no usable \`code\` (${JSON.stringify(value[bad])}) — the column could not be mapped back to a requested indicator`, undefined, undefined, data)
+  }
+  return value as IndicatorMeta[]
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -145,7 +168,7 @@ export function isEmptyMatrix(data: unknown): boolean {
   if (!data || typeof data !== "object") return false
   const d = data as MatrixData
   if (asStringArray(d.securityCodeList)?.length !== 0) return false
-  if (asIndicatorMetaList(d.indicatorList)?.length !== 0) return false
+  if (!Array.isArray(d.indicatorList) || d.indicatorList.length !== 0) return false
   if (!Array.isArray(d.values) || d.values.length !== 0) return false
   // `dates` is time-series only; when present it must be empty too.
   return d.dates === undefined || (Array.isArray(d.dates) && d.dates.length === 0)
@@ -170,7 +193,7 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
   if (!data || typeof data !== "object") return empty
   const d = data as MatrixData
   const returnedSecurities = new Set(asStringArray(d.securityCodeList) ?? [])
-  const returnedIndicators = new Set((asIndicatorMetaList(d.indicatorList) ?? []).map((meta) => optionalString(meta.code)))
+  const returnedIndicators = new Set((Array.isArray(d.indicatorList) ? d.indicatorList as IndicatorMeta[] : []).map((meta) => optionalString(meta?.code)))
   return {
     securities: requestedSecurities.filter((code) => code.includes(".") && !returnedSecurities.has(code)),
     indicators: requestedIndicators.filter((code) => !returnedIndicators.has(code)),
@@ -292,8 +315,8 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   assertMatrixPayload(data, d)
   // Past this point the payload claims to be a matrix, so every axis it needs
   // must actually be there. A `null` or absent axis is a broken response.
-  const securityCode = asStringArray(d.securityCodeList)
-  const indicators = asIndicatorMetaList(d.indicatorList)
+  const securityCode = asIdentityArray(data, d.securityCodeList, "securityCodeList")
+  const indicators = asIndicatorMetaList(data, d.indicatorList)
   assertAxis(data, securityCode, "securityCodeList")
   assertAxis(data, indicators, "indicatorList")
   assertValuesPresent(data, d.values)
@@ -303,7 +326,9 @@ export function flattenCrossSection(data: unknown, keyBy: "name" | "code" = "nam
   const headers = indicatorHeaders(indicators, keyBy, CROSS_SECTION_COLUMNS)
 
   const list = securityCode.map((code, i) => {
-    const row: Record<string, unknown> = { security: code, name: securityName?.[i] }
+    // Only create `name` when there IS one: an always-present `name: undefined`
+    // is invisible in JSON but renders as a real empty column in CSV/table.
+    const row: Record<string, unknown> = securityName ? { security: code, name: securityName[i] } : { security: code }
     const cells = rowOf(d.values, i)
     for (let j = 0; j < headers.length; j++) {
       row[headers[j]] = cells?.[j]
@@ -338,9 +363,9 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   }
   const d = data as MatrixData
   assertMatrixPayload(data, d)
-  const dates = asStringArray(d.dates)
-  const securityCode = asStringArray(d.securityCodeList)
-  const indicators = asIndicatorMetaList(d.indicatorList)
+  const dates = asIdentityArray(data, d.dates, "dates")
+  const securityCode = asIdentityArray(data, d.securityCodeList, "securityCodeList")
+  const indicators = asIndicatorMetaList(data, d.indicatorList)
   assertAxis(data, dates, "dates")
   assertAxis(data, securityCode, "securityCodeList")
   assertAxis(data, indicators, "indicatorList")
@@ -353,6 +378,13 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   // axis becomes the columns, the other one's identity is silently discarded
   // (probed 2026-08-02: 2×2 rendered as 收盘价/成交量 with both securities gone,
   // and droppedFromMatrix sees nothing missing so it would not even flag).
+  // Data with only one identity axis is unattributable in the other direction:
+  // `securityCodeList: []` alongside a populated matrix leaves every row
+  // belonging to no security at all, and the row/column counts still line up so
+  // no other guard notices.
+  if (dates.length > 0 && (securityCode.length === 0 || indicators.length === 0)) {
+    throw new ApiError(`Indicator matrix shape mismatch: the time-series response carries ${dates.length} dates but ${securityCode.length} securities and ${indicators.length} indicators — the data could not be attributed`, undefined, undefined, data)
+  }
   if (securityCode.length > 1 && indicators.length > 1) {
     throw new ApiError(`Indicator matrix shape mismatch: the time-series response carries ${securityCode.length} securities AND ${indicators.length} indicators, which the endpoint does not support — one of the two identities would be lost`, undefined, undefined, data)
   }

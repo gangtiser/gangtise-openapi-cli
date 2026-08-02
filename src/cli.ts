@@ -938,16 +938,29 @@ async function checkForUpdate(timeoutMs = 2000): Promise<void> {
  *
  * The stack is kept behind --verbose: reaching here at all means a CLI bug
  * rather than an API failure, and one line is not enough to locate one. */
+/** Milliseconds to let already-queued stdout reach the pipe before leaving. */
+const FATAL_FLUSH_MS = 200
+let leaving = false
+
 function reportFatal(error: unknown): void {
+  // `error.stack` already opens with "Name: message" — printing both duplicates
+  // the first line.
+  const stack = error instanceof Error ? error.stack : undefined
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-  const stack = isVerbose() && error instanceof Error && error.stack ? `\n${error.stack}` : ""
-  process.stderr.write(`${message}${stack}\n`)
-  // `process.exitCode`, never `process.exit()`: to a pipe, stdout writes are
-  // ASYNC, and exiting immediately discards whatever was handed to the stream
-  // but not yet flushed. A handler meant to stop this release from lying about
-  // exit codes must not start truncating correct output to do it. Setting the
-  // code lets the loop drain and end with 1 on its own.
+  process.stderr.write(`${isVerbose() && stack ? stack : message}\n`)
+  if (leaving) return
+  leaving = true
   process.exitCode = 1
+  // Terminating is not optional: a fatal error with a live handle (a timer, an
+  // open socket) would otherwise keep the process running forever on `exitCode`
+  // alone. But `process.exit()` on the spot truncates stdout, which to a pipe is
+  // written ASYNCHRONOUSLY — a handler meant to stop this release from lying
+  // about exit codes must not start dropping correct output to do it. So: give
+  // queued bytes a bounded moment to drain, then leave either way.
+  const leave = (): never => process.exit(1)
+  if (process.stdout.writableLength === 0) leave()
+  process.stdout.once("drain", leave)
+  setTimeout(leave, FATAL_FLUSH_MS)
 }
 process.on("uncaughtException", reportFatal)
 process.on("unhandledRejection", reportFatal)

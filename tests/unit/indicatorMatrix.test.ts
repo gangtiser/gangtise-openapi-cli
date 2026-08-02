@@ -205,17 +205,36 @@ describe("flattenCrossSection", () => {
     expect(out.list[0].name).toBe("600519.SH")
   })
 
-  it("omits the name column entirely when no securityNameList is sent", () => {
-    // The row axis is `security`; `name` is a caption with nothing to fall back
-    // to at the CELL level, so it is simply absent rather than duplicating the code.
+  it("omits the name KEY entirely when no securityNameList is sent", () => {
+    // Asserting `=== undefined` is not enough: an always-present `name:
+    // undefined` is invisible in JSON but renders as a real empty column in
+    // CSV/table (`security,name,收盘价` / `600519.SH,,1350.6`). The key itself
+    // must be absent, since the renderers derive columns from the row's keys.
     for (const securityNameList of [undefined, null]) {
       const out = flattenCrossSection({
         securityCodeList: ["600519.SH"], securityNameList,
         indicatorList: [{ code: "qte_close", name: "收盘价" }], values: [[1350.6]],
       }) as { list: Record<string, unknown>[] }
-      expect(out.list[0].security).toBe("600519.SH")
-      expect(out.list[0].name).toBeUndefined()
+      expect(Object.keys(out.list[0])).toEqual(["security", "收盘价"])
     }
+  })
+
+  it("refuses to fabricate an identity out of a null code", () => {
+    // String(null) renders the literal "null" as a perfectly plausible label.
+    expect(() => flattenCrossSection({
+      securityCodeList: [null], indicatorList: [{ code: "qte_close" }], values: [[1350.6]],
+    })).toThrow(ApiError)
+  })
+
+  it("refuses an indicator entry with no usable code", () => {
+    // `--key-by code` addresses columns by `code`; an entry without one used to
+    // collapse to `{}` and surface as `col0`, unmappable to what was requested.
+    expect(() => flattenCrossSection({
+      securityCodeList: ["600519.SH"], indicatorList: [null], values: [[1350.6]],
+    })).toThrow(ApiError)
+    expect(() => flattenCrossSection({
+      securityCodeList: ["600519.SH"], indicatorList: [{ name: "收盘价" }], values: [[1350.6]],
+    })).toThrow(ApiError)
   })
 })
 
@@ -290,6 +309,23 @@ describe("malformed matrices", () => {
     }, "name", ["600519.SH", "09992.HK"]) as { list: Record<string, unknown>[] }
     expect(Object.keys(out.list[0])).toEqual(["date", "600519.SH", "09992.HK"])
     expect(out.list[0]["600519.SH"]).toBe(1350.6) // 茅台's value never lands under 泡泡玛特
+  })
+
+  it("refuses a null date rather than labelling a row \"null\"", () => {
+    expect(() => flattenTimeSeries({
+      securityCodeList: ["600519.SH"], indicatorList: [{ code: "qte_close" }],
+      dates: [null], values: [[1350.6]],
+    }, "name", ["600519.SH"])).toThrow(ApiError)
+  })
+
+  it("rejects data that carries only one identity axis", () => {
+    // securityCodeList empty alongside a populated matrix: every row belongs to
+    // no security, and the row/column counts still line up so no other guard
+    // notices.
+    expect(() => flattenTimeSeries({
+      securityCodeList: [], indicatorList: [{ code: "qte_close" }],
+      dates: ["2026-07-31"], values: [[1350.6]],
+    }, "name", ["600519.SH"])).toThrow(ApiError)
   })
 
   it("rejects a response carrying both axes plural, which the endpoint forbids", () => {
