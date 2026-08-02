@@ -140,6 +140,7 @@ function addTimeFilters(command: Command) {
 }
 
 import { setVerbose } from "./core/transport.js"
+import { isVerbose } from "./core/transport.js"
 import { CLI_VERSION } from "./version.js"
 
 const program = new Command()
@@ -933,23 +934,33 @@ async function checkForUpdate(timeoutMs = 2000): Promise<void> {
  * default is a multi-line crash dump on stdout/stderr AND a non-zero exit — so a
  * command whose data was already printed correctly would end up looking like a
  * hard failure, with a stack trace where a message belongs. This release is
- * about exit codes meaning what they say; that is the one path that lies. */
+ * about exit codes meaning what they say; that is the one path that lies.
+ *
+ * The stack is kept behind --verbose: reaching here at all means a CLI bug
+ * rather than an API failure, and one line is not enough to locate one. */
 function reportFatal(error: unknown): void {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-  process.stderr.write(`${message}\n`)
-  process.exit(1)
+  const stack = isVerbose() && error instanceof Error && error.stack ? `\n${error.stack}` : ""
+  process.stderr.write(`${message}${stack}\n`)
+  // `process.exitCode`, never `process.exit()`: to a pipe, stdout writes are
+  // ASYNC, and exiting immediately discards whatever was handed to the stream
+  // but not yet flushed. A handler meant to stop this release from lying about
+  // exit codes must not start truncating correct output to do it. Setting the
+  // code lets the loop drain and end with 1 on its own.
+  process.exitCode = 1
 }
 process.on("uncaughtException", reportFatal)
 process.on("unhandledRejection", reportFatal)
 
-// `gangtise ... | head` closes stdout early; without a handler the final big write
-// crashes Node with an unhandled 'error' event. Exit quietly like a normal CLI.
+/** Teardown races on a closed stdout: the reader went away, which is not this
+ * process's failure. `gangtise ... | head` is the everyday case — it truncates
+ * the output and still exits 0, so a same-class race has no principled reason to
+ * exit 1. Without a handler the final write crashes Node with an unhandled
+ * 'error' event; rethrowing from this callback did the same by another route
+ * (a crash dump appended AFTER the correct JSON had already been written). */
+const READER_GONE = new Set(["EPIPE", "ERR_STREAM_DESTROYED", "EBADF"])
 process.stdout.on("error", (error: NodeJS.ErrnoException) => {
-  // Any teardown race on a closed pipe — EPIPE, ERR_STREAM_DESTROYED, EBADF —
-  // means the reader went away, which is not this process's failure. Rethrowing
-  // from an event callback used to surface as an uncaught exception (a crash
-  // dump appended AFTER the correct JSON had already been written).
-  if (error?.code === "EPIPE") process.exit(0)
+  if (error?.code && READER_GONE.has(error.code)) process.exit(0)
   reportFatal(error)
 })
 

@@ -235,9 +235,10 @@ function resolveSecurityNames(names: unknown, codes: string[]): string[] | undef
   let warned = false
   return names.map((name, i) => {
     if (typeof name === "string" && name.trim() !== "") return name
-    // An empty or null name is a plausible gap for one security; anything else
-    // (an object, a number) means the field changed type and is worth saying so.
-    if (name !== null && name !== undefined && name !== "" && !warned) {
+    // A blank or null name is a plausible gap for one security — fall back
+    // quietly. A non-string (an object, a number) means the field changed type,
+    // which is worth saying once.
+    if (typeof name !== "string" && name !== null && name !== undefined && !warned) {
       warned = true
       process.stderr.write(`[gangtise] warning: securityNameList holds non-string entries; those columns fall back to the security code.\n`)
     }
