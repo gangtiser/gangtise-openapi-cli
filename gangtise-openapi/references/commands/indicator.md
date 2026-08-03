@@ -108,7 +108,7 @@ gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
   - 比较：`==` `>` `<` `>=` `<=` `!=`
   - 文本：`contains` / `notcontains`（不区分大小写，**仅对 `dataType: string` 的指标有效**）
   - 逻辑：`&&` `||`，分组 `(` `)`
-- `--date`（**必选**）：下发为**每个**指标的 `tradeDate`（已带 `tradeDate`/`reportDate` 的不覆盖）。之所以必填且无条件下发：**screener 会丢弃任何 `parameters` 为空数组的指标**——`pty_op_scope` 这种无参指标按官方格式传 `[]` 时永远 0 命中，随便挂个（对它无意义的）`tradeDate` 就正常返回。CLI 已自动处理，你只要记得传 `--date`
+- `--date`（**必选**）：下发为**每个**指标的 `tradeDate`（已带 `tradeDate`/`reportDate` 的不覆盖）。绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以必填。对无参指标（如 `pty_op_scope`）多挂一个 `tradeDate` 无害，因此不做例外
 - `--indicator-param`：格式是 **`F1:key=value`（按变量，不是按 code）**。引用了没绑定的变量会直接报错，不会静默丢弃
 - `--expression` 里引用未绑定的变量，CLI **本地就拦**（不发请求、不计费）；服务端也会报 `100003`
 - **输出（宽表）**：同 `cross-section`，每行一只**命中**的证券，列为 `security / name / <各指标名>…`；无命中返回空表
@@ -118,8 +118,8 @@ gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
 
 | 现象 | 影响 | 现在怎么办 |
 | :--- | :--- | :--- |
-| **同一 `indicatorCode` 绑到两个变量** → 结果不可信且不稳定 | 至多一个变量拿得到值、其余恒为 `null`，同一请求有时又整体返空。涉及 null 变量的比较等于没筛 | CLI 标 `unreliable: true` + `duplicatedIndicators` + **退出码 3**，并在 stderr 警告。**这类结果不能直接用于结论**，拆成两次 `cross-section` 再本地比 |
-| **`contains` / `notcontains` 需要指标带参数才生效** | 官方文档的招牌示例 `F3 contains '酒'`（`parameters: []`）0 命中 | CLI 已通过必填 `--date` 自动绕过，正常可用 |
+| **同一 `indicatorCode` 绑到多个变量** → 整份结果不可信 | 服务端把这些绑定**全部按其中最早的那个日期**取数，该值落到它们的第一列、其余列 `null`（实测 `F1@07-31 + F2@07-30` → F1 列返回 07-30 的 1361.76，F1 自己的 1350.6 根本没出现）。所以**活下来的数字未必属于它标注的变量**；命中的证券集合同样不可信（针对 null 变量的条件等于没筛）；同一请求还有约 1/3 概率返回空集 | CLI 标 `unreliable: true` + `duplicatedIndicators` + **退出码 3**，并在 stderr 警告。**这类结果不能直接用于结论**，拆成两次 `cross-section` 再本地比 |
+| ~~`contains` / `notcontains` 需要指标带参数才生效~~ | 官方文档的招牌示例 `F3 contains '酒'`（`parameters: []`）曾 0 命中 | **✅ 2026-08-03 服务端已修复**，`parameters: []` 现可直接用。CLI 仍无条件下发 `--date`（对无参指标无害、能扛回滚），此行仅作记录 |
 
 ```bash
 # 文本筛选：白酒板块里经营范围含「酒」的公司
@@ -164,7 +164,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 | 缺的范围 | 服务端怎么返 | 后果 |
 | :--- | :--- | :--- |
 | **部分**缺（某证券的某指标） | 该单元格 `null`，行列都在 | 安全，一眼可见 |
-| 某指标对 universe 内**所有**证券都无数据 | 该指标**整列**从 `indicatorList` 消失 | CLI 标 `partial` + `omittedIndicators` + **退出码 3**；`--key-by code` 回填时该 key 根本不存在 |
+| 某指标对 universe 内**所有**证券都无数据 | 该指标**整列**从 `indicatorList` 消失 | CLI 标 `partial` + `omittedIndicators` + **退出码 3**；`--key-by code` 回填时该 key 根本不存在。**`screener` 更严**：若缺的是表达式实际过滤用到的变量，直接**退出码 1 且不输出**（见 screener 小节） |
 | 某证券对**所有**指标都无数据 | 该证券**整行**从 `securityCodeList` 消失 | CLI 标 `partial` + `omittedSecurities` + **退出码 3** |
 | 整个查询无数据 | `securityCodeList`/`values` 皆 `[]`（`Total: 0`），不再报 `999999` | **退出码 0**、不标 partial（什么都没被丢）。但 🔴 **参数写错也长这样**，stderr 会提醒这一歧义 |
 

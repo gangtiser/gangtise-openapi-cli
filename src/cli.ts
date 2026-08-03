@@ -846,13 +846,13 @@ indicator.command("time-series").option("--indicator <code>", "Indicator code, e
   flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
-indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — required because the screener drops any indicator sent with no parameters at all", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — omitting it leaves date-bearing indicators unfiltered and silently yields an empty screen", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   requireIndicatorScope(options.indicator, options.security)
   const bindings = parseScreenerIndicators(options.indicator, options.indicatorParam, options.expression)
   const duplicated = duplicateScreenerCodes(bindings)
   if (duplicated.length > 0) {
-    process.stderr.write(`[gangtise] warning: ${duplicated.join(", ")} bound to more than one variable — the API allows this, but the server currently returns a value for at most ONE of those variables and null for the rest, and the same request sometimes comes back empty instead (probed 2026-08-02). Any comparison involving the null variable is filtering on nothing, so treat these rows as unreliable. Split into separate calls until it is fixed.\n`)
+    process.stderr.write(`[gangtise] warning: ${duplicated.join(", ")} bound to more than one variable — the API allows this, but the server currently resolves ALL of those bindings against the EARLIEST date among them, puts that single value in the first of their columns, and leaves the rest null (probed 2026-08-03). So the surviving number is not necessarily the variable it is labelled with: a variable asking for 07-31 came back holding 07-30's price. Every part of the result is affected — the values shown, and which securities matched at all, since conditions on the null variables filtered on nothing. The same request also returns an empty set about a third of the time. Treat the WHOLE result as unusable and split into separate calls until it is fixed.\n`)
   }
   const raw = await client.call("indicator.screener", buildIndicatorScreenerBody(options))
   // Same payload shape as cross-section (one row per matched security, one
@@ -870,8 +870,12 @@ indicator.command("screener").description("Screen securities by an expression ov
   const rows = flattenCrossSection(data, options.keyBy)
   const unbound = checkScreenerBindings(data, bindings, screenerExpressionFields(options.expression))
   // Same ambiguity as the other matrix commands: an empty screen is a normal
-  // answer AND what a wrong parameter name produces.
-  if (isEmptyMatrix(data)) {
+  // answer AND what a wrong parameter name produces. Keyed on "nothing matched"
+  // rather than the strict canonical-empty shape — a response that returns zero
+  // securities while still echoing `indicatorList` is just as empty to the
+  // caller, and just as ambiguous, but would slip past isEmptyMatrix.
+  if (!Array.isArray((data as { securityCodeList?: unknown }).securityCodeList)
+    || (data as { securityCodeList: unknown[] }).securityCodeList.length === 0) {
     process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but since 2026-08-01 an empty result is ALSO what a wrong parameter name or the wrong date field produces. Cross-check the indicator parameters against 'gangtise indicator search --format json'.\n")
   }
   if (unbound.length > 0) {

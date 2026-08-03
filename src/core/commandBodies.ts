@@ -159,11 +159,15 @@ export function buildIndicatorScreenerBody(options: IndicatorScreenerOptions) {
     universe: maybeArray(options.security),
     expression: options.expression,
     // Every indicator gets a date, including ones whose parameterList is empty.
-    // That is not just convenience: the screener drops any indicator sent with
-    // `parameters: []` — probed 2026-08-02, `pty_op_scope` + `F1 contains '酒'`
-    // matches nothing with an empty list and correctly returns 五粮液/贵州茅台
-    // with a (for that indicator meaningless) tradeDate attached. The official
-    // doc's own `F3 contains '酒'` example cannot work as written.
+    // Harmless there (a parameterless indicator answers normally with a stray
+    // tradeDate), and it keeps one rule for the whole list rather than a
+    // per-indicator exception.
+    //
+    // It also used to be load-bearing: through 2026-08-02 the screener DROPPED
+    // any indicator sent with `parameters: []`, so the official doc's own
+    // `F3 contains '酒'` example could not work as written. Re-probed 2026-08-03:
+    // fixed server-side. Kept anyway — unconditional is simpler than conditional,
+    // and it survives a rollback.
     indicatorList: indicators.map((indicator) => (indicator.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
       ? indicator
       : { ...indicator, parameters: [...indicator.parameters, { paramKey: "tradeDate", paramValue: options.date }] })),

@@ -379,10 +379,16 @@ export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]
 
 /** Indicator codes bound to more than one screener variable, in first-seen
  * order. The API is specified to allow this (one code under two variables with
- * different parameters), but the server currently answers such a request with an
- * empty result set — probed 2026-08-02. Callers warn rather than reject: the
- * capability is intended and a server-side fix is in flight, so a hard block
- * here would have to be reverted. */
+ * different parameters), but the server currently mis-resolves it — probed
+ * 2026-08-03: ALL such bindings are answered from the EARLIEST date among them,
+ * that one value lands in the first of their columns, and the rest come back
+ * null. The surviving number therefore need not belong to the variable it is
+ * labelled with, so it is not merely "one column is missing": the values shown
+ * and the set of matched securities are both untrustworthy. (The same request
+ * also returns an empty set roughly a third of the time.)
+ *
+ * Callers warn rather than reject: the capability is intended and a server-side
+ * fix is in flight, so a hard block here would have to be reverted. */
 export function duplicateScreenerCodes(indicators: ScreenerIndicator[]): string[] {
   const seen = new Set<string>()
   const duplicated = new Set<string>()

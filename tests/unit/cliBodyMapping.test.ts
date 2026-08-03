@@ -195,6 +195,33 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/open-indicator/screener")) {
+        // MISSFILTER.XX: a hit whose F2 column vanished. F2 is what the
+        // expression filters on, so the rows cannot be shown to satisfy it.
+        if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "MISSFILTER.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-missfilter", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+            indicatorList: [{ field: "F1", code: "qte_close", name: "收盘价" }], values: [[1350.6]],
+          } } }))
+          return
+        }
+        // MISSAUX.XX: same shape, but the vanished F2 is only an output column —
+        // the expression never reads it, so information is lost, not correctness.
+        if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "MISSAUX.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+            indicatorList: [{ field: "F1", code: "qte_close", name: "收盘价" }], values: [[1350.6]],
+          } } }))
+          return
+        }
+        // NOMATCH.XX: zero securities but indicatorList still echoed — empty to
+        // the caller, yet not the canonical all-empty shape.
+        if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "NOMATCH.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+            securityCodeList: [], securityNameList: [],
+            indicatorList: [{ field: "F1", code: "NOMATCH.XX", name: "无命中" }], values: [],
+          } } }))
+          return
+        }
         // DRIFT.XX: the server answers a requested F1 under a variable nobody
         // asked for. Every value looks fine; only the binding gives it away.
         if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "DRIFT.XX")) {
@@ -828,6 +855,45 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stdout.trim()).toBe("") // a screening result nobody can trace to a filter must not print
     expect(stderr).toContain("F9")
     expect(stderr).toContain("trace-ede-drift")
+  }, 30_000)
+
+  it("refuses a screener hit whose filtered-on variable produced no column", async () => {
+    const { code, stdout, stderr } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:qte_close", "--indicator", "F2:MISSFILTER.XX",
+      "--security", "600519.SH", "--expression", "F1 > 0 && F2 > 0",
+      "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stdout.trim()).toBe("") // rows claiming to pass F2 must not print when F2 is absent
+    expect(stderr).toContain("F2")
+  }, 30_000)
+
+  it("degrades to partial when a screener column is only an output, not a filter", async () => {
+    const { code, stdout } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:qte_close", "--indicator", "F2:MISSAUX.XX",
+      "--security", "600519.SH", "--expression", "F1 > 0",
+      "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    const payload = JSON.parse(stdout) as { partial?: boolean; omittedIndicators?: string[]; list: unknown[] }
+    expect(payload.partial).toBe(true)
+    expect(payload.omittedIndicators).toEqual(["MISSAUX.XX"])
+    expect(payload.list).toHaveLength(1) // the rows are still correct, just missing a column
+  }, 30_000)
+
+  it("flags the empty-result ambiguity even when the response still echoes indicatorList", async () => {
+    // Zero securities is empty to the caller whether or not the axis lists were
+    // cleared, and just as ambiguous with a wrong parameter name.
+    const { code, stdout, stderr } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:NOMATCH.XX", "--security", "600519.SH",
+      "--expression", "F1 > 0", "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect((JSON.parse(stdout) as { total: number }).total).toBe(0)
+    expect(stderr).toContain("nothing matched")
   }, 30_000)
 
   it("marks a screener result unreliable and exits 3 when one indicator is bound twice", async () => {

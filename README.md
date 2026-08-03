@@ -582,7 +582,7 @@ gangtise indicator time-series --indicator qte_close \
   --start-date 2026-07-29 --end-date 2026-07-31 --format table
 
 # 条件选股：F1/F2… 绑定指标，用表达式组合筛选（--indicator-param 按变量索引，不是按 code）
-# --date 必填：screener 会丢弃 parameters 为空的指标，CLI 靠它给每个指标挂上日期
+# --date 必填：绝大多数指标吃 tradeDate，漏传就是空表 + 退出码 0
 gangtise indicator screener \
   --indicator F1:qte_mkt_cptl --indicator F2:finc_pe_ttm \
   --indicator-param "F1:scale=8" \

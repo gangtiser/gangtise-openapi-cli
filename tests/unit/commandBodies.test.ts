@@ -225,12 +225,16 @@ describe("command request body builders", () => {
   })
 
   it("still attaches a date to a screener indicator that declares no parameters", () => {
-    // pty_op_scope's parameterList is empty, so `parameters: []` looks right —
-    // but the screener DROPS any indicator sent that way: probed 2026-08-02,
-    // `F1 contains '酒'` matches nothing with an empty list and correctly returns
-    // 五粮液/贵州茅台 once a (meaningless, for this indicator) tradeDate rides
-    // along. The official doc's own `F3 contains '酒'` example cannot work as
-    // written. Sending the date unconditionally is what makes string filters work.
+    // pty_op_scope's parameterList is empty, so `parameters: []` would look
+    // right — the date rides along anyway. One rule for the whole list beats a
+    // per-indicator exception, and a parameterless indicator answers normally
+    // with a stray tradeDate attached.
+    //
+    // Through 2026-08-02 this was also load-bearing: the screener DROPPED any
+    // indicator sent with `parameters: []`, so the official doc's own
+    // `F3 contains '酒'` example could not work as written. Re-probed 2026-08-03:
+    // fixed server-side. The behaviour is kept for the reasons above, and because
+    // it survives a rollback.
     expect(buildIndicatorScreenerBody({
       indicator: ["F1:pty_op_scope"],
       security: ["600519.SH"],
