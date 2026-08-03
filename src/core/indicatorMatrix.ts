@@ -234,9 +234,12 @@ export function checkScreenerBindings(data: unknown, requested: { field: string;
 /** What the caller asked for that the response does not contain. The server
  * does NOT pad missing data with `null`: an indicator that is empty for every
  * security disappears from `indicatorList`, and a security that is empty for
- * every indicator disappears from `securityCodeList` (probed 2026-08-02 — three
- * indicators over 09992.HK came back with one, two securities over
- * `qte_mkt_cptl` came back with one). Only partial gaps become `null`.
+ * every indicator disappears from `securityCodeList` (re-probed 2026-08-03 with
+ * `finc_pb_mrq`, which has no HK data: over 09992.HK alongside `qte_close` the
+ * indicator vanishes; over 600519.SH + 09992.HK as the only indicator the
+ * security vanishes). A gap becomes `null` only when BOTH axes survive it — the
+ * security still has another indicator with data AND the indicator still has
+ * another security with data.
  *
  * That is the dangerous shape: `--key-by code` batch mapping finds no key at
  * all rather than a null, and a cross-market pull quietly returns fewer rows
