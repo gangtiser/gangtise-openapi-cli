@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { ApiError, attachEnvelopeTraceId } from "../../src/core/errors.js"
-import { assertScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
+import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "../../src/core/indicatorMatrix.js"
 
 // Field names + value shapes below mirror the LIVE EDE responses as of the
 // 2026-08-01 API revision (probed against openapi.gangtise.com): indicator
@@ -341,38 +341,50 @@ describe("malformed matrices", () => {
   })
 })
 
-describe("assertScreenerBindings", () => {
+describe("checkScreenerBindings", () => {
   const requested = [{ field: "F1", indicatorCode: "qte_close" }, { field: "F2", indicatorCode: "finc_pe_ttm" }]
+  const hit = (indicatorList: unknown[], values: unknown[][] = [[1]]) => ({ securityCodeList: ["600519.SH"], indicatorList, values })
 
   it("accepts a response whose bindings match the request", () => {
-    expect(() => assertScreenerBindings({
-      indicatorList: [{ field: "F1", code: "qte_close" }, { field: "F2", code: "finc_pe_ttm" }],
-    }, requested)).not.toThrow()
+    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F2", code: "finc_pe_ttm" }], [[1, 2]]), requested, ["F1", "F2"])).toEqual([])
   })
 
   it("rejects a variable that was never requested", () => {
     // The binding is the only thing tying a column to the filter it came from,
     // and nothing else in the payload can catch it drifting: a requested F1
     // returned as F9 used to print an ordinary table at exit 0.
-    expect(() => assertScreenerBindings({ indicatorList: [{ field: "F9", code: "qte_close" }] }, requested)).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F9", code: "qte_close" }]), requested, ["F1"])).toThrow(ApiError)
   })
 
   it("rejects a variable bound to a different indicator than requested", () => {
-    expect(() => assertScreenerBindings({ indicatorList: [{ field: "F1", code: "finc_pe_ttm" }] }, requested)).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "finc_pe_ttm" }]), requested, ["F1"])).toThrow(ApiError)
   })
 
   it("rejects a variable that comes back twice", () => {
-    expect(() => assertScreenerBindings({
-      indicatorList: [{ field: "F1", code: "qte_close" }, { field: "F1", code: "qte_close" }],
-    }, requested)).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F1", code: "qte_close" }], [[1, 1]]), requested, ["F1"])).toThrow(ApiError)
   })
 
-  it("accepts a subset — a filtered-out column is not a binding failure", () => {
-    expect(() => assertScreenerBindings({ indicatorList: [{ field: "F1", code: "qte_close" }] }, requested)).not.toThrow()
+  it("rejects a hit whose filtered-on variable produced no column", () => {
+    // Filtering removes SECURITIES, never indicators — a missing column means
+    // that indicator had no data for any matched security, so the condition
+    // written on it cannot be shown to have been applied, while the rows are
+    // presented as having passed it.
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1", "F2"])).toThrow(ApiError)
   })
 
-  it("leaves a wholly empty result alone: it binds nothing", () => {
-    expect(() => assertScreenerBindings({ securityCodeList: [], indicatorList: [], values: [] }, requested)).not.toThrow()
+  it("rejects a hit that carries no columns at all", () => {
+    // A "matched" row with nothing but a security code and name.
+    expect(() => checkScreenerBindings(hit([], [[]]), requested, ["F1", "F2"])).toThrow(ApiError)
+  })
+
+  it("degrades rather than fails when a bound-but-unfiltered column is missing", () => {
+    // F2 is an extra output column here, not a condition — losing it costs
+    // information, not correctness.
+    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1"])).toEqual(["F2"])
+  })
+
+  it("leaves a wholly empty result alone: it matched nothing and binds nothing", () => {
+    expect(checkScreenerBindings({ securityCodeList: [], indicatorList: [], values: [] }, requested, ["F1", "F2"])).toEqual([])
   })
 })
 

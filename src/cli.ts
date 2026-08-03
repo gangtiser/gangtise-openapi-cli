@@ -3,9 +3,9 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
-import { assertScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
+import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
@@ -800,6 +800,18 @@ function flagUnreliable(rows: unknown, duplicated: string[]): void {
   }
 }
 
+/** `--indicator` / `--security` are repeatable, so Commander cannot mark them
+ * required — but every matrix endpoint needs at least one of each and answers a
+ * missing one with 100001, whose hint sends the user to `--help`, which in turn
+ * showed them as optional with a `[]` default. Catch it here: no request, no
+ * round trip, and a message that names the flag. */
+function requireIndicatorScope(indicators: string[], securities: string[], indicatorFlag = "--indicator"): void {
+  const missing = [indicators.length === 0 ? indicatorFlag : "", securities.length === 0 ? "--security" : ""].filter(Boolean)
+  if (missing.length > 0) {
+    throw new ValidationError(`${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} required (repeat the flag for multiple values)`)
+  }
+}
+
 const indicator = new Command("indicator").description("Data indicator (EDE) APIs: search codes, cross-section, time-series, screener")
 indicator.command("search").requiredOption("--keyword <text>", "Search keyword, e.g. '收盘价' '成交量' '营业收入' (not free-form questions)").option("--limit <number>", "Max results (default: 50, max: 100)", "50").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
@@ -809,8 +821,9 @@ indicator.command("search").requiredOption("--keyword <text>", "Search keyword, 
   })
   await printData(unwrapIndicatorData(raw), format, options.output)
 }))
-indicator.command("cross-section").option("--indicator <code>", "Indicator code, e.g. qte_close (repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as each indicator's tradeDate — report-period indicators need --indicator-param 'code:reportDate=...' instead", dateArg("--date")).option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode, unique & order-stable for batch code→value mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("cross-section").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as each indicator's tradeDate — report-period indicators need --indicator-param 'code:reportDate=...' instead", dateArg("--date")).option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode, unique & order-stable for batch code→value mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
+  requireIndicatorScope(options.indicator, options.security)
   const raw = await client.call("indicator.cross-section", buildIndicatorCrossSectionBody(options))
   const data = requireIndicatorMatrix(raw)
   // Flatten first: a shape error must not be preceded by a dropped-rows warning
@@ -819,8 +832,9 @@ indicator.command("cross-section").option("--indicator <code>", "Indicator code,
   flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
-indicator.command("time-series").option("--indicator <code>", "Indicator code, e.g. qte_close (repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).requiredOption("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday (default TD)").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode/securityCode, unique & order-stable for batch mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("time-series").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).requiredOption("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday (default TD)").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode/securityCode, unique & order-stable for batch mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
+  requireIndicatorScope(options.indicator, options.security)
   const raw = await client.call("indicator.time-series", buildIndicatorTimeSeriesBody(options))
   const data = requireIndicatorMatrix(raw)
   // Pass the universe itself, not a count: flattenTimeSeries needs to know
@@ -832,8 +846,9 @@ indicator.command("time-series").option("--indicator <code>", "Indicator code, e
   flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
-indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — required because the screener drops any indicator sent with no parameters at all", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — required because the screener drops any indicator sent with no parameters at all", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
+  requireIndicatorScope(options.indicator, options.security)
   const bindings = parseScreenerIndicators(options.indicator, options.indicatorParam, options.expression)
   const duplicated = duplicateScreenerCodes(bindings)
   if (duplicated.length > 0) {
@@ -845,10 +860,28 @@ indicator.command("screener").description("Screen securities by an expression ov
   // flag here: a security missing from a screener result means it failed the
   // filter, which is the whole point.
   const data = requireIndicatorMatrix(raw)
-  // Before anything is rendered: the returned variable bindings must be the ones
-  // that were asked for, or the columns cannot be traced back to their filters.
-  assertScreenerBindings(data, bindings)
+  // Before anything is rendered: the returned bindings must be the ones that
+  // were asked for, and every variable the expression filters on must be there,
+  // or the rows cannot be shown to satisfy the conditions they claim to.
+  // Flatten first: it asserts the payload's structural axes, and a response
+  // missing `indicatorList` outright deserves that diagnosis rather than being
+  // reported as a binding problem. Nothing renders in between, so ordering the
+  // structural check ahead of the semantic one is free.
   const rows = flattenCrossSection(data, options.keyBy)
+  const unbound = checkScreenerBindings(data, bindings, screenerExpressionFields(options.expression))
+  // Same ambiguity as the other matrix commands: an empty screen is a normal
+  // answer AND what a wrong parameter name produces.
+  if (isEmptyMatrix(data)) {
+    process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but since 2026-08-01 an empty result is ALSO what a wrong parameter name or the wrong date field produces. Cross-check the indicator parameters against 'gangtise indicator search --format json'.\n")
+  }
+  if (unbound.length > 0) {
+    // Bound but never filtered on: losing the column costs information, not
+    // correctness, so it degrades rather than failing.
+    const rec = rows as Record<string, unknown>
+    rec.partial = true
+    rec.omittedIndicators = unbound.map((field) => bindings.find((b) => b.field === field)?.indicatorCode ?? field)
+    process.stderr.write(`[gangtise] warning: ${unbound.join(", ")} produced no column at all (no data for any matched security) — those output values are missing. Result marked partial (exit 3).\n`)
+  }
   if (duplicated.length > 0) flagUnreliable(rows, duplicated)
   await printData(rows, format, options.output)
 }))

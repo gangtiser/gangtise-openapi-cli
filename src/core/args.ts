@@ -330,6 +330,13 @@ const SCREENER_FIELD = /^F[1-9][0-9]*$/
 const SCREENER_FIELD_REF = /\bF[1-9][0-9]*\b/g
 const SCREENER_STRING_LITERAL = /'[^']*'|"[^"]*"/g
 
+/** Variables the expression actually filters on, string literals stripped. These
+ * are the bindings whose VALUES the result depends on — a column missing for one
+ * of them means the filter cannot be shown to have been applied. */
+export function screenerExpressionFields(expression: string | undefined): string[] {
+  return (expression ?? "").replace(SCREENER_STRING_LITERAL, "").match(SCREENER_FIELD_REF) ?? []
+}
+
 // Parse the screener's `--indicator "F1:code"` bindings and merge each one's
 // `--indicator-param "F1:key=value"` specs. Params key off the variable, not the
 // code, because the same indicator may legitimately appear under two variables
@@ -362,7 +369,7 @@ export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]
   // The server does reject this (100003), but only after a round trip — and the
   // symmetric mistake (binding a variable the expression never uses) it accepts
   // silently while still billing the extra column.
-  for (const ref of (expression ?? "").replace(SCREENER_STRING_LITERAL, "").match(SCREENER_FIELD_REF) ?? []) {
+  for (const ref of screenerExpressionFields(expression)) {
     if (!indicators.has(ref)) {
       throw new ValidationError(`--expression references "${ref}", which no --indicator binds`)
     }

@@ -522,12 +522,12 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS["insight.qa.list"].retry).toBeUndefined()
   })
 
-  it("marks EDE indicator endpoints as no-999999 (server uses that code for no-data)", () => {
+  it("marks every indicator endpoint as no-999999 (replaying a billed EDE query buys nothing)", () => {
     // Probed 2026-07-11 (no-data answered HTTP 500 + 999999 back then; since
     // 2026-08-01 no-data returns an empty array and 999999 is a real fault —
     // either way replaying a billed EDE query buys nothing). Historically:
     // 999999 — retrying wastes 3 requests + ~4s on every empty query.
-    for (const key of ["indicator.search", "indicator.cross-section", "indicator.time-series"]) {
+    for (const key of ["indicator.search", "indicator.cross-section", "indicator.time-series", "indicator.screener"]) {
       expect(ENDPOINTS[key], key).toBeDefined()
       expect(ENDPOINTS[key].retry, key).toBe("no-999999")
     }

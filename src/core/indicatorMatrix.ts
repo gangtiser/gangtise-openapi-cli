@@ -188,7 +188,10 @@ export function isEmptyMatrix(data: unknown): boolean {
  * Universe entries with no `.` are skipped — those are sector IDs, which the
  * server expands into constituents, so their absence from the response is
  * expected rather than a dropped row. */
-/** The screener answers with the variable each column was requested under, and
+/** Validate the variable bindings a screener answered with, returning the bound
+ * variables that are merely missing (see below).
+ *
+ * The screener answers with the variable each column was requested under, and
  * that binding is the ONLY thing tying a column back to the filter it came from
  * — nothing else in the payload can catch it going wrong. A swapped or unknown
  * `field` renders as a perfectly ordinary result (probed 2026-08-02: a response
@@ -198,10 +201,13 @@ export function isEmptyMatrix(data: unknown): boolean {
  * Every returned entry must therefore name a REQUESTED variable and carry that
  * variable's code, and no variable may appear twice. A wholly empty result binds
  * nothing and is left alone. */
-export function assertScreenerBindings(data: unknown, requested: { field: string; indicatorCode: string }[]): void {
-  if (!data || typeof data !== "object") return
-  const indicators = (data as MatrixData).indicatorList
-  if (!Array.isArray(indicators) || indicators.length === 0) return
+export function checkScreenerBindings(data: unknown, requested: { field: string; indicatorCode: string }[], filteredOn: string[]): string[] {
+  if (!data || typeof data !== "object") return []
+  const d = data as MatrixData
+  // A result with no securities matched nothing and binds nothing — the
+  // canonical empty answer, left alone.
+  if (!Array.isArray(d.securityCodeList) || d.securityCodeList.length === 0) return []
+  const indicators = Array.isArray(d.indicatorList) ? d.indicatorList : []
   const wanted = new Map(requested.map((binding) => [binding.field, binding.indicatorCode]))
   const seen = new Set<string>()
   for (const [i, meta] of (indicators as IndicatorMeta[]).entries()) {
@@ -218,6 +224,19 @@ export function assertScreenerBindings(data: unknown, requested: { field: string
     }
     seen.add(field)
   }
+  // Securities came back, so the filter ran. Every variable the EXPRESSION reads
+  // must be present: a column vanishing is not "it got filtered out" — filtering
+  // removes securities (rows), never indicators (columns). Its absence means
+  // that indicator had no data for any matched security, i.e. the condition
+  // written on it cannot be shown to have been applied at all, while the rows
+  // are presented as having passed it.
+  const missingFiltered = [...new Set(filteredOn)].filter((field) => !seen.has(field))
+  if (missingFiltered.length > 0) {
+    throw new ApiError(`Screener binding mismatch: the expression filters on ${missingFiltered.join(", ")} but the response carries no such column, so the rows cannot be shown to satisfy it`, undefined, undefined, data)
+  }
+  // A bound-but-unfiltered variable is an extra output column; losing it costs
+  // information, not correctness, so it degrades to partial rather than failing.
+  return [...wanted.keys()].filter((field) => !seen.has(field))
 }
 
 export function droppedFromMatrix(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): { securities: string[]; indicators: string[] } {
