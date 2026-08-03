@@ -330,15 +330,73 @@ const SCREENER_FIELD = /^F[1-9][0-9]*$/
 const SCREENER_FIELD_REF = /\bF[1-9][0-9]*\b/g
 const SCREENER_STRING_LITERAL = /'[^']*'|"[^"]*"/g
 
-/** True when the expression is a pure conjunction — no `||` outside string
- * literals. It decides how hard a missing column is treated: under `&&` every
- * referenced variable must have contributed to every matched row, so a vanished
- * column means that condition cannot be shown to have been applied. Under `||` a
- * row can legitimately satisfy the expression while another operand is not
- * evaluable at all (`F1 > 0 || F2 > 0` over a HK security where `finc_pe_ttm`
- * has no coverage), so the same absence proves nothing wrong. */
-export function screenerExpressionIsConjunctive(expression: string | undefined): boolean {
-  return !(expression ?? "").replace(SCREENER_STRING_LITERAL, "").includes("||")
+/** Split an expression into `(`, `)`, `&&`, `||` and the atoms between them.
+ * String literals are copied verbatim so a `||` or an `F2` inside one is never
+ * mistaken for syntax. */
+function tokenizeScreenerExpression(src: string): string[] {
+  const tokens: string[] = []
+  let atom = ""
+  const flush = () => { if (atom.trim()) tokens.push(atom); atom = "" }
+  for (let i = 0; i < src.length;) {
+    const ch = src[i]
+    if (ch === "'" || ch === '"') {
+      const close = src.indexOf(ch, i + 1)
+      const stop = close === -1 ? src.length : close + 1
+      atom += src.slice(i, stop)
+      i = stop
+    } else if (src.startsWith("&&", i) || src.startsWith("||", i)) {
+      flush(); tokens.push(src.slice(i, i + 2)); i += 2
+    } else if (ch === "(" || ch === ")") {
+      flush(); tokens.push(ch); i += 1
+    } else {
+      atom += ch; i += 1
+    }
+  }
+  flush()
+  return tokens
+}
+
+/** Whether the expression still has a path that could have been evaluated, given
+ * the variables the response actually returned a column for.
+ *
+ * The boolean structure decides, not the mere presence of a `||`:
+ *   - a term is evaluable when every variable it names has a column;
+ *   - `A && B` needs BOTH sides — a missing mandatory conjunct is an unprovable
+ *     claim even if the other side is a disjunction;
+ *   - `A || B` needs only one — a row can legitimately match through one operand
+ *     while the other is not evaluable at all (probed 2026-08-03: `F1 > 0 || F2
+ *     > 0` over 09992.HK, where `finc_pe_ttm` has no HK coverage, matches on F2).
+ *
+ * So `F1 && (F2 || F3)` missing F1, and `F1 || F2` missing both, are both
+ * unevaluable and must fail — checking only for a `||` anywhere would let them
+ * through. */
+export function screenerExpressionIsEvaluable(expression: string | undefined, present: Set<string>): boolean {
+  const tokens = tokenizeScreenerExpression(expression ?? "")
+  let pos = 0
+  const unit = (): boolean => {
+    if (tokens[pos] === "(") {
+      pos += 1
+      const value = or()
+      if (tokens[pos] === ")") pos += 1
+      return value
+    }
+    const atom = tokens[pos++] ?? ""
+    // A term naming no variable (a literal comparison) is always evaluable.
+    return (atom.replace(SCREENER_STRING_LITERAL, "").match(SCREENER_FIELD_REF) ?? []).every((ref) => present.has(ref))
+  }
+  const and = (): boolean => {
+    let value = unit()
+    // Evaluate both sides before combining: short-circuiting would leave the
+    // parser mid-expression.
+    while (tokens[pos] === "&&") { pos += 1; const right = unit(); value = value && right }
+    return value
+  }
+  const or = (): boolean => {
+    let value = and()
+    while (tokens[pos] === "||") { pos += 1; const right = and(); value = value || right }
+    return value
+  }
+  return or()
 }
 
 /** Variables the expression actually filters on, string literals stripped. These

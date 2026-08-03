@@ -3,7 +3,7 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, screenerExpressionFields, screenerExpressionIsConjunctive, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
@@ -871,7 +871,7 @@ indicator.command("screener").description("Screen securities by an expression ov
   // structural check ahead of the semantic one is free.
   const rows = flattenCrossSection(data, options.keyBy)
   const filteredOn = screenerExpressionFields(options.expression)
-  const unbound = checkScreenerBindings(data, bindings, filteredOn, screenerExpressionIsConjunctive(options.expression))
+  const unbound = checkScreenerBindings(data, bindings, options.expression)
   // Same ambiguity as the other matrix commands: an empty screen is a normal
   // answer AND what a wrong parameter name produces. Keyed on "nothing matched"
   // rather than the strict canonical-empty shape — a response that returns zero
@@ -889,7 +889,7 @@ indicator.command("screener").description("Screen securities by an expression ov
     rec.omittedIndicators = unbound.map((field) => bindings.find((b) => b.field === field)?.indicatorCode ?? field)
     const alsoFiltered = unbound.filter((field) => filteredOn.includes(field))
     const filterNote = alsoFiltered.length > 0
-      ? ` The expression also filters on ${alsoFiltered.join(", ")}, so that condition was applied to none of these rows — with a \`||\` present they may still match legitimately through another operand, but verify before relying on that filter.`
+      ? ` The expression also filters on ${alsoFiltered.join(", ")}, so that condition was applied to none of these rows — another branch of the expression could still have matched them legitimately, but verify before relying on that filter.`
       : ""
     process.stderr.write(`[gangtise] warning: ${unbound.join(", ")} produced no column at all (no data for any matched security) — those output values are missing.${filterNote} Result marked partial (exit 3).\n`)
   }

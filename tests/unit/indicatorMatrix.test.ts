@@ -344,24 +344,25 @@ describe("malformed matrices", () => {
 describe("checkScreenerBindings", () => {
   const requested = [{ field: "F1", indicatorCode: "qte_close" }, { field: "F2", indicatorCode: "finc_pe_ttm" }]
   const hit = (indicatorList: unknown[], values: unknown[][] = [[1]]) => ({ securityCodeList: ["600519.SH"], indicatorList, values })
+  const EXPR_AND = "F1 > 0 && F2 > 0"
 
   it("accepts a response whose bindings match the request", () => {
-    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F2", code: "finc_pe_ttm" }], [[1, 2]]), requested, ["F1", "F2"], true)).toEqual([])
+    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F2", code: "finc_pe_ttm" }], [[1, 2]]), requested, EXPR_AND)).toEqual([])
   })
 
   it("rejects a variable that was never requested", () => {
     // The binding is the only thing tying a column to the filter it came from,
     // and nothing else in the payload can catch it drifting: a requested F1
     // returned as F9 used to print an ordinary table at exit 0.
-    expect(() => checkScreenerBindings(hit([{ field: "F9", code: "qte_close" }]), requested, ["F1"], true)).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F9", code: "qte_close" }]), requested, EXPR_AND)).toThrow(ApiError)
   })
 
   it("rejects a variable bound to a different indicator than requested", () => {
-    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "finc_pe_ttm" }]), requested, ["F1"], true)).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "finc_pe_ttm" }]), requested, EXPR_AND)).toThrow(ApiError)
   })
 
   it("rejects a variable that comes back twice", () => {
-    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F1", code: "qte_close" }], [[1, 1]]), requested, ["F1"], true)).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F1", code: "qte_close" }], [[1, 1]]), requested, EXPR_AND)).toThrow(ApiError)
   })
 
   it("rejects a hit whose filtered-on variable produced no column", () => {
@@ -369,33 +370,62 @@ describe("checkScreenerBindings", () => {
     // that indicator had no data for any matched security, so the condition
     // written on it cannot be shown to have been applied, while the rows are
     // presented as having passed it.
-    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1", "F2"], true)).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, EXPR_AND)).toThrow(ApiError)
   })
 
   it("rejects a hit that carries no columns at all", () => {
-    // A "matched" row with nothing but a security code and name.
-    expect(() => checkScreenerBindings(hit([], [[]]), requested, ["F1", "F2"], true)).toThrow(ApiError)
+    // A "matched" row with nothing but a security code and name — no term of the
+    // expression could have been evaluated.
+    expect(() => checkScreenerBindings(hit([], [[]]), requested, EXPR_AND)).toThrow(ApiError)
   })
 
   it("degrades rather than fails when a bound-but-unfiltered column is missing", () => {
-    // F2 is an extra output column here, not a condition — losing it costs
-    // information, not correctness.
-    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1"], true)).toEqual(["F2"])
+    // F2 is bound as an extra output column but never read by the expression, so
+    // losing it costs information, not correctness.
+    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, "F1 > 0")).toEqual(["F2"])
   })
 
-  it("degrades instead of failing when the expression is a disjunction", () => {
+  it("degrades when a disjunction still has an evaluable branch", () => {
     // `F1 > 0 || F2 > 0` over a security where F1 has no coverage: the row
     // matched legitimately through F2, so F1's missing column proves nothing
-    // wrong (probed 2026-08-03 on 09992.HK with finc_pe_ttm).
-    expect(checkScreenerBindings(hit([{ field: "F2", code: "finc_pe_ttm" }]), requested, ["F1", "F2"], false)).toEqual(["F1"])
+    // wrong (probed 2026-08-03 on 09992.HK, where finc_pe_ttm — bound here as
+    // F2 — has no HK data; the roles are per `requested` above).
+    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, "F1 > 0 || F2 > 0")).toEqual(["F2"])
   })
 
-  it("still fails on a missing filtered column when the expression is pure conjunction", () => {
-    expect(() => checkScreenerBindings(hit([{ field: "F2", code: "finc_pe_ttm" }]), requested, ["F1", "F2"], true)).toThrow(ApiError)
+  it("fails when a disjunction has NO evaluable branch", () => {
+    // Both operands lost their column: nothing in the expression could have been
+    // evaluated, so the returned rows are unexplainable.
+    expect(() => checkScreenerBindings(
+      { securityCodeList: ["600519.SH"], indicatorList: [], values: [[]] }, requested, "F1 > 0 || F2 > 0",
+    )).toThrow(ApiError)
+  })
+
+  it("fails when a mandatory conjunct is missing even though the expression contains ||", () => {
+    // `F1 && (F2 || F3)` — F1 has to hold for every matched row, so its absence
+    // is an unprovable claim regardless of the disjunction beside it. Checking
+    // merely "does the expression contain ||" would wrongly let this through.
+    const req = [...requested, { field: "F3", indicatorCode: "qte_vol" }]
+    expect(() => checkScreenerBindings(
+      hit([{ field: "F2", code: "finc_pe_ttm" }, { field: "F3", code: "qte_vol" }], [[20.4, 5512752]]),
+      req, "F1 > 0 && (F2 > 0 || F3 > 0)",
+    )).toThrow(ApiError)
+  })
+
+  it("accepts a mixed expression when every mandatory conjunct is present", () => {
+    const req = [...requested, { field: "F3", indicatorCode: "qte_vol" }]
+    expect(checkScreenerBindings(
+      hit([{ field: "F1", code: "qte_close" }, { field: "F3", code: "qte_vol" }], [[1350.6, 5512752]]),
+      req, "F1 > 0 && (F2 > 0 || F3 > 0)",
+    )).toEqual(["F2"])
+  })
+
+  it("still fails on a missing filtered column under a pure conjunction", () => {
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, "F1 > 0 && F2 > 0")).toThrow(ApiError)
   })
 
   it("leaves a wholly empty result alone: it matched nothing and binds nothing", () => {
-    expect(checkScreenerBindings({ securityCodeList: [], indicatorList: [], values: [] }, requested, ["F1", "F2"], true)).toEqual([])
+    expect(checkScreenerBindings({ securityCodeList: [], indicatorList: [], values: [] }, requested, EXPR_AND)).toEqual([])
   })
 })
 

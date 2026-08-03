@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, toTimestamp13 , screenerExpressionIsEvaluable} from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -386,5 +386,47 @@ describe("localDateString", () => {
 
   it("zero-pads single-digit months and days", () => {
     expect(localDateString(new Date(2026, 0, 3))).toBe("2026-01-03")
+  })
+})
+
+
+describe("screenerExpressionIsEvaluable", () => {
+  const present = (...fields: string[]) => new Set(fields)
+
+  it("needs every variable a term names", () => {
+    expect(screenerExpressionIsEvaluable("F1 > 0", present("F1"))).toBe(true)
+    expect(screenerExpressionIsEvaluable("F1 > 0", present())).toBe(false)
+    expect(screenerExpressionIsEvaluable("F1 > F2", present("F1"))).toBe(false)
+  })
+
+  it("needs BOTH sides of a conjunction", () => {
+    expect(screenerExpressionIsEvaluable("F1 > 0 && F2 > 0", present("F1", "F2"))).toBe(true)
+    expect(screenerExpressionIsEvaluable("F1 > 0 && F2 > 0", present("F1"))).toBe(false)
+  })
+
+  it("needs only ONE side of a disjunction", () => {
+    // The real case: finc_pe_ttm has no HK coverage, the row matches on price.
+    expect(screenerExpressionIsEvaluable("F1 > 0 || F2 > 0", present("F2"))).toBe(true)
+    expect(screenerExpressionIsEvaluable("F1 > 0 || F2 > 0", present())).toBe(false)
+  })
+
+  it("still requires a mandatory conjunct beside a disjunction", () => {
+    // Checking merely "does the expression contain ||" would wrongly pass this.
+    expect(screenerExpressionIsEvaluable("F1 > 0 && (F2 > 0 || F3 > 0)", present("F2", "F3"))).toBe(false)
+    expect(screenerExpressionIsEvaluable("F1 > 0 && (F2 > 0 || F3 > 0)", present("F1", "F3"))).toBe(true)
+  })
+
+  it("honours parentheses over default precedence", () => {
+    expect(screenerExpressionIsEvaluable("(F1 > 0 || F2 > 0) && F3 > 0", present("F1", "F3"))).toBe(true)
+    expect(screenerExpressionIsEvaluable("(F1 > 0 || F2 > 0) && F3 > 0", present("F1", "F2"))).toBe(false)
+  })
+
+  it("ignores operators and variables inside string literals", () => {
+    expect(screenerExpressionIsEvaluable("F1 contains 'a||b'", present("F1"))).toBe(true)
+    expect(screenerExpressionIsEvaluable("F1 contains 'F2 系列'", present("F1"))).toBe(true)
+  })
+
+  it("treats a term naming no variable as evaluable", () => {
+    expect(screenerExpressionIsEvaluable("", present())).toBe(true)
   })
 })

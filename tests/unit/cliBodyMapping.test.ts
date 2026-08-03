@@ -200,7 +200,20 @@ beforeAll(async () => {
         if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "MISSFILTER.XX")) {
           res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-missfilter", data: { code: "000000", status: true, data: {
             securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
-            indicatorList: [{ field: "F1", code: "qte_close", name: "收盘价" }], values: [[1350.6]],
+            // Echo every requested binding EXCEPT the one standing in for the
+            // uncovered indicator, so the same stub serves the 2- and 3-binding
+            // cases (F2 && (F1 || F3) needs F1 and F3 to come back).
+            indicatorList: ((body as { indicatorList?: { field: string; indicatorCode: string }[] } | undefined)?.indicatorList ?? [])
+              .filter((i) => i.indicatorCode !== "MISSFILTER.XX")
+              .map((i) => ({ field: i.field, code: i.indicatorCode, name: "收盘价" })),
+            values: [Array(Math.max(0, ((body as { indicatorList?: unknown[] } | undefined)?.indicatorList ?? []).length - 1)).fill(1350.6)],
+          } } }))
+          return
+        }
+        // NOCOLUMN.XX: a hit with NO indicator columns at all.
+        if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).some((i) => i.indicatorCode === "NOCOLUMN.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"], indicatorList: [], values: [[]],
           } } }))
           return
         }
@@ -855,6 +868,51 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stdout.trim()).toBe("") // a screening result nobody can trace to a filter must not print
     expect(stderr).toContain("F9")
     expect(stderr).toContain("trace-ede-drift")
+  }, 30_000)
+
+  it("keeps a disjunction result whose other operand still had a column", async () => {
+    // The real shape (probed 2026-08-03): finc_pe_ttm has no HK coverage, so the
+    // response carries only the other operand's column and the row matched
+    // through it. Killing this was the regression Claude caught.
+    const { code, stdout, stderr } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:qte_close", "--indicator", "F2:MISSFILTER.XX",
+      "--security", "600519.SH", "--expression", "F1 > 0 || F2 > 0",
+      "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(3) // data intact; the F2 condition simply never applied
+    const payload = JSON.parse(stdout) as { partial?: boolean; list: unknown[] }
+    expect(payload.partial).toBe(true)
+    expect(payload.list).toHaveLength(1)
+    expect(stderr).toContain("F2")
+  }, 30_000)
+
+  it("refuses a disjunction with no evaluable branch left", async () => {
+    // Both operands lost their column: nothing in `F1 > 0 || F2 > 0` could have
+    // been evaluated, so the returned row is unexplainable.
+    const { code, stdout } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:NOCOLUMN.XX", "--indicator", "F2:qte_vol",
+      "--security", "600519.SH", "--expression", "F1 > 0 || F2 > 0",
+      "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stdout.trim()).toBe("")
+  }, 30_000)
+
+  it("refuses a mixed expression whose mandatory conjunct lost its column", async () => {
+    // `F2 && (F1 || F3)`: F2 has to hold for every matched row, so its absence is
+    // fatal even though a `||` sits beside it. A guard that only asked "does the
+    // expression contain ||" would wrongly let this through.
+    const { code, stdout, stderr } = await cli([
+      "indicator", "screener",
+      "--indicator", "F1:qte_close", "--indicator", "F2:MISSFILTER.XX", "--indicator", "F3:qte_vol",
+      "--security", "600519.SH", "--expression", "F2 > 0 && (F1 > 0 || F3 > 0)",
+      "--date", "2026-07-31", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stdout.trim()).toBe("")
+    expect(stderr).toContain("F2")
   }, 30_000)
 
   it("refuses a screener hit whose filtered-on variable produced no column", async () => {

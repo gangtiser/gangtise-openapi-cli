@@ -164,7 +164,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 | 缺的范围 | 服务端怎么返 | 后果 |
 | :--- | :--- | :--- |
 | **部分**缺（某证券的某指标） | 该单元格 `null`，行列都在 | 安全，一眼可见 |
-| 某指标对 universe 内**所有**证券都无数据 | 该指标**整列**从 `indicatorList` 消失 | CLI 标 `partial` + `omittedIndicators` + **退出码 3**；`--key-by code` 回填时该 key 根本不存在。**`screener` 更严**：若缺的是表达式实际过滤用到的变量，直接**退出码 1 且不输出**（见 screener 小节） |
+| 某指标对 universe 内**所有**证券都无数据 | 该指标**整列**从 `indicatorList` 消失 | CLI 标 `partial` + `omittedIndicators` + **退出码 3**；`--key-by code` 回填时该 key 根本不存在。**`screener` 按表达式布尔结构判**：缺列的变量视为无法求值，整个表达式再无可成立分支时 → **退出码 1 且不输出**；仍有分支可求值（如 `F1 || F2` 只缺 F1）→ `partial` + 退出码 3（见 screener 小节） |
 | 某证券对**所有**指标都无数据 | 该证券**整行**从 `securityCodeList` 消失 | CLI 标 `partial` + `omittedSecurities` + **退出码 3** |
 | 整个查询无数据 | `securityCodeList`/`values` 皆 `[]`（`Total: 0`），不再报 `999999` | **退出码 0**、不标 partial（什么都没被丢）。但 🔴 **参数写错也长这样**，stderr 会提醒这一歧义 |
 

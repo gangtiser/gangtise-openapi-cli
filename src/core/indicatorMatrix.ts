@@ -1,3 +1,4 @@
+import { screenerExpressionFields, screenerExpressionIsEvaluable } from "./args.js"
 import { ApiError, attachEnvelopeTraceId, ENVELOPE_TRACE_ID } from "./errors.js"
 
 // The EDE cross-section / time-series endpoints return a `values` matrix plus
@@ -201,7 +202,7 @@ export function isEmptyMatrix(data: unknown): boolean {
  * Every returned entry must therefore name a REQUESTED variable and carry that
  * variable's code, and no variable may appear twice. A wholly empty result binds
  * nothing and is left alone. */
-export function checkScreenerBindings(data: unknown, requested: { field: string; indicatorCode: string }[], filteredOn: string[], conjunctive: boolean): string[] {
+export function checkScreenerBindings(data: unknown, requested: { field: string; indicatorCode: string }[], expression: string | undefined): string[] {
   if (!data || typeof data !== "object") return []
   const d = data as MatrixData
   // A result with no securities matched nothing and binds nothing — the
@@ -229,24 +230,15 @@ export function checkScreenerBindings(data: unknown, requested: { field: string;
   // (columns); the absence means that indicator had no data for any matched
   // security. What that implies depends on how the expression combines terms:
   //
-  //   `&&` only  → every referenced variable had to hold for every matched row,
-  //                so a missing column IS an unprovable claim. Fatal.
-  //   contains `||` → a row can satisfy the expression through another operand
-  //                while this one is not evaluable at all (probed 2026-08-03:
-  //                `F1 > 0 || F2 > 0` over 09992.HK, where finc_pe_ttm has no HK
-  //                coverage, legitimately matches on F2 alone). Absence proves
-  //                nothing wrong, so it degrades instead of failing.
-  //
-  // A mixed expression (`F1 > 0 && (F2 > 0 || F3 > 0)`) degrades too. That is
-  // deliberate: without parsing precedence, downgrading is the reading that
-  // cannot throw away a correct answer, and it is still exit 3 with a named
-  // warning rather than silence.
+  // The answer follows the expression's BOOLEAN STRUCTURE, not the mere presence
+  // of a `||` — see screenerExpressionIsEvaluable. If no branch survives the
+  // missing columns, the rows cannot be shown to satisfy anything and the result
+  // is fatal; if some branch still could have matched, the absence proves nothing
+  // wrong and it degrades to partial.
   const missing = [...wanted.keys()].filter((field) => !seen.has(field))
-  if (conjunctive) {
-    const missingFiltered = [...new Set(filteredOn)].filter((field) => !seen.has(field))
-    if (missingFiltered.length > 0) {
-      throw new ApiError(`Screener binding mismatch: the expression filters on ${missingFiltered.join(", ")} but the response carries no such column, so the rows cannot be shown to satisfy it`, undefined, undefined, data)
-    }
+  if (!screenerExpressionIsEvaluable(expression, seen)) {
+    const absent = [...new Set(screenerExpressionFields(expression))].filter((field) => !seen.has(field))
+    throw new ApiError(`Screener binding mismatch: the expression cannot be evaluated from what came back — ${absent.join(", ")} ${absent.length > 1 ? "have" : "has"} no column, and no branch of the expression survives without ${absent.length > 1 ? "them" : "it"}, so the rows cannot be shown to satisfy it`, undefined, undefined, data)
   }
   // Whatever survives is an output column that went missing: information lost,
   // correctness intact.
