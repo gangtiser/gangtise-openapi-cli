@@ -53,7 +53,7 @@ gangtise quote realtime [--security <code>] [--field <name>]
 - 返回**最新时刻**的行情快照（最新价/开高低/涨跌/成交量额/振幅）
 - 非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照
 - **实测全量字段（16 个，2026-07-24）**：`securityCode` `exchange` `tradeDate` `tradeTime` `open` `high` `low` `latestPrice` `preClose` `change` `pctChange` `volume` `amount` `turnoverRate` `amplitude` `volumeRatio`
-- **没有 `close`**——收盘价语义用 `latestPrice`（非交易时间即为收盘价），或改用 `quote day-kline` 的 `close`；**也没有市值**，总市值走 `indicator cross-section --indicator qte_mkt_cptl`（仅 A 股）
+- **没有 `close`**——收盘价语义用 `latestPrice`（非交易时间即为收盘价），或改用 `quote day-kline` 的 `close`；**也没有市值**，总市值走 `indicator cross-section --indicator qte_mkt_cptl`（2026-08-03 起 A/港/美股均有数）
 - 字段速查：见 `references/fields.md` 中的"实时行情"小节
 
 ## A股资金流向 `quote fund-flow`

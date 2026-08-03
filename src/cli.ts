@@ -863,8 +863,10 @@ indicator.command("screener").description("Screen securities by an expression ov
   // filter, which is the whole point.
   const data = requireIndicatorMatrix(raw)
   // Before anything is rendered: the returned bindings must be the ones that
-  // were asked for, and every variable the expression filters on must be there,
-  // or the rows cannot be shown to satisfy the conditions they claim to.
+  // were asked for, and the expression must still be evaluable from the columns
+  // that came back — otherwise the rows cannot be shown to satisfy the
+  // conditions they claim to. See checkScreenerBindings for how a missing column
+  // is weighed against the expression's boolean structure.
   // Flatten first: it asserts the payload's structural axes, and a response
   // missing `indicatorList` outright deserves that diagnosis rather than being
   // reported as a binding problem. Nothing renders in between, so ordering the
@@ -882,8 +884,9 @@ indicator.command("screener").description("Screen securities by an expression ov
     process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but since 2026-08-01 an empty result is ALSO what a wrong parameter name or the wrong date field produces. Cross-check the indicator parameters against 'gangtise indicator search --format json'.\n")
   }
   if (unbound.length > 0) {
-    // Bound but never filtered on: losing the column costs information, not
-    // correctness, so it degrades rather than failing.
+    // Whatever reached here still leaves the expression evaluable (or was never
+    // read by it), so the rows stand: losing the column costs information, not
+    // correctness, and it degrades rather than failing.
     const rec = rows as Record<string, unknown>
     rec.partial = true
     rec.omittedIndicators = unbound.map((field) => bindings.find((b) => b.field === field)?.indicatorCode ?? field)

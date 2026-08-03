@@ -297,7 +297,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
-- **v0.30.2 起退出码 3 的覆盖面扩大**（脚本按 `!= 0` 判失败的需留意）：`indicator` 命令在服务端整指标/整证券无数据时同样标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3；条件选股把同一指标绑到多个变量时标 `unreliable: true` + `duplicatedIndicators` 并退出 3（那些值不可信，不是少了行）。**整个查询合法无数据仍是退出码 0 且不标 partial**。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整或不可信／`1` 硬失败
+- **v0.30.2 起退出码 3 的覆盖面扩大**（脚本按 `!= 0` 判失败的需留意）：`indicator` 命令在服务端整指标/整证券无数据时同样标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3；条件选股把同一指标绑到多个变量时标 `unreliable: true` + `duplicatedIndicators` 并退出 3（那些值不可信，不是少了行）。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。**整个查询合法无数据仍是退出码 0 且不标 partial**。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整或不可信／`1` 硬失败
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 
 ## 智能文件命名

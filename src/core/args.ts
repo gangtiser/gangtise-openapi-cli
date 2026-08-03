@@ -336,7 +336,10 @@ const SCREENER_STRING_LITERAL = /'[^']*'|"[^"]*"/g
 function tokenizeScreenerExpression(src: string): string[] {
   const tokens: string[] = []
   let atom = ""
-  const flush = () => { if (atom.trim()) tokens.push(atom); atom = "" }
+  const flush = () => {
+    if (atom.trim()) tokens.push(atom)
+    atom = ""
+  }
   for (let i = 0; i < src.length;) {
     const ch = src[i]
     if (ch === "'" || ch === '"') {
@@ -345,11 +348,16 @@ function tokenizeScreenerExpression(src: string): string[] {
       atom += src.slice(i, stop)
       i = stop
     } else if (src.startsWith("&&", i) || src.startsWith("||", i)) {
-      flush(); tokens.push(src.slice(i, i + 2)); i += 2
+      flush()
+      tokens.push(src.slice(i, i + 2))
+      i += 2
     } else if (ch === "(" || ch === ")") {
-      flush(); tokens.push(ch); i += 1
+      flush()
+      tokens.push(ch)
+      i += 1
     } else {
-      atom += ch; i += 1
+      atom += ch
+      i += 1
     }
   }
   flush()
@@ -388,12 +396,20 @@ export function screenerExpressionIsEvaluable(expression: string | undefined, pr
     let value = unit()
     // Evaluate both sides before combining: short-circuiting would leave the
     // parser mid-expression.
-    while (tokens[pos] === "&&") { pos += 1; const right = unit(); value = value && right }
+    while (tokens[pos] === "&&") {
+      pos += 1
+      const right = unit()
+      value = value && right
+    }
     return value
   }
   const or = (): boolean => {
     let value = and()
-    while (tokens[pos] === "||") { pos += 1; const right = and(); value = value || right }
+    while (tokens[pos] === "||") {
+      pos += 1
+      const right = and()
+      value = value || right
+    }
     return value
   }
   return or()
