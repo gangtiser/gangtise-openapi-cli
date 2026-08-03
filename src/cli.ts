@@ -807,8 +807,8 @@ function flagUnreliable(rows: unknown, duplicated: string[]): void {
  * missing one with 100001, whose hint sends the user to `--help`, which in turn
  * showed them as optional with a `[]` default. Catch it here: no request, no
  * round trip, and a message that names the flag. */
-function requireIndicatorScope(indicators: string[], securities: string[], indicatorFlag = "--indicator"): void {
-  const missing = [indicators.length === 0 ? indicatorFlag : "", securities.length === 0 ? "--security" : ""].filter(Boolean)
+function requireIndicatorScope(indicators: string[], securities: string[]): void {
+  const missing = [indicators.length === 0 ? "--indicator" : "", securities.length === 0 ? "--security" : ""].filter(Boolean)
   if (missing.length > 0) {
     throw new ValidationError(`${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} required (repeat the flag for multiple values)`)
   }
@@ -879,8 +879,9 @@ indicator.command("screener").description("Screen securities by an expression ov
   // rather than the strict canonical-empty shape — a response that returns zero
   // securities while still echoing `indicatorList` is just as empty to the
   // caller, and just as ambiguous, but would slip past isEmptyMatrix.
-  if (!Array.isArray((data as { securityCodeList?: unknown }).securityCodeList)
-    || (data as { securityCodeList: unknown[] }).securityCodeList.length === 0) {
+  // flattenCrossSection above already asserted this is an array of non-empty
+  // strings, so only its length is left to read.
+  if ((data as { securityCodeList: unknown[] }).securityCodeList.length === 0) {
     process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but since 2026-08-01 an empty result is ALSO what a wrong parameter name or the wrong date field produces. Cross-check the indicator parameters against 'gangtise indicator search --format json'.\n")
   }
   if (unbound.length > 0) {

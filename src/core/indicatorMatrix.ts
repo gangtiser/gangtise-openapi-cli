@@ -175,20 +175,6 @@ export function isEmptyMatrix(data: unknown): boolean {
   return d.dates === undefined || (Array.isArray(d.dates) && d.dates.length === 0)
 }
 
-/** What the caller asked for that the response does not contain. The server
- * does NOT pad missing data with `null`: an indicator that is empty for every
- * security disappears from `indicatorList`, and a security that is empty for
- * every indicator disappears from `securityCodeList` (probed 2026-08-02 — three
- * indicators over 09992.HK came back with one, two securities over
- * `qte_mkt_cptl` came back with one). Only partial gaps become `null`.
- *
- * That is the dangerous shape: `--key-by code` batch mapping finds no key at
- * all rather than a null, and a cross-market pull quietly returns fewer rows
- * than requested with exit code 0.
- *
- * Universe entries with no `.` are skipped — those are sector IDs, which the
- * server expands into constituents, so their absence from the response is
- * expected rather than a dropped row. */
 /** Validate the variable bindings a screener answered with, returning the bound
  * variables that are merely missing (see below).
  *
@@ -245,6 +231,20 @@ export function checkScreenerBindings(data: unknown, requested: { field: string;
   return missing
 }
 
+/** What the caller asked for that the response does not contain. The server
+ * does NOT pad missing data with `null`: an indicator that is empty for every
+ * security disappears from `indicatorList`, and a security that is empty for
+ * every indicator disappears from `securityCodeList` (probed 2026-08-02 — three
+ * indicators over 09992.HK came back with one, two securities over
+ * `qte_mkt_cptl` came back with one). Only partial gaps become `null`.
+ *
+ * That is the dangerous shape: `--key-by code` batch mapping finds no key at
+ * all rather than a null, and a cross-market pull quietly returns fewer rows
+ * than requested with exit code 0.
+ *
+ * Universe entries with no `.` are skipped — those are sector IDs, which the
+ * server expands into constituents, so their absence from the response is
+ * expected rather than a dropped row. */
 export function droppedFromMatrix(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): { securities: string[]; indicators: string[] } {
   const empty = { securities: [], indicators: [] }
   if (!data || typeof data !== "object") return empty
@@ -257,23 +257,6 @@ export function droppedFromMatrix(data: unknown, requestedSecurities: string[], 
   }
 }
 
-/** The matrix and its axis labels must agree on BOTH dimensions, or cells are
- * dropped or misread. The 2026-08-01 revision transposed cross-section without a
- * version marker, so a re-transpose has to fail loudly rather than silently
- * relabel columns — with the caveat that this only catches a NON-SQUARE change.
- * A 2×2 or 1×1 matrix keeps its dimensions when transposed and would still be
- * read with the axes swapped; nothing in the payload distinguishes the two.
- *
- * Row length is checked exactly, not leniently: the server pads a row with
- * `null` rather than truncating it — probed 2026-08-02 across A/HK/US, where a
- * US security missing 3 of 4 indicators still came back with a full-length row,
- * and a cross-market time series padded every security to the union of trading
- * days (each market's own holidays land as `null`). A short or long row is
- * therefore a structural change, not missing data.
- *
- * `data` rides along as ApiError details so the failure keeps the response's
- * traceId — a shape mismatch is precisely the kind of thing support needs to
- * trace, and without it the error reaches the user trace-less. */
 /** True only when the payload carries NONE of the EDE matrix keys — a foreign
  * shape. Nothing legitimately reaches the flatteners in that state — `indicator
  * search` prints its unwrapped list directly and `raw call` bypasses them — so
@@ -347,6 +330,23 @@ function assertValuesPresent(data: unknown, values: unknown): asserts values is 
   }
 }
 
+/** The matrix and its axis labels must agree on BOTH dimensions, or cells are
+ * dropped or misread. The 2026-08-01 revision transposed cross-section without a
+ * version marker, so a re-transpose has to fail loudly rather than silently
+ * relabel columns — with the caveat that this only catches a NON-SQUARE change.
+ * A 2×2 or 1×1 matrix keeps its dimensions when transposed and would still be
+ * read with the axes swapped; nothing in the payload distinguishes the two.
+ *
+ * Row length is checked exactly, not leniently: the server pads a row with
+ * `null` rather than truncating it — probed 2026-08-02 across A/HK/US, where a
+ * US security missing 3 of 4 indicators still came back with a full-length row,
+ * and a cross-market time series padded every security to the union of trading
+ * days (each market's own holidays land as `null`). A short or long row is
+ * therefore a structural change, not missing data.
+ *
+ * `data` rides along as ApiError details so the failure keeps the response's
+ * traceId — a shape mismatch is precisely the kind of thing support needs to
+ * trace, and without it the error reaches the user trace-less. */
 function assertMatrixShape(data: unknown, values: unknown[], rows: number, rowAxis: string, cols: number, colAxis: string): void {
   if (values.length !== rows) {
     throw new ApiError(`Indicator matrix shape mismatch: got ${values.length} value rows for ${rows} ${rowAxis} — the response layout may have changed`, undefined, undefined, data)

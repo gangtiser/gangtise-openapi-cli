@@ -114,7 +114,7 @@ gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
 - **输出（宽表）**：同 `cross-section`，每行一只**命中**的证券，列为 `security / name / <各指标名>…`；无命中返回空表
 - **积分**：与 `cross-section` 同价（按单元格计），但计费基数是**筛选前**的范围 × 指标数，别拿全市场板块随手试
 
-### 已知服务端缺陷（2026-08-02 实测，已报后台）
+### 已知服务端缺陷（2026-08-03 复测，已报后台）
 
 | 现象 | 影响 | 现在怎么办 |
 | :--- | :--- | :--- |
@@ -159,7 +159,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 
 ## 必填参数与错误码（取数前必读）
 
-**缺数据的三种形态（2026-08-02 实测，务必分清）**：
+**缺数据的四种形态（务必分清）**：
 
 | 缺的范围 | 服务端怎么返 | 后果 |
 | :--- | :--- | :--- |
@@ -170,7 +170,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 
 ⚠️ 由 ②③ 与 ④ 的分界推出一个不直觉但自洽的结果：**同一个 scope 落空，单查是 0、混查是 3**——`finc_pb_mrq` 只查 `09992.HK` 时整体全空（退出 0），和 `600519.SH` 一起查时泡泡玛特整行被丢（退出 3 + `omittedSecurities`）。全空时没有任何证据能区分「无覆盖」和「无数据」，只有存在对照物时才有。**想确认某标的是否被某指标覆盖，就把它和一个已知有数的标的一起查。**
 
-实测：3 个指标查港股 `09992.HK` 只回 1 个指标（市值/股本整列消失）；`qte_mkt_cptl` 查 `600519.SH`+`09992.HK` 只回 1 行。**CLI 对这两种标 `partial: true` + `omittedIndicators` / `omittedSecurities` 并以退出码 3 结束**，同时在 stderr 打印被略过的 code（`--format json` 下 stdout 仍是干净 JSON）。脚本按 `!= 0` 判失败的要注意：3 表示「有数据但不完整」，不是硬失败。
+实测（2026-08-03，用当时仍只有 A 股的 `finc_pb_mrq`）：`finc_pb_mrq` 单独查 `09992.HK` 整表为空；`finc_pb_mrq` 查 `600519.SH`+`09992.HK` 只回 1 行。**CLI 对这两种标 `partial: true` + `omittedIndicators` / `omittedSecurities` 并以退出码 3 结束**，同时在 stderr 打印被略过的 code（`--format json` 下 stdout 仍是干净 JSON）。脚本按 `!= 0` 判失败的要注意：3 表示「有数据但不完整」，不是硬失败。
 
 取数报错主要是这几个码：
 
