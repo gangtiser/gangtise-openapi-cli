@@ -4,7 +4,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 
 > 例外：`indicator`（EDE）四个接口（`search` / `cross-section` / `time-series` / `screener`）成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`）。内层字段名 2026-08-01 起为 `securityCodeList` / `securityNameList` / `indicatorList[{code,name,dataType}]`（screener 另带 `field`），`values` 是 2D 矩阵：**截面与 screener 为 `[证券][指标]`**（该版转置过，此前是 `[指标][证券]`）、时序仍为 `[序列][日期]`。
 >
-> 缺数据分三档：**部分**缺 → 单元格 `null`；某指标对所有证券都无数据 → 该指标**整列**从 `indicatorList` 消失；某证券对所有指标都无数据 → 该证券**整行**从 `securityCodeList` 消失；整查询无数据 → 全空数组。CLI 的 `indicator` 子命令已二次解包、拍平成宽表，并在整列/整行被略过时标 `partial` + 退出码 3；直接 `raw call indicator.*` 只会剥外层，内层与缺数据形态需自行处理。
+> 缺数据分三档：**部分**缺 → 单元格 `null`；某指标对所有证券都无数据 → 该指标**整列**从 `indicatorList` 消失；某证券对所有指标都无数据 → 该证券**整行**从 `securityCodeList` 消失；整查询无数据 → 全空数组。CLI 的 `indicator` 子命令已二次解包、拍平成宽表，并在整列/整行被略过时标 `partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3。**`screener` 例外**：缺的若是表达式实际过滤用到的变量、且表达式是纯合取（无 `||`），则**退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；表达式含 `||` 或缺的只是输出用的辅助变量时，仍走 `partial` + 退出码 3。重复绑定同一指标另标 `unreliable` + `duplicatedIndicators` + 退出码 3；直接 `raw call indicator.*` 只会剥外层，内层与缺数据形态需自行处理。
 
 ## 通用模式（5 类）
 

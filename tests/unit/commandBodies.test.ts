@@ -204,8 +204,9 @@ describe("command request body builders", () => {
 
   it("keeps two variables on the same indicator separate, each with its own date", () => {
     // This asserts the BODY only. The API specifies one code under two variables
-    // (the same price on two dates), but the server currently answers such a
-    // request with an empty result — probed 2026-08-02, and a fix is in flight.
+    // (the same price on two dates), but the server currently resolves all of
+    // them from the earliest date among the bindings and nulls the rest — probed
+    // 2026-08-03, and a fix is in flight.
     // `indicator screener` warns on stderr; the body must already be correct so
     // the feature works the moment the server does.
     expect(buildIndicatorScreenerBody({

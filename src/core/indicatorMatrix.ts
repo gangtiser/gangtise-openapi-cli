@@ -201,7 +201,7 @@ export function isEmptyMatrix(data: unknown): boolean {
  * Every returned entry must therefore name a REQUESTED variable and carry that
  * variable's code, and no variable may appear twice. A wholly empty result binds
  * nothing and is left alone. */
-export function checkScreenerBindings(data: unknown, requested: { field: string; indicatorCode: string }[], filteredOn: string[]): string[] {
+export function checkScreenerBindings(data: unknown, requested: { field: string; indicatorCode: string }[], filteredOn: string[], conjunctive: boolean): string[] {
   if (!data || typeof data !== "object") return []
   const d = data as MatrixData
   // A result with no securities matched nothing and binds nothing — the
@@ -224,19 +224,33 @@ export function checkScreenerBindings(data: unknown, requested: { field: string;
     }
     seen.add(field)
   }
-  // Securities came back, so the filter ran. Every variable the EXPRESSION reads
-  // must be present: a column vanishing is not "it got filtered out" — filtering
-  // removes securities (rows), never indicators (columns). Its absence means
-  // that indicator had no data for any matched security, i.e. the condition
-  // written on it cannot be shown to have been applied at all, while the rows
-  // are presented as having passed it.
-  const missingFiltered = [...new Set(filteredOn)].filter((field) => !seen.has(field))
-  if (missingFiltered.length > 0) {
-    throw new ApiError(`Screener binding mismatch: the expression filters on ${missingFiltered.join(", ")} but the response carries no such column, so the rows cannot be shown to satisfy it`, undefined, undefined, data)
+  // Securities came back, so the filter ran. A column vanishing is never "it got
+  // filtered out" — filtering removes securities (rows), never indicators
+  // (columns); the absence means that indicator had no data for any matched
+  // security. What that implies depends on how the expression combines terms:
+  //
+  //   `&&` only  → every referenced variable had to hold for every matched row,
+  //                so a missing column IS an unprovable claim. Fatal.
+  //   contains `||` → a row can satisfy the expression through another operand
+  //                while this one is not evaluable at all (probed 2026-08-03:
+  //                `F1 > 0 || F2 > 0` over 09992.HK, where finc_pe_ttm has no HK
+  //                coverage, legitimately matches on F2 alone). Absence proves
+  //                nothing wrong, so it degrades instead of failing.
+  //
+  // A mixed expression (`F1 > 0 && (F2 > 0 || F3 > 0)`) degrades too. That is
+  // deliberate: without parsing precedence, downgrading is the reading that
+  // cannot throw away a correct answer, and it is still exit 3 with a named
+  // warning rather than silence.
+  const missing = [...wanted.keys()].filter((field) => !seen.has(field))
+  if (conjunctive) {
+    const missingFiltered = [...new Set(filteredOn)].filter((field) => !seen.has(field))
+    if (missingFiltered.length > 0) {
+      throw new ApiError(`Screener binding mismatch: the expression filters on ${missingFiltered.join(", ")} but the response carries no such column, so the rows cannot be shown to satisfy it`, undefined, undefined, data)
+    }
   }
-  // A bound-but-unfiltered variable is an extra output column; losing it costs
-  // information, not correctness, so it degrades to partial rather than failing.
-  return [...wanted.keys()].filter((field) => !seen.has(field))
+  // Whatever survives is an output column that went missing: information lost,
+  // correctness intact.
+  return missing
 }
 
 export function droppedFromMatrix(data: unknown, requestedSecurities: string[], requestedIndicators: string[]): { securities: string[]; indicators: string[] } {

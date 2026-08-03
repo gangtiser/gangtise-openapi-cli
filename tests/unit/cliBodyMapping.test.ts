@@ -901,7 +901,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     // null for the rest, so any comparison against the null one filtered on
     // nothing — the rows are present but untrustworthy, which `partial` would
     // mis-describe.
-    const { code, stdout } = await cli([
+    const { code, stdout, stderr } = await cli([
       "indicator", "screener",
       "--indicator", "F1:qte_close", "--indicator", "F2:qte_close",
       "--security", "600519.SH", "--expression", "F1 > F2",
@@ -911,6 +911,13 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     const payload = JSON.parse(stdout) as { unreliable?: boolean; duplicatedIndicators?: string[] }
     expect(payload.unreliable).toBe(true)
     expect(payload.duplicatedIndicators).toEqual(["qte_close"])
+    // Pin the diagnosis, not just the flag: the defect is that the surviving
+    // number may belong to another binding (all of them resolve from the
+    // earliest date), so a warning that only mentions nulls would understate it
+    // and must not pass.
+    expect(stderr).toContain("qte_close")
+    expect(stderr).toContain("EARLIEST")
+    expect(stderr).toMatch(/WHOLE result as unusable/)
   }, 30_000)
 
   it("indicator time-series --key-by code keys multi-security columns by securityCode", async () => {

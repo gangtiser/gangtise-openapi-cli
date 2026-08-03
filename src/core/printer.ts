@@ -41,8 +41,9 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
     // - `partial`: rows are missing (failed pages/shards, a row cap, or an EDE
     //   response that dropped whole securities/indicators).
     // - `unreliable`: the rows that ARE here may hold wrong values — currently
-    //   only the screener's duplicate-indicator defect, where a bound variable
-    //   comes back null and every comparison against it filters on nothing.
+    //   only the screener's duplicate-indicator defect, where every binding of a
+    //   repeated code is resolved from the EARLIEST date among them, so the one
+    //   surviving number need not belong to the variable it is labelled with.
     if (meta.partial === true || meta.unreliable === true) {
       process.exitCode = 3
     }

@@ -346,22 +346,22 @@ describe("checkScreenerBindings", () => {
   const hit = (indicatorList: unknown[], values: unknown[][] = [[1]]) => ({ securityCodeList: ["600519.SH"], indicatorList, values })
 
   it("accepts a response whose bindings match the request", () => {
-    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F2", code: "finc_pe_ttm" }], [[1, 2]]), requested, ["F1", "F2"])).toEqual([])
+    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F2", code: "finc_pe_ttm" }], [[1, 2]]), requested, ["F1", "F2"], true)).toEqual([])
   })
 
   it("rejects a variable that was never requested", () => {
     // The binding is the only thing tying a column to the filter it came from,
     // and nothing else in the payload can catch it drifting: a requested F1
     // returned as F9 used to print an ordinary table at exit 0.
-    expect(() => checkScreenerBindings(hit([{ field: "F9", code: "qte_close" }]), requested, ["F1"])).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F9", code: "qte_close" }]), requested, ["F1"], true)).toThrow(ApiError)
   })
 
   it("rejects a variable bound to a different indicator than requested", () => {
-    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "finc_pe_ttm" }]), requested, ["F1"])).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "finc_pe_ttm" }]), requested, ["F1"], true)).toThrow(ApiError)
   })
 
   it("rejects a variable that comes back twice", () => {
-    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F1", code: "qte_close" }], [[1, 1]]), requested, ["F1"])).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }, { field: "F1", code: "qte_close" }], [[1, 1]]), requested, ["F1"], true)).toThrow(ApiError)
   })
 
   it("rejects a hit whose filtered-on variable produced no column", () => {
@@ -369,22 +369,33 @@ describe("checkScreenerBindings", () => {
     // that indicator had no data for any matched security, so the condition
     // written on it cannot be shown to have been applied, while the rows are
     // presented as having passed it.
-    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1", "F2"])).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1", "F2"], true)).toThrow(ApiError)
   })
 
   it("rejects a hit that carries no columns at all", () => {
     // A "matched" row with nothing but a security code and name.
-    expect(() => checkScreenerBindings(hit([], [[]]), requested, ["F1", "F2"])).toThrow(ApiError)
+    expect(() => checkScreenerBindings(hit([], [[]]), requested, ["F1", "F2"], true)).toThrow(ApiError)
   })
 
   it("degrades rather than fails when a bound-but-unfiltered column is missing", () => {
     // F2 is an extra output column here, not a condition — losing it costs
     // information, not correctness.
-    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1"])).toEqual(["F2"])
+    expect(checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, ["F1"], true)).toEqual(["F2"])
+  })
+
+  it("degrades instead of failing when the expression is a disjunction", () => {
+    // `F1 > 0 || F2 > 0` over a security where F1 has no coverage: the row
+    // matched legitimately through F2, so F1's missing column proves nothing
+    // wrong (probed 2026-08-03 on 09992.HK with finc_pe_ttm).
+    expect(checkScreenerBindings(hit([{ field: "F2", code: "finc_pe_ttm" }]), requested, ["F1", "F2"], false)).toEqual(["F1"])
+  })
+
+  it("still fails on a missing filtered column when the expression is pure conjunction", () => {
+    expect(() => checkScreenerBindings(hit([{ field: "F2", code: "finc_pe_ttm" }]), requested, ["F1", "F2"], true)).toThrow(ApiError)
   })
 
   it("leaves a wholly empty result alone: it matched nothing and binds nothing", () => {
-    expect(checkScreenerBindings({ securityCodeList: [], indicatorList: [], values: [] }, requested, ["F1", "F2"])).toEqual([])
+    expect(checkScreenerBindings({ securityCodeList: [], indicatorList: [], values: [] }, requested, ["F1", "F2"], true)).toEqual([])
   })
 })
 

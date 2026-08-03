@@ -330,6 +330,17 @@ const SCREENER_FIELD = /^F[1-9][0-9]*$/
 const SCREENER_FIELD_REF = /\bF[1-9][0-9]*\b/g
 const SCREENER_STRING_LITERAL = /'[^']*'|"[^"]*"/g
 
+/** True when the expression is a pure conjunction — no `||` outside string
+ * literals. It decides how hard a missing column is treated: under `&&` every
+ * referenced variable must have contributed to every matched row, so a vanished
+ * column means that condition cannot be shown to have been applied. Under `||` a
+ * row can legitimately satisfy the expression while another operand is not
+ * evaluable at all (`F1 > 0 || F2 > 0` over a HK security where `finc_pe_ttm`
+ * has no coverage), so the same absence proves nothing wrong. */
+export function screenerExpressionIsConjunctive(expression: string | undefined): boolean {
+  return !(expression ?? "").replace(SCREENER_STRING_LITERAL, "").includes("||")
+}
+
 /** Variables the expression actually filters on, string literals stripped. These
  * are the bindings whose VALUES the result depends on — a column missing for one
  * of them means the filter cannot be shown to have been applied. */

@@ -48,7 +48,7 @@ gangtise indicator cross-section --indicator <code> [--indicator <code2>] \
 - `--indicator`（**至少 1 个**）：指标编码，来自 `search`，可重复传多个
 - `--security`（**至少 1 个**）：证券代码，如 `600519.SH`（A股）/ `09992.HK`（港股）/ `AAPL.O`（美股，用 `.O`/`.N` 后缀，非 `.US`），可重复传多个。**也接受板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，如 `1000000287` 中信白酒 → 19 只成分股），代码与板块可混传，服务端取并集去重。⚠️ 中信行业码那类 9 位 ID（`100800109`）**不是** `sectorId`，传进去返 0 只
 - `--date`（**必选**）：数据日期 `yyyy-MM-dd`。**CLI 把它下发为每个指标各自的 `tradeDate`**（2026-08-01 起服务端取消了根级 date）。日期语义按指标分两类——财务报表指标=报告期末（可为非交易日，实测 `2024-03-31` 可取数）、`finc_pe_ttm` / `finc_pb_mrq` 等日频估值=交易日（详见下方「日期路由」）
-  - `--date` 必填是 CLI 的**护栏**，不是协议要求：`cross-section` 本身接受 `indicatorParamList: []`（无参指标如 `pty_op_scope` 照常返值，实测 2026-08-02）。但绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以宁可多带一个无害参数。（`screener` 不同——那边空 `parameters` 会被真丢弃，见下）
+  - `--date` 必填是 CLI 的**护栏**，不是协议要求：`cross-section` 本身接受 `indicatorParamList: []`（无参指标如 `pty_op_scope` 照常返值，实测 2026-08-02）。但绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以宁可多带一个无害参数。（`screener` 的 `--date` 也必填，同理；那边曾另有一个「空 `parameters` 被丢弃」的服务端缺陷，2026-08-03 已修复，见下方缺陷表）
   - ⚠️ **吃 `reportDate` 的指标必须显式传**：`--indicator-param "code:reportDate=2024-12-31"`。这类指标收到 `tradeDate` 会**静默返回空结果**（不报错，实测 `is_op_rev_mom`）。CLI 检测到你已为某指标传了 `tradeDate` 或 `reportDate` 就不再注入 `--date`
   - `sDate`（区间起始日）**不算**替代日期：它和 `tradeDate` 共存（`tradeDate` 是区间终点且 required），传了 `sDate` 后 `--date` 照常下发
 - `--currency`：币种 `DFT`(原始,默认)/`CNY`/`HKD`/`USD`/`EUR`/`GBP`/`JPY`/`TWD`/`MOP`/`AUD`（**大写**，2026-08-01 起服务端枚举已统一大写）

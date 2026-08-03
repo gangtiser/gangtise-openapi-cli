@@ -3,7 +3,7 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, screenerExpressionFields, screenerExpressionIsConjunctive, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
@@ -789,9 +789,11 @@ function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[]
 }
 
 /** Mark a screener result whose values cannot be trusted. Distinct from
- * `partial`: no rows are missing, but a duplicated indicator code makes at most
- * one of its variables carry data while the rest come back null, so any
- * comparison against those variables filtered on nothing. */
+ * `partial`: no rows are missing — the numbers themselves may belong to the
+ * wrong variable. A duplicated indicator code is resolved from the EARLIEST date
+ * among its bindings, that single value lands in the first of their columns, and
+ * the rest come back null (probed 2026-08-03), so both the values shown and the
+ * set of matched securities are untrustworthy. */
 function flagUnreliable(rows: unknown, duplicated: string[]): void {
   if (rows && typeof rows === "object" && !Array.isArray(rows)) {
     const rec = rows as Record<string, unknown>
@@ -868,7 +870,8 @@ indicator.command("screener").description("Screen securities by an expression ov
   // reported as a binding problem. Nothing renders in between, so ordering the
   // structural check ahead of the semantic one is free.
   const rows = flattenCrossSection(data, options.keyBy)
-  const unbound = checkScreenerBindings(data, bindings, screenerExpressionFields(options.expression))
+  const filteredOn = screenerExpressionFields(options.expression)
+  const unbound = checkScreenerBindings(data, bindings, filteredOn, screenerExpressionIsConjunctive(options.expression))
   // Same ambiguity as the other matrix commands: an empty screen is a normal
   // answer AND what a wrong parameter name produces. Keyed on "nothing matched"
   // rather than the strict canonical-empty shape — a response that returns zero
@@ -884,7 +887,11 @@ indicator.command("screener").description("Screen securities by an expression ov
     const rec = rows as Record<string, unknown>
     rec.partial = true
     rec.omittedIndicators = unbound.map((field) => bindings.find((b) => b.field === field)?.indicatorCode ?? field)
-    process.stderr.write(`[gangtise] warning: ${unbound.join(", ")} produced no column at all (no data for any matched security) — those output values are missing. Result marked partial (exit 3).\n`)
+    const alsoFiltered = unbound.filter((field) => filteredOn.includes(field))
+    const filterNote = alsoFiltered.length > 0
+      ? ` The expression also filters on ${alsoFiltered.join(", ")}, so that condition was applied to none of these rows — with a \`||\` present they may still match legitimately through another operand, but verify before relying on that filter.`
+      : ""
+    process.stderr.write(`[gangtise] warning: ${unbound.join(", ")} produced no column at all (no data for any matched security) — those output values are missing.${filterNote} Result marked partial (exit 3).\n`)
   }
   if (duplicated.length > 0) flagUnreliable(rows, duplicated)
   await printData(rows, format, options.output)
