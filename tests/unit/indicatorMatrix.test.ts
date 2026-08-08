@@ -256,9 +256,11 @@ describe("isEmptyMatrix", () => {
   })
 
   it("rejects a malformed payload that merely has empty axis lists", () => {
-    // A no-data answer is exactly five empty arrays (probed 2026-08-02). Anything
-    // looser would let a protocol regression exit 0 as "legitimately empty",
-    // bypassing every shape guard in this release.
+    // The canonical all-empty answer is exactly five empty arrays (probed
+    // 2026-08-02, when that shape still meant "no data"; since 2026-08-07 it
+    // means an unresolved axis instead — same structure, different meaning).
+    // Anything looser would let a protocol regression exit 0 as "legitimately
+    // empty", bypassing every shape guard in this release.
     expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [], dates: [], values: null })).toBe(false)
     expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [], dates: [] })).toBe(false)
     expect(isEmptyMatrix({ securityCodeList: [], indicatorList: [], dates: ["2026-08-01"], values: [] })).toBe(false)
@@ -367,7 +369,7 @@ describe("checkScreenerBindings", () => {
 
   it("rejects a hit whose filtered-on variable produced no column", () => {
     // Filtering removes SECURITIES, never indicators — a missing column means
-    // that indicator had no data for any matched security, so the condition
+    // the server did not resolve that indicator code, so the condition
     // written on it cannot be shown to have been applied, while the rows are
     // presented as having passed it.
     expect(() => checkScreenerBindings(hit([{ field: "F1", code: "qte_close" }]), requested, EXPR_AND)).toThrow(ApiError)
@@ -784,7 +786,7 @@ describe("flattenTimeSeries", () => {
     }
   })
 
-  it("returns an empty list when the API resolves no rows (no-data range)", () => {
+  it("returns an empty list on the canonical all-empty answer (nothing resolved)", () => {
     expect(flattenTimeSeries({
       securityCodeList: [],
       securityNameList: null,

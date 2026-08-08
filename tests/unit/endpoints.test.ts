@@ -510,11 +510,19 @@ describe("ENDPOINTS", () => {
       "insight.summary.download",
       "insight.foreign-report.download",
       "vault.my-conference.download",
+      // Price undocumented (the spec states an entitlement, not a per-call
+      // charge); classed with its summary sibling so a replay cannot double-bill.
+      "insight.pamirs-summary.download",
+      // Billed per page AT SUBMIT — a replayed submit re-parses and re-charges.
+      "tool.file-parse.submit",
     ]
-    for (const key of NO_REPLAY_KEYS) {
-      expect(ENDPOINTS[key], key).toBeDefined()
-      expect(ENDPOINTS[key].retry, key).toBe("no-replay")
-    }
+    // Set EQUALITY, not one-way containment. A one-way check only proves the
+    // listed endpoints are marked; it stays green when a NEW no-replay endpoint
+    // is added to the registry without being listed here — which is how
+    // `tool.file-parse.submit` (billed per page at submit) sat protected but
+    // unguarded, one registry edit away from silently losing the marker.
+    const actual = Object.values(ENDPOINTS).filter((ep) => ep.retry === "no-replay").map((ep) => ep.key)
+    expect([...actual].sort(), "registry no-replay set must match this list exactly — add new ones here deliberately").toEqual([...NO_REPLAY_KEYS].sort())
     // Per-row billed / read-only endpoints keep the default full-retry policy.
     expect(ENDPOINTS["ai.stock-summary.list"].retry).toBeUndefined()
     expect(ENDPOINTS["ai.earnings-review.get-content"].retry).toBeUndefined()
@@ -524,8 +532,9 @@ describe("ENDPOINTS", () => {
 
   it("marks every indicator endpoint as no-999999 (replaying a billed EDE query buys nothing)", () => {
     // Probed 2026-07-11 (no-data answered HTTP 500 + 999999 back then; since
-    // 2026-08-01 no-data returns an empty array and 999999 is a real fault —
-    // either way replaying a billed EDE query buys nothing). Historically:
+    // 2026-08-07 no-data is a null cell keeping its row and column, so 999999 is
+    // a real fault — either way replaying a billed EDE query buys nothing).
+    // Historically:
     // 999999 — retrying wastes 3 requests + ~4s on every empty query.
     for (const key of ["indicator.search", "indicator.cross-section", "indicator.time-series", "indicator.screener"]) {
       expect(ENDPOINTS[key], key).toBeDefined()

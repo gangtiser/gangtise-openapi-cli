@@ -628,8 +628,9 @@ describe("GangtiseClient retry policy wiring", () => {
   })
 
   it("does not retry 999999 on indicator fetches and hints the parameter checklist, not '稍后重试'", async () => {
-    // EDE used 999999 for "no data" until 2026-08-01 (no-data is an empty array
-    // now), so retrying burned 3 requests and ~4s before advising another retry.
+    // EDE used 999999 for "no data" until 2026-08-01 (no-data is now a null cell
+    // that keeps its row and column), so retrying burned 3 requests and ~4s
+    // before advising another retry.
     // Fail fast with a fetch-specific hint. The assertions deliberately avoid the
     // substring 无数据: the current hint mentions it only to say it is NOT this
     // code, so matching on it would pass on a negation.

@@ -6,11 +6,11 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.32.0 — 2026-08-08**：新增帕米尔专家纪要列表与下载；跟进 2026-08-07 服务端修复——EDE 缺数据不再整列/整行消失（退出码 3 现在专指「代码没被识别」），条件选股重复指标的 `unreliable` 告警随之移除；`--search-type`/`--rank-type`/`--file-type` 等枚举改为本地拦截（非法值曾被服务端静默忽略并返回全量）。
 - **v0.31.0 — 2026-08-03**：修复 v0.30.1 的矩阵维度校验误杀「单指标 × 板块 ID」时序查询的回归；EDE 结果不完整或不可信时改以退出码 3 标记（`partial` / `unreliable`）。
 - **v0.30.1 — 2026-08-02**：修复 `sDate` 吞掉查询日期导致的区间指标静默错数，让条件选股的文本筛选真正可用，并在服务端整行/整列丢数据时给出警告。
 - **v0.30.0 — 2026-08-02**：适配 EDE 接口重构（`universe` 取代 `securityCodeList`、截面矩阵转置、指标元数据结构化），新增 `indicator screener` 条件选股，并修正复权参数名。
 - **v0.29.0 — 2026-07-25**：新增财报日历与 PDF 解析工具，群消息补 `quoteMsg`，并加强大整数 ID 与高积分调用防护。
-- **v0.28.3 — 2026-07-24**：修复列式响应在错误 `--field` 下静默错列的问题，并校正 EDE 与字段文档。
 
 ### 历史里程碑
 
@@ -144,6 +144,7 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | **Lookup** | `broker-org list` / `meeting-org list` | 券商/会议机构本地全量枚举表（按名称找 ID 优先 `reference institution-search`；行业/区域/公告分类/题材/申万码已改用 Reference 接口） |
 | **Insight** | `opinion list` | 内资机构观点 |
 | | `summary list` / `download` | 纪要（含下载，支持 `--file-type` 选原始/HTML） |
+| | `pamirs-summary list` / `download` | 帕米尔专家纪要（需单独购买专家纪要库；筛选项比 `summary` 少，无 `--source`/`--institution`/`--participant-role`） |
 | | `roadshow list` | 路演 |
 | | `site-visit list` | 调研 |
 | | `strategy list` | 策略 |
@@ -257,7 +258,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等 13 个生成/提交类 + 50/篇 的 summary/foreign-report/my-conference 下载，共 16 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现已改为返回空数组）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的 `null` 单元格，空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
 - **Token 自愈**：调用返回 `0000001008` / `999002` 时自动强制刷新 Token 并重试一次。
 - **K线/资金流向自动分片**：`quote day-kline --security all`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
@@ -268,6 +269,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 以下列表接口会自动翻页：
 - `insight opinion list`
 - `insight summary list`
+- `insight pamirs-summary list`
 - `insight roadshow list`
 - `insight site-visit list`
 - `insight strategy list`
@@ -297,12 +299,12 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
-- **v0.31.0 起退出码 3 的覆盖面扩大**（脚本按 `!= 0` 判失败的需留意）：`indicator` 命令在服务端整指标/整证券无数据时同样标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3；条件选股把同一指标绑到多个变量时标 `unreliable: true` + `duplicatedIndicators` 并退出 3（那些值不可信，不是少了行）。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。**整个查询合法无数据仍是退出码 0 且不标 partial**。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整或不可信／`1` 硬失败
+- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**v0.32.0 起这个信号的含义变窄了**——2026-08-07 服务端改为给缺数据补 `null`（行列都保留），所以整列/整行消失现在只发生在**服务端解析不了那个 code** 时（指标码拼错，或证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O`）。真实的无数据/无覆盖是 `null` 单元格 + 退出码 0。⚠️ **这个检测需要同批里有一个能解析的对照物**：拼错的 code 与正确的 code 混在一批才会标 partial；**整个轴都写错时（如只查一个拼错的指标）响应是空表、退出码 0**，只有 stderr 提示——空表拿到手必须先核对代码拼写与后缀。同版本移除了条件选股重复指标的 `unreliable` / `duplicatedIndicators` 标记（服务端已修复，继续告警会是误报）。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集要先核对指标码拼写，不能直接当成「无标的符合条件」。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 
 ## 智能文件命名
 
-下载命令（`summary download`、`research download`、`foreign-report download`、`announcement download`、`announcement-hk download`、`announcement-us download`、`official-account download`、`performance-calendar download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
+下载命令（`summary download`、`pamirs-summary download`、`research download`、`foreign-report download`、`announcement download`、`announcement-hk download`、`announcement-us download`、`official-account download`、`performance-calendar download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
 
 1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
 2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
@@ -333,6 +335,12 @@ gangtise insight research list --broker C100000027 --broker C100000014 --industr
 
 gangtise insight opinion list --keyword AI
 gangtise insight summary list --keyword 算力
+
+# 帕米尔专家纪要（需单独购买专家纪要库；全文搜索 + 时间倒序）
+# --rank-type 2 = 严格时间倒序；换成 1（综合排序）在「全文搜索 + 有关键词」下是真正的相关度重排
+gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 2 --size 20
+gangtise insight pamirs-summary download --summary-id 5863771 --file-type 2
+# → PCB钻针：高端钻针扩产有壁垒，供需紧缺会持续到28年.html
 
 # 下载：先 list 再 download，自动使用真实标题作为文件名
 gangtise insight summary download --summary-id 4902586
@@ -705,7 +713,7 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 | `999010` | 接口地址不存在（`raw call` 的 key 可能已下线，用 `raw list` 核对） |
 | `999012` / `999013` / `999014` | 账号禁用 / 已过期 / 租户失效 |
 | `999016` | 调用方 IP 不在允许范围 |
-| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点无数据已改为返回空表，此码基本只剩真故障） |
+| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点的「无数据」已不再用此码——有效 code 无数据返回 `null` 单元格，此码基本只剩真故障） |
 | `140002` | 终态失败：AI 异步生成失败，或 `indicator` 的参数/表达式错误（枚举越界、语法错）——改参数重提，不重试 |
 | `100003` | 参数值非法——**最宽的兜底码**；msg 通常已指明字段（如「limit 最小为 1，最大为 10000」），先读 msg |
 | `100001` | 缺必填参数（msg 带字段名，如「缺少必填参数: reportId」） |
@@ -717,11 +725,11 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 | `410110` / `410111` | 异步任务生成中（继续轮询）/ 生成失败（终态）——**实测服务端仍发这两个旧码**；新码 `140001`/`140002`，CLI 两代都认 |
 | `240001` | 财报期未披露或超出查询期（`earnings-review` 提交阶段即报，不扣积分） |
 | `250001` | 不支持该数据源（`knowledge-resource-download` 需正确的 `resourceType + sourceId` 组合）——**取代旧 `433007`** |
-| `900002` | 请求方法不正确（服务端 msg 为「请求类型有误」；旧文档写作"缺少 uid"是错的） |
+| `900002` | 请求方法不正确（服务端 msg 为「请求类型有误」，HTTP 405） |
 
 > **关于这次错误码重排**：服务端 2026-07-17 重排了 41 个公开码（三层：`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层），信封新增 `errorType` 和 `traceId`。2026-07-20 逐码实测发现**迁移是按「错误处理层」而非按业务模块进行的**：同一个接口内，参数校验层与路由层已发新码，方法路由层、token 过滤器、以及异步生成状态仍发旧码。新码信封 `code` 是 JSON 数字且带 `errorType`，旧码是字符串且没有——但这判断的是单条错误路径，不是整个接口；CLI 对两代都能识别。报错行会带 `[trace <id>]`，**报障时请带上它**。
 >
-> 其余码（`999003`–`999006`、`999012`–`999016`、`100002`、`100004`、`100005`、`110003`、`130003`–`130005`、`210001`、`220001`、`230001`、`240002`、`240003`）在实测中未触发到，多被上面的兜底码接管，CLI 仍内置了对应提示。两个实测坑：**枚举值拼错和分页越界服务端不报错**（静默忽略该筛选条件）；**`viewpoint-debate` 的敏感内容不会被提前拦截**，会扣满 50 积分再以 `410111` 失败。
+> 其余码（`999003`–`999006`、`999012`–`999016`、`100002`、`100004`、`100005`、`130003`–`130005`、`210001`、`220001`、`230001`、`240002`、`240003`）在实测中未触发到，多被上面的兜底码接管，CLI 仍内置了对应提示。⚠️ `110003`（超出时间范围限制）此前也列在这里，**2026-08-08 实测已确认可触发**——凡超出账号数据权限范围的查询都返回它（如 `fundamental income-statement --fiscal-year 2015`）。两个实测坑：**枚举值拼错和分页越界服务端不报错**（静默忽略该筛选条件，v0.32.0 起 CLI 对 `--search-type`/`--rank-type`/`--file-type` 等已知枚举本地拦截）；**`viewpoint-debate` 的敏感内容不会被提前拦截**，会扣满 50 积分再以 `410111` 失败。
 
 ---
 

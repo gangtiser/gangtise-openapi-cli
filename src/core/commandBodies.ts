@@ -101,12 +101,17 @@ export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
 
 /** Parameter keys that REPLACE an indicator's `tradeDate`. The 2026-08-01 EDE
  * revision dropped the root-level `date`, so `--date` now fans out into each
- * indicator's `tradeDate`. Report-period indicators read `reportDate` instead
- * and answer a `tradeDate` with an EMPTY result rather than an error (probed
- * 2026-08-01 on `is_op_rev_mom`), so a caller-supplied `reportDate` suppresses
- * the injection for that indicator. Injecting into an indicator that takes no
- * date at all is harmless — `pty_op_scope` still answers normally with a stray
- * `tradeDate` attached.
+ * indicator's `tradeDate`. A caller-supplied `reportDate` suppresses that
+ * injection for its indicator, so the two date fields are never sent together.
+ *
+ * This used to be load-bearing in a stronger sense: a report-period indicator
+ * answered a `tradeDate` with an EMPTY result rather than an error (probed
+ * 2026-08-01 on `is_op_rev_mom`). Re-probed 2026-08-08 — the server now resolves
+ * a `tradeDate` to the enclosing report period, and `is_op_rev_mom` returns the
+ * same 33.4903 either way. Kept regardless: sending the caller's own date field
+ * rather than a second one alongside it is the honest request, and it survives a
+ * rollback. Injecting into an indicator that takes no date at all is harmless —
+ * `pty_op_scope` still answers normally with a stray `tradeDate` attached.
  *
  * `sDate` is deliberately NOT here. It is an interval START, not a substitute:
  * `qte_vol_intvl` declares `tradeDate` required (the interval END) and `sDate`

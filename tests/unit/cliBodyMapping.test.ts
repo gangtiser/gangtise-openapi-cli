@@ -135,9 +135,9 @@ beforeAll(async () => {
         // { code, status, data } peeled by unwrapIndicatorData). Two indicators share
         // the display name 「财务费用」 so a name-keyed output collides — the --key-by
         // code path must key columns by the distinct indicatorCode instead.
-        // DROPPED.XX stands in for the EDE shape where an indicator with no data
-        // for any security vanishes from indicatorList entirely (probed
-        // 2026-08-02) — the response is short, not null-padded.
+        // DROPPED.XX stands in for the EDE shape where an indicator vanishes from
+        // indicatorList entirely — since 2026-08-07 that means the server did not
+        // resolve the code (one it merely has no data for keeps a null column).
         if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("EMPTY.XX")) {
           res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
             securityCodeList: [], securityNameList: [], indicatorList: [], values: [],
@@ -251,14 +251,16 @@ beforeAll(async () => {
           } } }))
           return
         }
-        // A duplicate-code screen: the server answers with a value for the first
-        // variable and null for the second (probed 2026-08-02).
+        // A duplicate-code screen: one indicator under two variables, each with
+        // its own date. The server used to answer every such binding from the
+        // earliest date and null the rest; re-probed 2026-08-08 it returns each
+        // variable's own value, which is what this stub now mirrors.
         if (((body as { indicatorList?: { indicatorCode: string }[] } | undefined)?.indicatorList ?? []).length === 2) {
           res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
             securityCodeList: ["600519.SH"],
             securityNameList: ["贵州茅台"],
             indicatorList: [{ field: "F1", code: "qte_close", name: "收盘价" }, { field: "F2", code: "qte_close", name: "收盘价" }],
-            values: [[1350.6, null]],
+            values: [[1350.6, 1361.76]],
           } } }))
           return
         }
@@ -388,6 +390,43 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       researchAreaList: ["122000001"],
       marketList: ["aShares"],
     })
+  }, 30_000)
+
+  it("insight pamirs-summary list sends only its own filter set, not summary's wider one", async () => {
+    // Pamirs takes a strict subset of `summary list`'s filters — no sourceList /
+    // institutionList / participantRoleList. Copying summary's builder would send
+    // those anyway, and the server drops unknown body fields silently, so the
+    // caller would see a wider result set than the flags they passed describe.
+    const { code } = await cli([
+      "insight", "pamirs-summary", "list",
+      "--keyword", "AI智能体", "--search-type", "2", "--rank-type", "2",
+      "--category", "companyAnalysis", "--market", "aShares",
+      "--security", "000001.SZ", "--research-area", "100800111",
+      "--size", "2", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/pamirs-summary/getList")
+    expect(captured[0].body).toEqual({
+      from: 0,
+      size: 2,
+      searchType: 2,
+      rankType: 2,
+      keyword: "AI智能体",
+      researchAreaList: ["100800111"],
+      securityList: ["000001.SZ"],
+      categoryList: ["companyAnalysis"],
+      marketList: ["aShares"],
+    })
+  }, 30_000)
+
+  it("insight pamirs-summary download sends summaryId and fileType as query params", async () => {
+    const { code } = await cli([
+      "insight", "pamirs-summary", "download",
+      "--summary-id", "5551234", "--file-type", "2",
+      "--output", path.join(os.tmpdir(), `gangtise-pamirs-${process.pid}.html`),
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/pamirs-summary/download/file?summaryId=5551234&fileType=2")
   }, 30_000)
 
   it("vault drive-list maps comma-separated number lists", async () => {
@@ -653,6 +692,54 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured).toHaveLength(0)
   }, 30_000)
 
+  it("rejects an out-of-enum --search-type / --rank-type / pamirs --category|--market before any request goes out", async () => {
+    // Probed 2026-08-08: the server drops an unrecognised enum VALUE exactly the
+    // way it drops an unrecognised FIELD — silently, answering with the UNFILTERED
+    // set and exit 0. A bad --search-type additionally takes --keyword down with
+    // it: `summary list --keyword 茅台 --search-type 99` returned 196988 (the whole
+    // library) instead of 135, i.e. a full dump read as a keyword hit.
+    for (const args of [
+      ["insight", "summary", "list", "--keyword", "茅台", "--search-type", "99", "--size", "1"],
+      ["insight", "research", "list", "--search-type", "5", "--size", "1"],
+      ["insight", "opinion", "list", "--rank-type", "7", "--size", "1"],
+      ["insight", "pamirs-summary", "list", "--category", "BOGUS", "--size", "1"],
+      ["insight", "pamirs-summary", "list", "--market", "BOGUS", "--size", "1"],
+    ]) {
+      const { code } = await cli(args)
+      expect(code, args.join(" ")).not.toBe(0)
+    }
+    expect(captured).toHaveLength(0)
+  }, 40_000)
+
+  it("rejects an out-of-range --file-type per command, without narrowing foreign-report's 3/4", async () => {
+    // The type system forces every download spec to declare `choices`, but not to
+    // declare the RIGHT ones. Pin both edges of the one command whose range is
+    // wider than 1-2: foreign-report accepts 4 (CN-Markdown) and must not accept 5.
+    for (const args of [
+      ["insight", "summary", "download", "--summary-id", "1", "--file-type", "3"],
+      ["insight", "pamirs-summary", "download", "--summary-id", "1", "--file-type", "99"],
+      ["insight", "independent-opinion", "download", "--independent-opinion-id", "1", "--file-type", "3"],
+      ["insight", "foreign-report", "download", "--report-id", "1", "--file-type", "5"],
+    ]) {
+      const { code, out } = await cli(args)
+      expect(code, args.join(" ")).not.toBe(0)
+      // Assert the REASON, not just the failure: every other flag here is valid,
+      // so without this the test would still pass with the whitelist removed
+      // (a typo'd id flag, a missing required option — anything exits non-zero).
+      expect(out, args.join(" ")).toContain("--file-type")
+    }
+    expect(captured, "no request may go out for a rejected --file-type").toHaveLength(0)
+    // 4 is in range for foreign-report: it must reach the server (the stub answers,
+    // so this also proves the guard is not silently rejecting every value).
+    const { code } = await cli([
+      "insight", "foreign-report", "download", "--report-id", "1", "--file-type", "4",
+      "--output", path.join(os.tmpdir(), `gangtise-ft-${process.pid}.md`),
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].path).toContain("fileType=4")
+  }, 40_000)
+
   it("insight report-image download sends chunkId as a query param and writes the JPEG body to --output", async () => {
     const outPath = path.join(os.tmpdir(), `gangtise-report-image-${process.pid}.jpg`)
     try {
@@ -778,8 +865,9 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
   }, 30_000)
 
   it("marks a cross-section partial and exits 3 when the response drops an indicator entirely", async () => {
-    // EDE does not null-pad an indicator that has no data for any security — it
-    // vanishes from indicatorList. Exit 0 on a short result is how a --key-by code
+    // An indicator code the server cannot resolve vanishes from indicatorList
+    // (one it merely has no data for keeps a null column, since 2026-08-07).
+    // Exit 0 on a short result is how a --key-by code
     // batch mapping silently loses a key.
     const { code, stdout, stderr } = await cli([
       "indicator", "cross-section",
@@ -805,8 +893,10 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(JSON.parse(stdout)).not.toHaveProperty("partial")
   }, 30_000)
 
-  it("exits 0 without partial metadata when the whole query legitimately has no data", async () => {
-    // EMPTY.XX drives the canonical all-empty EDE answer (a non-trading range).
+  it("exits 0 without partial metadata on the canonical all-empty answer", async () => {
+    // EMPTY.XX drives the canonical all-empty EDE answer. Since 2026-08-07 that
+    // shape means nothing in the request resolved (real no-data keeps its rows
+    // and columns with null cells), but the CLI's handling is unchanged:
     // Diffing that against the request would list every code as omitted — the
     // result is not partial, there is simply nothing.
     const { code, stdout, stderr } = await cli([
@@ -954,28 +1044,28 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stderr).toContain("nothing matched")
   }, 30_000)
 
-  it("marks a screener result unreliable and exits 3 when one indicator is bound twice", async () => {
-    // The server returns a value for at most one of the duplicated variables and
-    // null for the rest, so any comparison against the null one filtered on
-    // nothing — the rows are present but untrustworthy, which `partial` would
-    // mis-describe.
+  it("passes a screen that binds one indicator to two variables straight through", async () => {
+    // Binding one code to several variables (the same price on two dates) is an
+    // intended capability that the server mis-resolved until 2026-08-08, so the
+    // CLI used to force the result to `unreliable` + exit 3. Now that each
+    // variable carries its own value, that guard would be a false alarm on a
+    // correct answer: no flag, no warning, exit 0, both columns distinct.
     const { code, stdout, stderr } = await cli([
       "indicator", "screener",
       "--indicator", "F1:qte_close", "--indicator", "F2:qte_close",
-      "--security", "600519.SH", "--expression", "F1 > F2",
+      "--indicator-param", "F1:tradeDate=2026-07-31", "--indicator-param", "F2:tradeDate=2026-07-30",
+      "--security", "600519.SH", "--expression", "F1 > 0 && F2 > 0",
       "--date", "2026-07-31", "--format", "json",
     ])
-    expect(code).toBe(3)
-    const payload = JSON.parse(stdout) as { unreliable?: boolean; duplicatedIndicators?: string[] }
-    expect(payload.unreliable).toBe(true)
-    expect(payload.duplicatedIndicators).toEqual(["qte_close"])
-    // Pin the diagnosis, not just the flag: the defect is that the surviving
-    // number may belong to another binding (all of them resolve from the
-    // earliest date), so a warning that only mentions nulls would understate it
-    // and must not pass.
-    expect(stderr).toContain("qte_close")
-    expect(stderr).toContain("EARLIEST")
-    expect(stderr).toMatch(/WHOLE result as unusable/)
+    expect(code).toBe(0)
+    const payload = JSON.parse(stdout) as { unreliable?: boolean; partial?: boolean; list: Record<string, unknown>[] }
+    expect(payload.unreliable).toBeUndefined()
+    expect(payload.partial).toBeUndefined()
+    // Each variable keeps its own number — the whole point of the fix. Columns
+    // are disambiguated by variable because the display names collide.
+    expect(Object.values(payload.list[0])).toContain(1350.6)
+    expect(Object.values(payload.list[0])).toContain(1361.76)
+    expect(stderr).not.toContain("EARLIEST")
   }, 30_000)
 
   it("indicator time-series --key-by code keys multi-security columns by securityCode", async () => {

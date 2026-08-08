@@ -21,9 +21,10 @@ export interface EndpointDefinition {
    * no cache-hit exemption, so a replay on these expensive (🔴-tier) endpoints
    * double-bills.
    * "no-999999": EDE used to answer a no-data query with HTTP 500 + 999999
-   * (probed 2026-07-11). The 2026-08-01 revision returns empty arrays instead
-   * (re-probed 2026-08-01), but the marker stays: 999999 is a generic server
-   * fault code here, and replaying a billed EDE query on it helps nothing. */
+   * (probed 2026-07-11). It stopped doing that on 2026-08-01, and since
+   * 2026-08-07 a no-data answer is a null cell with its row and column intact,
+   * so 999999 is now a generic server fault here — the marker stays because
+   * replaying a billed EDE query on a fault helps nothing. */
   retry?: "no-replay" | "no-999999"
   /** Response fields that carry snowflake ids and must survive JSON.parse exactly.
    * `quoteBigIntFields` re-quotes them in the raw text first: a bare JSON number
@@ -84,6 +85,24 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "download",
     description: "Download summary file",
     // 50/篇 — same price tier as the AI Agent calls; billing probed non-idempotent.
+    retry: "no-replay",
+  },
+  "insight.pamirs-summary.list": {
+    method: "POST",
+    path: "/application/open-insight/pamirs-summary/getList",
+    kind: "json",
+    description: "List Pamirs expert summaries (requires the expert-summary database)",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.pamirs-summary.download": {
+    method: "GET",
+    path: "/application/open-insight/pamirs-summary/download/file",
+    kind: "download",
+    description: "Download a Pamirs expert summary file",
+    // The 2026-08-07 spec states an entitlement (the expert-summary database) but
+    // no per-call price. Treated as non-idempotent anyway, like its
+    // `insight.summary.download` sibling: if it does meter, a 5xx replay
+    // double-bills, and the only cost of being wrong is losing one retry.
     retry: "no-replay",
   },
   "insight.roadshow.list": {

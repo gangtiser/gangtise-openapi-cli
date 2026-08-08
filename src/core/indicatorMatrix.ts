@@ -148,19 +148,27 @@ function indicatorHeaders(indicators: IndicatorMeta[], keyBy: "name" | "code", r
 const CROSS_SECTION_COLUMNS = ["security", "name"]
 
 /** A response carrying neither securities nor indicators: the query as a whole
- * resolved to nothing. This is NOT a dropped axis — nothing was left out, there
- * simply is no data (a non-trading range, a date outside coverage), so it must
- * not be reported as partial. Calling every requested code "omitted" here would
- * be false metadata: the diff against the request is total by construction.
+ * resolved to nothing. This is NOT a dropped axis, so it must not be reported as
+ * partial — calling every requested code "omitted" would be false metadata, the
+ * diff against the request is total by construction.
+ *
+ * What it MEANS changed on 2026-08-07: a genuine no-data answer (non-trading
+ * date, uncovered market, future date) now comes back as a null cell with its
+ * row and column intact, so an all-empty matrix no longer means "no data". It
+ * now means nothing in the request RESOLVED — every security code or every
+ * indicator code was unrecognised — or a parameter name is wrong. The caller's
+ * stderr note says exactly that.
  *
  * The check covers every STRUCTURAL array, not just the two axis lists, because
  * accepting anything looser would let a malformed payload — `values: null`, a
  * missing `values`, or dates with no matrix — pass as "legitimately empty" and
  * exit 0, which is precisely the protocol regression this release's shape guards
  * exist to catch. Required empty: `securityCodeList`, `indicatorList`, `values`;
- * plus `dates` when present. Probed 2026-08-02: a time-series no-data answer is
- * five empty arrays, a cross-section one is four (it carries no `dates` key at
- * all), hence "absent or empty" rather than a flat count.
+ * plus `dates` when present. Probed 2026-08-02 (back when this shape still meant
+ * "no data"): a time-series all-empty answer is five empty arrays, a
+ * cross-section one is four (it carries no `dates` key at all), hence "absent or
+ * empty" rather than a flat count. The STRUCTURE is unchanged; only its meaning
+ * moved — since 2026-08-07 it signals an unresolved axis, not missing data.
  *
  * `securityNameList` is deliberately NOT checked: it holds display labels, not
  * structure, so a `null` there cannot misalign anything — and rejecting it would
@@ -213,8 +221,9 @@ export function checkScreenerBindings(data: unknown, requested: { field: string;
   }
   // Securities came back, so the filter ran. A column vanishing is never "it got
   // filtered out" — filtering removes securities (rows), never indicators
-  // (columns); the absence means that indicator had no data for any matched
-  // security. What that implies depends on how the expression combines terms:
+  // (columns). Since 2026-08-07 a covered-but-empty indicator keeps a null
+  // column, so an absent column means the server did not resolve that indicator
+  // code at all. What that implies depends on how the expression combines terms:
   //
   // The answer follows the expression's BOOLEAN STRUCTURE, not the mere presence
   // of a `||` — see screenerExpressionIsEvaluable. If no branch survives the
@@ -231,19 +240,19 @@ export function checkScreenerBindings(data: unknown, requested: { field: string;
   return missing
 }
 
-/** What the caller asked for that the response does not contain. The server
- * does NOT pad missing data with `null`: an indicator that is empty for every
- * security disappears from `indicatorList`, and a security that is empty for
- * every indicator disappears from `securityCodeList` (re-probed 2026-08-03 with
- * `finc_pb_mrq`, which has no HK data: over 09992.HK alongside `qte_close` the
- * indicator vanishes; over 600519.SH + 09992.HK as the only indicator the
- * security vanishes). A gap becomes `null` only when BOTH axes survive it — the
- * security still has another indicator with data AND the indicator still has
- * another security with data.
+/** What the caller asked for that the response does not contain.
  *
- * That is the dangerous shape: `--key-by code` batch mapping finds no key at
- * all rather than a null, and a cross-market pull quietly returns fewer rows
- * than requested with exit code 0.
+ * The server used to drop any axis it had no DATA for, which made this a
+ * coverage check. Re-probed 2026-08-08: a coverage gap is now padded with `null`
+ * and keeps its row and column, down to the 1×1 case (`finc_pb_mrq` × 09992.HK,
+ * `mgn_bal` × 00700.HK — null, present, alone in the request). What still
+ * disappears is a code the server cannot RESOLVE: an unknown indicator code, or
+ * a security code with the wrong market suffix (`AAPL.US` vanishes, `AAPL.O`
+ * returns).
+ *
+ * So the remaining shape is the dangerous one: a misspelled code is invisible
+ * otherwise — `--key-by code` batch mapping finds no key at all rather than a
+ * null, and the pull quietly returns fewer rows than requested with exit code 0.
  *
  * Universe entries with no `.` are skipped — those are sector IDs, which the
  * server expands into constituents, so their absence from the response is
@@ -444,7 +453,7 @@ export function flattenTimeSeries(data: unknown, keyBy: "name" | "code" = "name"
   // no other guard notices.
   // Without this, dates-with-no-series still passes the later shape check (0 rows
   // for 0 series) and emits one row per date carrying nothing but the date. A
-  // genuine no-data answer empties `dates` too (probed 2026-08-02), so dates
+  // response that resolved to nothing empties `dates` too (probed 2026-08-02), so dates
   // alongside a missing axis is always a broken response.
   if (dates.length > 0 && (securityCode.length === 0 || indicators.length === 0)) {
     throw new ApiError(`Indicator matrix shape mismatch: the time-series response carries ${dates.length} dates but ${securityCode.length} securities and ${indicators.length} indicators — the data could not be attributed`, undefined, undefined, data)

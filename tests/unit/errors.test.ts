@@ -148,6 +148,27 @@ describe("ApiError", () => {
     expect(missing, "codes the changelog claims coverage for but have no hint").toEqual([])
   })
 
+  it("hints 230002 (wechat account not bound), which vault wechat-* can hit", () => {
+    // Added by the 2026-08-07 server release. It sits in the 私域 module, and
+    // `vault wechat-message-list` / `wechat-chatroom-list` are exactly that
+    // module — they require the group-message assistant to be bound and active,
+    // so the code is reachable from this CLI and must not be left hint-less.
+    const hint = new ApiError("微信账号未绑定", "230002").hint ?? ""
+    expect(hint).toContain("绑定")
+  })
+
+  it("does not tell a 110003 caller to shorten the window", () => {
+    // 110003 is "outside the account's data-permission range", not "window too
+    // wide" — probed 2026-08-08: `fundamental --fiscal-year 2015` returns it no
+    // matter how narrow the range gets, because the whole span is below the
+    // account's floor. The old hint said 缩短查询窗口后重试, which sends the caller
+    // in a circle. The coverage test above only asserts a hint EXISTS, so pin the
+    // substance here.
+    const hint = new ApiError("超出时间范围限制", "110003").hint ?? ""
+    expect(hint).not.toContain("缩短查询窗口")
+    expect(hint).toContain("数据权限")
+  })
+
   it("has no hint for unknown error codes", () => {
     const err = new ApiError("unknown", "999999999")
     expect(err.hint).toBeUndefined()

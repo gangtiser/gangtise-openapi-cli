@@ -482,8 +482,9 @@ export class GangtiseClient {
       },
     }).catch((error: unknown) => {
       // Until 2026-08-01 EDE answered a no-data query with 999999, so this hint
-      // led with "多为查询无数据". No-data now comes back as an empty array, which
-      // leaves 999999 meaning an actual server fault — but the parameter checklist
+      // led with "多为查询无数据". No-data now comes back as a null CELL with its
+      // row and column intact (re-probed 2026-08-08), which leaves 999999 meaning
+      // an actual server fault — but the parameter checklist
       // is still the right first move, because a wrong param name or date axis
       // silently yields an EMPTY TABLE rather than this error. Only the data
       // endpoints take a date/security/params; indicator.search shares the
@@ -492,7 +493,7 @@ export class GangtiseClient {
       const isIndicatorFetch = endpoint.key === 'indicator.cross-section' || endpoint.key === 'indicator.time-series' || endpoint.key === 'indicator.screener'
       if (isIndicatorFetch && error instanceof ApiError && error.code === '999999') {
         throw new ApiError(error.message, error.code, error.statusCode, error.details, error.retryAfterMs,
-          'EDE 取数故障。先核对参数再重试：参数名以 indicator search 的 parameterList 为准（传错名是静默失效）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意「查询无数据」现在返回空表而不是此码。')
+          'EDE 取数故障。先核对参数再重试：参数名以 indicator search 的 parameterList 为准（传错名是静默失效）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意此码不表示无数据——有效 code 无数据现在返回保留行列的 null 单元格，空表则多半是整个轴的 code 都没被识别。')
       }
       throw error
     })

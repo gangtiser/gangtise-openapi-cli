@@ -196,8 +196,9 @@ describe("resolvePageConcurrency", () => {
   })
 })
 
-// EDE uses 999999 + HTTP 500 for "no data for this query" (probed 2026-07-11) —
-// retrying it is pure waste. "no-999999" keeps everything else from the default
+// EDE used 999999 + HTTP 500 for "no data for this query" (probed 2026-07-11;
+// it stopped doing that on 2026-08-01, so the code now means a real fault) —
+// either way retrying a billed query is pure waste. "no-999999" keeps everything else from the default
 // policy (5xx, network, 429, self-heal) and only drops the 999999 API code.
 describe("withRetry no-999999 policy (EDE indicator endpoints)", () => {
   it("does not retry the 999999 API code", async () => {

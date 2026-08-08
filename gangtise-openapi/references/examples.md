@@ -248,14 +248,40 @@
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
        --date 2025-12-31 --key-by code --format json
    b) 估值 PE + PB 同为日频，用同一个最新交易日即可（2026-08-02 复测 finc_pb_mrq
-      在任意交易日都有数；旧文档说它只在报告期末打值，照那样改用季末日期会拿到
-      几个月前的陈值）：
+      在任意交易日都有数；用季末日期会拿到几个月前的陈值）。
+      ⚠️ 要估值指标的历史序列做分位/回测，两个接口都拉一遍交叉核：EDE 按正式财报
+      披露日切换财报口径，fundamental valuation-analysis 按业绩快报切，同一天取到
+      的值可能不同（已验证 PE TTM；PB 是 MRQ 口径，规则未单独验证）。详见 indicator.md：
      gangtise indicator cross-section --indicator finc_pe_ttm --indicator finc_pb_mrq \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
        --date 2026-07-31 --key-by code --format json
 4. 按 security 合并两张宽表（列头即 indicatorCode，各取所需日期的值）；不要把不同日期语义的指标塞进同一个 --date。
 5. 计费：search 免费；两次取数各按请求单元格数量计费，每次不足 100 单元格按 100 计。
-6. 无数据分四档：**部分**缺 → 单元格 null 且行列都在；某指标对所有证券无数据 → 整列消失；某证券对所有指标无数据 → 整行消失（后两种 CLI 会标 partial + 退出码 3 并在 stderr 列出被略过的 code）；整查询无数据 → 空表（不再报 999999）。空表也可能是参数名/日期语义写错，先核对 parameterList、日期语义、scopeList 和公司类型。
+6. 无数据（无覆盖 / 非交易日 / 未来日期）一律是单元格 null 且行列都在，退出码 0。整列/整行消失现在只意味着那个 code 服务端不认识——指标码拼错，或证券后缀错（美股用 .O/.N，不是 .US），CLI 会标 partial + 退出码 3 并在 stderr 列出。空表则是「一个 code 都没认出来」或参数名写错，先核对代码后缀与 parameterList。
+```
+
+## 例 15b：帕米尔专家纪要（新库，筛选项与踩坑都和 summary 不同）
+
+**用户**："看看帕米尔最近有什么 PCB 相关的纪要" / "帕米尔纪要下载一篇"
+
+```
+1. 确认走的是帕米尔而不是普通纪要——两者是不同的库，pamirs 需单独购买专家纪要数据库。
+   用户没点名"帕米尔/Pamirs"就走 insight summary。
+2. 检索（全文 + 按相关度）：
+     gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 1 \
+       --size 20 --format json
+   - --search-type 2 = 全文（标题搜索是 1，命中少很多：PCB 标题 36 / 全文 113）
+   - --rank-type 1 只在「有 keyword + 全文」时才是真正的相关度排序；要最新就用 2
+   - 筛选项比 summary 少：没有 --source / --institution / --participant-role
+3. 🔴 别拉全量再本地按类别/市场分组——服务端只在你用该字段过滤时才回填标签：
+   不带 --category 查，categoryList 100% 是空数组；conceptList 任何查法都是空。
+   要分组就让服务端筛：
+     gangtise insight pamirs-summary list --category industryAnalysis --market aShares --size 50
+4. 下载（省略 --output 自动用标题命名）：
+     gangtise insight pamirs-summary download --summary-id 5863771 --file-type 2
+     → PCB钻针：高端钻针扩产有壁垒，供需紧缺会持续到28年.html
+   --file-type 只有 1（原始）/ 2（HTML）两种
+5. 数据范围不限历史；单价未公布，大批量前先小量试。
 ```
 
 ## 例 16：A 股资金流向（个股 vs 全市场按日分片）

@@ -4,7 +4,21 @@
 
 时间格式：`"YYYY-MM-DD HH:mm:ss"`（datetime，需引号）。
 
-支持 `--rank-type` 的命令：opinion / summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。
+支持 `--rank-type` 的命令：opinion / summary / **pamirs-summary** / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。
+
+⚠️ **`--rank-type` 的效果同时依赖 `--keyword` 和 `--search-type`，而且强弱按端点不同**（2026-08-08 全量实测三个端点 × 两种 searchType）：
+
+下表三个端点是本次实测对象；**支持 `--rank-type` 的另外 8 个端点未验证**，别把结论外推过去。在这三个上，`--rank-type 2` 都是严格按 `publishTime` 倒序、稳定可依赖，差别全在 `1`（综合排序）上：
+
+| 端点 | `--search-type 1`（标题） | `--search-type 2`（全文） |
+| :--- | :--- | :--- |
+| `pamirs-summary` | 与 `2` **完全相同**（结果集无并列时间戳） | 🔴 **真正的相关度重排**——`rank1` 对 `publishTime`/`summaryTime` 都不单调，`rank2` 的首条在 `rank1` 里排到第 118 位 |
+| `summary` | 与 `2` 有差异，但 `rank1` **仍严格时间倒序**——差异只发生在时间戳并列处（`keyword=机器人` 前 200 条有 22 处并列） | 同左 |
+| `research` | 与 `2` **完全相同** | 有差异，同样只在并列处（4 处并列） |
+
+**没有 `--keyword` 时一律无差异**（综合排序无从计算），这不是参数失效。
+
+实用结论：**要"最相关"而不是"最新"，三个实测端点里只有 `pamirs-summary --search-type 2` 真能做到**；`summary` / `research` 的 `rank-type 1` 至多改变同一时间戳内几条的先后，别指望它能把更相关的旧内容提到前面。未验证的端点按 `summary` 的保守预期对待，需要时自己按「跨 `searchType` × 全量取回 × 比 `total` 再比序列」复测。
 **不支持** `--rank-type` 的命令：roadshow / site-visit / strategy / forum（API 无此参数）。
 
 `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
@@ -35,6 +49,42 @@ gangtise insight summary download --summary-id <id> [--file-type <n>] [--output 
 - `--participant-role`：`management` 管理层 | `expert` 专家
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`
 - `--file-type`（download 可选）：`1` 原始内容（默认）| `2` HTML 格式；**仅影响来源为会议平台的纪要**
+
+## 帕米尔纪要 `insight pamirs-summary list/download`
+
+```bash
+gangtise insight pamirs-summary list [--search-type <n>] [--rank-type <n>] [--research-area <id>] [--security <code>] [--category <name>] [--market <name>]
+gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--output <path>]
+```
+
+帕米尔（Pamirs）是平台内一个特殊牵头机构的**专家纪要库**，走独立端点，不是 `summary list` 的一个筛选项。⚠️ **需单独购买专家纪要数据库**，未购买调用报权限错误。**不限制历史数据范围**（不受 3 个月窗口约束）。
+
+- **筛选项比 `summary` 少**：没有 `--source` / `--institution` / `--participant-role`。服务端会静默丢弃不认识的 body 字段，所以别照搬 `summary` 的参数，那样只会拿到没过滤的全量
+- `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索。实测 `--keyword PCB`：标题 36 条 vs 全文 113 条
+- `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序。⚠️ 效果依赖 `--keyword`，详见本文开头的公共说明；本端点是该结论的实测对象之一
+- `--category`：`companyAnalysis` 公司分析 | `industryAnalysis` 行业分析（实测 2673 / 279）
+- `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
+- `--research-area`：**citic（`1008001xx`）和申万（`104xx0000`）都生效**（实测食品饮料：citic 373 条 / 申万 145 条）——这点与多数 insight list 不同（那些的 `--research-area` 只吃 gangtise 码）
+- `--file-type`（download 可选）：`1` 原始文件（默认）| `2` HTML；**只有这两种**
+- 单页上限 50（CLI 按此翻页；服务端实测未执行该上限，传 100 会返 100），省略 `--size` 自动翻页拉全量。翻页完整性实测干净：三页无重复无缺口、可重放、`total` 不漂移
+- 返回字段：`summaryId` / `title` / `brief`（摘要）/ `summaryTime`（纪要注明的生成时间）/ `publishTime`（发布时间）/ `categoryList` / `securityList[]{securityCode, securityName}` / `researchAreaList[]{researchAreaId, researchAreaName}` / `conceptList[]{conceptId, conceptName}` / `marketList`
+- ⚠️ **标签字段大面积不回填**（2026-08-08 实测 6 种查法 × 30 条）：
+  - **`conceptList` 在所有查法下恒为空**（无过滤 / category / market / security / researchArea / keyword 全是 `[]`），而接口**没有** concept 过滤参数——所以**目前拿不到主题概念标签，没有变通办法**，别写依赖它的逻辑
+  - **`categoryList` 与 `marketList` 绑定在一起**：只要用 `--category` **或** `--market` 任一过滤，两个字段就都回填（30/30）；其余查法（含无过滤、`--security`、`--research-area`、`--keyword`）两个都是空。回填的是该记录的**全部**值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，不是"回显过滤值"）
+  - **所以别拉全量再本地分组**——标签会全丢。要按类别/市场分组就逐个枚举值各查一遍再合并（请求数放大 2~4 倍），或直接让服务端筛
+  - `researchAreaList`（抽 200 条 6% 空）和 `securityList`（10% 空）基本正常
+
+```bash
+# 近一周的帕米尔纪要
+gangtise insight pamirs-summary list --start-time 2026-08-01 --end-time 2026-08-07 --format table
+
+# 全文搜 + 时间倒序，只要前 20 条
+gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 2 --size 20
+
+# 下载 HTML（省略 --output 自动用标题命名）
+gangtise insight pamirs-summary download --summary-id 5863771 --file-type 2
+# → PCB钻针：高端钻针扩产有壁垒，供需紧缺会持续到28年.html
+```
 
 ## 路演 / 调研 / 策略会 / 论坛
 

@@ -49,11 +49,11 @@ gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wec
 
 - 数据权限：仅用户已绑定并激活群消息助理、且助理已入群的群消息
 - `--security`：按证券代码过滤（如 `000001.SZ`），可重复
-- `--industry`：行业 ID，**必须用中信码 `citicIndustry`（`1008001xx`）**；实测传申万码 `104xxx` 会被静默忽略、返回全量
+- `--industry`：⚠️ **本命令上该过滤当前不生效**（2026-08-08 复测：不传 / 中信码 `100800111` / 申万码 `104340000` / 乱码，四种都返回同一个 total）。中信码和申万码都不起作用，需要按行业收窄时改在本地按返回内容筛
 - `--wechat-group-id`：先用 `vault wechat-chatroom-list` 查；可重复
 - `--category`：`text` | `image` | `documents` | `url`（可重复）
 - `--tag`：`roadShow` | `research` | `strategyMeeting` | `meetingSummary` | `industryComment` | `companyComment` | `earningsReview`（可重复）
-- 返回字段（实测 2026-07-25）：`msgId` / **`content`**（正文）/ **`url`**（链接）/ `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList[]{tagCode, tagName}` / `securityList[]{securityCode, securityName}` / `quoteMsg{quoteMsgId, quoteContent, quoteUrl}`。旧版本文档写作 `msgContent` / `contentUrl` 是错的，取值请用 `content` / `url`
+- 返回字段（实测 2026-07-25）：`msgId` / **`content`**（正文）/ **`url`**（链接）/ `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList[]{tagCode, tagName}` / `securityList[]{securityCode, securityName}` / `quoteMsg{quoteMsgId, quoteContent, quoteUrl}`。正文取 `content`、链接取 `url`（不是 `msgContent` / `contentUrl`）
 - `quoteMsg`（2026-07-24 新增）：被引用的消息，无引用时为 `null`；`quoteContent` / `quoteUrl` 也可能为空。做上下文还原时用它把「回复」接回原消息
 - 未打标签/未关联证券的消息，`tagList` / `securityList` 返回 `null`（不是空数组）
 

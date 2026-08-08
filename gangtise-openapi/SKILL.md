@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.31.0"
+version: "0.32.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -65,7 +65,7 @@ description: |-
 
 ### 积分计费速查
 
-"免费"=0 积分；**只列单价**，数据范围（可查多久）随账号等级不同、不在此列。
+"免费"=0 积分；**只列单价**，数据范围见下一节。
 
 - **免费**：所有 `quote` 行情、`fundamental` 报表/主营/估值/股东（**盈利预测除外**）、`reference`/`constant` 查询（含 `official-account-search`）、`alternative edb-search`、`vault`（record/wechat/股票池/drive/AI云盘）、`insight report-image list`
 - **0.1/条 list**：research / foreign-report / official-account / announcement(A/港/美) / summary / qa / performance-calendar 的 list、`vault my-conference-list`；`insight report-image download` 0.1/张
@@ -74,8 +74,23 @@ description: |-
 - **按页**：`tool file-parse` 0.8/页，**提交（`--file`）时按实际页数一次性扣**，取结果（`file-parse-check`）免费——50 页 PDF = 40 积分，别重复提交同一文件
 - 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**；`ai hot-topic` 50/篇
 - 🔴 **极贵**：`alternative concept-info` / `concept-securities` **500/次**
-- ⚠️ **同参数重复调用不免费**：按次计费无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）——生成类结果拿到后自行留存复用，别为"刷新"重调；CLI 已对上述 🔴 贵档端点关闭 5xx/超时自动重放（v0.26.0），50/篇 的 `summary` / `foreign-report` / `my-conference` download 同样不重放（v0.27.0），正是为防重复扣分
+- ⚠️ **同参数重复调用不免费**：按次计费无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）——生成类结果拿到后自行留存复用，别为"刷新"重调；CLI 已对上述 🔴 贵档端点关闭 5xx/超时自动重放，50/篇 的 `summary` / `foreign-report` / `my-conference` download、单价未公布但保守同档处理的 `pamirs-summary` download、以及 `tool file-parse` 的提交，同样不重放（共 18 个端点），正是为防重复扣分
 - **按单元格**：`indicator cross-section` / `time-series` / `screener`（A股 0.05 / 港股 0.1 / 美股 0.2 积分每 100 单元格；screener 按**筛选前**范围计费，见 `indicator.md`）；`ai knowledge-resource-download` 按下游资源计费
+- **单价未公布**：`insight pamirs-summary list` / `download`——spec 只写了「需购买专家纪要数据库」这个准入门槛，没给单次价格。**别据此假定免费**；大批量拉取前先小量试，或向平台确认
+
+### 数据范围（能查多久）
+
+2026-08-07 官方放宽后的**正式账号**口径（下表是官方公布值；本机验证账号另开了 10 年定制权限，所以实测范围比这宽，**别拿本仓库的实测数字当平台口径**）：
+
+| 命令组 | 可回溯 |
+|--------|--------|
+| `quote` 行情 / `fundamental` 财报、主营、估值、股东 / `indicator`（EDE） | 前溯 **5 年**（原 3 年） |
+| `ai security-clue` 投研线索 | 前溯 **1 个月**（原 7 天） |
+| 主题 / 热点 / QA / 日程（路演·调研·策略会·论坛）/ 纪要 / 观点 / 研报 / 公众号 | 前溯 **3 个月**（原 1 个月） |
+| 管理层讨论 / A·港·美股公告 / `alternative edb-*` 行业指标 | 前溯 **3 年**（原 1 年） |
+| `insight pamirs-summary` 帕米尔纪要 | **不限**（但需单独购买专家纪要库） |
+
+⚠️ **这是官方口径，不是硬边界**：实际范围按账号等级而定，**同一账号下按接口还可能不同**（实测 `indicator screener` 仍卡 today−3 年，而同模块的 `cross-section`/`time-series` 已放宽）。超范围查询返回 `110003`，**不是空结果**——拿到 `110003` 就是撞了权限边界，缩窗口对「整段都在界外」的查询无效，要把日期移进范围或联系客户经理。
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -85,6 +100,7 @@ description: |-
 | `insight foreign-report download` | `--file-type` | `1` PDF / `2` MD / `3` 中译 PDF / `4` 中译 MD |
 | `insight announcement download` | `--file-type` | `1` PDF / `2` Markdown |
 | `insight summary download` | `--file-type`（可选） | `1` 原始（默认）/ `2` HTML（仅会议平台来源） |
+| `insight pamirs-summary download` | `--file-type`（可选） | `1` 原始（默认）/ `2` HTML（仅此两种） |
 | `insight independent-opinion download` | `--file-type` **必选** | `1` 原文 HTML / `2` 翻译 HTML |
 | `insight announcement-hk download` | `--file-type` | `1` 原始（默认）/ `2` Markdown |
 | `insight announcement-us download` | `--file-type` | `1` 原始 PDF（默认）/ `2` Markdown |
@@ -104,6 +120,7 @@ description: |-
 | 外资机构观点 / 外资券商观点 | `insight foreign-opinion list` |
 | 外资独立观点 / 独立分析师观点 | `insight independent-opinion list` |
 | 纪要 / 会议纪要（外部） | `insight summary list` |
+| 帕米尔纪要 / 帕米尔专家纪要 / Pamirs | `insight pamirs-summary list`（专家纪要库，需单独购买；筛选项比 `summary` 少，无 `--source`/`--institution`/`--participant-role`） |
 | 路演 / 调研 / 策略会 / 论坛 | `insight roadshow / site-visit / strategy / forum list` |
 | 财报日历 / 业绩预告 / 业绩快报 / 财报披露排期 | `insight performance-calendar list`（**用 `--start-date`/`--end-date`，不是 `--start-time`**；全表 >12 万条，CLI 强制要求日期范围 / `--security` / `--size` 三者至少其一；只给 `--security` 时另有 1000 行隐式上限，撞上限且 total 还有剩余=筛选可能没生效（标 `partial`、退出码 3），改用日期范围重查。下载原文 `performance-calendar download --performance-report-id`，仅 `hasAttachment: true` 可下） |
 | A 股公告 / 公告 | `insight announcement list` |
@@ -161,19 +178,21 @@ description: |-
 | PDF 转 Markdown / 解析文件 / 提取 PDF 正文 | `tool file-parse --file <x.pdf> --wait`（异步，0.8 积分/页，提交时扣；取结果 `tool file-parse-check --task-id`。**平台自有研报/公告优先用各 download 的 `--file-type 2` 直出 Markdown**，别花解析费） |
 
 **易混淆消歧**：
-- "纪要" → 外部信息走 `insight summary`；公司内部录音/会议走 `vault my-conference`
+- "纪要" → 外部信息走 `insight summary`；明确点名"帕米尔 / Pamirs"才走 `insight pamirs-summary`（另一个库，不是 `summary` 的子集）；公司内部录音/会议走 `vault my-conference`
 - "搜索 X" → 数据维度精确（按行业/券商）走对应 `insight ... list`；跨类型语义搜索走 `ai knowledge-batch`
 - 港股代码用在 `insight foreign-opinion --security` 还是 `quote day-kline-hk --security`？前者要"境外"格式（`UBER.N`），后者要 `.HK`
 - "成分股" → 题材深度（分组/重点标记/纳入理由）走 `alternative concept-securities`；板块（行业/概念分类树，纯代码名单）走 `reference sector-constituents`
 - **证券基本面 / 指标先按任务形态路由，不是搜到 EDE 就一律走 EDE**：
   - 单证券先优先对应 `fundamental` 专用命令（财务、估值、盈利预测、股东、主营或完整三大报表，多数免费 / 低价）。其中 `valuation-analysis` / `earning-forecast` 实测仅支持 A 股，港 / 美股的**估值历史分位**与**盈利预测**当前无可用口径。但**估值指标本身别照抄旧结论**：2026-08-03 实测 `finc_pe_ttm` 港股已有数、`qte_mkt_cptl`/`shr_tot` 港美股都已有数。⚠️ **凡「仅 A 股」「无数据」这类否定结论都只是某时点抽查**，服务端在持续补数据；负面结论过期不会报错、只会让你白白拒掉一个能跑的查询。**一律以当次 `scopeList` + 抽查为准**
-  - 多证券批量取一组**已实现**财务 / 估值指标 → 优先 `indicator search` 后用 EDE 一次拉取，替代逐只循环；单日或同一报告期横向比较用 `cross-section`，区间走势用 `time-series`（后者不能多指标 × 多证券同时）。**批量按 code 回填加 `--key-by code`**（列头用 `indicatorCode`，防同名指标碰撞 + 服务端重排列序导致的错位）
+  - 多证券批量取一组**已实现**财务 / 估值指标 → 优先 `indicator search` 后用 EDE 一次拉取，替代逐只循环；单日或同一报告期横向比较用 `cross-section`，区间走势用 `time-series`（后者不能多指标 × 多证券同时）。**批量按 code 回填加 `--key-by code`**（列头用 `indicatorCode`，防同名指标碰撞）。⚠️ **两个轴的顺序规则不同**：`indicatorList` = 请求顺序，但 **`securityCodeList` 是按代码升序重排的**（请求 `000858,600519,000001` → 回 `000001,000858,600519`）——**行绝不能按请求下标对位**，一律按 `security` 字段取值
+  - ⚠️ **估值指标的历史序列：两个接口的财报口径切换时点不同**——`indicator time-series`（EDE）按**正式财报披露日**切，`fundamental valuation-analysis` 按**业绩快报**口径切、通常更早，所以同一天取到的估值指标可能不一样（已验证 `finc_pe_ttm`/`peTtm`；`finc_pb_mrq` 等非 TTM 口径同样在报告期节点变化，规则未单独验证）。做估值分位 / 回测时**两个接口都拉一遍交叉核**，尤其业绩大幅变动的标的（抽查中出现过个别标的在 `valuation-analysis` 侧长期未更新）。分叉时用「总市值 ÷ PE 反推隐含净利润」对照利润表滚动 TTM，即可判出哪侧是陈值。**判断某财报在某日是否已公开，查 `insight announcement list` 的公告披露日**，不要用 `fundamental income-statement` 返回的 `announcementDate`（实测该字段会把季报披露日填成年报日）。
   - 始终排除 EDE：A股盈利预测 / 一致预期（含预测 EPS）→ `fundamental earning-forecast`；A股估值历史分位 → `fundamental valuation-analysis`；开高低收 / 成交量等行情与 K 线 → `quote`；单证券完整报表 → 对应三大报表命令。**例外：总市值只有 EDE 有**——`quote realtime` / `day-kline` 都不返回市值，走 `indicator cross-section --indicator qte_mkt_cptl`（2026-08-03 起 A/港/美股均有数，默认单位「元」，用 `--scale` 缩放）。EDE 搜到的基本 / 稀释 EPS 是已实现值，**不能冒充预测 EPS**；港 / 美股缺少上述专用能力时应如实说明不支持，不能用别的语义代替
   - EDE 取数前必须用 `search --format json` 同时核对：`indicatorName` + `description` 语义准确、`scopeList` 覆盖全部目标市场 / 证券类型、`parameterList` 必填参数与枚举可满足；`scopeList` 缺失 / `null` / 空或任一项不符，都视为无法证明覆盖并回退专用接口。专用接口也不覆盖目标市场时，说明当前不可用，不要硬调。`scopeList` 按指标各不相同，不能因 EDE 服务支持 A / 港 / 美股就假定某个指标三市场都覆盖
   - `indicator search` 免费，`cross-section` / `time-series` 按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`
 - 行业 / 宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），不要与证券级 EDE 混用
-- EDE 缺数据分四档，**别只认 `null`**：①部分缺 → 单元格 `null`（行列都在），**退出码 0**；②某指标对所有证券都无数据 → 该指标**整列消失**；③某证券对所有指标都无数据 → 该证券**整行消失**——②③ CLI 会标 `partial: true` + `omittedIndicators`/`omittedSecurities` 并**退出码 3**（**`screener` 例外见下**）（`--key-by code` 回填时 key 会直接不存在，务必先看这两个字段）；④整个查询无数据 → **空表**（2026-08-01 起不再报 `999999`），**退出码 0**、不标 partial（什么都没被丢，就是没数据），但 stderr 会提醒这也可能是参数名写错。⚠️ 由此推出一个不直觉但自洽的结果：**同一个 scope 落空，单查是 0、混查是 3**（`finc_pb_mrq` 只查 `09992.HK` → 整体全空 → 0；和茅台一起查 → 泡泡玛特整行被丢 → 3）。全空时没有任何证据能证明「被丢了」，只有存在对照物时才有——所以**要验证某标的是否被覆盖，就把它和一个已知有数的标的一起查**。**参数写错表现为空表**，拿到空表先查参数名和日期语义，别当成真没数据。日期语义按指标分两类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` / `finc_pb_mrq` 等日频估值=最新交易日（⚠️ MRQ 口径 2026-08-02 已改为日频，旧文档「只在报告期末打值」已作废，照旧写法会取到几个月前的陈值）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
-- **EDE 指标参数名一律以 `indicator search --format json` 的 `parameterList` 为准**，不要凭记忆或照抄示例：服务端会改参数名（`adjustmentType` → `adjustType`，2026-08-01），**传错名是静默忽略、退回默认值**而不是报错——实测 `adjustmentType=3` 返回的是不复权价，看着正常实则错数据。`--security` 支持板块 ID（`reference sector-search` 的 10 位 `sectorId`；`--indicator` 只收指标编码）。⚠️ 根级 `--scale` 会污染不声明 `scale` 的指标（`qte_close` 被 `--scale 8` 缩成 `0`），价格与金额混查时改用 `--indicator-param "code:scale=8"`
+- **EDE「没数据」和「代码写错」是两回事**（2026-08-08 实测）：①代码有效但无数据 / 无覆盖 / 未来日期 → 单元格 `null`，**行列都保留**（含单指标 × 单证券的 1×1），**退出码 0**；②**指标 code 认不出来** → 该指标整列消失；③**证券 code 认不出来**（拼错，或美股用了 `.US` 而非 `.O`/`.N`）→ 该证券整行消失——②③ CLI 标 `partial: true` + `omittedIndicators`/`omittedSecurities` 并**退出码 3**（**`screener` 例外见下**），`--key-by code` 回填时 key 会直接不存在；④请求里没有任何可解析的 code → **空表**，退出码 0 + stderr 提示。**所以退出码 3 现在读作「你有 code 写错了」，不是「这批数据不完整」**——⚠️ 但它**需要同批有对照物**：整个轴都写错（比如只查一个指标而它拼错了）拿到的是空表 + 退出码 0，所以**空表的第一嫌疑是拼写和证券后缀，不是没数据**；反过来，真实的覆盖缺口一眼可见（就是 `null`），不用再靠「和已知有数的标的一起查」做对照。拿到空表先查证券后缀和 code 拼写，再查参数名。日期语义按指标分两类：财务报表指标=报告期末（可为非交易日）、`finc_pe_ttm` / `finc_pb_mrq` 等日频估值=最新交易日（⚠️ `finc_pb_mrq` 是日频的，用报告期末日期会取到几个月前的陈值）；混合取数按各自有效日期分次 `cross-section` 再按证券合并，别塞进同一个 `--date`。详见 `references/commands/indicator.md`
+- **EDE 指标参数名一律以 `indicator search --format json` 的 `parameterList` 为准**，不要凭记忆或照抄示例：**参数名写错不报错、按默认值取数**——如复权参数是 `adjustType`，写成 `adjustmentType` 会返回不复权价，看着正常实则口径不对。`--security` 支持板块 ID（`reference sector-search` 的 10 位 `sectorId`；`--indicator` 只收指标编码）。✅ 根级 `--scale` 污染不声明 `scale` 的指标（`qte_close` 被 `--scale 8` 缩成 `0`）**已于 2026-08-08 修复**，价格与金额可以混查了
+- **2026-08-07 新增指标**：融资融券 21 个 `mgn_*`（`mgn_bal` 两融余额 / `mgn_fin_*` 融资 / `mgn_sl_*` 融券 / `mgn_flag` 是否标的，**仅 A 股有数**）；行业分类 `scr_indu`（一个指标覆盖申万/中信/恒生/GICS 四套，**必填** `industryType` 1-4 + `industryLevel` 0-4，A/港/美股均支持，返回字符串）
 - "业绩点评"双义消歧：**检索已有**（研报/纪要里的业绩点评内容）走 `insight ... list --llm-tag earningsReview`（0.1/条）；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句
 
 ## 公司名 → 证券代码
@@ -245,7 +264,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 日期参数**按参数名判断、不按命令组**（命令组会误导——AI 里既有 `--start-time` 又有 `--date`/`--report-date`；Insight 里 `performance-calendar` 是唯一用 `--start-date`/`--end-date` 的 list）：名字带 `-date` 的（`--start-date`/`--end-date`/`--date`/`--report-date`）一律 `YYYY-MM-DD`，覆盖 Quote/Fundamental、`insight performance-calendar`、AI 的 `theme-tracking`(`--date`)/`hot-topic`/`management-discuss-*`(`--report-date`)、Alternative `edb-data`、Indicator `cross-section`(`--date`)/`time-series`；名字带 `-time` 的（`--start-time`/`--end-time`）用 `YYYY-MM-DD[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔）或 10/13 位时间戳，覆盖 Insight/Vault 各 list、`quote minute-kline`、`ai security-clue`、`ai knowledge-batch`。其中 **A 股公告（`insight announcement list`）与 `knowledge-batch` 会把输入转成 13 位毫秒**（10 位秒自动 ×1000），其余 `-time` 命令（含 `announcement-hk`/`announcement-us`）原样透传字符串；CLI 输入统一接受 10/13 位纯数字或 `YYYY-MM-DD[ HH:mm[:ss]]`（同上：秒可省、空格或 `T` 分隔）。
 
-支持时间倒序的命令加 `--rank-type 2`：opinion / summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。其他 list 命令按 API 默认排序。
+支持时间倒序的命令加 `--rank-type 2`：opinion / summary / pamirs-summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account（⚠️ **只实测过 `pamirs-summary` / `summary` / `research` 三个，另外 8 个未验证、别外推**。在这三个上：`--rank-type 2` 是严格时间倒序；`1`=综合排序只在带 `--keyword` 时才有差异，且强弱不同——`pamirs-summary --search-type 2` 是真正的相关度重排，`summary`/`research` 的 `1` 仍是时间倒序、只改变同一时间戳内几条的先后。未验证的端点按后者的保守预期对待。详见 `insight.md` 开头）。其他 list 命令按 API 默认排序。
 
 ## 异常处理
 
@@ -264,7 +283,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | 错误码 | 含义 | CLI 行为 | Agent 是否介入 |
 |--------|------|---------|--------------|
 | ✅ `100003` | 参数值非法——**最宽的兜底码**：类型错、`limit` 越界都归这里。**msg 通常已指明字段**（如「请求体字段类型不匹配: size 期望类型 Integer」「limit 最小为 1，最大为 10000」），先读 msg 再猜 | — | 按 msg 指的字段改；msg 没指明才对照 `--help` 查枚举拼写，**不要重试同命令** |
-| ✅ `999999` | 系统错误。**`indicator`（EDE）2026-08-01 前用此码表示查询无数据，现已改为返回空数组**，所以这个码基本只剩真故障 | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | 确认参数无误仍报此码即服务端故障 |
+| ✅ `999999` | 系统错误。**`indicator`（EDE）2026-08-01 前用此码表示查询无数据，之后改为返回数据体**，所以这个码基本只剩真故障。⚠️ 现在「无数据」是保留行列的 `null` 单元格，**不是空表**；空表另有含义（整轴 code 未识别） | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | 确认参数无误仍报此码即服务端故障 |
 | ✅ `410110` | **异步生成中**（HTTP 400，旧码未切）。新码 `140001`，CLI 两码都认 | 轮询视为 pending | 继续等 |
 | ✅ `410111` | **异步生成失败**（HTTP 400，旧码未切）。新码 `140002`，CLI 两码都认 | 终态 | **不重试**，换参数 |
 | ✅ `130002` | 资源不存在——**下载类的兜底码**：`reportId` 不存在 / 非数字 / `fileType` 非法**全归这里**（`130003`/`130004`/`130005` 实测均未启用） | — | 确认 ID 有效且本账号可见；换 `--file-type` 或换一篇验证 |
@@ -272,6 +291,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | ✅ `100001` | 缺必填参数——**msg 带字段名**（「缺少必填参数: reportId」） | — | 按 msg 指的字段补上 |
 | ✅ `110001` / `110002` | 日期格式错（msg 带字段名）/ 起晚于止。**哪个格式报错、哪个被静默误读是端点相关的**（实测 `fundamental` 对 `2020/01/01` 报 110001，`insight research list` 对 `30/06/2025` 却宽松解析返回数据）——别按命令组预判 | — | 按参数名：`--*-date` 用 `YYYY-MM-DD`、`--*-time` 用 `YYYY-MM-DD HH:mm:ss`；`ai knowledge-batch` 的 --start-time/--end-time 收时间戳或 datetime，CLI 统一转 13 位毫秒 |
 | ✅ `120001` | 证券代码无效——msg 带原因（「非有效A股」）。**只有 Fundamental 系报**，Quote 系静默返回空 | — | `reference securities-search` 确认代码与后缀（`600519.SH` / `00700.HK`） |
+| ✅ `110003` | **超出账号数据权限的时间范围**。范围按账号等级而定、**不是平台常量**，且**同一账号下按接口还可能不一样**——本机 10 年定制权限账号上实测 `indicator screener` 仍卡 today−3 年，而同模块的 `cross-section`/`time-series` 已放宽（正式账号是否同样如此未验证） | — | 把日期移进权限范围内；整个区间都早于下界时缩短窗口无用（`--fiscal-year 2015` 无论怎么缩都报错）。`screener` 撞界改用 `cross-section` 拉数再本地筛，否则联系客户经理开通 |
 | ✅ `100006` | 查询/下载数量超限——**取代旧 `430007`**；实测 `fund-flow` 全市场不传日期即此码 | — | 缩短日期范围或调小 `--size`/`--limit`；全市场场景应已自动分片 |
 | ✅ `240001` | 财报期未披露或超出查询期（`earnings-review` 提交阶段就报，**不扣积分**） | — | 换更早的 `--period`（`2025q3` → `2025interim`） |
 | ✅ `250001` | 不支持的数据源——**取代旧 `433007`** | — | 检查 `resourceType + sourceId` 组合 |
@@ -279,14 +299,14 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | ✅ `999010` | 接口地址不存在 | — | `raw call` 的 key 可能已下线，用 `gangtise raw list` 核对 |
 | ✅ `0000001008` | Token 服务端失效（他处登录挤掉）——**旧码未切，token 自愈依赖它** | **强制重新登录并重试一次** | 无 AK/SK 时无法自愈，提示重新登录 |
 | ✅ `0000001007` | 请求未携带 Bearer token | — | 检查 `GANGTISE_TOKEN` / AK/SK 是否已 export |
-| ✅ `900002` | **请求方法不正确**（msg「请求类型有误」，HTTP 405）——旧文档写作"缺少 uid"是错的 | — | `raw call` 时确认该 endpoint 是 GET 还是 POST |
+| ✅ `900002` | **请求方法不正确**（msg「请求类型有误」，HTTP 405） | — | `raw call` 时确认该 endpoint 是 GET 还是 POST |
 | ✅ `140002` | 终态参数错：AI 异步生成失败，或 `indicator` 的指标必填参数缺失 / 枚举越界 / 表达式语法错（实测 2026-08-02） | **不重试**（终态码） | 按 msg 改参数重提；EDE 的参数名与枚举读 `indicator search --format json` 的 `parameterList` |
 
 **⚠️ 实测发现的坑（都是"不报错"型，最难发现）**
 - 🔴 **日期只写 `YYYY-MM-DD`、时间只写 `YYYY-MM-DD HH:mm:ss`（或 10/13 位时间戳）；CLI v0.28.0 起 date 与 datetime 两类、含所有 insight/vault 透传参数都本地拦截**。服务端对「年在后」格式**日月顺序随分隔符翻转**且静默误解析（HTTP 200、不回显实际用的日期）：`07/01/2026`（斜杠）读成 **2026-01-07**、`07-01-2026`（横杠）读成 **2026-07-01**，差半年。实测 `insight research list --start-time`：`07/01/2026` 命中 1562 条、`07-01-2026` 命中 210 条（分别 = 标准 `2026-01-07` / `2026-07-01`）；`quote day-kline`/`kline-hk`/`kline-us`/`index`、`fundamental balance-sheet` 同理。v0.28.0 前透传命令（research/summary/announcement-hk/us/vault/minute-kline 等）**静默放行**，且同值在本地转时间戳的 `announcement`（A 股）与透传的 hk/us 之间还会差半年、都 exit 0。现在全部在发请求前报 `ValidationError`，**但绕过 CLI 直连接口务必自己保证格式**
 - **财报接口的日期按「报告期末」过滤**，不是公告日：`fundamental balance-sheet` 等的 `--start-date`/`--end-date` 匹配的是 `endDate` 字段（如 `20200630`），响应里的 `announcementDate`（如 `20200729`）只是公告日。**查某期财报要传季度末日期**（`2020-06-30` / `2020-03-31` / `2020-09-30` / `2020-12-31`）；传 `2020-07-01` 这类非报告期日期会返回 0 行，属正常行为，不是没数据
 - 🔴 **Quote 系对非法证券代码不报错**，静默返回 `total:0` 空列表——无法区分"代码写错"和"该票该区间真无数据"。**空结果先回头核对代码后缀**。Fundamental 系会正常报 `120001`
-- **枚举值拼错、分页参数越界服务端不报错**——静默忽略该条件返回全量/正常结果。所以 `100004`/`100005` 实测触发不到。CLI 只对**部分**参数加了本地白名单（`--top` 上限；`--category` 仅 `reference securities-search` / `institution-search` / `official-account-search` 三个命令），**`insight research --category` 等仍是自由字符串、拼错不报错也不生效**。**拼错的筛选条件会伪装成"结果正常"，枚举拼写要自己保证**
+- **枚举值拼错、分页参数越界服务端不报错**——静默忽略该条件返回全量/正常结果。所以 `100004`/`100005` 实测触发不到。最坏一例：非法 `--search-type` 会**连带吞掉 `--keyword`**（`summary list --keyword 茅台 --search-type 99` 返 196988 全库 vs 正常 135）。**v0.32.0 起 CLI 本地拦截**：全部 `--search-type` / `--rank-type`（19 处）、全部 `--file-type`（9 处下载，`foreign-report` 为 1–4、其余 1–2）、`pamirs-summary` 的 `--category` / `--market`、`--top` 上限、以及 `reference securities-search` / `institution-search` / `official-account-search` 的 `--category`。**仍未覆盖**：`insight research/summary --category`、`--market`、`--source`、`--llm-tag` 等仍是自由字符串，拼错不报错也不生效——这些要自己核对。**拼错的筛选条件会伪装成"结果正常"，枚举拼写要自己保证**
 - **`viewpoint-debate` 传敏感内容不会被提前拦截**——实测不返回 `240002`，而是照常受理、扣满 50 积分、生成阶段才以 `410111` 失败。**提交前自己把关措辞**
 - **`ai one-pager` 的非法 `mode` 被静默忽略**，照常生成并扣 50 积分
 
@@ -299,10 +319,10 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `999003` / `999004` / `999005` / `999006` | 无接口权限 / 无资源权限 / 积分不足 / 限流 | 未构造出（需特定账号状态） |
 | `999012`–`999016` | 账号禁用/过期、租户失效、无长期 token、IP 不合规 | 未构造出 |
 | `100002` / `100004` / `100005` | 类型错 / 分页非法 / 枚举非法 | 类型错归 `100003`；后两者服务端静默忽略 |
-| `110003` | 超出时间范围限制 | 未触发（1900 年至今的范围仍正常返回） |
 | `130003` / `130004` / `130005` | 无文件可下 / ID 非数字 / 文件类型不支持 | 全部归 `130002` |
 | `140001` / `140002` | 结果生成中 / 处理失败 | 异步端点仍用 `410110` / `410111` |
 | `210001` / `220001` / `230001` | 研报/观点/分享文件不支持下载 | 未构造出 |
+| `230002` | 微信账号未绑定（私域，2026-08-07 新增）。⚠️ **`vault wechat-*` 就在该模块下、够得着**：要求先绑定并激活群消息助理且助理已入群 | 未构造出（本账号已绑定） |
 | `240002` / `240003` | 敏感词 / 模式不支持 | 敏感词走 `410111`；`one-pager` 的非法 `mode` 被静默忽略 |
 | `903301` / `10011401` | 今日调用上限 / 白名单未开通 | 历史遗留，**均未实测触发**。不臆断对应新码——`10011401` 按语义更接近 `999003`（未开通接口权限）而非 `999016`（IP 限制），别据此去查 IP |
 
@@ -315,11 +335,12 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 **其他场景**：
 - CLI 未安装 → `npm install -g gangtise-openapi-cli`
-- **退出码 3 = 结果不完整或不可信**（两种语义，都保留已取到的数据；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题）：
-  - **`partial: true` = 少了数据**。翻页/K线分片有页失败、服务端返回行数与 `total` 矛盾（提前短页）、或 **EDE 整指标/整证券被服务端略过**。附带定位字段：页失败 `failedPages`；分片失败 `failedShards`、分片撞行数上限 `truncatedShards`（均带日期区间可缩窗补拉）；EDE 为 `omittedIndicators` / `omittedSecurities`（那几个 code 一个值都没有，先查 `scopeList` 覆盖和日期语义）
-  - **`unreliable: true` = 在场的值不可信**。目前只有 EDE 条件选股把同一指标绑到多个变量时会出现，附 `duplicatedIndicators`。服务端缺陷（2026-08-03 实测）：这些绑定**全部按其中最早的那个日期取数**，该值落到它们的第一列、其余列为 `null`——所以**活下来的那个数字未必属于它标注的变量**（声明 07-31 的变量拿到了 07-30 的价）。**整份结果都不可信**：显示的值可能张冠李戴，命中的证券集合也不可信（针对 null 变量的条件等于没筛），同一请求还有约 1/3 概率返回空集。**不能拿来下任何结论**，拆成多次调用重跑
-  - **`screener` 的缺列按表达式的布尔结构判**：把缺列的变量当作「无法求值」，看整个表达式**是否还有一条能成立的分支**——`A && B` 要两边都可求值，`A || B` 只要一边。**一条分支都不剩 → 退出码 1、不输出任何结果**（返回的行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；**还有分支可求值，或缺的只是未参与表达式的辅助变量 → `partial` + 退出码 3**。所以 `F1 || F2` 缺 F1 是降级（行可能靠 F2 正当命中），缺两个则是致命；`F1 && (F2 || F3)` 缺 F1 仍是致命（F1 是必选合取项）
-  - 拿到 3 就必须告知用户缺了哪段 / 哪些值不可信，不能当成功静默继续
+- **退出码 3 = `partial: true`，结果少了数据**（保留已取到的部分；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题）：
+  - 触发场景：翻页/K线分片有页失败、服务端返回行数与 `total` 矛盾（提前短页）、或 **EDE 有 code 没被服务端认出来**。附带定位字段：页失败 `failedPages`；分片失败 `failedShards`、分片撞行数上限 `truncatedShards`（均带日期区间可缩窗补拉）；EDE 为 `omittedIndicators` / `omittedSecurities`
+  - **EDE 的这两个字段现在读作「这些 code 服务端不认识」**——先查拼写和证券后缀（美股 `.O`/`.N`，不是 `.US`），而不是查 `scopeList` 覆盖：真的没覆盖会返 `null` 单元格、退出码 0
+  - **`screener` 的缺列按表达式的布尔结构判**：把缺列的变量当作「无法求值」，看整个表达式**是否还有一条能成立的分支**——`A && B` 要两边都可求值，`A || B` 只要一边。**一条分支都不剩 → 退出码 1、不输出任何结果**（返回的行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；**还有分支可求值，或缺的只是未参与表达式的辅助变量 → `partial` + 退出码 3**。所以 `F1 || F2` 缺 F1 是降级（行可能靠 F2 正当命中），缺两个则是致命；`F1 && (F2 || F3)` 缺 F1 仍是致命（F1 是必选合取项）。⚠️ **前提是服务端返回了命中行**——零命中时没有行需要质疑，一律是「nothing matched」+ **退出码 0**，哪怕变量整个求不了值（实测 `F1:拼错的码` 单绑就是空集 + 退出 0）。**空集别当成「条件成立但无标的符合」**，先核对指标码
+  - 拿到 3 就必须告知用户缺了哪段，不能当成功静默继续
+  - （历史：条件选股把同一指标绑到多个变量曾触发 `unreliable: true` + `duplicatedIndicators`，因服务端把所有绑定按最早日期取数。2026-08-08 服务端已修复，该标记**已从 CLI 移除**，这类查询现在正常可用）
 - 空结果（list 为空数组） → 建议扩大时间范围、换关键词、去掉部分筛选
 - 模糊公司名匹配多只（"平安" → 中国平安 / 平安银行 / ...） → 列出让用户选
 - 下载文件路径冲突 → 询问覆盖

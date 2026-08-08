@@ -4,7 +4,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 
 > 例外：`indicator`（EDE）四个接口（`search` / `cross-section` / `time-series` / `screener`）成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`）。内层字段名 2026-08-01 起为 `securityCodeList` / `securityNameList` / `indicatorList[{code,name,dataType}]`（screener 另带 `field`），`values` 是 2D 矩阵：**截面与 screener 为 `[证券][指标]`**（该版转置过，此前是 `[指标][证券]`）、时序仍为 `[序列][日期]`。
 >
-> 缺数据分四档：**部分**缺 → 单元格 `null`；某指标对所有证券都无数据 → 该指标**整列**从 `indicatorList` 消失；某证券对所有指标都无数据 → 该证券**整行**从 `securityCodeList` 消失；整查询无数据 → 全空数组。CLI 的 `indicator` 子命令已二次解包、拍平成宽表，并在整列/整行被略过时标 `partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。重复绑定同一指标另标 `unreliable` + `duplicatedIndicators` + 退出码 3；直接 `raw call indicator.*` 只会剥外层，内层与缺数据形态需自行处理。
+> **缺数据 vs 代码写错**（2026-08-08 实测）：无数据 / 无覆盖一律是单元格 `null`，行列都保留。仍会整列 / 整行消失的只有**服务端解析不了的 code**——指标 code 拼错，或证券 code 后缀错（美股是 `.O`/`.N`，`AAPL.US` 会整行消失）。请求里没有任何可解析 code 时才是全空数组。CLI 的 `indicator` 子命令已二次解包、拍平成宽表，并在整列/整行被略过时标 `partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3——**这个信号现在读作「有 code 写错了」**。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
 
 ## 通用模式（5 类）
 
@@ -23,6 +23,8 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight opinion list | `{list, total}` | `list[].id` / `list[].title` / `list[].publishDate` / `list[].chiefName` / `list[].securityCode` / `list[].institutionName` |
 | insight summary list | `{list, total}` | `list[].summaryId` / `list[].title` / `list[].publishTime` |
 | insight summary download | 文件路径（stdout） | — |
+| insight pamirs-summary list | `{list, total}` | `list[].summaryId` / `list[].title` / `list[].brief` / `list[].summaryTime`（纪要生成时间）/ `list[].publishTime`（发布时间）/ `list[].securityList[]{securityCode, securityName}` / `list[].researchAreaList[]{researchAreaId, researchAreaName}` / `list[].conceptList[]{conceptId, conceptName}` / `list[].categoryList` / `list[].marketList`。⚠️ 标签字段大面积不回填：`conceptList` **在所有查法下恒为空**（接口也没有 concept 过滤参数，拿不到）；`categoryList` 与 `marketList` **只在用 `--category` 或 `--market` 任一过滤时才回填**（两者绑定，一起有或一起没有）。拉全量再本地分组会丢标签 |
+| insight pamirs-summary download | 文件路径（stdout） | — |
 | insight roadshow / site-visit / strategy / forum list | `{list, total}` | `list[].id` / `list[].title` / `list[].publishTime` / `list[].institution.institutionName` |
 | insight research list | `{list, total}` | `list[].reportId` / `list[].title` / `list[].brief`（全文摘要） / `list[].publishTime` / `list[].publisher.brokerName` / `list[].securityList[].rating` |
 | insight research download | 文件路径（stdout） | — |
@@ -78,7 +80,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault record-download | 文件路径（stdout） | — |
 | vault my-conference-list | `{list, total}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
 | vault my-conference-download | 文件路径（stdout） | — |
-| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**不是 `msgContent`/`contentUrl`**（旧文档笔误，实测 2026-07-25） |
+| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**字段名是 `content` / `url`**，不是 `msgContent` / `contentUrl`（实测 2026-07-25） |
 | vault wechat-chatroom-list | `{list, total}` | `list[].chatroomName` / `list[].chatroomId` |
 | alternative edb-search | `{list: [...]}` 指标列表 | `indicatorId` / `indicatorName` / `dataSource` / `frequency` / `unit` |
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |

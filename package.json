@@ -1,6 +1,6 @@
 {
   "name": "gangtise-openapi-cli",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "description": "CLI for Gangtise OpenAPI",
   "license": "MIT",
   "repository": {

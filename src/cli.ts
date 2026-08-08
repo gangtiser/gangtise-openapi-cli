@@ -3,7 +3,7 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, duplicateScreenerCodes, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
@@ -108,13 +108,19 @@ function addDownloadCommand(parent: Command, spec: {
   idField: string
   fallbackPrefix: string
   name?: string
-  fileType?: { description: string; default?: string; required?: boolean }
+  // `choices` is REQUIRED whenever fileType is offered: an out-of-range value is
+  // not rejected server-side, it just downloads something else (probed 2026-08-08:
+  // --file-type 99 went out as fileType=99 and the download proceeded). Typing it
+  // as mandatory keeps a future download command from silently skipping the guard.
+  fileType?: { description: string; choices: string[]; default?: string; required?: boolean }
   contentTypeDescription?: string
   titleListEndpoint?: string
 }) {
   const cmd = parent.command(spec.name ?? "download").requiredOption(`${spec.idOption} <id>`)
-  if (spec.fileType?.required) cmd.requiredOption("--file-type <number>", spec.fileType.description)
-  else if (spec.fileType) cmd.option("--file-type <number>", spec.fileType.description, spec.fileType.default)
+  if (spec.fileType) {
+    const option = new Option("--file-type <number>", spec.fileType.description).choices(spec.fileType.choices)
+    cmd.addOption(spec.fileType.required ? option.makeOptionMandatory() : option.default(spec.fileType.default))
+  }
   if (spec.contentTypeDescription) cmd.requiredOption("--content-type <type>", spec.contentTypeDescription)
   cmd.option("--output <path>").action((options) => withClient(async (client) => {
     const id = options[spec.idField] as string
@@ -188,6 +194,7 @@ program.addCommand(lookup)
 const insight = new Command("insight").description("Insight APIs")
 const opinion = new Command("opinion")
 const summary = new Command("summary")
+const pamirsSummary = new Command("pamirs-summary")
 const roadshow = new Command("roadshow")
 const siteVisit = new Command("site-visit")
 const strategy = new Command("strategy")
@@ -204,20 +211,41 @@ const officialAccount = new Command("official-account")
 const qa = new Command("qa")
 const reportImage = new Command("report-image")
 
-addTimeFilters(opinion.command("list").option("--rank-type <number>", "Rank type", "1").option("--research-area <id>", "Research area ID", collectList, []).option("--chief <id>", "Chief ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--concept <id>", "Concept ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--source <source>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.opinion.list", {
+addTimeFilters(opinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--research-area <id>", "Research area ID", collectList, []).option("--chief <id>", "Chief ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--concept <id>", "Concept ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--source <source>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime,
     rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }), keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), chiefList: maybeArray(options.chief),
     securityList: maybeArray(options.security), brokerList: maybeArray(options.broker), industryList: maybeArray(options.industry), conceptList: maybeArray(options.concept),
     llmTagList: maybeArray(options.llmTag), sourceList: maybeArray(options.source),
   })))
 
-addTimeFilters(summary.command("list").option("--search-type <number>", "Search type", "1").option("--rank-type <number>", "Rank type", "1").option("--source <number>", "Source type", collectNumberList, []).option("--research-area <id>", "Research area", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.summary.list", {
+addTimeFilters(summary.command("list").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--source <number>", "Source type", collectNumberList, []).option("--research-area <id>", "Research area", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Category", collectList, []).option("--market <name>", "Market", collectList, []).option("--participant-role <name>", "Participant role", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.summary.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime,
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }), rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }), keyword: options.keyword, sourceList: options.source.length ? options.source : undefined,
     researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution),
     categoryList: maybeArray(options.category), marketList: maybeArray(options.market), participantRoleList: maybeArray(options.participantRole),
   }), { endpointKey: "insight.summary.list", idField: "summaryId" }))
-addDownloadCommand(summary, { endpointKey: "insight.summary.download", idOption: "--summary-id", idField: "summaryId", fallbackPrefix: "summary", fileType: { description: "File type: 1=original(default) 2=HTML; only affects meeting platform summaries" }, titleListEndpoint: "insight.summary.list" })
+addDownloadCommand(summary, { endpointKey: "insight.summary.download", idOption: "--summary-id", idField: "summaryId", fallbackPrefix: "summary", fileType: { description: "File type: 1=original(default) 2=HTML; only affects meeting platform summaries", choices: ["1", "2"] }, titleListEndpoint: "insight.summary.list" })
+
+// Pamirs is one lead institution's expert-summary library, exposed on its own
+// path rather than as a `summary list` filter. It advertises a NARROWER filter
+// set than `summary` — no --source / --institution / --participant-role — so the
+// options are spelled out here instead of sharing summary's builder: an
+// unsupported flag would be dropped server-side and silently widen the result.
+// Every enum is whitelisted locally. The server drops an unrecognised VALUE the
+// same way it drops an unrecognised FIELD — silently, returning the unfiltered
+// set with exit 0. Worse, a bad `--search-type` takes `--keyword` down with it:
+// `--keyword 茅台 --search-type 99` answers 2963 (the whole library) instead of 2,
+// so the caller reads a full-library dump as a keyword hit. Same class of defect
+// that put whitelists on securities-search / institution-search / official-account.
+const PAMIRS_CATEGORIES = ["companyAnalysis", "industryAnalysis"] as const
+const PAMIRS_MARKETS = ["aShares", "hkStocks", "usChinaConcept", "usStocks"] as const
+addTimeFilters(pamirsSummary.command("list").description("List Pamirs expert summaries (requires the expert-summary database)").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--research-area <id>", "Research area ID; unlike most insight lists this accepts BOTH citicIndustry (1008001xx) and swIndustry (104xx0000) codes", collectList, []).option("--security <code>", "Security code, e.g. 000001.SZ", collectList, []).option("--category <name>", `Category: ${PAMIRS_CATEGORIES.join(" / ")}`, collectList, []).option("--market <name>", `Market: ${PAMIRS_MARKETS.join(" / ")}`, collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.pamirs-summary.list", {
+    from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime,
+    searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }), rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }), keyword: options.keyword,
+    researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security),
+    categoryList: parseChoiceList(options.category, "--category", PAMIRS_CATEGORIES), marketList: parseChoiceList(options.market, "--market", PAMIRS_MARKETS),
+  }), { endpointKey: "insight.pamirs-summary.list", idField: "summaryId" }))
+addDownloadCommand(pamirsSummary, { endpointKey: "insight.pamirs-summary.download", idOption: "--summary-id", idField: "summaryId", fallbackPrefix: "pamirs-summary", fileType: { description: "File type: 1=original(default) 2=HTML", choices: ["1", "2"] }, titleListEndpoint: "insight.pamirs-summary.list" })
 
 // Each schedule endpoint accepts a different subset of filters (see API spec);
 // the blanket helper used to expose all of them, so an unsupported flag (e.g.
@@ -350,7 +378,7 @@ performanceCalendar.command("list").description("Earnings calendar (业绩预告
   })
 addDownloadCommand(performanceCalendar, { endpointKey: "insight.performance-calendar.download", idOption: "--performance-report-id", idField: "performanceReportId", fallbackPrefix: "performance-calendar", titleListEndpoint: "insight.performance-calendar.list" })
 
-addTimeFilters(research.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--broker <id>", "Broker ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--source <type>", "Source type", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.research.list", {
+addTimeFilters(research.command("list").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--broker <id>", "Broker ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--source <type>", "Source type", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.research.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }), rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
     brokerList: maybeArray(options.broker), securityList: maybeArray(options.security), industryList: maybeArray(options.industry),
@@ -358,9 +386,9 @@ addTimeFilters(research.command("list").option("--search-type <number>", "Search
     ratingChangeList: maybeArray(options.ratingChange), minReportPages: parseOptionalNumberOption(options.minPages, "--min-pages", { integer: true, min: 0 }),
     maxReportPages: parseOptionalNumberOption(options.maxPages, "--max-pages", { integer: true, min: 0 }), sourceList: maybeArray(options.source),
   }), { endpointKey: "insight.research.list", idField: "reportId" }))
-addDownloadCommand(research, { endpointKey: "insight.research.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "research", fileType: { description: "File type: 1=PDF 2=Markdown", default: "1" }, titleListEndpoint: "insight.research.list" })
+addDownloadCommand(research, { endpointKey: "insight.research.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "research", fileType: { description: "File type: 1=PDF 2=Markdown", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.research.list" })
 
-addTimeFilters(foreignReport.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--region <id>", "Region ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-report.list", {
+addTimeFilters(foreignReport.command("list").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code", collectList, []).option("--region <id>", "Region ID", collectList, []).option("--category <name>", "Report category", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--min-pages <number>", "Min report pages").option("--max-pages <number>", "Max report pages").option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-report.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword,
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }), rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
     securityList: maybeArray(options.security), regionList: maybeArray(options.region), categoryList: maybeArray(options.category),
@@ -368,7 +396,7 @@ addTimeFilters(foreignReport.command("list").option("--search-type <number>", "S
     ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
     minReportPages: parseOptionalNumberOption(options.minPages, "--min-pages", { integer: true, min: 0 }), maxReportPages: parseOptionalNumberOption(options.maxPages, "--max-pages", { integer: true, min: 0 }),
   }), { endpointKey: "insight.foreign-report.list", idField: "reportId" }))
-addDownloadCommand(foreignReport, { endpointKey: "insight.foreign-report.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "foreign-report", fileType: { description: "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", default: "1" }, titleListEndpoint: "insight.foreign-report.list" })
+addDownloadCommand(foreignReport, { endpointKey: "insight.foreign-report.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "foreign-report", fileType: { description: "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", choices: ["1", "2", "3", "4"], default: "1" }, titleListEndpoint: "insight.foreign-report.list" })
 
 // Contract: A-share announcement startTime/endTime go out as 13-digit epoch millis
 // (parseTimestamp13), while HK/US announcement and every other insight list send the
@@ -376,15 +404,15 @@ addDownloadCommand(foreignReport, { endpointKey: "insight.foreign-report.downloa
 // a narrow past window (each returns in-window rows). A-share's API also accepts the
 // string form, but the 13-digit conversion is kept as the historical spec contract;
 // don't "unify" it away without re-confirming the A-share announcement spec.
-addTimeFilters(announcement.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement.list", {
+addTimeFilters(announcement.command("list").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: parseTimestamp13(options.startTime, "--start-time"), endTime: parseTimestamp13(options.endTime, "--end-time"),
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }), rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }), keyword: options.keyword,
     securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
   }), { endpointKey: "insight.announcement.list", idField: "announcementId" }))
-addDownloadCommand(announcement, { endpointKey: "insight.announcement.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement", fileType: { description: "File type: 1=PDF 2=Markdown", default: "1" }, titleListEndpoint: "insight.announcement.list" })
+addDownloadCommand(announcement, { endpointKey: "insight.announcement.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement", fileType: { description: "File type: 1=PDF 2=Markdown", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.announcement.list" })
 
-addTimeFilters(announcementHk.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. 01913.HK)", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement-hk.list", {
+addTimeFilters(announcementHk.command("list").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. 01913.HK)", collectList, []).option("--category <id>", "Category ID", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement-hk.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }),
@@ -392,9 +420,9 @@ addTimeFilters(announcementHk.command("list").option("--search-type <number>", "
     keyword: options.keyword,
     securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
   }), { endpointKey: "insight.announcement-hk.list", idField: "announcementId" }))
-addDownloadCommand(announcementHk, { endpointKey: "insight.announcement-hk.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-hk", fileType: { description: "File type: 1=original 2=Markdown", default: "1" }, titleListEndpoint: "insight.announcement-hk.list" })
+addDownloadCommand(announcementHk, { endpointKey: "insight.announcement-hk.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-hk", fileType: { description: "File type: 1=original 2=Markdown", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.announcement-hk.list" })
 
-addTimeFilters(announcementUs.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. TSLA.O)", collectList, []).option("--category <id>", "Category ID (constant-list usShareAnnouncementCategory)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement-us.list", {
+addTimeFilters(announcementUs.command("list").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. TSLA.O)", collectList, []).option("--category <id>", "Category ID (constant-list usShareAnnouncementCategory)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.announcement-us.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }),
@@ -402,9 +430,9 @@ addTimeFilters(announcementUs.command("list").option("--search-type <number>", "
     keyword: options.keyword,
     securityList: maybeArray(options.security), categoryList: maybeArray(options.category),
   }), { endpointKey: "insight.announcement-us.list", idField: "announcementId" }))
-addDownloadCommand(announcementUs, { endpointKey: "insight.announcement-us.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-us", fileType: { description: "File type: 1=original PDF 2=Markdown", default: "1" }, titleListEndpoint: "insight.announcement-us.list" })
+addDownloadCommand(announcementUs, { endpointKey: "insight.announcement-us.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-us", fileType: { description: "File type: 1=original PDF 2=Markdown", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.announcement-us.list" })
 
-addTimeFilters(foreignOpinion.command("list").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-opinion.list", {
+addTimeFilters(foreignOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
@@ -414,7 +442,7 @@ addTimeFilters(foreignOpinion.command("list").option("--rank-type <number>", "Ra
     ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
   })))
 
-addTimeFilters(independentOpinion.command("list").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--security <code>", "Security code (e.g. GSK.N)", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.independent-opinion.list", {
+addTimeFilters(independentOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. GSK.N)", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.independent-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
@@ -422,9 +450,9 @@ addTimeFilters(independentOpinion.command("list").option("--rank-type <number>",
     industryList: maybeArray(options.industry), securityList: maybeArray(options.security),
     ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
   })))
-addDownloadCommand(independentOpinion, { endpointKey: "insight.independent-opinion.download", idOption: "--independent-opinion-id", idField: "independentOpinionId", fallbackPrefix: "independent-opinion", fileType: { description: "File type: 1=original HTML 2=CN-translated HTML", required: true } })
+addDownloadCommand(independentOpinion, { endpointKey: "insight.independent-opinion.download", idOption: "--independent-opinion-id", idField: "independentOpinionId", fallbackPrefix: "independent-opinion", fileType: { description: "File type: 1=original HTML 2=CN-translated HTML", choices: ["1", "2"], required: true } })
 
-addTimeFilters(officialAccount.command("list").option("--search-type <number>", "Search type: 1=title 2=fulltext", "1").option("--rank-type <number>", "Rank type: 1=composite 2=time desc", "1").option("--account-id <id>", "Official account ID", collectList, []).option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--category <type>", "Article type: news/law/report/view/data/event/meeting/notice/recruit/investEdu/brand/notes/other", collectList, []).option("--industry <id>", "Industry ID (constant-list citicIndustry/swIndustry)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.official-account.list", {
+addTimeFilters(officialAccount.command("list").addOption(new Option("--search-type <number>", "Search type: 1=title 2=fulltext").choices(["1", "2"]).default("1")).addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--account-id <id>", "Official account ID", collectList, []).option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--category <type>", "Article type: news/law/report/view/data/event/meeting/notice/recruit/investEdu/brand/notes/other", collectList, []).option("--industry <id>", "Industry ID (constant-list citicIndustry/swIndustry)", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.official-account.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     searchType: parseNumberOption(options.searchType, "--search-type", { integer: true, min: 1 }),
@@ -433,7 +461,7 @@ addTimeFilters(officialAccount.command("list").option("--search-type <number>", 
     accountIdList: maybeArray(options.accountId), securityList: maybeArray(options.security),
     categoryList: maybeArray(options.category), industryList: maybeArray(options.industry),
   }), { endpointKey: "insight.official-account.list", idField: "articleId" }))
-addDownloadCommand(officialAccount, { endpointKey: "insight.official-account.download", idOption: "--article-id", idField: "articleId", fallbackPrefix: "official-account", fileType: { description: "File type: 1=txt(default) 2=HTML", default: "1" }, titleListEndpoint: "insight.official-account.list" })
+addDownloadCommand(officialAccount, { endpointKey: "insight.official-account.download", idOption: "--article-id", idField: "articleId", fallbackPrefix: "official-account", fileType: { description: "File type: 1=txt(default) 2=HTML", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.official-account.list" })
 
 // QA request keys are BARE (source/questionCategory/answerImportant), not the *List
 // convention — the body below mirrors the spec exactly. Datetimes pass through as strings.
@@ -452,6 +480,7 @@ addDownloadCommand(reportImage, { endpointKey: "insight.report-image.download", 
 
 insight.addCommand(opinion)
 insight.addCommand(summary)
+insight.addCommand(pamirsSummary)
 insight.addCommand(roadshow)
 insight.addCommand(siteVisit)
 insight.addCommand(strategy)
@@ -756,22 +785,31 @@ alternative.command("concept-info").requiredOption("--concept-id <id>", "Concept
 alternative.command("concept-securities").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-securities", { conceptId: options.conceptId })))
 program.addCommand(alternative)
 
-/** Mark and report what the server left out. EDE does not pad missing data with
- * `null`: an indicator empty for every security vanishes from `indicatorList`,
- * a security empty for every indicator vanishes from `securityCodeList` (probed
- * 2026-08-02). Without this the shortfall is invisible — exit code 0, a
- * plausible-looking table, and a `--key-by code` mapping whose key simply is not
- * there.
+/** Mark and report the request codes the server did not answer for at all.
  *
- * This is the same class of defect as a failed page or a row cap, so it reuses
- * the same signal: `partial` on the payload (printData → exit 3) plus the
- * omitted codes, so an automated caller can react without parsing stderr. */
+ * What this catches changed on the server. EDE used to drop any axis it had no
+ * DATA for — an indicator empty for every security vanished from
+ * `indicatorList`, a security empty for every indicator vanished from
+ * `securityCodeList`. Re-probed 2026-08-08: a coverage gap is now padded with
+ * `null` and keeps its row and column (`mgn_bal` × 00700.HK, `finc_pb_mrq` ×
+ * 09992.HK — both null, both present, even as the only cell in the request).
+ *
+ * A code the server cannot RESOLVE still vanishes: an unknown indicator code, or
+ * a security code with the wrong suffix (`AAPL.US`, whose real form is
+ * `AAPL.O`). So this is now a typo detector rather than a coverage detector —
+ * which is the more useful of the two, since a coverage gap is visible as `null`
+ * but a misspelled code is otherwise invisible: exit code 0, a plausible-looking
+ * table, and a `--key-by code` mapping whose key simply is not there.
+ *
+ * Same signal as a failed page or a row cap: `partial` on the payload (printData
+ * → exit 3) plus the omitted codes, so an automated caller can react without
+ * parsing stderr. */
 function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[], requestedIndicators: string[]): void {
-  // A wholly empty response is a legitimate answer, not a partial one: the diff
-  // against the request would list everything as "omitted", which is false —
-  // nothing was dropped, there is no data. Exit 0, but say why it is ambiguous.
+  // A wholly empty response is not a partial one: the diff against the request
+  // would list everything as "omitted", which says nothing about which axis is
+  // at fault. Exit 0, but say why it is ambiguous.
   if (isEmptyMatrix(data)) {
-    process.stderr.write("[gangtise] note: the query returned no data at all. That is a normal answer for a non-trading range or a date outside coverage — but since 2026-08-01 it is ALSO what a wrong parameter name or the wrong date field (tradeDate vs reportDate) produces. Cross-check against 'gangtise indicator search --format json'.\n")
+    process.stderr.write("[gangtise] note: the query returned no data at all. Since a real coverage gap now comes back as a null cell rather than an empty table, this usually means NOTHING in the request resolved — every security code or every indicator code was unrecognised — or a parameter name is wrong. Cross-check codes against 'gangtise indicator search --format json' and 'gangtise reference securities-search'.\n")
     return
   }
   const { securities, indicators } = droppedFromMatrix(data, requestedSecurities, requestedIndicators)
@@ -785,21 +823,7 @@ function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[]
   const parts: string[] = []
   if (indicators.length > 0) parts.push(`indicators ${indicators.join(", ")}`)
   if (securities.length > 0) parts.push(`securities ${securities.join(", ")}`)
-  process.stderr.write(`[gangtise] warning: the response omits ${parts.join(" and ")} entirely (no data for any counterpart, not null) — check scopeList coverage and the date semantics for those indicators. Result marked partial (exit 3).\n`)
-}
-
-/** Mark a screener result whose values cannot be trusted. Distinct from
- * `partial`: no rows are missing — the numbers themselves may belong to the
- * wrong variable. A duplicated indicator code is resolved from the EARLIEST date
- * among its bindings, that single value lands in the first of their columns, and
- * the rest come back null (probed 2026-08-03), so both the values shown and the
- * set of matched securities are untrustworthy. */
-function flagUnreliable(rows: unknown, duplicated: string[]): void {
-  if (rows && typeof rows === "object" && !Array.isArray(rows)) {
-    const rec = rows as Record<string, unknown>
-    rec.unreliable = true
-    rec.duplicatedIndicators = duplicated
-  }
+  process.stderr.write(`[gangtise] warning: the response omits ${parts.join(" and ")} entirely — no row/column at all, not a null one. A code the server merely has no data for still comes back as null, so this normally means the code itself was not recognised: check it for typos and, for securities, for the wrong market suffix (US tickers are .O/.N, not .US). Result marked partial (exit 3).\n`)
 }
 
 /** `--indicator` / `--security` are repeatable, so Commander cannot mark them
@@ -823,7 +847,7 @@ indicator.command("search").requiredOption("--keyword <text>", "Search keyword, 
   })
   await printData(unwrapIndicatorData(raw), format, options.output)
 }))
-indicator.command("cross-section").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as each indicator's tradeDate — report-period indicators need --indicator-param 'code:reportDate=...' instead", dateArg("--date")).option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode, unique & order-stable for batch code→value mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("cross-section").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as each indicator's tradeDate — the server resolves that to the enclosing report period for report-period indicators, or pass --indicator-param 'code:reportDate=...' to be explicit", dateArg("--date")).option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode, unique & order-stable for batch code→value mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   requireIndicatorScope(options.indicator, options.security)
   const raw = await client.call("indicator.cross-section", buildIndicatorCrossSectionBody(options))
@@ -851,11 +875,12 @@ indicator.command("time-series").option("--indicator <code>", "Indicator code, e
 indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — omitting it leaves date-bearing indicators unfiltered and silently yields an empty screen", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   requireIndicatorScope(options.indicator, options.security)
+  // Binding one indicator code to several variables (the same price on two
+  // dates) is supported: the server used to answer every such binding from the
+  // EARLIEST date among them and null the rest, which made the whole result
+  // untrustworthy and needed an `unreliable` flag. Re-probed 2026-08-08 — fixed:
+  // each variable now carries its own date's value, stable across repeats.
   const bindings = parseScreenerIndicators(options.indicator, options.indicatorParam, options.expression)
-  const duplicated = duplicateScreenerCodes(bindings)
-  if (duplicated.length > 0) {
-    process.stderr.write(`[gangtise] warning: ${duplicated.join(", ")} bound to more than one variable — the API allows this, but the server currently resolves ALL of those bindings against the EARLIEST date among them, puts that single value in the first of their columns, and leaves the rest null (probed 2026-08-03). So the surviving number is not necessarily the variable it is labelled with: a variable asking for 07-31 came back holding 07-30's price. Every part of the result is affected — the values shown, and which securities matched at all, since conditions on the null variables filtered on nothing. The same request also returns an empty set about a third of the time. Treat the WHOLE result as unusable and split into separate calls until it is fixed.\n`)
-  }
   const raw = await client.call("indicator.screener", buildIndicatorScreenerBody(options))
   // Same payload shape as cross-section (one row per matched security, one
   // column per indicator) with a `field` on each indicator entry. No dropped-row
@@ -882,7 +907,7 @@ indicator.command("screener").description("Screen securities by an expression ov
   // flattenCrossSection above already asserted this is an array of non-empty
   // strings, so only its length is left to read.
   if ((data as { securityCodeList: unknown[] }).securityCodeList.length === 0) {
-    process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but since 2026-08-01 an empty result is ALSO what a wrong parameter name or the wrong date field produces. Cross-check the indicator parameters against 'gangtise indicator search --format json'.\n")
+    process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but an empty result is ALSO what an unrecognised code or a wrong parameter name produces. Cross-check the indicator codes and parameters against 'gangtise indicator search --format json'.\n")
   }
   if (unbound.length > 0) {
     // Whatever reached here still leaves the expression evaluable (or was never
@@ -895,9 +920,8 @@ indicator.command("screener").description("Screen securities by an expression ov
     const filterNote = alsoFiltered.length > 0
       ? ` The expression also filters on ${alsoFiltered.join(", ")}, so that condition was applied to none of these rows — another branch of the expression could still have matched them legitimately, but verify before relying on that filter.`
       : ""
-    process.stderr.write(`[gangtise] warning: ${unbound.join(", ")} produced no column at all (no data for any matched security) — those output values are missing.${filterNote} Result marked partial (exit 3).\n`)
+    process.stderr.write(`[gangtise] warning: ${unbound.join(", ")} produced no column at all — those output values are missing. An indicator the server merely has no data for still returns a null column, so this normally means the bound code was not recognised; check it against 'gangtise indicator search'.${filterNote} Result marked partial (exit 3).\n`)
   }
-  if (duplicated.length > 0) flagUnreliable(rows, duplicated)
   await printData(rows, format, options.output)
 }))
 program.addCommand(indicator)
