@@ -77,25 +77,32 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/performance-calendar/getList")) {
-        const b = body as { size?: number; securityList?: string[] } | undefined
+        const b = body as { from?: number; size?: number; securityList?: string[] } | undefined
+        // Model a real server: rows run out at `total`. A stub that serves a full page at
+        // ANY offset would trip the cap probe (which is exactly what that probe is for),
+        // and would also make every pagination assertion here vacuous.
+        const page = (total: number, mk: (i: number) => unknown, cap = 50) => {
+          const from = b?.from ?? 0
+          const want = Math.min(b?.size ?? cap, cap)
+          const count = Math.max(0, Math.min(want, total - from))
+          return JSON.stringify({ code: "000000", msg: "ok", data: { total, list: Array.from({ length: count }, (_, i) => mk(from + i)) } })
+        }
         // EXACT1000.XX: a result whose total lands exactly ON the cap. Complete, not
         // truncated — the cap check must read `total`, not just the row count.
         if (b?.securityList?.includes("EXACT1000.XX")) {
-          const n = Math.min(b?.size ?? 50, 50)
-          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 1000, list: Array.from({ length: n }, (_, i) => ({ performanceReportId: String(i), title: "t" })) } }))
+          res.end(page(1000, (i) => ({ performanceReportId: String(i), title: "t" })))
           return
         }
         // Normal path — the server honors securityList (probed 2026-07-25: an unknown
         // or malformed code returns total 0). One company's calendar is a few rows.
         if (b?.securityList?.length && !b.securityList.includes("IGNORED.XX")) {
-          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 9, list: Array.from({ length: 9 }, (_, i) => ({ performanceReportId: `s${i}`, title: "t" })) } }))
+          res.end(page(9, (i) => ({ performanceReportId: `s${i}`, title: "t" })))
           return
         }
         // IGNORED.XX stands in for a server that STOPPED filtering by securityList:
         // the "bound" silently covers the whole 3000-row calendar. This is what the
         // implicit row cap has to contain.
-        const size = b?.size ?? 50
-        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3000, list: Array.from({ length: size }, (_, i) => ({ performanceReportId: String(i), title: "t" })) } }))
+        res.end(page(3000, (i) => ({ performanceReportId: String(i), title: "t" })))
         return
       }
       if ((req.url ?? "").includes("/quote/realtime")) {
@@ -1183,9 +1190,13 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(JSON.parse(exact.stdout).partial).toBeUndefined()
 
     // An explicit bound keeps plain fetch-all semantics: 3000 rows = 60 pages, exit 0.
+    // 61 requests, not 60: an unbounded fetch-all also probes one row past `total` so a
+    // server-capped total can't pass a truncated export off as complete. The EXACT1000
+    // case above stays at 20 because the implicit row cap sends an explicit `size`, and
+    // a size-bounded request makes no completeness claim to check.
     captured.length = 0
     const bounded = await cli(["insight", "performance-calendar", "list", "--start-date", "2026-07-01", "--end-date", "2026-07-25", "--format", "json"])
-    expect(captured).toHaveLength(60)
+    expect(captured).toHaveLength(61)
     expect(bounded.code).toBe(0)
     expect(bounded.stderr).not.toContain("capped at")
   }, 30_000)

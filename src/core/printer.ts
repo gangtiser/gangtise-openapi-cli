@@ -61,5 +61,10 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
     return
   }
   warnIfLargeInMemory(items, format)
-  process.stdout.write(`${renderOutput(normalized, format)}\n`)
+  const rendered = renderOutput(normalized, format)
+  // An empty render means "no rows at all". Appending the newline anyway would put
+  // one blank line on stdout — `wc -l` reports 1 and `while read` yields one empty
+  // record, which is exactly the phantom row the null-payload guard in toRows()
+  // removes. Table/markdown render "(empty)" so they are unaffected.
+  if (rendered) process.stdout.write(`${rendered}\n`)
 }

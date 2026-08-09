@@ -33,7 +33,7 @@ gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief
 
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
 - `--source`：`realTime` 实时 | `openSource` 开放来源
-- `--industry`：用 `citicIndustry` 码 `1008001xx`（申万码 `104xxx` 也等效）；`--research-area`：用 `gangtiseIndustry` 码（行业 `1008001xx` + 方向 `122000xxx`，申万码返 0）。详见 `reference-and-lookup.md`
+- `--industry`：用 `citicIndustry` 码 `1008001xx`；申万码 `104xx0000` 也生效，但**两套码的行业成分不同、取回的结果集不一致**（同一行业实测相差约 5%），同一批查询别混用。`--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**申万码在本端点返 0**。详见 `reference-and-lookup.md`
 
 ## 纪要 `insight summary list/download`
 
@@ -44,7 +44,7 @@ gangtise insight summary download --summary-id <id> [--file-type <n>] [--output 
 
 - `--search-type`：`1` 标题搜索（默认，速度快）| `2` 全文搜索
 - `--source`：`1` 实时 | `2` 开放来源
-- `--research-area`：用 `gangtiseIndustry` 码（行业 `1008001xx` + 方向 `122000xxx`）；summary 的 spec 额外接受 citic/sw，但统一用 gangtise 最稳
+- `--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`。summary 是少数**申万码 `104xx0000` 也生效**的端点，但两套行业码取到的集合略有出入（同一行业实测相差约 2%），同一批查询里别混用
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
 - `--participant-role`：`management` 管理层 | `expert` 专家
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`
@@ -57,22 +57,24 @@ gangtise insight pamirs-summary list [--search-type <n>] [--rank-type <n>] [--re
 gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--output <path>]
 ```
 
-帕米尔（Pamirs）是平台内一个特殊牵头机构的**专家纪要库**，走独立端点，不是 `summary list` 的一个筛选项。⚠️ **需单独购买专家纪要数据库**，未购买调用报权限错误。**不限制历史数据范围**（不受 3 个月窗口约束）。
+帕米尔（Pamirs）是平台内一个特殊牵头机构的**专家纪要库**，走独立端点，不是 `summary list` 的一个筛选项。⚠️ **需单独购买专家纪要数据库**：未开通时 `list` 直接报 `999004`（不是返回空列表），**整库拿不到**。**不限制历史数据范围**（不受 3 个月窗口约束）。
 
-- **筛选项比 `summary` 少**：没有 `--source` / `--institution` / `--participant-role`。服务端会静默丢弃不认识的 body 字段，所以别照搬 `summary` 的参数，那样只会拿到没过滤的全量
-- `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索。实测 `--keyword PCB`：标题 36 条 vs 全文 113 条
+> 未开通该库时任何查询都直接报 `999004`，不必怀疑参数写错。下面各参数的行为描述来自已开通账号的实测。
+
+- **筛选项比 `summary` 少**：没有 `--source` / `--institution` / `--participant-role`。不认识的 body 字段会被丢弃且不报错，所以别照搬 `summary` 的参数，那样只会拿到没过滤的全量
+- `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索。同一关键词全文搜索的命中数明显多于标题搜索
 - `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序。⚠️ 效果依赖 `--keyword`，详见本文开头的公共说明；本端点是该结论的实测对象之一
-- `--category`：`companyAnalysis` 公司分析 | `industryAnalysis` 行业分析（实测 2673 / 279）
+- `--category`：`companyAnalysis` 公司分析 | `industryAnalysis` 行业分析（两者过滤均生效，公司分析占绝大多数）
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
-- `--research-area`：**citic（`1008001xx`）和申万（`104xx0000`）都生效**（实测食品饮料：citic 373 条 / 申万 145 条）——这点与多数 insight list 不同（那些的 `--research-area` 只吃 gangtise 码）
+- `--research-area`：**行业码两套都生效**——citic `1008001xx` 和申万 `104xx0000`。申万码这点与多数 insight list 不同（那些只有 summary 认申万码）。⚠️ 反过来，**方向码 `122000xxx` 在本端点返 0**，别在这里传方向
 - `--file-type`（download 可选）：`1` 原始文件（默认）| `2` HTML；**只有这两种**
-- 单页上限 50（CLI 按此翻页；服务端实测未执行该上限，传 100 会返 100），省略 `--size` 自动翻页拉全量。翻页完整性实测干净：三页无重复无缺口、可重放、`total` 不漂移
+- 单页上限：spec 写 50，实际传更大的 `size` 也会照数返回。**CLI 仍按 50 翻页**——保守值在上限某天开始执行时不会被静默截断。省略 `--size` 自动翻页拉全量。翻页完整性实测干净：连续三页无重复无缺口、可重放、`total` 不漂移
 - 返回字段：`summaryId` / `title` / `brief`（摘要）/ `summaryTime`（纪要注明的生成时间）/ `publishTime`（发布时间）/ `categoryList` / `securityList[]{securityCode, securityName}` / `researchAreaList[]{researchAreaId, researchAreaName}` / `conceptList[]{conceptId, conceptName}` / `marketList`
-- ⚠️ **标签字段大面积不回填**（2026-08-08 实测 6 种查法 × 30 条）：
-  - **`conceptList` 在所有查法下恒为空**（无过滤 / category / market / security / researchArea / keyword 全是 `[]`），而接口**没有** concept 过滤参数——所以**目前拿不到主题概念标签，没有变通办法**，别写依赖它的逻辑
-  - **`categoryList` 与 `marketList` 绑定在一起**：只要用 `--category` **或** `--market` 任一过滤，两个字段就都回填（30/30）；其余查法（含无过滤、`--security`、`--research-area`、`--keyword`）两个都是空。回填的是该记录的**全部**值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，不是"回显过滤值"）
-  - **所以别拉全量再本地分组**——标签会全丢。要按类别/市场分组就逐个枚举值各查一遍再合并（请求数放大 2~4 倍），或直接让服务端筛
-  - `researchAreaList`（抽 200 条 6% 空）和 `securityList`（10% 空）基本正常
+- ⚠️ **`conceptList` / `categoryList` / `marketList` 三个标签字段稀疏，且是否有值随记录和查法而变**：
+  - **不带筛选时经常整条为空**，用 `--category` 或 `--market` 过滤时回填率明显更高（这两个字段是绑定的：用任一过滤，两个都会有值）。有值时给的是该记录的**全部**值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，不是"回显过滤值"）
+  - **所以别拉全量再本地分组**——会漏掉大量记录。要按类别/市场分组就逐个枚举值各查一遍再合并（请求数放大 2~4 倍），或直接让服务端筛
+  - **反过来也别据此断言某条记录没有该属性**——标签为空只说明这次查询没回填，不代表该纪要真的没有概念/分类/市场归属
+  - `researchAreaList` 和 `securityList` 相对完整，抽样空值比例都在 10% 以内
 
 ```bash
 # 近一周的帕米尔纪要
@@ -104,7 +106,7 @@ gangtise insight forum list      [--research-area <id>] [--location <id>]
 - `--participant-role`（仅路演）：`management` | `expert`
 - `--permission`（路演/调研）：`1` 公开 | `2` 私密
 - `--market`：路演 `aShares`｜`hkStocks`｜`usChinaConcept`｜`usStocks`；调研 `aShares`｜`hkStocks`｜`usChinaConcept`（无 usStocks）
-- `--research-area`（路演/调研/论坛）：用 `gangtiseIndustry` 码（行业 `1008001xx` + 方向 `122000xxx`，见 `reference-and-lookup.md`）。**strategy 无 `--research-area`，只按 `--institution`/`--location` 筛**
+- `--research-area`（路演/调研/论坛）：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**申万码 `104xx0000` 在这三个端点返 0**（见 `reference-and-lookup.md`）。**strategy 无 `--research-area`，只按 `--institution`/`--location` 筛**
 
 ## 财报日历 `insight performance-calendar list/download`
 
@@ -194,7 +196,8 @@ gangtise insight foreign-opinion list [--rank-type <n>] [--security <code>] [--r
 ```
 
 - `--security`：境外证券代码，如 `UBER.N`
-- `--region`：`cn` | `cnHk` | `cnTw` | `us` | `jp` | `uk`
+- ⚠️ `--region`：`cn` | `cnHk` | `cnTw` | `us` | `jp` | `uk` | `gl`——**本端点当前不可靠**：`cn` / `us` / `jp` 实测返回 `null` payload（不报错），只有 `gl` 返回数据。需要按区域筛请不带该参数取回后按 `region` 字段本地筛。⚠️ **注意 `insight foreign-report` 的 `--region` 是正常的**（cn / us / gl 都能正确收窄），坏的只是本端点
+- ⚠️ `--industry`：**当前传任何值都拿不到数据**（中信码 / 申万码 / 乱码一样，不报错、退出码 0）。🔴 **返回的 payload 是字面 `null`，不是 `{total:0,list:[]}`** ——按空列表解析的脚本（`data.list.length`、`for row in data["list"]`）会在这里抛错或静默跳过，务必先判 `null`。需要按行业筛时不带该参数取回后本地按 `industryList[]` 筛
 - `--broker`：外资券商 ID（见 `references/lookup-ids.md`）
 - `--rating` / `--rating-change`：同研报
 - 返回字段：`foreignOpinionId` / `title` / `titleTranslate` / `content` / `contentTranslate` / `publishTime` / `publisher{brokerId, brokerName}` / `securityList[]{securityCode, rating, targetPrice, currency}` / `region`
@@ -207,6 +210,7 @@ gangtise insight independent-opinion download --independent-opinion-id <id> --fi
 ```
 
 - `--security`：境外证券代码，如 `GSK.N`
+- ⚠️ `--industry`：**当前传任何值都拿不到数据，且 payload 是字面 `null` 而非空 list**（同 foreign-opinion，注意事项见上），改用不带该参数取回后按 `industryList[]` 本地筛
 - `--rating` / `--rating-change`：同外资观点
 - `--file-type`（download **必选**）：`1` 原文 HTML | `2` 中文翻译 HTML
 - 返回字段：`independentOpinionId` / `title` / `titleTranslate` / `brief` / `briefTranslate` / `publishTime` / `analyst{analystId, analystName}` / `securityList[]` / `industryList[]`

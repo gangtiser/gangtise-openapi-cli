@@ -6,7 +6,7 @@
 
 ## 中信行业分类（--industry 参数）
 
-完整列表用 `reference constant-list --category citicIndustry`。**`--industry` 全命令通用首选用这套（`1008001xx`）**——opinion / research / foreign-report / foreign-opinion / independent-opinion 都正确过滤（⚠️ `vault wechat-message-list` 例外，该命令的 `--industry` 当前两套码都不生效）；这套 ID 同时也是 `--research-area` 的行业部分（见下方研究方向）。
+完整列表用 `reference constant-list --category citicIndustry`（30 条）。**`--industry` 全命令通用首选用这套（`1008001xx`）**——opinion / research / foreign-report / official-account 都正确过滤（⚠️ 三个例外：`insight foreign-opinion` / `independent-opinion` 传了 `--industry` 拿不到数据、且 **payload 是字面 `null` 不是空 list**；`vault wechat-message-list` 的 `--industry` 两套码都不生效、连乱码也返全量）；这套 ID 同时也是 `--research-area` **行业维度唯一全端点通吃的一套**（见下方研究方向）。
 
 | ID | 行业 | ID | 行业 |
 |----|------|----|------|
@@ -30,7 +30,7 @@
 
 ## 申万行业（--industry 参数）
 
-完整列表用 `reference constant-list --category swIndustry`。⚠️ 申万码（`104xxx`）只在**部分** insight list 上作 `--industry` 等效、**不能用于 `--research-area`（返 0）**；`vault wechat-message-list` 的 `--industry` **两套码都不生效**（连不存在的码也返全量，该过滤整个被忽略）——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**，勿在此重复枚举。拿不准就统一用上方中信码。
+完整列表用 `reference constant-list --category swIndustry`（31 条）。⚠️ 申万码（`104xx0000`）只在**部分** insight list 上可作 `--industry` 使用，且**与中信码不等效**——两套码行业成分不同，实测 opinion 与 official-account 上取回的结果集就对不上（同一行业相差约 2%–5%），别混用；用于 `--research-area` 时**只有 `summary` / `pamirs-summary` 认，其余端点返 0**（不报错，与传乱码表现一致）。`vault wechat-message-list` 的 `--industry` **两套码都不生效**（连不存在的码也返全量，该过滤整个被忽略）——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**（含逐端点实测矩阵），勿在此重复枚举。拿不准就统一用上方中信码。
 
 | ID | 行业 | ID | 行业 | ID | 行业 |
 |----|------|----|------|----|------|
@@ -109,9 +109,11 @@
 
 ## 常用研究方向（--research-area 参数）
 
-`--research-area` 用 **gangtiseIndustry**：= 30 个行业（`1008001xx`，与上方「中信行业分类」表完全相同）+ 6 个方向。完整列表用 `reference constant-list --category gangtiseIndustry`。适用 opinion / summary / roadshow / site-visit / forum / my-conference（strategy 无此参数）。
+`--research-area` 吃两个维度：**行业**用上方「中信行业分类」表的 `1008001xx`（category `citicIndustry`），**方向**用下表的 `122000xxx`（category `gangtiseIndustry`）。适用 opinion / summary / pamirs-summary / roadshow / site-visit / forum / my-conference（strategy 无此参数）。
 
-**6 个研究方向（gangtiseIndustry 独有，citicIndustry 没有，已实测正确过滤）：**
+⚠️ **`gangtiseIndustry` 里只有下面这 6 条方向码，不含任何行业码**——`constant-list --category gangtiseIndustry` 返回的就是 6 条，去它那里找「食品饮料」找不到，行业码要查 `citicIndustry`。
+
+**6 个研究方向（citicIndustry 没有，已实测正确过滤）：**
 
 | ID | 方向 | ID | 方向 |
 |----|------|----|------|
@@ -119,7 +121,7 @@
 | 122000003 | 固收 | 122000004 | 金工 |
 | 122000005 | 海外 | 122000007 | 其他 |
 
-30 个行业的 ID 直接用上方「中信行业分类」表（`1008001xx`）。⚠️ **申万码 `104xxx` 不能用于 `--research-area`**（除 summary / my-conference 的 spec 例外，其余返 0）。
+行业维度的 ID 直接用上方「中信行业分类」表（`1008001xx`），这是唯一在全部 7 个端点上都生效的一套。⚠️ **申万码 `104xx0000` 用于 `--research-area` 只有 `summary` / `pamirs-summary` 认**，opinion / roadshow / site-visit / forum / my-conference 一律返 0（与传乱码表现一致，不报错）。反过来方向码 `122000xxx` 在 `pamirs-summary` 上返 0。完整实测矩阵见 `commands/reference-and-lookup.md`。
 
 ---
 

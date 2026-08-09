@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本摘要：
 
-- **v0.32.0 — 2026-08-08**：新增帕米尔专家纪要列表与下载；跟进 2026-08-07 服务端修复——EDE 缺数据不再整列/整行消失（退出码 3 现在专指「代码没被识别」），条件选股重复指标的 `unreliable` 告警随之移除；`--search-type`/`--rank-type`/`--file-type` 等枚举改为本地拦截（非法值曾被服务端静默忽略并返回全量）。
+- **v0.33.0 — 2026-08-09**：四处行为变更，都是把「静默给出看着正常的错结果」改成显式失败——分页端点返回异形首包（含 `data: null`）改退出码 3；`total` 被服务端封顶时探测并标 `totalCapped` + 退出 3（三个 opinion 端点的 `total` 恒为 10000 而实际远不止，全量导出此前会被静默截断）；空结果不再在 stdout 留空行、`null` 不再被渲染成一条记录。另补多处帮助文案与 EDE 占位值（个别指标填 `0` 而非 `null`）的说明。
+- **v0.32.0 — 2026-08-08**：新增帕米尔专家纪要列表与下载；跟进 2026-08-07 服务端修复——EDE 缺数据不再整列/整行消失（退出码 3 现在专指「代码没被识别」），条件选股重复指标的 `unreliable` 告警随之移除；`--search-type`/`--rank-type`/`--file-type` 等枚举改为本地拦截（此前传非法值不会报错，会拿到未过滤的全量）。
 - **v0.31.0 — 2026-08-03**：修复 v0.30.1 的矩阵维度校验误杀「单指标 × 板块 ID」时序查询的回归；EDE 结果不完整或不可信时改以退出码 3 标记（`partial` / `unreliable`）。
 - **v0.30.1 — 2026-08-02**：修复 `sDate` 吞掉查询日期导致的区间指标静默错数，让条件选股的文本筛选真正可用，并在服务端整行/整列丢数据时给出警告。
 - **v0.30.0 — 2026-08-02**：适配 EDE 接口重构（`universe` 取代 `securityCodeList`、截面矩阵转置、指标元数据结构化），新增 `indicator screener` 条件选股，并修正复权参数名。
-- **v0.29.0 — 2026-07-25**：新增财报日历与 PDF 解析工具，群消息补 `quoteMsg`，并加强大整数 ID 与高积分调用防护。
 
 ### 历史里程碑
 
+- **v0.29.0**：新增财报日历与 PDF 解析工具，群消息补 `quoteMsg`，并加强大整数 ID 与高积分调用防护。
 - **v0.26.0–v0.27.0**：建立高积分端点 `no-replay`、原子下载与容错分页机制，并补齐 Skill 分发和发布质量门禁。
 - **v0.22.0–v0.23.0**：统一“省略 `--size` 即拉全量”的分页语义，引入机器可识别的部分结果、Token 自愈，并完成 API 域名迁移与资金流向、机构搜索支持。
 - **v0.19.0–v0.20.0**：上线 EDE 证券指标接口，扩展美股公告与财务报表，同时加强凭证脱敏、CSV 正确性和分页容错。
@@ -233,8 +234,8 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 
 ```bash
 gangtise reference constant-category                              # 有哪些常量分类、各用于哪些参数
-gangtise reference constant-list --category citicIndustry         # 中信行业（--industry 通用）
-gangtise reference constant-list --category gangtiseIndustry      # Gangtise 行业 + 方向（--research-area 用）
+gangtise reference constant-list --category citicIndustry         # 中信行业（--industry / --research-area 的行业维度都用它）
+gangtise reference constant-list --category gangtiseIndustry      # 研究方向 6 条（宏观/策略/固收/金工/海外/其他），不含行业
 gangtise reference constant-list --category swIndustry            # 申万行业
 gangtise reference constant-list --category regionCategory        # 外资研报区域
 gangtise reference constant-list --category aShareAnnouncementCategory  # A股公告分类（树形）
@@ -258,7 +259,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的 `null` 单元格，空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的占位单元格（多数指标 `null`、个别如 `is_dnrpnp` 是 `0`），空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
 - **Token 自愈**：调用返回 `0000001008` / `999002` 时自动强制刷新 Token 并重试一次。
 - **K线/资金流向自动分片**：`quote day-kline --security all`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
@@ -299,7 +300,9 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
-- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**v0.32.0 起这个信号的含义变窄了**——2026-08-07 服务端改为给缺数据补 `null`（行列都保留），所以整列/整行消失现在只发生在**服务端解析不了那个 code** 时（指标码拼错，或证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O`）。真实的无数据/无覆盖是 `null` 单元格 + 退出码 0。⚠️ **这个检测需要同批里有一个能解析的对照物**：拼错的 code 与正确的 code 混在一批才会标 partial；**整个轴都写错时（如只查一个拼错的指标）响应是空表、退出码 0**，只有 stderr 提示——空表拿到手必须先核对代码拼写与后缀。同版本移除了条件选股重复指标的 `unreliable` / `duplicatedIndicators` 标记（服务端已修复，继续告警会是误报）。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集要先核对指标码拼写，不能直接当成「无标的符合条件」。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
+- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**v0.32.0 起这个信号的含义变窄了**——2026-08-07 服务端改为给缺数据补占位单元格（行列都保留），所以整列/整行消失现在只发生在**服务端解析不了那个 code** 时（指标码拼错，或证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O`）。真实的无数据/无覆盖是占位单元格 + 退出码 0。🔴 **占位值不统一**：多数指标是 `null`，个别（如 `is_dnrpnp`）是 `0`，而 `0` 会穿过比较与聚合——别把它当真值，详见 skill 的 `references/commands/indicator.md`。⚠️ **这个检测需要同批里有一个能解析的对照物**：拼错的 code 与正确的 code 混在一批才会标 partial；**整个轴都写错时（如只查一个拼错的指标）响应是空表、退出码 0**，只有 stderr 提示——空表拿到手必须先核对代码拼写与后缀。同版本移除了条件选股重复指标的 `unreliable` / `duplicatedIndicators` 标记（服务端已修复，继续告警会是误报）。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集要先核对指标码拼写，不能直接当成「无标的符合条件」。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
+- **分页端点返回 `null` 也退出 3**：分页端点本该返回 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`（已知一例：`insight foreign-opinion` / `independent-opinion` 传 `--industry`），CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
+- 🔴 **`total` 被服务端封顶时会标 `totalCapped` 并退出 3**：`insight opinion` / `foreign-opinion` / `independent-opinion` 三个端点的 `total` 恒为 `10000`，而实际记录远不止（把 `from` 加到远超该值仍能取到真实记录）。省略 `--size` 的全量拉取本来会**正好取满 10000 条就停、且不报任何异常**——导出的文件是截断的却看不出来。现在全量拉取结束后会**多探一行**（`from = total`）：探到数据就标 `partial` + `totalCapped` 并退出 3。判据不写死 10000，服务端改配置仍然有效；`total` 诚实时探针返回空、不产生计费。传了 `--size` 的有界请求不做此探测。
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 
 ## 智能文件命名
@@ -604,7 +607,7 @@ gangtise indicator screener --indicator F1:pty_op_scope \
   --date 2026-07-31 --format table
 
 # 复权 / 指标专属参数用 --indicator-param "code:key=value"
-# ⚠️ 参数名必须以 search 的 parameterList 为准：传错名服务端静默忽略、退回默认值，不报错
+# ⚠️ 参数名必须以 search 的 parameterList 为准：写错名不会报错，会按默认值取数，结果看着正常但口径不对
 gangtise indicator cross-section --indicator qte_close --security 600519.SH \
   --date 2024-01-02 --indicator-param "qte_close:adjustType=3"   # 1不复权/2前复权/3后复权/4定点
 # 不复权 1685.01 → 前复权 1531.225 → 后复权 13609.6168（前复权在最新交易日等于不复权，验证要用历史日）
@@ -713,7 +716,7 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 | `999010` | 接口地址不存在（`raw call` 的 key 可能已下线，用 `raw list` 核对） |
 | `999012` / `999013` / `999014` | 账号禁用 / 已过期 / 租户失效 |
 | `999016` | 调用方 IP 不在允许范围 |
-| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点的「无数据」已不再用此码——有效 code 无数据返回 `null` 单元格，此码基本只剩真故障） |
+| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点的「无数据」已不再用此码——有效 code 无数据返回占位单元格（多数 `null`、个别指标 `0`），此码基本只剩真故障） |
 | `140002` | 终态失败：AI 异步生成失败，或 `indicator` 的参数/表达式错误（枚举越界、语法错）——改参数重提，不重试 |
 | `100003` | 参数值非法——**最宽的兜底码**；msg 通常已指明字段（如「limit 最小为 1，最大为 10000」），先读 msg |
 | `100001` | 缺必填参数（msg 带字段名，如「缺少必填参数: reportId」） |

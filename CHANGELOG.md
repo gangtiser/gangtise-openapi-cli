@@ -2,6 +2,45 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.33.0 — 2026-08-09
+
+四处**行为变更**，都是把「静默给出看着正常的错结果」改成显式失败。两处会改变退出码，对按 `!= 0` 判失败的脚本是破坏性的，故走 minor。
+
+**1. 分页端点的异形首包不再静默通过（退出码 0 → 3）**
+
+分页端点本该返回 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。此前只要形状不对就原样透传、退出 0：
+- `insight foreign-opinion` / `independent-opinion` 传 `--industry` 时服务端返 `data: null`，CLI 打印 `null` 退出 0——脚本无从区分「这个筛选确实没命中」和「这个筛选没生效」
+- `total` 变成字符串这类形状漂移会把 fetch-all **截断成第 1 页**，而结果看着完整——比明显为空更危险
+
+现在一律 stderr 告警 + **退出码 3**。全部 24 个分页端点都是真 `{total, list}` 列表（形状特殊的 `reference.constant-list` 没标分页，`null` 是合法答案的 `ai.one-pager` 也不分页），无误报空间。
+
+**2. `total` 被服务端封顶时标 `totalCapped` 并退出 3（新增检测）**
+
+`insight opinion` / `foreign-opinion` / `independent-opinion` 三个端点的 `total` **恒为 10000，而实际记录远不止**（把 `from` 加到远超该值仍能取到真实记录，`publishTime` 单调变老）。省略 `--size` 的全量拉取按 `total` 定目标，于是**正好取满 10000 条就停、`collected === total`**——短页、页失败、`total` 漂移三个完整性检查一个都不触发，导出的文件被截断却退出 0。`opinion` 按 30 积分/条计费，一次自以为完整的导出就是 30 万积分换一份截断数据。
+
+现在全量拉取结束后**探一行 `from = total`**：探到数据就标 `partial` + `totalCapped` + 退出 3。**判据不写死 10000**，服务端改配置仍然有效；`total` 诚实时探针返回空、按条计费下不产生费用；传了 `--size` 的有界请求不探（要多少给了多少，没有完整性可言）。
+
+代价是每次全量拉取多一个请求。实测非 opinion 端点全部通过（`summary` total 52 万、`research` 337 万，`from = total` 均返 0 行）。
+
+**3. 空结果不再在 stdout 留一个空行**
+
+`renderOutput` 返回空串时 `printData` 仍无条件补 `\n`，于是 jsonl / csv 的管道里躺着一个空行——`wc -l` 报 1、`while read` 读到一条空记录，正是「幻影记录」本身。现在空渲染**一个字节都不输出**；`table` / `markdown` 的 `(empty)` 标记和 `--format json` 的 `null` 保持不变。⚠️ 带 `--output` 时文件仍会创建：csv 写 3 字节 UTF-8 BOM、jsonl 为 0 字节。
+
+**4. `null` payload 不再被渲染成一条记录**
+
+`toRows(null)` 此前落到 `[{ value: null }]`，jsonl 输出 `{"value":null}`。现在 `null` / `undefined` 直接视为零行；`0` / `""` / `false` 不受影响（有回归测试钉住）。
+
+**帮助文案与文档**
+
+- `insight foreign-opinion` / `independent-opinion` 的 `--industry`、`foreign-opinion` 的 `--region`、`vault wechat-message-list` 的 `--industry` 加上「本端点当前不生效 / 不可靠」的说明与规避方法
+- 7 个带 `--research-area` 的端点全部写明码系（`opinion` / `summary` / `my-conference` 此前是内联定义、漏在共享 helper 之外）
+- 🔴 **EDE 缺数据的占位值不统一**：多数指标填 `null`，但 `is_dnrpnp`（扣非归母净利润）填 **`0`**，且是**指标属性、与日期对不对无关**——日期落在报告期末时，覆盖不到的证券同样返 `0`。`0` 会穿过比较与聚合：`screener` 的 `F1 > 0` 可能筛出空集、时序整列求均值可能差几十倍。已写进 `SKILL.md` 必备规则 #11 与 `indicator.md`，并订正 v0.32.0 那段「一律返回 `null`」的说法
+- 新增：EDE 与 `valuation-analysis` **在非交易日行为不同**（前者返 `null`、后者顺延上一交易日），交叉核对时日期要落在交易日上
+- `999004` 的提示改为覆盖「整库未开通」与「单条记录不可见」两种；错误码表把它从「未构造出」挪进已实测
+- 对外措辞与数字清理：移除平台各库的绝对条数（含单独售卖库的总量与本机账号自有数据），改为 ✅/❌ 或相对幅度；描述服务端行为的措辞统一为「可观察结果 + 怎么办」
+
+**测试** 637 → 643：分页封顶探测 3 条、空渲染不输出 3 条、异形首包退出码 2 条。修了三个**测试替身对任意 `from` 无限吐行**的问题——其中 `cliBodyMapping` 的 stub 忽略 `from`，意味着该文件此前所有分页断言都是空的。
+
 ### v0.32.0 — 2026-08-08
 
 跟进 2026-08-07 的服务端更新：新增帕米尔专家纪要两个接口，并按实测**推翻了 v0.30.1–v0.31.0 三个版本累积下来的 EDE 缺数据模型**——那套「四档」判据整个作废了。同时移除一个已经变成误报的告警（`unreliable`），对读取该字段的脚本是破坏性的，故走 minor。
@@ -10,7 +49,11 @@
 - **帕米尔专家纪要** `insight pamirs-summary list` / `download`（`/application/open-insight/pamirs-summary/*`）。这是一个独立的专家纪要库，不是 `summary list` 的筛选项，**需单独购买专家纪要数据库**，且不受历史数据范围限制。
   - 筛选项是 `summary` 的**真子集**：只有 `--search-type` / `--rank-type` / `--keyword` / `--research-area` / `--security` / `--category` / `--market`，**没有** `--source` / `--institution` / `--participant-role`。没有复用 `summary` 的 body 构造：服务端会静默丢弃不认识的字段，照搬会让用户以为过滤生效、实际拿到全量（`insight roadshow` 那批命令当初就是栽在这上面）
   - `download` 归入 `no-replay`：spec 只写了权限门槛、没写单次价格，按其 `summary` 同类处理——万一计费，一次 5xx 重放就是双倍扣分，而判错的代价只是少一次重试
-  - 实测（2026-08-08，账号有权限）：全量 2963 条；`--category` companyAnalysis 2673 / industryAnalysis 279；`--keyword PCB` 标题 36 / 全文 113；`--research-area` **citic 与申万码都生效**（食品饮料 373 / 145），这点与多数 insight list 不同。翻页完整性干净（三页无重复无缺口、可重放、`total` 不漂移）
+  - 实测（2026-08-08，账号有权限）：全量 2963 条；`--category` companyAnalysis 2673 / industryAnalysis 279；`--keyword PCB` 标题 36 / 全文 113；`--research-area` **citic 与申万码都生效**（食品饮料 citic `100800119` 143 / 申万 `104340000` 145）；⚠️ 方向码 `122000xxx` 在本端点返 0。翻页完整性干净（三页无重复无缺口、可重放、`total` 不漂移）
+
+    > **订正（2026-08-08 晚）**：本条原写「食品饮料 373 / 145」——373 是用 `100800111` 测出来的，那是**电力设备及新能源**，不是食品饮料（食品饮料的中信码是 `100800119`）。同一个错码还写进了 `bug/` 报告的 P2-4 表和「帕米尔其他观察」，并由此推出一条错误结论，详见下面「申万码」那条的订正。
+    >
+    > ⚠️ **本条全部数字取自 2026-08-08 的权限窗口期**：同一账号 2026-08-09 复跑 `insight pamirs-summary list` 已报 `999004`（专家纪要库需单独购买），这批数字目前无法在本机复现。将来引用前先确认账号权限。
   - 🔴 **服务端缺陷：标签字段大面积不回填**（6 种查法 × 30 条实测）。`conceptList` **在所有查法下恒为空**，而接口没有 concept 过滤参数——目前**拿不到主题概念标签，无变通办法**。`categoryList` 与 `marketList` **绑定在一起**：用 `--category` 或 `--market` 任一过滤时两者都回填（30/30），其余查法（无过滤 / `--security` / `--research-area` / `--keyword`）两者都空。回填的是该记录**全部**的值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，排除了「回显过滤值」）。文档已写明：别拉全量再本地分组
   - 🟡 服务端未执行 spec 写的「单页最大 50」（传 100 返 100）。CLI 仍按 50 翻页——保守值在服务端某天开始执行上限时不会被静默截断
   - ✅ 翻页完整性实测干净：`from=0/50/100` 三页 150 条零重复零缺口、同一页两次请求完全一致、`total` 不随分页漂移、`from` 越界返空列表；`--security` 过滤命中的 15 条逐条核对全部真含该证券
@@ -20,7 +63,9 @@
 
 v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补 `null`，某指标对全批证券无数据就**整列消失**、某证券对全批指标无数据就**整行消失**，还得靠「同批里还查了什么」推断落进四档中的哪一档。v0.31.0 甚至把它写成了「两个维度各自独立」的完整表格。
 
-**2026-08-08 实测：整个模型没了。** 服务端现在给缺数据补 `null`，行列一律保留：
+**2026-08-08 实测：整个模型没了。** 服务端现在给缺数据补占位单元格，行列一律保留：
+
+> 🔴 **订正（2026-08-09）**：本节原写「补 `null`」，**占位值其实不统一**——多数指标是 `null`，但 `is_dnrpnp` 等个别指标填 `0`，且是指标属性、与日期对不对无关。`0` 会穿过比较与聚合，比 `null` 危险得多。作为 `bug/server-open.md` **P0-5** 单独立条，`closed.md` F1 已标部分订正。下面表格里的「1 行 `null`」等具体观测仍成立（那三个指标确实是 `null` 一档），但**别把它读成通则**。
 
 | 查法 | 旧行为 | 现行为（2026-08-08 实测） |
 | :--- | :--- | :--- |
@@ -38,7 +83,7 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 | `--security AAPL.US --security AAPL.O` | `AAPL.US` 整行消失，退出 3 + `omittedSecurities`（美股后缀是 `.O`/`.N`，`.US` 本身就是错代码） |
 | `--indicator not_a_real_code --security 999999.SH` | 全空表，退出 0（无从判断是哪一轴写错） |
 
-**所以 `partial` / 退出码 3 的语义反转了**：从「这批数据不完整，去查 scopeList 覆盖和日期语义」变成**「你有 code 写错了，去查拼写和证券后缀」**。这是净收益——拼错代码原本是完全静默的（退出 0、表看着正常、`--key-by code` 回填时 key 直接不存在），而真实的覆盖缺口现在一眼可见（就是 `null`），不再需要「和一个已知有数的标的一起查」那套对照法。检测代码本身没动（同一份 diff 逻辑），改的是它的**告警文案与文档解释**，以及 `flagDropped` / `droppedFromMatrix` 的注释。
+**所以 `partial` / 退出码 3 的语义反转了**：从「这批数据不完整，去查 scopeList 覆盖和日期语义」变成**「你有 code 写错了，去查拼写和证券后缀」**。这是净收益——拼错代码原本是完全静默的（退出 0、表看着正常、`--key-by code` 回填时 key 直接不存在），而真实的覆盖缺口现在也留在表里（就是那个占位单元格），多数情况不再需要「和一个已知有数的标的一起查」那套对照法。⚠️ **但只有 `null` 那一档一眼可见**——填 `0` 的指标（`is_dnrpnp`）无覆盖时与真值无法区分，对照法仍然必要，见 `bug/server-open.md` P0-5。检测代码本身没动（同一份 diff 逻辑），改的是它的**告警文案与文档解释**，以及 `flagDropped` / `droppedFromMatrix` 的注释。
 
 同步改写：`SKILL.md` 的缺数据段与退出码 3 说明、`indicator.md` 的「缺数据的四种形态」整节、`response-schema.md` 的 EDE 概述、`examples.md` 的例 15 第 6 条。
 
@@ -82,7 +127,25 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 - 日期「年在后」格式仍按分隔符翻转日月且静默误解析：`07/01/2026` 与 `01-07-2026` 都被读成 1 月 7 日（基准 `2026-07-01` 返 1749 条，两者均返 1551 条）。CLI v0.28.0 的本地拦截继续保留
 - Quote 系对非法证券代码仍静默返 `total: 0`
 - `fundamental balance-sheet` 的 `companyType` / `currency` 取值仍互换（茅台返 `companyType=人民币` / `currency=一般企业`）
-- 申万码仍不能用于 `--research-area`（用于 `--industry` 正常：食品饮料 research 4544 / opinion 2495）
+- ~~申万码仍不能用于 `--research-area`（用于 `--industry` 正常：食品饮料 research 4544 / opinion 2495）~~
+
+  > **订正（2026-08-08 晚，gangtise-mcp 侧交叉复核后复测）**：这条一刀切写法是错的，**申万码按端点区分**——`summary` 和 `pamirs-summary` 认，其余返 0。且不是服务端缺陷：`reference constant-category` 的 `usageScopes` 里 `swIndustry` 声明的就是「查询纪要列表 :: researchAreaList」，行为与声明一致。逐端点实测（食品饮料，中信 `100800119` / 申万 `104340000` / 方向宏观 `122000001`，各跑 3 次数值不漂）：
+  >
+  > | 端点 | 中信 | 申万 | 方向 |
+  > | :--- | ---: | ---: | ---: |
+  > | `summary` | 15678 | **16016 ✅** | 9446 |
+  > | `pamirs-summary` | 143 | **145 ✅** | 0 |
+  > | `opinion` | 5038 | 0 | 4752 |
+  > | `roadshow` | 11630 | 0 | 11892 |
+  > | `site-visit` | 2620 | 0 | 197 |
+  > | `forum` | 206 | 0 | 112 |
+  > | `vault my-conference-list` | 12 | 0 | 9 |
+  >
+  > 不只是 total 对上：用申万码查 `summary` 取回的 30 条记录，`researchAreaList` 全部是 `{100800119, 食品饮料}`——服务端确实把申万码映射到了内部行业，排除了「非零数字纯属巧合」。
+  >
+  > 唯一仍算服务端不一致的是 `my-conference`：`usageScopes` 声明 `swIndustry` 可用于「我的会议查询 :: researchAreaList」，实测食饮/电子/医药三个行业全返 0（中信码对应 12/17/16）。已记入 `bug/` P2-4。
+  >
+  > 引用的 `--industry` 数字（research 4544 / opinion 2495）也不复现，**已于 2026-08-09 全部重测**，结论一并订正：申万码在 `--industry` 上确实生效，但**与中信码不等效**——4 个端点里 2 个结果集对不上。食品饮料实测（中信 `100800119` / 申万 `104340000`）：research 22874/22874 相等、foreign-report 15507/15507 相等，**opinion 5195/4946、official-account 102776/100576 不等**。所以文档口径是「都能用，但别混用」，不再写「等效」。权威口径见 `gangtise-openapi/references/commands/reference-and-lookup.md`。
 - 未知 body 字段仍被静默丢弃（这正是帕米尔命令不复用 `summary` 参数集的原因）
 
 **新增指标（服务端数据侧）**
@@ -562,6 +625,7 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 
 **说明 / 修正**
 - `--industry` 用 `citicIndustry` 码（`1008001xx`，全命令通用）；`--research-area` 用 `gangtiseIndustry` 码（行业 `1008001xx` + 宏观/策略/固收/金工/海外等方向 `122000xxx`）。详见 `gangtise-openapi/references/commands/reference-and-lookup.md`
+  > ⚠️ **后续订正（2026-08-08）**：`gangtiseIndustry` 里**只有 6 条方向码 `122000xxx`，不含任何行业码**（`constant-list --category gangtiseIndustry` 实测 `constantCount=6`，连查 3 次一致）。`1008001xx` 行业码用于 `--research-area` 确实有效，但它们属于 `citicIndustry`，本条把归属写错了。别再照这句去 `gangtiseIndustry` 找行业。
 - 日程类 `--location`（domesticCity）服务端过滤已生效（v0.16.0 时曾未生效）
 
 ### v0.16.0 — 2026-06-12

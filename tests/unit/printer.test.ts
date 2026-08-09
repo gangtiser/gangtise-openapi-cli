@@ -43,6 +43,31 @@ describe("printData", () => {
     expect(stdout()).toContain("b")
   })
 
+  // A null payload (insight foreign-opinion --industry answers 200 + data:null) must
+  // put NOTHING on stdout for the machine formats. Asserting renderOutput() === "" is
+  // not enough: printData used to append "\n" unconditionally, so the pipe still got
+  // one blank line — `wc -l` reported 1, which is the phantom record all over again.
+  it("writes nothing at all for a null payload in machine formats", async () => {
+    for (const format of ["jsonl", "csv"] as const) {
+      outSpy.mockClear()
+      await printData(null, format)
+      expect(stdout()).toBe("")
+    }
+  })
+
+  it("still prints json null and the table (empty) marker", async () => {
+    await printData(null, "json")
+    expect(stdout()).toBe("null\n")
+    outSpy.mockClear()
+    await printData(null, "table")
+    expect(stdout()).toBe("(empty)\n")
+  })
+
+  it("does not swallow falsy scalars — only null/undefined mean no output", async () => {
+    await printData(0, "csv")
+    expect(stdout()).not.toBe("")
+  })
+
   it("sets exit code 3 for partial results so scripts can tell them from complete ones", async () => {
     const prevExitCode = process.exitCode
     try {

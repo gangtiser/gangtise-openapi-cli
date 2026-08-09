@@ -37,7 +37,7 @@ gangtise vault my-conference-download --conference-id <id> --content-type <type>
 
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`（可重复）
 - `--source`：录制来源 `1`=企微会议助理 | `2`=会议服务微信群（可重复；不传返回全部）
-- `--keyword` vs `--research-area`：用户说"关于AI的"用 `--keyword AI`；说"电子行业的会议"用 `--research-area 100800126`（research-area 用 `gangtiseIndustry` 码 `1008001xx` + 方向 `122000xxx`，**不要用申万码 `104xxx`**）
+- `--keyword` vs `--research-area`：用户说"关于AI的"用 `--keyword AI`；说"电子行业的会议"用 `--research-area 100800126`（行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**不要用申万码 `104xx0000`**——本端点传申万码一律返 0 且不报错，食饮 / 电子 / 医药三个行业交叉验证过，换中信码即正常过滤）
 - `--content-type`（download **必选**）：`asr` 语音识别 | `summary` AI 速记
 - 返回字段：`conferenceId` / `title` / `publishTime` / `category` / `institution{...}` / `security{...}` / `researchArea{...}` / `guest` / `sourceList`（录制来源，`1`/`2`）
 

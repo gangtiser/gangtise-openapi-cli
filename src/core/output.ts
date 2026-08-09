@@ -59,6 +59,15 @@ function rowsFromList(list: unknown[]): Array<Record<string, unknown>> {
 }
 
 function toRows(value: unknown): Array<Record<string, unknown>> {
+  // A null/undefined payload means "no data", not "one row whose only column is
+  // null". Without this guard it fell through to [{ value }] and jsonl emitted
+  // {"value":null} — a phantom record that makes `wc -l` report 1. Real case:
+  // insight foreign-opinion --industry answers 200 + data:null.
+  // Scalars (0, "", false) are left alone; only the two empty values short-circuit.
+  if (value === null || value === undefined) {
+    return []
+  }
+
   if (Array.isArray(value)) {
     return rowsFromList(value)
   }

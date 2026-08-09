@@ -122,7 +122,10 @@ describe("GangtiseClient pagination", () => {
     expect(result.list).toHaveLength(118)
     expect(result.list[0]).toEqual({ id: 1 })
     expect(result.list.at(-1)).toEqual({ id: 118 })
-    expect(requestMock).toHaveBeenCalledTimes(3)
+    // 3 pages + 1 probe past the end. Every fetch-all pays that one extra request so a
+    // server-capped `total` can't pass off a truncated export as complete; it returns
+    // zero rows (and bills nothing) whenever the total is honest.
+    expect(requestMock).toHaveBeenCalledTimes(4)
   })
 
   it("starts from a non-zero offset and stops at requested size", async () => {
@@ -169,6 +172,7 @@ describe("GangtiseClient pagination", () => {
     // Shape drift (e.g. total arriving as a string) silently degrades fetch-all
     // to a single page with no partial marker — at least make it visible.
     const { setVerbose } = await import("../../src/core/transport.js")
+    const previousExit = process.exitCode
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
     setVerbose(true)
     try {
@@ -177,10 +181,68 @@ describe("GangtiseClient pagination", () => {
       const result = await client.call("insight.qa.list", { securityCode: "601012.SH" }) as Record<string, unknown>
       expect(result.total).toBe("200") // passthrough unchanged
       expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("shape")
+      // A string `total` truncates fetch-all to page 1 while still LOOKING complete —
+      // worse than an obviously empty payload, so it must carry the same exit code.
+      expect(process.exitCode).toBe(3)
     } finally {
+      process.exitCode = previousExit
       setVerbose(false)
       errSpy.mockRestore()
     }
+  })
+
+  // Three opinion endpoints report a fixed total=10000 while rows keep coming past that
+  // offset (Elasticsearch track_total_hits shape). A fetch-all stops exactly at the cap
+  // with collected === total, so every other completeness check passes and the truncated
+  // export looks complete — while `opinion` bills 30 credits per row.
+  it("flags a fetch-all as truncated when rows exist past the reported total", async () => {
+    const CAP = 100
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      const size = body.size ?? 20
+      // Server always claims CAP but keeps serving rows well past it.
+      const list = Array.from({ length: size }, (_, i) => ({ id: from + i + 1 }))
+      return Promise.resolve(jsonResponse({ total: CAP, list }))
+    })
+    const previousExit = process.exitCode
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      const client = createClient()
+      const result = await client.call("insight.opinion.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean; totalCapped?: boolean }
+      expect(result.list).toHaveLength(CAP)
+      expect(result.totalCapped).toBe(true)
+      // partial must agree, because printData maps it to exit 3.
+      expect(result.partial).toBe(true)
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("TRUNCATED")
+    } finally {
+      process.exitCode = previousExit
+      errSpy.mockRestore()
+    }
+  })
+
+  it("does not flag a fetch-all when the reported total is honest", async () => {
+    // The probe past the end comes back empty — no false positive, and on the
+    // per-row-billed endpoints it costs nothing because it returns no rows.
+    paginatedMock({ total: 70, itemFor: (id) => ({ id }) })
+    const client = createClient()
+    const result = await client.call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean; totalCapped?: boolean }
+    expect(result.list).toHaveLength(70)
+    expect(result.totalCapped).toBeUndefined()
+    expect(result.partial).toBeUndefined()
+  })
+
+  it("does not probe past the end when the caller bounded the request with size", async () => {
+    // An explicit --size got exactly what it asked for; there is no truncation claim
+    // to make, so we must not spend an extra request (or credits) on the probe.
+    paginatedMock({ total: 300, itemFor: (id) => ({ id }) })
+    const client = createClient()
+    await client.call("insight.opinion.list", { from: 0, size: 120 })
+    const probed = requestMock.mock.calls.some((c) => {
+      const body = JSON.parse((c[1] as { body?: string } | undefined)?.body ?? "{}") as { from?: number }
+      return body.from === 300
+    })
+    expect(probed).toBe(false)
   })
 
   it("does one request for endpoints without pagination metadata", async () => {
@@ -327,6 +389,31 @@ describe("GangtiseClient pagination", () => {
     expect(result.total).toBe(0)
     expect(result.list).toEqual([])
     expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("warns on stderr without GANGTISE_VERBOSE when a paginated endpoint answers with a null payload", async () => {
+    // insight foreign-opinion/independent-opinion answer `--industry` with 200 + data:null.
+    // The warning used to be verbose-gated, so the default run printed nothing and exited 0 —
+    // a caller could not tell "no data" from "this filter is broken".
+    const previous = process.env.GANGTISE_VERBOSE
+    const previousExit = process.exitCode
+    delete process.env.GANGTISE_VERBOSE
+    requestMock.mockResolvedValueOnce(jsonResponse(null))
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      const client = createClient()
+      const result = await client.call("insight.foreign-opinion.list", { from: 0 })
+      expect(result).toBeNull()
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unexpected shape"))
+      // The warning alone only helps a human; a script reads the exit code. Without a
+      // non-zero one it cannot tell "this filter matched nothing" from "this filter is
+      // broken", which is the entire harm of the null payload.
+      expect(process.exitCode).toBe(3)
+    } finally {
+      process.exitCode = previousExit
+      errSpy.mockRestore()
+      if (previous !== undefined) process.env.GANGTISE_VERBOSE = previous
+    }
   })
 
   it("warns when a short first page contradicts the reported total", async () => {
@@ -757,11 +844,18 @@ describe("GangtiseClient auth recovery", () => {
       }
       const body = JSON.parse(init?.body ?? "{}") as { from: number; size: number }
       if (body.from === 0) return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })) }))
-      if (!failedOnce.has(body.from)) {
+      // Only inject the auth failure for offsets inside the fan-out. The cap probe runs
+      // serially AFTER the fan-out, so failing it too would count a second (legitimate)
+      // self-heal against the single-flight assertion this test is actually about.
+      if (body.from < 200 && !failedOnce.has(body.from)) {
         failedOnce.add(body.from)
         return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }))
       }
-      return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: body.size }, (_, i) => ({ id: body.from + i + 1 })) }))
+      // Respect `total`: a server that keeps serving rows past its own total is what
+      // the cap probe is designed to catch, and that is not what this test is about.
+      const remaining = Math.max(200 - body.from, 0)
+      const count = Math.min(body.size, remaining)
+      return Promise.resolve(jsonResponse({ total: 200, list: Array.from({ length: count }, (_, i) => ({ id: body.from + i + 1 })) }))
     })
 
     const client = loginClient()

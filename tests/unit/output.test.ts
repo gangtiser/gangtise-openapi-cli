@@ -143,6 +143,20 @@ describe("row shaping and header escaping", () => {
     expect(lines).toHaveLength(3) // header + 2 object rows; the null row is skipped
   })
 
+  // insight foreign-opinion/independent-opinion answer `--industry` with 200 + data:null.
+  // That used to fall through to [{ value: null }]: jsonl emitted {"value":null} so
+  // `wc -l` reported one record, and table/markdown drew a blank row that reads as data.
+  it("renders a null payload as no rows at all, not one {value: null} record", () => {
+    expect(renderOutput(null, "jsonl")).toBe("")
+    expect(renderOutput(null, "csv")).toBe("")
+    expect(renderOutput(null, "table")).not.toContain("value")
+  })
+
+  it("still renders falsy scalars as a value row (only null/undefined mean no data)", () => {
+    expect(renderOutput(0, "csv").split("\n")[0]).toBe("value")
+    expect(renderOutput("", "csv").split("\n")[0]).toBe("value")
+  })
+
   it("still renders an all-scalar list as index/value pairs", () => {
     const result = renderOutput(["600519.SH", "000858.SZ"], "csv")
     expect(result.split("\n")[0]).toBe("index,value")

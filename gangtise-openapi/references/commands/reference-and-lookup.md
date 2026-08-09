@@ -96,17 +96,32 @@ gangtise reference constant-category [--format json]
 | category | 名称 | 结构 | 用于参数 |
 |----------|------|------|---------|
 | `citicIndustry` | 中信一级行业（30，`1008001xx`） | flat | `--industry` 全命令通用首选（见下方说明） |
-| `swIndustry` | 申万一级行业（31，`104xxx`） | flat | `--industry`（仅 6 个 insight list；`vault wechat-message-list` 的 `--industry` 当前两套码都不生效） |
-| `gangtiseIndustry` | Gangtise 行业（30 行业 `1008001xx` + 6 方向 `122000xxx`） | flat | `--research-area` 首选（含宏观/策略等方向，见下方说明） |
+| `swIndustry` | 申万一级行业（31，`104xx0000`） | flat | `--industry`（opinion / research / foreign-report / official-account 可用，但**与中信码不等效**，见下方说明）；`--research-area` 只有 summary / pamirs-summary 认 |
+| `gangtiseIndustry` | Gangtise 研究方向（**只有 6 条方向码** `122000xxx`，不含行业码） | flat | `--research-area` 的方向维度（宏观/策略/固收/金工/海外/其他，见下方说明） |
 | `domesticCity` | 国内城市（省级 ID） | flat | `--location`（roadshow / site-visit / strategy / forum）|
 | `aShareAnnouncementCategory` | A股公告分类 | tree（2 级） | `insight announcement --category` |
 | `hkShareAnnouncementCategory` | 港股公告分类 | tree（2 级） | `insight announcement-hk --category` |
 | `usShareAnnouncementCategory` | 美股公告分类（`103980xxx` 段） | tree（2 级） | `insight announcement-us --category` |
 | `regionCategory` | 区域分类 | flat | `insight foreign-report --region` |
 
-> **行业 / 研究方向过滤——选哪套 category（⭐ 权威口径，其他文件引用此处、勿重复枚举命令清单以免漂移；实测 + spec，2026-06-15）：**
-> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account 正确过滤。⚠️ **`vault wechat-message-list` 例外——该命令的 `--industry` 当前两套码都不生效**（2026-08-08 复测，详见 `vault.md`）。`swIndustry`（`104xxx`）在 6 个 insight list（含 official-account）上等效（spec 多数命令写 citic+sw）→ 统一用中信码最稳。
-> - **`--research-area`（researchAreaList）→ 用 `gangtiseIndustry`**：完整研究方向分类 = 30 个行业（`1008001xx`，与 citicIndustry 相同）+ 6 个方向（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`）。行业码与方向码均已实测正确过滤（opinion / summary / roadshow / site-visit / forum）。`citicIndustry` 也能用但只含行业、无方向；`swIndustry`（`104xxx`）除 summary / my-conference 外返 0，勿用。
+> **行业 / 研究方向过滤——选哪套 category（⭐ 权威口径，其他文件引用此处、勿重复枚举命令清单以免漂移；全部为逐端点实测，2026-08-08）：**
+>
+> 先记住三套码的归属，**别把行业码算到 `gangtiseIndustry` 头上**：`citicIndustry` = 30 条行业码 `1008001xx`；`swIndustry` = 31 条行业码 `104xx0000`；`gangtiseIndustry` = **只有 6 条方向码** `122000xxx`（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`），里面**没有任何行业**，去它那里找「食品饮料」永远找不到。
+>
+> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / official-account 正确过滤。`swIndustry`（`104xx0000`）在这 4 个上**也生效，但不是等效**——两套码的行业成分不同，4 个里有 2 个结果集对不上（research / foreign-report 完全一致；**opinion 与 official-account 传两套码取回的条数相差约 2%–5%**）。所以**统一用中信码**，同一批查询里别把两套码混着传。方向码 `122000xxx` 在 `--industry` 上一律返 0。⚠️ 两个例外：`insight foreign-opinion` / `independent-opinion` 只要传 `--industry` 就拿不到数据（不报错，且 **payload 是字面 `null`、不是空 list**，详见 `insight.md`），只能不带该过滤取回后本地筛；`vault wechat-message-list` 的 `--industry` 两套码都不生效（详见 `vault.md`）。
+> - **`--research-area`（researchAreaList）→ 用 `citicIndustry` 行业码 `1008001xx`，方向再叠 `gangtiseIndustry` 的 `122000xxx`**。⚠️ **申万码 `104xx0000` 只有 `summary` / `pamirs-summary` 认**，其余端点返 0（与传乱码表现一致，不报错）。逐端点实测（同一行业分别传三套码，✅ = 正常过滤，❌ = 返 0）：
+>
+> | 端点 | 中信 `1008001xx` | 申万 `104xx0000` | 方向 `122000xxx` |
+> | :--- | :---: | :---: | :---: |
+> | `insight summary` | ✅ | ✅ | ✅ |
+> | `insight pamirs-summary` | ✅ | ✅ | **❌ 返 0** |
+> | `insight opinion` | ✅ | **❌ 返 0** | ✅ |
+> | `insight roadshow` | ✅ | **❌ 返 0** | ✅ |
+> | `insight site-visit` | ✅ | **❌ 返 0** | ✅ |
+> | `insight forum` | ✅ | **❌ 返 0** | ✅ |
+> | `vault my-conference-list` | ✅ | **❌ 返 0** | ✅ |
+>
+> 一句话结论：**行业维度一律传中信码**（唯一全端点通吃的一套），方向维度传 `122000xxx`（`pamirs-summary` 不支持方向）。
 
 ## 常量值 `reference constant-list`
 
@@ -209,9 +224,9 @@ gangtise lookup meeting-org list          # 会议/牵头机构全量（--instit
 | 银行 / 银行股 | 银行 | `104480000` | `821047.SWI` |
 | 汽车 / 新车 | 汽车 | `104280000` | `821036.SWI` |
 
-> ¹ 第 3 列是**申万码**（`104xxx`），仅在 opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account 这 6 个 insight list 上作 `--industry` 等效；`--research-area` 返 0。`vault wechat-message-list` 的 `--industry` 与码表无关——**两套码都不生效**——通用/推荐的**中信码**（`1008001xx`）见 `references/lookup-ids.md` 中信表或 `constant-list --category citicIndustry`。
+> ¹ 第 3 列是**申万码**（`104xx0000`），仅在 opinion / research / foreign-report / official-account 上可作 `--industry` 使用，且**与中信码不等效**（opinion / official-account 两套码结果集不同，见上方 ⭐ 权威口径）；用于 `--research-area` 时只有 summary / pamirs-summary 认，其余端点返 0。`vault wechat-message-list` 的 `--industry` 与码表无关——**两套码都不生效**——通用/推荐的**中信码**（`1008001xx`）见 `references/lookup-ids.md` 中信表或 `constant-list --category citicIndustry`。
 
-> **参数名选择**：`--industry`（industryList，用 `citicIndustry` 码 `1008001xx`）用于 opinion / research / foreign-report / foreign-opinion / independent-opinion / official-account（`vault wechat-message-list` 也有这个参数，但**当前不生效**，见 `vault.md`）；`--research-area`（researchAreaList，用 `gangtiseIndustry` 码 = 行业 `1008001xx` + 方向 `122000xxx`）用于 opinion / summary / roadshow / site-visit / forum / my-conference；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）。注意 strategy（线下策略会）无 `--research-area`，只按 `--institution` / `--location` 筛。
+> **参数名选择**：`--industry`（industryList，用 `citicIndustry` 码 `1008001xx`）用于 opinion / research / foreign-report / official-account（`foreign-opinion` / `independent-opinion` / `vault wechat-message-list` 也有这个参数，但**当前不生效**，见上方 ⭐ 权威口径）；`--research-area`（researchAreaList，行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`）用于 opinion / summary / pamirs-summary / roadshow / site-visit / forum / my-conference；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）。注意 strategy（线下策略会）无 `--research-area`，只按 `--institution` / `--location` 筛。
 
 > **"消费"歧义**：用户说"消费/大消费"覆盖多个子行业（食品饮料 `104340000` / 商贸零售 `104450000` / 社会服务 `104460000` / 家电 `104330000` / 纺织服饰 `104350000` / 美容护理 `104770000`），需向用户确认具体方向，或用 `--keyword 消费` 做宽泛搜索。
 

@@ -234,10 +234,26 @@ export class GangtiseClient {
 
     if (!this.isPaginatedListResponse(firstPage)) {
       // Shape drift (e.g. total arriving as a string) silently degrades fetch-all
-      // to a single page with no partial marker — make it visible on verbose.
-      if (isVerbose()) {
-        process.stderr.write(`[gangtise] warning: ${endpoint.key} is marked paginated but the first page has an unexpected shape (no numeric total + list); returning it as-is\n`)
-      }
+      // to a single page with no partial marker. This is NOT hypothetical: passing
+      // industryList to insight foreign-opinion / independent-opinion makes the
+      // server answer 200 + data:null, which then renders as one phantom row
+      // ({"value":null} in jsonl, a blank row in table/markdown). Verbose-only was
+      // the wrong bar — a caller who never sets GANGTISE_VERBOSE reads that row as
+      // real data, so warn on stderr unconditionally.
+      process.stderr.write(`[gangtise] warning: ${endpoint.key} is marked paginated but the first page has an unexpected shape (no numeric total + list); returning it as-is\n`)
+      // A warning only helps a human. Scripts read the exit code, and without one they
+      // cannot tell "this filter legitimately matched nothing" from "this filter is
+      // broken". Reuse exit 3 (result is not what was asked for) rather than inventing a
+      // fourth code — fetch-all silently degraded to one page either way.
+      //
+      // Applies to EVERY malformed shape, not just `null`: a string `total` truncates the
+      // result to page 1, which looks complete and is therefore worse than an obviously
+      // empty payload. All 24 paginated endpoints are genuine {total, list} lists (the
+      // odd-shaped ones like reference.constant-list are not marked paginated), so there
+      // is no legitimate response that lands here. Endpoints where `null` IS a valid
+      // answer (ai.one-pager for a security with no generated content) are unpaginated
+      // and never reach this branch.
+      process.exitCode = 3
       return firstPage
     }
 
@@ -349,10 +365,41 @@ export class GangtiseClient {
       process.stderr.write(`[gangtise] warning: hit the ${MAX_PAGES}-page safety cap; fetched ${collected.length} of ${total} rows. Narrow the query (e.g. a shorter date range) or pass --size to fetch a bounded subset.\n`)
     }
 
+    const short = collected.length < target
+
+    // `total` is not always the real row count. Three opinion endpoints report a fixed
+    // 10000 while `from=30000` still returns real rows with monotonically older publish
+    // times (the shape of Elasticsearch's default track_total_hits). A fetch-all then
+    // stops exactly at the cap with collected === total, so every completeness check
+    // below passes and the truncated export looks complete — the worst failure mode we
+    // have, because `opinion` bills 30 credits per row.
+    //
+    // Probe one row past the claimed end rather than hardcoding any number: the server
+    // can change the cap, and evidence survives that where a constant would not. Only on
+    // a genuine fetch-all that otherwise looked complete — when `total` is honest the
+    // probe comes back empty (and bills nothing, since these endpoints charge per row).
+    let totalCapped = false
+    if (requestedSize === undefined && total > 0 && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
+      try {
+        const probe = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
+        if (this.isPaginatedListResponse(probe) && probe.list.length > 0) totalCapped = true
+      } catch {
+        // A failed probe must never fail an otherwise-complete export: we simply do not
+        // learn whether the total was capped, which is the pre-existing behaviour.
+      }
+    }
+    if (totalCapped) {
+      process.stderr.write(`[gangtise] warning: ${endpoint.key} reported total=${total} but rows exist past that offset — 'total' is a server-side cap, not the real count. This export is TRUNCATED at ${collected.length} rows. Narrow the query (date range / filters) and fetch in slices.\n`)
+    }
+
     const out: Record<string, unknown> = {
       ...firstPage,
       total,
       list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
+    }
+    if (totalCapped) {
+      out.partial = true
+      out.totalCapped = true
     }
     // Unified completeness backstop. Whatever the cause — a failed/shape-broken page,
     // a short later page (server page cap < maxPageSize), the MAX_PAGES cap, or `total`
@@ -363,7 +410,6 @@ export class GangtiseClient {
     // must agree. printData maps partial → exit 3 so a script can't read a truncated export
     // as complete. The cap and drift branches above already warned on stderr; failedPages
     // warns below.
-    const short = collected.length < target
     if (short || totalDrift || failedPages.length > 0) out.partial = true
     if (failedPages.length > 0) {
       out.failedPages = failedPages.map((p) => ({ from: p.from, size: p.size }))
