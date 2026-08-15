@@ -26,6 +26,41 @@ describe("ApiError", () => {
     expect(hint).not.toContain("不会指明")
   })
 
+  it("names the --indicator-param fix when 100003 says a report-period indicator wants reportDate", () => {
+    // 100003 is the catch-all for every EDE input error, so its per-code hint can only
+    // be generic. This one message identifies a specific cause the server names but
+    // does not tell you how to fix from the CLI: the caller is told "缺少必填参数
+    // reportDate" and still has to work out it needs --indicator-param, not --date.
+    const hint = new ApiError("指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate", "100003").hint
+    expect(hint).toContain("--indicator-param")
+    expect(hint).toContain("reportDate")
+  })
+
+  it("fires the same reportDate hint under 100001, which carries the identical message", async () => {
+    // The server sends this sentence under either code: `is_op_rev` answers 100003,
+    // `div_cash_yld` answers 100001 (both probed 2026-08-15). Keying the rule on one
+    // code alone would let the other fall back to a generic hint with no warning.
+    const hint = new ApiError("指标 div_cash_yld 缺少必填参数 reportDate", "100001").hint
+    expect(hint).toContain("--indicator-param")
+  })
+
+  it("does not claim the affected indicators can be identified by code prefix", async () => {
+    // 170-indicator survey (2026-08-15): 7 `finc_*` and 3 `div_*` want reportDate,
+    // while 8 `is_*` and 4 `cf_*` want tradeDate — a prefix rule is wrong in BOTH
+    // directions, and this text ships to customers in dist/.
+    const hint = new ApiError("指标 x 缺少必填参数 reportDate", "100003").hint ?? ""
+    expect(hint).toContain("parameterList")
+    expect(hint).not.toMatch(/`is_\*`.*只吃|行情 \/ 估值类（qte_\* \/ finc_\*）不受影响/)
+  })
+
+  it("does not fire the reportDate hint on other 100003 causes", () => {
+    // Guards the regex from widening into every EDE input error and burying the
+    // generic advice under an irrelevant report-period lecture.
+    const hint = new ApiError("指标 qte_close 不支持参数 bogusKey", "100003").hint
+    expect(hint).not.toContain("--indicator-param")
+    expect(hint).toContain("枚举")
+  })
+
   it("provides hints for codes documented in the skill error table", () => {
     expect(new ApiError("quote range", "430007").hint).toContain("日期范围")
     expect(new ApiError("download", "430004").hint).toContain("file-type")

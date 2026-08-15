@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   __resetTitleCacheForTests,
@@ -71,6 +71,10 @@ describe("readTitleCache / writeTitleCache", () => {
   })
 
   afterEach(async () => {
+    // Two tests here spy on fs. The in-test restore runs after the assertions, so a
+    // failing (or rejecting) test would leak its mock into the rest of the file and
+    // turn one red into a cascade that hides the real cause.
+    vi.restoreAllMocks()
     __resetTitleCacheForTests()
     await fs.rm(dir, { recursive: true, force: true })
   })
@@ -91,6 +95,108 @@ describe("readTitleCache / writeTitleCache", () => {
     __resetTitleCacheForTests()
     const data = await readTitleCache(file)
     expect(data.ep.titles).toEqual({ "1": "one", "2": "two" })
+  })
+
+  it("persists every concurrent write, not just the one that won the flush", async () => {
+    // The second writer is handed the FIRST writer's in-flight flush promise, which
+    // already took its JSON snapshot. Without re-checking `dirty` after the rename,
+    // the second entry lives in memory and never reaches disk — awaiting both calls
+    // still resolves, so the loss is silent.
+    await Promise.all([
+      writeTitleCache("ep", { "1": "one" }, file),
+      writeTitleCache("ep", { "2": "two" }, file),
+      writeTitleCache("ep", { "3": "three" }, file),
+    ])
+
+    __resetTitleCacheForTests() // force a fresh read from disk
+    const data = await readTitleCache(file)
+    expect(data.ep.titles).toEqual({ "1": "one", "2": "two", "3": "three" })
+  })
+
+  it("persists writes that arrive while the flush is deciding to stop", async () => {
+    // The loop's exit test and the release of `pendingWrite` must happen in ONE
+    // synchronous block. Split by an await, a write landing between them attaches to
+    // a flush that already decided nothing was left: its entry stays in memory, never
+    // reaches disk, and its own `await` still resolves. Fired from inside the rename's
+    // own resolution at three different scheduling points, so the test does not depend
+    // on the exact microtask depth of the gap — a single-shot version only reddens at
+    // one depth and would silently stop testing anything if V8 changed its tick count.
+    const realRename = fs.rename.bind(fs)
+    let fired = false
+    const late: Promise<void>[] = []
+    vi.spyOn(fs, "rename").mockImplementation(async (oldPath, newPath) => {
+      await realRename(oldPath, newPath)
+      if (fired) return
+      fired = true
+      void Promise.resolve().then(() => {
+        late.push(writeTitleCache("ep", { x: "X" }, file))
+        late.push(writeTitleCache("ep", { y: "Y" }, file))
+      })
+      queueMicrotask(() => { late.push(writeTitleCache("ep", { z: "Z" }, file)) })
+    })
+
+    await writeTitleCache("ep", { "1": "one" }, file)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await Promise.all(late)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    vi.restoreAllMocks()
+
+    __resetTitleCacheForTests()
+    const data = await readTitleCache(file)
+    expect(data.ep.titles).toEqual({ "1": "one", x: "X", y: "Y", z: "Z" })
+  })
+
+  it("drops the in-flight load handle on reset instead of reusing it", async () => {
+    // Asserting on the RETURNED DATA is racy here: the in-flight load's continuation
+    // cannot be cancelled, so it repopulates `memoryCache` after the reset and which
+    // read wins depends on timing. The handle is what the reset owns, so count the
+    // reads instead — both calls issue their readFile synchronously in this tick,
+    // making the count order-independent. Without the reset clearing `pendingLoad`,
+    // the second call is handed the pre-reset promise and readFile runs once.
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(file, JSON.stringify({ ep: { ts: Date.now(), titles: { seed: "s" } } }), "utf8")
+    __resetTitleCacheForTests()
+
+    const readFile = vi.spyOn(fs, "readFile")
+    const inflight = readTitleCache(file)
+    __resetTitleCacheForTests()
+    const afterReset = readTitleCache(file)
+    const [, data] = await Promise.all([inflight, afterReset])
+
+    expect(readFile).toHaveBeenCalledTimes(2)
+    expect(Object.keys(data)).toEqual(["ep"])
+  })
+
+  it("keeps concurrent loads of DIFFERENT files apart", async () => {
+    // The coalescing that fixes the shared-object bug must be keyed by path. Keyed on
+    // the promise alone, a caller asking for file B gets file A's contents back — a
+    // worse failure than the one being fixed, because it is wrong data rather than a
+    // lost cache entry.
+    const other = path.join(dir, "other-cache.json")
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(file, JSON.stringify({ epA: { ts: Date.now(), titles: { a: "A" } } }), "utf8")
+    await fs.writeFile(other, JSON.stringify({ epB: { ts: Date.now(), titles: { b: "B" } } }), "utf8")
+    __resetTitleCacheForTests()
+
+    const [a, b] = await Promise.all([readTitleCache(file), readTitleCache(other)])
+    expect(Object.keys(a)).toEqual(["epA"])
+    expect(Object.keys(b)).toEqual(["epB"])
+  })
+
+  it("shares one in-memory object across concurrent first-loads", async () => {
+    // Both readers miss the cache and race to load it. If each builds its own object,
+    // the last assignment wins and writes merged into the loser's reference vanish.
+    await fs.mkdir(dir, { recursive: true }) // nothing has flushed yet, so the dir is absent
+    await fs.writeFile(file, JSON.stringify({ ep: { ts: Date.now(), titles: { seed: "s" } } }), "utf8")
+    __resetTitleCacheForTests()
+
+    const [a, b] = await Promise.all([readTitleCache(file), readTitleCache(file)])
+    expect(a).toBe(b) // same object identity, not merely deep-equal
+
+    await writeTitleCache("ep", { "1": "one" }, file)
+    __resetTitleCacheForTests()
+    const onDisk = await readTitleCache(file)
+    expect(onDisk.ep.titles).toEqual({ seed: "s", "1": "one" })
   })
 
   it("returns an empty object when the cache file is absent", async () => {

@@ -133,6 +133,32 @@ const ERROR_HINTS: Record<string, string> = {
   "10011401": "联系客户经理开通白名单。",
 }
 
+/** Hints keyed on the server's message rather than its code. Used where one code
+ * covers many causes and the message identifies which — `100003` in particular is
+ * the catch-all for every EDE input error, so its per-code hint can only be generic.
+ *
+ * Kept to cases where the server names the problem but not the CLI flag that fixes
+ * it: the caller is told "缺少必填参数 reportDate" and still has to work out that
+ * such indicators need `--indicator-param`, not `--date`.
+ *
+ * ⚠️ Do NOT restate this as a rule about code prefixes or as a clean two-way split.
+ * Survey of 170 indicators (2026-08-15) says otherwise: 117 take `reportDate` only,
+ * 51 take `tradeDate` only, `div_cash_yld` takes BOTH (both required), and
+ * `div_cash_yr` / `div_cash_paid_ratio` take NEITHER (they want `fiscalYear`).
+ * Prefixes cut across it too — 7 `finc_*` and 3 `div_*` want `reportDate`, while 8
+ * `is_*` and 4 `cf_*` want `tradeDate`. The hint therefore points at
+ * `indicator search` rather than asserting which indicators are affected.
+ *
+ * Both codes are listed because the server sends this same sentence under either:
+ * `is_op_rev` answers 100003, `div_cash_yld` answers 100001 (probed 2026-08-15). */
+const MESSAGE_HINTS: Array<{ codes: string[]; match: RegExp; hint: string }> = [
+  {
+    codes: ["100001", "100003"],
+    match: /不支持参数\s*tradeDate|缺少必填参数[:：]?\s*reportDate/,
+    hint: "这个指标要的是 reportDate（报告期），不是 --date 下发的 tradeDate。补 --indicator-param \"<指标code>:reportDate=YYYY-MM-DD\"（screener 用 \"F1:reportDate=...\"），--date 仍要保留。⚠️ 少数指标两个日期都要（如 div_cash_yld），补完 reportDate 若再报缺 tradeDate，就把 tradeDate 也显式传上；另有指标要的是 fiscalYear。**以 `indicator search` 返回的 parameterList 为准，别按 code 前缀推断**。",
+  },
+]
+
 export class ApiError extends CliError {
   readonly hint?: string
 
@@ -151,7 +177,13 @@ export class ApiError extends CliError {
     hintOverride?: string,
   ) {
     super(message)
-    this.hint = hintOverride ?? (code ? ERROR_HINTS[code] : undefined)
+    // Precedence: explicit override > message-specific > per-code. The message rule
+    // sits in the middle because it identifies a narrower cause than the code alone,
+    // but a call site that already knows the context still knows better.
+    const byMessage = code
+      ? MESSAGE_HINTS.find((rule) => rule.codes.includes(code) && rule.match.test(message))?.hint
+      : undefined
+    this.hint = hintOverride ?? byMessage ?? (code ? ERROR_HINTS[code] : undefined)
   }
 
   /** Server-side correlation id from the 2026-07-17 envelope
