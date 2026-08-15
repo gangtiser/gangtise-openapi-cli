@@ -14,8 +14,10 @@ interface ShardConfig {
   shardDays: number
   concurrency?: number
   /** securityList value that means "whole market" for this endpoint and triggers
-   * date-sharding + the lifted row cap: `all` for kline (default), `aShares` for
-   * fund-flow. */
+   * date-sharding + the lifted row cap. `aShares` for fund-flow and for the unified
+   * `day-kline` (which also takes `hkStocks` / `usStocks`, each with its own shardDays
+   * — the caller resolves which keyword was asked for); the menu-retired per-market
+   * kline endpoints still use the historical `all`, which is the default here. */
   fullMarketValue?: string
 }
 
@@ -24,9 +26,9 @@ interface KlineClient {
 }
 
 const DAY_MS = 86_400_000
-/** API-side row cap (per docs). Used to lift the default 6000-row cap on
- * `--security all` queries so a 2-day A-share shard (~11K rows) isn't
- * silently truncated. Single-security queries are untouched. */
+/** API-side row cap (per docs). Used to lift the default 6000-row cap on whole-market
+ * queries so a 2-day A-share shard (~11K rows) isn't silently truncated. Single-security
+ * queries are untouched. */
 const ALL_MARKET_LIMIT = 10_000
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.
@@ -46,12 +48,6 @@ export function isFullMarket(body: KlineBody, fullMarketValue: string): boolean 
   return list[0] === fullMarketValue
 }
 
-/** Kline uses `all` as its whole-market keyword; fund-flow uses `aShares`. Thin wrapper
- * so kline call sites read naturally. */
-export function isAllMarket(body: KlineBody): boolean {
-  return isFullMarket(body, "all")
-}
-
 /** Sat/Sun in UTC — shard dates are formatted from UTC midnight (see parseDate). */
 function isWeekendUtc(d: Date): boolean {
   const day = d.getUTCDay()
@@ -66,9 +62,14 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
     const shardEnd = Math.min(cursor + (shardDays - 1) * DAY_MS, endTime)
     // Per-day sharding (shardDays===1): a lone weekend day always returns empty (A/HK/US
     // markets closed) — skip it to save ~28% of requests and daily quota. This covers
-    // every 1-day-sharded full-market query: fund-flow AND day-kline / day-kline-us
-    // (both shardDays 1 in cli.ts). Multi-day shards (day-kline-hk=2, index=30) always
-    // straddle weekdays, so they're never dropped.
+    // every 1-day-sharded full-market query: fund-flow AND day-kline (aShares/usStocks)
+    // / day-kline-us.
+    //
+    // Multi-day shards (day-kline hkStocks=2, index-day-kline=15) are NOT filtered. Note
+    // this is a deliberate simplification, not a claim that they always contain a weekday:
+    // a 2-day shard starting on a Saturday is Sat+Sun and returns nothing. That costs one
+    // wasted request at a range boundary and never drops a trading day, whereas filtering
+    // multi-day windows correctly would mean walking each window's days.
     if (!(shardDays === 1 && isWeekendUtc(new Date(cursor)))) {
       shards.push({
         startDate: formatDate(new Date(cursor)),

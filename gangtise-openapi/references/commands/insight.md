@@ -6,19 +6,18 @@
 
 支持 `--rank-type` 的命令：opinion / summary / **pamirs-summary** / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。
 
-⚠️ **`--rank-type` 的效果同时依赖 `--keyword` 和 `--search-type`，而且强弱按端点不同**（2026-08-08 全量实测三个端点 × 两种 searchType）：
+⚠️ **`--rank-type` 的效果依赖 `--keyword`**：没有关键词时综合排序无从计算，两种取值结果一致，这不是参数失效。
 
-下表三个端点是本次实测对象；**支持 `--rank-type` 的另外 8 个端点未验证**，别把结论外推过去。在这三个上，`--rank-type 2` 都是严格按 `publishTime` 倒序、稳定可依赖，差别全在 `1`（综合排序）上：
+**`--rank-type 1`（综合排序，默认）按相关度挑选条目**，`--rank-type 2` 严格按 `publishTime` 倒序取最新的。两者从同一结果集里取的是**不同的子集**，不是同一批内容换个排法：
 
-| 端点 | `--search-type 1`（标题） | `--search-type 2`（全文） |
-| :--- | :--- | :--- |
-| `pamirs-summary` | 与 `2` **完全相同**（结果集无并列时间戳） | 🔴 **真正的相关度重排**——`rank1` 对 `publishTime`/`summaryTime` 都不单调，`rank2` 的首条在 `rank1` 里排到第 118 位 |
-| `summary` | 与 `2` 有差异，但 `rank1` **仍严格时间倒序**——差异只发生在时间戳并列处（`keyword=机器人` 前 200 条有 22 处并列） | 同左 |
-| `research` | 与 `2` **完全相同** | 有差异，同样只在并列处（4 处并列） |
+| 想要 | 用 |
+| :--- | :--- |
+| 最相关的内容（可以是旧的） | `--rank-type 1` + `--keyword` + `--search-type 2`（全文） |
+| 最新的内容（按时间铺） | `--rank-type 2` |
 
-**没有 `--keyword` 时一律无差异**（综合排序无从计算），这不是参数失效。
+同一个查询下，`--rank-type 1` 取回的条目时间跨度更宽（每天只挑相关度高的几条），`--rank-type 2` 则集中在最近几天（把最新的逐条铺出来）。
 
-实用结论：**要"最相关"而不是"最新"，三个实测端点里只有 `pamirs-summary --search-type 2` 真能做到**；`summary` / `research` 的 `rank-type 1` 至多改变同一时间戳内几条的先后，别指望它能把更相关的旧内容提到前面。未验证的端点按 `summary` 的保守预期对待，需要时自己按「跨 `searchType` × 全量取回 × 比 `total` 再比序列」复测。
+⚠️ **别用「返回结果是不是按时间倒序」判断综合排序有没有生效** —— `--rank-type 1` **挑完之后仍按时间倒序排列**，所以两种取值下返回序列都是时间单调的。要看差别就**比条目 ID 集合**，不是比排序。
 **不支持** `--rank-type` 的命令：roadshow / site-visit / strategy / forum（API 无此参数）。
 
 `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
@@ -63,7 +62,7 @@ gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--
 
 - **筛选项比 `summary` 少**：没有 `--source` / `--institution` / `--participant-role`。不认识的 body 字段会被丢弃且不报错，所以别照搬 `summary` 的参数，那样只会拿到没过滤的全量
 - `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索。同一关键词全文搜索的命中数明显多于标题搜索
-- `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序。⚠️ 效果依赖 `--keyword`，详见本文开头的公共说明；本端点是该结论的实测对象之一
+- `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序。⚠️ 效果依赖 `--keyword`，详见本文开头的公共说明
 - `--category`：`companyAnalysis` 公司分析 | `industryAnalysis` 行业分析（两者过滤均生效，公司分析占绝大多数）
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
 - `--research-area`：**行业码两套都生效**——citic `1008001xx` 和申万 `104xx0000`。申万码这点与多数 insight list 不同（那些只有 summary 认申万码）。⚠️ 反过来，**方向码 `122000xxx` 在本端点返 0**，别在这里传方向
@@ -196,7 +195,7 @@ gangtise insight foreign-opinion list [--rank-type <n>] [--security <code>] [--r
 ```
 
 - `--security`：境外证券代码，如 `UBER.N`
-- ⚠️ `--region`：`cn` | `cnHk` | `cnTw` | `us` | `jp` | `uk` | `gl`——**本端点当前不可靠**：`cn` / `us` / `jp` 实测返回 `null` payload（不报错），只有 `gl` 返回数据。需要按区域筛请不带该参数取回后按 `region` 字段本地筛。⚠️ **注意 `insight foreign-report` 的 `--region` 是正常的**（cn / us / gl 都能正确收窄），坏的只是本端点
+- ⚠️ `--region`：`cn` | `cnHk` | `cnTw` | `us` | `jp` | `uk` | `gl`——**本端点上该过滤当前取不到数据**：除 `gl` 外的取值返回 `null` payload 而不是报错。需要按区域筛请不带该参数取回后按 `region` 字段本地筛。注意这是本端点的情况，`insight foreign-report` 的 `--region` 可正常收窄结果
 - ⚠️ `--industry`：**当前传任何值都拿不到数据**（中信码 / 申万码 / 乱码一样，不报错、退出码 0）。🔴 **返回的 payload 是字面 `null`，不是 `{total:0,list:[]}`** ——按空列表解析的脚本（`data.list.length`、`for row in data["list"]`）会在这里抛错或静默跳过，务必先判 `null`。需要按行业筛时不带该参数取回后本地按 `industryList[]` 筛
 - `--broker`：外资券商 ID（见 `references/lookup-ids.md`）
 - `--rating` / `--rating-change`：同研报

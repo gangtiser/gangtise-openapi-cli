@@ -53,10 +53,10 @@ gangtise ai peer-comparison  --security-code <code>
 
 ```bash
 gangtise ai stock-summary --security <code> [--security <code2> ...]
-gangtise ai stock-summary --security <aShares|hkStocks>
 ```
 
-- `--security`（**必选**，可重复）：证券代码，单次最多 6000 个；**或**传市场关键词 `aShares`（全部 A 股）/ `hkStocks`（全部港股）
+- `--security`（**必选**，可重复）：**只收具体证券代码**，单次最多 6000 个
+- 🔴 **2026-08-14 起不再支持全市场批量**：`aShares` / `hkStocks` 这类市场关键词已被移除，CLI 会本地报错（服务端对它们返 `120001`，读起来像代码写错，容易误判）。需要覆盖一批标的就先用 `reference securities-search` 或自有清单取到代码，再分批传入
 - **仅支持 A 股和港股**
 - **积分**：`3`/条；个股若无看点总结则不在返回列表中，也不扣分
 - 返回字段：`securityCode` / `securityName` / `summary`（精炼投研总结）/ `date`（更新日期 `yyyy-MM-dd`）
@@ -64,7 +64,6 @@ gangtise ai stock-summary --security <aShares|hkStocks>
 **示例：**
 ```bash
 GANGTISE_TIMEOUT_MS=120000 gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json   # 茅台 / 腾讯看点
-GANGTISE_TIMEOUT_MS=120000 gangtise ai stock-summary --security hkStocks --format json                        # 全部港股，total 2662
 ```
 
 ## 调研提纲 `ai research-outline`

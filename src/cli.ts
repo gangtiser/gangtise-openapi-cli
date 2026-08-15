@@ -6,7 +6,7 @@ import { readTokenCache, redactTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
-import { callKlineWithSharding, isAllMarket, isFullMarket } from "./core/quoteSharding.js"
+import { callKlineWithSharding, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
@@ -499,7 +499,86 @@ insight.addCommand(reportImage)
 program.addCommand(insight)
 
 const quote = new Command("quote").description("Quote APIs")
-const addKlineCommand = (name: string, endpointKey: string, securityHelp: string, shardDays: number) =>
+
+/** Whole-market keywords an endpoint accepts, mapped to days per shard. Sizes keep a
+ * single request under the 10K-row API cap. Measured rows per trading day (2026-08-13
+ * and 08-14, both stable): A-share 5543, US 5919/5921, HK 2810/2808, sh/sz/bj indices
+ * 531 — so A and US take one day, HK two (~5.6K), indices fifteen (~8K over ~11 trading
+ * days). Indices are NOT "far fewer per window": 531 x ~22 trading days is ~11.7K, which
+ * is why the historical 30-day size silently truncated every shard.
+ *
+ * The unified `day-kline` dropped the old `all` keyword on 2026-08-14 in favour of the
+ * three market keywords, which must each be sent alone. The menu-retired per-market
+ * endpoints still take `all`. */
+type MarketShardDays = Record<string, number>
+const KLINE_MARKETS: MarketShardDays = { aShares: 1, hkStocks: 2, usStocks: 1 }
+const LEGACY_ALL_MARKET = (shardDays: number): MarketShardDays => ({ all: shardDays })
+/** Realtime takes the same keywords but returns one snapshot per security, so there is
+ * nothing to shard and it only needs the accepted-keyword list. */
+const REALTIME_MARKETS = ["aShares", "hkStocks", "usStocks"]
+/** fund-flow is A-share only, so `aShares` is its sole whole-market keyword. */
+const FUND_FLOW_MARKETS = ["aShares"]
+
+/** Every keyword the quote APIs have ever taken, including ones a given command no
+ * longer accepts. What an unrecognised keyword does depends on the endpoint, and BOTH
+ * outcomes are worth a local error: the unified `day-kline` / `realtime` / `fund-flow`
+ * answer `120001` "invalid security code" (which sends the user hunting for a typo in a
+ * code that is fine), while the menu-retired per-market endpoints answer `code=000000`
+ * with `total: 0` — a silent empty result indistinguishable from "no data".
+ *
+ * Compared lower-cased, and 🔴 **that folding is load-bearing, not tidiness** — the API's
+ * own case handling differs BY ENDPOINT (probed 2026-08-15, all six):
+ *
+ *   folds case:      day-kline (aShares/…), realtime, day-kline-hk/-us/index (all)
+ *   case-SENSITIVE:  fund-flow — only the literal `aShares` works; `ashares` / `ASHARES`
+ *                    come back as `120001 非有效A股`
+ *
+ * So on five endpoints canonicalising merely keeps our shard lookup in step with the
+ * server (drop it and a case variant degrades to an unsharded 6000-row request), but on
+ * `fund-flow` it is the ONLY reason `--security ashares` works at all. Removing
+ * `canonicalizeMarketKeywords` would turn that from a working query into a hard error —
+ * see the fund-flow case test, which exists to pin exactly that.
+ *
+ * ⚠️ `all` collides with a real ticker root (`ALL` is Allstate on the NYSE), so a bare
+ * `--security ALL` fetches the whole US market instead of that stock. That resolution
+ * happens on the SERVER (`ALL` / `All` / `all` are equivalent to it on all three retired
+ * endpoints), so matching case-sensitively here would not prevent it — it would only stop
+ * us from sharding a request the server treats as whole-market anyway, turning a complete
+ * result into a 6000-row truncation. The fix for that user is the suffixed `ALL.N`.
+ *
+ * Unknown keywords are deliberately NOT rejected — this is a known-keyword list, so a
+ * future server-side addition degrades to "unsharded" rather than being refused outright
+ * (fail-open, no enum drift). */
+const MARKET_KEYWORDS = new Set(["all", "ashares", "hkstocks", "usstocks"])
+const matchesMarketKeyword = (value: string, keyword: string): boolean =>
+  value.toLowerCase() === keyword.toLowerCase()
+const checkMarketKeywords = (securities: string[], accepted: readonly string[], command: string): void => {
+  const used = securities.filter((s) => MARKET_KEYWORDS.has(s.toLowerCase()))
+  if (used.length === 0) return
+  // Report an unsupported keyword before the alone-ness rule: when both are wrong, the
+  // keyword itself is the thing the user has to change.
+  const unsupported = used.filter((k) => !accepted.some((a) => matchesMarketKeyword(k, a)))
+  if (unsupported.length > 0) {
+    throw new ValidationError(accepted.length > 0
+      ? `${command}: '${unsupported[0]}' is not a whole-market keyword for this command — use ${accepted.join(" / ")}`
+      : `${command}: this command takes explicit security codes only — '${unsupported[0]}' and other whole-market keywords are not supported`)
+  }
+  // The API rejects a keyword sent alongside security codes or a second keyword, again
+  // as a bare 120001 that points at the codes rather than at the combination. On
+  // `fund-flow` it is worse than a rejection: the keyword is silently dropped and only
+  // the explicit codes come back, exit 0.
+  if (securities.length > 1) {
+    throw new ValidationError(`${command}: a market keyword must be passed alone, got '${securities.join(", ")}' — the API rejects it mixed with security codes or another keyword`)
+  }
+}
+
+/** Fold a user-typed keyword back to the spelling the sharding lookup expects, so a case
+ * variant reaches the same code path as the canonical form. Non-keywords pass through
+ * untouched. */
+const canonicalizeMarketKeywords = (securities: string[], accepted: readonly string[]): string[] =>
+  securities.map((s) => accepted.find((a) => matchesMarketKeyword(s, a)) ?? s)
+
+const addKlineCommand = (name: string, endpointKey: string, securityHelp: string, markets: MarketShardDays) =>
   quote.command(name)
     .option("--security <code>", securityHelp, collectList, [])
     .option("--start-date <date>", "Start date (default: 1 year before end-date)", dateArg("--start-date"))
@@ -508,37 +587,66 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
     .option("--field <field>", "Field", collectList, [])
     .option("--format <format>", "Output format", "table")
     .option("--output <path>")
-    .action((options) => withClient(async (client) => {
+    .action((options) => {
+      // Validate BEFORE withClient: createClient() logs in when no token is cached, so a
+      // check inside the callback would spend a request to then fail locally anyway.
+      checkMarketKeywords(options.security, Object.keys(markets), `quote ${name}`)
+      options.security = canonicalizeMarketKeywords(options.security, Object.keys(markets))
+      return withClient(async (client) => {
       const format = parseOutputFormat(options.format)
       const body = buildQuoteKlineBody(options)
-      if (isAllMarket(body)) {
-        // `--security all` is date-sharded: callKlineWithSharding lifts the limit to the
-        // API max and owns completeness (partial / failedShards), so leave `limit` unset
-        // and skip the single-request truncation guard.
-        const data = await callKlineWithSharding(client, endpointKey, body, { shardDays })
+      // Each market shards at its own granularity, so resolve which keyword was asked
+      // for before picking shardDays — a whole-market HK pull tolerates 2-day windows
+      // where A-share and US pulls need one day each.
+      const keyword = Object.keys(markets).find((k) => isFullMarket(body, k))
+      if (keyword) {
+        // A whole-market query is date-sharded: callKlineWithSharding lifts the limit to
+        // the API max and owns completeness (partial / failedShards), so leave `limit`
+        // unset and skip the single-request truncation guard.
+        const data = await callKlineWithSharding(client, endpointKey, body, { shardDays: markets[keyword], fullMarketValue: keyword })
         await printData(data, format, options.output)
         return
       }
       // Explicit securities go out as one request: pin the limit to the known default so
       // the sent limit and the truncation cap are the same number by construction.
       const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
-      const data = await callKlineWithSharding(client, endpointKey, { ...body, limit }, { shardDays })
+      // (Nothing to shard: sharding only ever applied to whole-market queries, so this
+      // is exactly the passthrough callKlineWithSharding would have done.)
+      const data = await client.call(endpointKey, { ...body, limit })
       flagIfLimitTruncated(data, limit, name)
       await printData(data, format, options.output)
-    }))
-addKlineCommand("day-kline", "quote.day-kline", "Security code (A-share: .SH/.SZ/.BJ, or 'all' for full market)", 1)
-addKlineCommand("day-kline-hk", "quote.day-kline-hk", "Security code (HK stock: .HK, or 'all' for full market)", 2)
-addKlineCommand("day-kline-us", "quote.day-kline-us", "Security code (US stock: e.g. AAPL.O, or 'all' for full market)", 1)
-addKlineCommand("index-day-kline", "quote.index-day-kline", "Index code (.SH/.SZ/.BJ, or 'all' for full market)", 30)
-quote.command("minute-kline").option("--security <code>", "Security code (A-share only: .SH/.SZ/.BJ)").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+      })
+    })
+addKlineCommand("day-kline", "quote.day-kline", "Security code — A-share .SH/.SZ/.BJ, HK .HK, US .O/.N/.A, exchange index .SH/.SZ/.BJ, concept index .GT, industry index .CI/.SWI; or one market keyword: aShares / hkStocks / usStocks (auto-sharded by date, must be passed alone)", KLINE_MARKETS)
+addKlineCommand("day-kline-hk", "quote.day-kline-hk", "[deprecated: use 'day-kline'] Security code (HK stock: .HK, or 'all' for full market)", LEGACY_ALL_MARKET(2))
+addKlineCommand("day-kline-us", "quote.day-kline-us", "[deprecated: use 'day-kline'] Security code (US stock: e.g. AAPL.O, or 'all' for full market)", LEGACY_ALL_MARKET(1))
+// 15 days, not the historical 30: ~531 index rows per trading day x ~11 trading days in a
+// 15-day window is ~5.8K, while a 30-day window is ~11.7K — every shard silently maxed out
+// at the 10K cap and lost ~11% of the range (it surfaced as exit 3 + truncatedShards, but
+// the split was never sized to avoid it in the first place).
+addKlineCommand("index-day-kline", "quote.index-day-kline", "[deprecated: use 'day-kline'] Index code (.SH/.SZ/.BJ, or 'all' for full market)", LEGACY_ALL_MARKET(15))
+quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI; no whole-market keyword").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }) ?? DEFAULT_QUOTE_LIMIT
   const data = await client.call("quote.minute-kline", { securityCode: options.security, startTime: options.startTime, endTime: options.endTime, limit, fieldList: maybeArray(options.field) })
   flagIfLimitTruncated(data, limit, "minute-kline")
   await printData(data, format, options.output)
 }))
-quote.command("realtime").description("Realtime quote snapshot (A-share / HK / US)").option("--security <code>", "Security code (e.g. 600519.SH / 00700.HK / AAPL.O), or market keyword: aShares / hkStocks / usStocks", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("quote.realtime", { securityList: maybeArray(options.security), fieldList: maybeArray(options.field) })))
-quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").option("--security <code>", "Security code (e.g. 600519.SH / 872931.BJ), or 'aShares' for full A-share market — auto-sharded by day (repeat)", collectList, []).option("--start-date <date>", "Start date yyyy-MM-dd (default: endDate minus 1 year)", dateArg("--start-date")).option("--end-date <date>", "End date yyyy-MM-dd (default: latest trading day)", dateArg("--end-date")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000; single-security cap — aShares auto-shards by day)").option("--field <field>", "Field, e.g. mainNetInflow/largeInflow/xlargeOutflow (repeat); omit for all", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+quote.command("realtime").description("Realtime quote snapshot (A-share / HK / US stocks and indices)").option("--security <code>", "Security code — stock .SH/.SZ/.BJ/.HK/.O/.N/.A, exchange index .SH/.SZ/.BJ, concept index .GT, industry index .CI/.SWI; or one market keyword: aShares / hkStocks / usStocks (must be passed alone; indices have no whole-market keyword)", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+  // Realtime takes the same market keywords as day-kline but never shards (one snapshot
+  // per security), so it only needs the "alone, and a keyword this API knows" check.
+  checkMarketKeywords(options.security, REALTIME_MARKETS, "quote realtime")
+  return emit(options, (client) => client.call("quote.realtime", { securityList: maybeArray(options.security), fieldList: maybeArray(options.field) }))
+})
+quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").option("--security <code>", "Security code (e.g. 600519.SH / 872931.BJ), or 'aShares' for full A-share market — auto-sharded by day (repeat)", collectList, []).option("--start-date <date>", "Start date yyyy-MM-dd (default: endDate minus 1 year)", dateArg("--start-date")).option("--end-date <date>", "End date yyyy-MM-dd (default: latest trading day)", dateArg("--end-date")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000; single-security cap — aShares auto-shards by day)").option("--field <field>", "Field, e.g. mainNetInflow/largeInflow/xlargeOutflow (repeat); omit for all", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+  // fund-flow needs this guard MORE than the kline commands, not less: mixing the keyword
+  // with codes doesn't even fail here. The server silently drops `aShares` and answers
+  // with just the explicit codes — one row, exit 0, no warning — so "whole market plus
+  // this one" quietly becomes "only this one". Validate before withClient so no login
+  // request is spent on a query that fails locally.
+  checkMarketKeywords(options.security, FUND_FLOW_MARKETS, "quote fund-flow")
+  options.security = canonicalizeMarketKeywords(options.security, FUND_FLOW_MARKETS)
+  return withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const body = {
     securityList: maybeArray<string>(options.security),
@@ -564,7 +672,8 @@ quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").opt
   const data = await client.call("quote.fund-flow", { ...body, limit })
   flagIfLimitTruncated(data, limit, "fund-flow")
   await printData(data, format, options.output)
-}))
+  })
+})
 program.addCommand(quote)
 
 const fundamental = new Command("fundamental").description("Fundamental APIs")
@@ -707,10 +816,13 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   }
 }))
 ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient((client) => checkAsyncContent(client, "ai.viewpoint-debate.get-content", options.dataId, parseOutputFormat(options.format), options.output)))
-ai.command("stock-summary").description("Stock highlights: refined research summary per security (A-share / HK)").option("--security <code>", "Security code (e.g. 600519.SH / 00700.HK), or market keyword: aShares / hkStocks; max 6000", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+ai.command("stock-summary").description("Stock highlights: refined research summary per security (A-share / HK)").option("--security <code>", "Security code (e.g. 600519.SH / 00700.HK), up to 6000 per call; market keywords are NOT supported by this endpoint", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
   // Guard against an empty --security: omitting it would send securityList:undefined,
   // which the backend may treat as all-market (3 credits/row × thousands of rows).
-  if (!options.security.length) throw new ValidationError("--security is required: pass security code(s) or a market keyword (aShares / hkStocks)")
+  if (!options.security.length) throw new ValidationError("--security is required: pass one or more security codes (A-share / HK), up to 6000 per call")
+  // The endpoint dropped whole-market batches on 2026-08-14 and now answers a market
+  // keyword with 120001 "invalid security code" — which reads as a typo in the code.
+  checkMarketKeywords(options.security, [], "ai stock-summary")
   return emit(options, (client) => client.call("ai.stock-summary.list", { securityList: maybeArray(options.security) }))
 })
 const reference = new Command("reference").description("Reference data APIs")
@@ -754,7 +866,7 @@ vault.command("record-list").option("--from <number>", "Starting offset", "0").o
 addDownloadCommand(vault, { endpointKey: "vault.record.download", name: "record-download", idOption: "--record-id", idField: "recordId", fallbackPrefix: "record", contentTypeDescription: "Content type: original/asr/summary", titleListEndpoint: "vault.record.list" })
 vault.command("my-conference-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>", "Start time", datetimeArg("--start-time")).option("--end-time <datetime>", "End time", datetimeArg("--end-time")).option("--keyword <text>").option("--research-area <id>", "Research area ID: citicIndustry code (1008001xx) or gangtiseIndustry direction code (122000xxx: macro/strategy/fixed-income/quant/overseas). swIndustry (104xx0000) returns 0 here", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", collectList, []).option("--source <number>", "Recording source: 1=企微会议助理 2=会议服务微信群 (repeat)", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.my-conference.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution), categoryList: maybeArray(options.category), sourceList: options.source.length ? options.source : undefined }), { endpointKey: "vault.my-conference.list", idField: "conferenceId" }))
 addDownloadCommand(vault, { endpointKey: "vault.my-conference.download", name: "my-conference-download", idOption: "--conference-id", idField: "conferenceId", fallbackPrefix: "conference", contentTypeDescription: "Content type: asr/summary", titleListEndpoint: "vault.my-conference.list" })
-vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>", "Start time", datetimeArg("--start-time")).option("--end-time <datetime>", "End time", datetimeArg("--end-time")).option("--keyword <text>").option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID -- NOT effective on this endpoint: both code sets, and even a garbage value, return the unfiltered total. Filter on industryList[] client-side", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-message.list", buildWechatMessageListBody(options))))
+vault.command("wechat-message-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>", "Start time", datetimeArg("--start-time")).option("--end-time <datetime>", "End time", datetimeArg("--end-time")).option("--keyword <text>").option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, []).option("--wechat-group-id <id>", "WeChat group ID", collectList, []).option("--industry <id>", "Industry ID -- citicIndustry codes (1008001xx) only; swIndustry codes and unknown values are ignored and silently return the unfiltered total", collectList, []).option("--category <name>", "Message type: text/image/documents/url", collectList, []).option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-message.list", buildWechatMessageListBody(options))))
 vault.command("wechat-chatroom-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--room-name <name>", "WeChat group name; repeat or comma-separate for multiple names", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-chatroom.list", buildWechatChatroomListBody(options))))
 vault.command("stock-pool-list").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.stock-pool.list", {})))
 vault.command("stock-pool-stocks").option("--pool-id <id>", "Pool ID; repeat for multiple; omit (or 'all') for all pools", collectList).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.stock-pool.stocks", buildStockPoolStocksBody(options))))
@@ -847,7 +959,7 @@ indicator.command("search").requiredOption("--keyword <text>", "Search keyword, 
   })
   await printData(unwrapIndicatorData(raw), format, options.output)
 }))
-indicator.command("cross-section").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as each indicator's tradeDate — the server resolves that to the enclosing report period for report-period indicators, or pass --indicator-param 'code:reportDate=...' to be explicit", dateArg("--date")).option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode, unique & order-stable for batch code→value mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("cross-section").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as each indicator's tradeDate. Report-period indicators (is_*, financial statements) REJECT tradeDate and require --indicator-param 'code:reportDate=yyyy-MM-dd' instead — check parameterList in 'indicator search'", dateArg("--date")).option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode, unique & order-stable for batch code→value mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   requireIndicatorScope(options.indicator, options.security)
   const raw = await client.call("indicator.cross-section", buildIndicatorCrossSectionBody(options))
@@ -872,7 +984,7 @@ indicator.command("time-series").option("--indicator <code>", "Indicator code, e
   flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
-indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — omitting it leaves date-bearing indicators unfiltered and silently yields an empty screen", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("screener").description("Screen securities by an expression over indicator values (条件选股)").option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators").requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — omitting it leaves date-bearing indicators unfiltered and silently yields an empty screen. Report-period indicators (is_*) reject tradeDate: give them --indicator-param 'F1:reportDate=yyyy-MM-dd'", dateArg("--date")).option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   requireIndicatorScope(options.indicator, options.security)
   // Binding one indicator code to several variables (the same price on two

@@ -12,3 +12,7 @@ CLAUDE.md
 .understand-anything/
 .mcp.json
 bug/
+
+# Superpowers 工作产物（计划稿 / 设计稿）——内部流程记录，不是产品文档。
+# 本仓是 PUBLIC，docs/ 面向使用者，这类「我们当时打算怎么改」对外无价值。
+docs/superpowers/

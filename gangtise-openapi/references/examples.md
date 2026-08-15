@@ -74,13 +74,13 @@
 **用户**："比亚迪 A 股和港股最近的日 K 线"
 
 ```
-1. 路由 → quote day-kline + quote day-kline-hk（跨市场需分别调用）
+1. 路由 → quote day-kline（2026-08-14 起一个命令覆盖 A/港/美股，跨市场可一次查完）
 2. 比亚迪 A 股 002594.SZ，港股 01211.HK
    "最近" → K 线默认今日往前 45 天（保证含最近 10 个交易日）
 3. Pre-flight：认证 OK
-4. gangtise quote day-kline --security 002594.SZ --start-date 2026-03-19 --end-date 2026-05-03 --format json
-   gangtise quote day-kline-hk --security 01211.HK --start-date 2026-03-19 --end-date 2026-05-03 --format json
-5. 合并两次结果，按 tradeDate 取尾部最近 10 个交易日
+4. gangtise quote day-kline --security 002594.SZ --security 01211.HK --start-date 2026-03-19 --end-date 2026-05-03 --format json
+5. 按 securityCode 分组，各自按 tradeDate 取尾部最近 10 个交易日
+   注意：两地交易日历不同（A 股与港股假期不重合），同一日期未必两边都有行——按 securityCode 分组后再取尾部，别按行下标对齐
 ```
 
 ## 例 6：指数最近值（务必拉范围）
@@ -88,10 +88,10 @@
 **用户**："查上证综指最近的指数"
 
 ```
-1. 路由 → quote index-day-kline
+1. 路由 → quote day-kline（指数已并入，index-day-kline 已下线）
 2. 上证综指 → 000001.SH；"最近" → 今日往前 45 天
 3. Pre-flight：认证 OK；今天若周末 end-date 仍填当天，API 返回最近交易日
-4. gangtise quote index-day-kline --security 000001.SH --start-date 2026-03-19 --end-date 2026-05-03 --format json
+4. gangtise quote day-kline --security 000001.SH --start-date 2026-03-19 --end-date 2026-05-03 --format json
 5. 按 tradeDate 取尾部最近 10 个交易日。**不要用 --limit 20**（截取的是窗口开头）
 ```
 
@@ -257,7 +257,7 @@
        --date 2026-07-31 --key-by code --format json
 4. 按 security 合并两张宽表（列头即 indicatorCode，各取所需日期的值）；不要把不同日期语义的指标塞进同一个 --date。
 5. 计费：search 免费；两次取数各按请求单元格数量计费，每次不足 100 单元格按 100 计。
-6. 无数据（无覆盖 / 非交易日 / 未来日期）一律保留行列并给占位单元格，退出码 0——但占位值多数是 null、个别指标（如 is_dnrpnp）是 0，0 会穿过比较与聚合，别当真值（见 commands/indicator.md）。整列/整行消失现在只意味着那个 code 服务端不认识——指标码拼错，或证券后缀错（美股用 .O/.N，不是 .US），CLI 会标 partial + 退出码 3 并在 stderr 列出。空表则是「一个 code 都没认出来」或参数名写错，先核对代码后缀与 parameterList。
+6. 无数据（无覆盖 / 非交易日 / 未来日期）一律保留行列并给占位单元格，退出码 0——但占位值多数是 null、个别指标（如 is_dnrpnp）是 0，0 会穿过比较与聚合，别当真值（见 commands/indicator.md）。代码写错或参数名写错则直接报 100003 并点名是哪个（指标码拼错、证券后缀错如美股写成 .US、参数名写错、同 code 重复配置），按报错改即可。
 ```
 
 ## 例 15b：帕米尔专家纪要（新库，筛选项与踩坑都和 summary 不同）

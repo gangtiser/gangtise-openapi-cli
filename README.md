@@ -6,8 +6,9 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.34.0 — 2026-08-15**：跟进 2026-08-14 服务端更新。🔴 **破坏性**：`quote day-kline --security all` 已失效（服务端停止支持），改用 `aShares` / `hkStocks` / `usStocks`，且市场关键字必须单独传（不能与证券代码或另一个关键字混填）——这两种写法 CLI 都会在发请求前报错并指出正确写法；`ai stock-summary` 同理不再接受市场关键字。`day-kline` 现覆盖 A股/港股/美股个股与交易所/概念/行业指数（可混查），三个旧命令 `day-kline-hk`/`day-kline-us`/`index-day-kline` 标记为已下线；`minute-kline` 支持指数。**另两处影响取数完整性的修复**：`quote fund-flow` 把市场关键字与证券代码混填时，此前会只返回那几个代码的数据且不报错（"全市场 + 这只"静默变成"只有这只"），现改为本地拦截；`quote index-day-kline --security all` 跨 30 天以上时分片过宽会撞行数上限被截断（标 `partial` + 退出 3），现已调细粒度，同区间可完整取回。另：三大报表新增 `earliestAnncDate`（做时点对齐用它，不要用 `announcementDate`），EDE 报告期类指标改为必须显式传 `reportDate`，错误码提示按新行为更新。
 - **v0.33.0 — 2026-08-09**：四处行为变更，都是把「静默给出看着正常的错结果」改成显式失败——分页端点返回异形首包（含 `data: null`）改退出码 3；`total` 被服务端封顶时探测并标 `totalCapped` + 退出 3（三个 opinion 端点的 `total` 恒为 10000 而实际远不止，全量导出此前会被静默截断）；空结果不再在 stdout 留空行、`null` 不再被渲染成一条记录。另补多处帮助文案与 EDE 占位值（个别指标填 `0` 而非 `null`）的说明。
-- **v0.32.0 — 2026-08-08**：新增帕米尔专家纪要列表与下载；跟进 2026-08-07 服务端修复——EDE 缺数据不再整列/整行消失（退出码 3 现在专指「代码没被识别」），条件选股重复指标的 `unreliable` 告警随之移除；`--search-type`/`--rank-type`/`--file-type` 等枚举改为本地拦截（此前传非法值不会报错，会拿到未过滤的全量）。
+- **v0.32.0 — 2026-08-08**：新增帕米尔专家纪要列表与下载；跟进 2026-08-07 服务端更新——EDE 缺数据不再整列/整行消失（退出码 3 现在专指「代码没被识别」），条件选股重复指标的 `unreliable` 告警随之移除；`--search-type`/`--rank-type`/`--file-type` 等枚举改为本地拦截（此前传非法值不会报错，会拿到未过滤的全量）。
 - **v0.31.0 — 2026-08-03**：修复 v0.30.1 的矩阵维度校验误杀「单指标 × 板块 ID」时序查询的回归；EDE 结果不完整或不可信时改以退出码 3 标记（`partial` / `unreliable`）。
 - **v0.30.1 — 2026-08-02**：修复 `sDate` 吞掉查询日期导致的区间指标静默错数，让条件选股的文本筛选真正可用，并在服务端整行/整列丢数据时给出警告。
 - **v0.30.0 — 2026-08-02**：适配 EDE 接口重构（`universe` 取代 `securityCodeList`、截面矩阵转置、指标元数据结构化），新增 `indicator screener` 条件选股，并修正复权参数名。
@@ -170,9 +171,10 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | | `concept-search` | 题材 ID 搜索（名称/拼音/分组名匹配） |
 | | `sector-search` | 板块 ID 搜索（返回层级路径） |
 | | `sector-constituents` | 板块成分股查询 |
-| **Quote** | `day-kline` / `day-kline-hk` / `day-kline-us` | A股/港股/美股历史日K线 |
-| | `index-day-kline` | 沪深京指数日K线 |
-| | `minute-kline` | A股分钟K线 |
+| **Quote** | `day-kline` | 历史日K线——A股/港股/美股个股 + 交易所/概念/行业指数，可混查 |
+| | `day-kline-hk` / `day-kline-us` | ⚠️ 已下线，能力并入 `day-kline`（接口仍可调，但不校验证券代码） |
+| | `index-day-kline` | ⚠️ 已下线，能力并入 `day-kline`；但仍是取「全部沪深京指数」（`--security all`）和拿指数名称（`securityName`）的唯一方式 |
+| | `minute-kline` | 分钟K线——沪深A股 + 各类指数（一次一只） |
 | | `realtime` | 个股实时行情快照（A股/港股/美股） |
 | | `fund-flow` | A股个股日资金流向（沪深京；小/中/大/特大单 + 主力净流入） |
 | **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | A股三大财务报表（累计） |
@@ -186,7 +188,7 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | **AI** | `knowledge-batch` | 知识库批量检索 |
 | | `knowledge-resource-download` | 知识资源下载 |
 | | `security-clue` | 个股线索 |
-| | `stock-summary` | 个股看点（精炼投研总结，按代码或全市场；仅 A 股/港股） |
+| | `stock-summary` | 个股看点（精炼投研总结，按代码批量、单次最多 6000 个；仅 A 股/港股，不支持全市场） |
 | | `one-pager` | 一页通 |
 | | `investment-logic` | 投资逻辑 |
 | | `peer-comparison` | 同业对比 |
@@ -261,7 +263,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
 - **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的占位单元格（多数指标 `null`、个别如 `is_dnrpnp` 是 `0`），空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
 - **Token 自愈**：调用返回 `0000001008` / `999002` 时自动强制刷新 Token 并重试一次。
-- **K线/资金流向自动分片**：`quote day-kline --security all`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、HK 2 天/片、指数 30 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
+- **K线/资金流向自动分片**：`quote day-kline --security aShares|hkStocks|usStocks`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、港股 2 天/片；已下线的 `day-kline-hk`/`day-kline-us`/`index-day-kline` 用 `all`，分别 2/1/15 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
 - **`--verbose`**：打印每个请求的方法、路径、状态码、耗时和响应大小到 stderr，方便定位慢查询。
 
@@ -300,7 +302,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
-- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**v0.32.0 起这个信号的含义变窄了**——2026-08-07 服务端改为给缺数据补占位单元格（行列都保留），所以整列/整行消失现在只发生在**服务端解析不了那个 code** 时（指标码拼错，或证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O`）。真实的无数据/无覆盖是占位单元格 + 退出码 0。🔴 **占位值不统一**：多数指标是 `null`，个别（如 `is_dnrpnp`）是 `0`，而 `0` 会穿过比较与聚合——别把它当真值，详见 skill 的 `references/commands/indicator.md`。⚠️ **这个检测需要同批里有一个能解析的对照物**：拼错的 code 与正确的 code 混在一批才会标 partial；**整个轴都写错时（如只查一个拼错的指标）响应是空表、退出码 0**，只有 stderr 提示——空表拿到手必须先核对代码拼写与后缀。同版本移除了条件选股重复指标的 `unreliable` / `duplicatedIndicators` 标记（服务端已修复，继续告警会是误报）。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集要先核对指标码拼写，不能直接当成「无标的符合条件」。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
+- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**2026-08-15 起这个分支基本收不到样本**——服务端现在对解析不了的代码直接报 `100003` 并点名是哪个（指标码拼错 →「指标 xxx 不存在」；证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O` →「xxx 不是有效证券或者板块ID」），**无论同批有没有正确的代码都会报**，CLI 相应退出 1。真实的无数据/无覆盖仍是占位单元格 + 退出码 0。🔴 **占位值不统一**：多数指标是 `null`，个别（如 `is_dnrpnp`）是 `0`，而 `0` 会穿过比较与聚合——别把它当真值，详见 skill 的 `references/commands/indicator.md`。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集不能直接当成「无标的符合条件」——头号嫌疑是某个变量拿到的是占位 `0`。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
 - **分页端点返回 `null` 也退出 3**：分页端点本该返回 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`（已知一例：`insight foreign-opinion` / `independent-opinion` 传 `--industry`），CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
 - 🔴 **`total` 被服务端封顶时会标 `totalCapped` 并退出 3**：`insight opinion` / `foreign-opinion` / `independent-opinion` 三个端点的 `total` 恒为 `10000`，而实际记录远不止（把 `from` 加到远超该值仍能取到真实记录）。省略 `--size` 的全量拉取本来会**正好取满 10000 条就停、且不报任何异常**——导出的文件是截断的却看不出来。现在全量拉取结束后会**多探一行**（`from = total`）：探到数据就标 `partial` + `totalCapped` 并退出 3。判据不写死 10000，服务端改配置仍然有效；`total` 诚实时探针返回空、不产生计费。传了 `--size` 的有界请求不做此探测。
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
@@ -436,16 +438,15 @@ gangtise reference sector-constituents --sector-id 1000001005 --format json
 gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
 # 查最近/最新 K 线建议显式传 --start-date/--end-date；只传 --limit 会截取查询窗口开头，不等于最近N条
 gangtise quote day-kline --format json
-# 全市场查询（--security all）
-gangtise quote day-kline --security all --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
-# 港股日K线
-gangtise quote day-kline-hk --security 00700.HK --start-date 2026-03-01 --end-date 2026-03-31
-# 港股全市场
-gangtise quote day-kline-hk --security all --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
-# 美股日K线（NASDAQ/NYSE/AMEX，历史）
-gangtise quote day-kline-us --security AAPL.O --security MSFT.O --start-date 2026-04-22 --end-date 2026-05-22 --field tradeDate --field open --field close --field volume
-# 美股全市场（自动分片）
-gangtise quote day-kline-us --security all --start-date 2026-04-01 --end-date 2026-04-02 --field securityCode --field close --format json
+# 全市场查询：关键字是 aShares / hkStocks / usStocks，必须单独传（旧的 --security all 已不再支持）
+gangtise quote day-kline --security aShares --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
+# 港股 / 美股 / 指数都走同一个 day-kline，可混着传
+gangtise quote day-kline --security 00700.HK --security AAPL.O --start-date 2026-03-01 --end-date 2026-03-31
+gangtise quote day-kline --security 000001.SH --security 880134.GT --security 821031.SWI --start-date 2026-03-01 --end-date 2026-03-31
+# 港股全市场（自动按 2 天/片分片）
+gangtise quote day-kline --security hkStocks --start-date 2026-04-01 --end-date 2026-04-10 --format json
+# 美股全市场（自动按 1 天/片分片）
+gangtise quote day-kline --security usStocks --start-date 2026-04-01 --end-date 2026-04-02 --field securityCode --field close --format json
 # 沪深京指数日K线
 gangtise quote index-day-kline --security 000001.SH --security 399001.SZ --start-date 2024-05-01 --end-date 2024-05-20 --field securityCode --field tradeDate --field close --field volume
 # A股分钟K线
@@ -607,7 +608,7 @@ gangtise indicator screener --indicator F1:pty_op_scope \
   --date 2026-07-31 --format table
 
 # 复权 / 指标专属参数用 --indicator-param "code:key=value"
-# ⚠️ 参数名必须以 search 的 parameterList 为准：写错名不会报错，会按默认值取数，结果看着正常但口径不对
+# ⚠️ 参数名必须以 search 的 parameterList 为准；写错名会报 100003 并指出是哪个指标的哪个参数
 gangtise indicator cross-section --indicator qte_close --security 600519.SH \
   --date 2024-01-02 --indicator-param "qte_close:adjustType=3"   # 1不复权/2前复权/3后复权/4定点
 # 不复权 1685.01 → 前复权 1531.225 → 后复权 13609.6168（前复权在最新交易日等于不复权，验证要用历史日）
@@ -725,14 +726,14 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 | `120001` | 证券代码无效（用 `reference securities-search` 确认代码与后缀） |
 | `130001` | 数据未找到或无指标权限——**取代旧 `410004`** |
 | `130002` | 资源不存在——**下载类的兜底码**，`--report-id` 不存在 / 非数字 / `--file-type` 非法都归这里（取代旧 `430004`） |
-| `410110` / `410111` | 异步任务生成中（继续轮询）/ 生成失败（终态）——**实测服务端仍发这两个旧码**；新码 `140001`/`140002`，CLI 两代都认 |
+| `410110` / `410111` | 异步任务生成中（继续轮询）/ 生成失败（终态）——异步端点当前返回的是这两个码；新码为 `140001`/`140002`，CLI 两代都认 |
 | `240001` | 财报期未披露或超出查询期（`earnings-review` 提交阶段即报，不扣积分） |
 | `250001` | 不支持该数据源（`knowledge-resource-download` 需正确的 `resourceType + sourceId` 组合）——**取代旧 `433007`** |
 | `900002` | 请求方法不正确（服务端 msg 为「请求类型有误」，HTTP 405） |
 
 > **关于这次错误码重排**：服务端 2026-07-17 重排了 41 个公开码（三层：`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层），信封新增 `errorType` 和 `traceId`。2026-07-20 逐码实测发现**迁移是按「错误处理层」而非按业务模块进行的**：同一个接口内，参数校验层与路由层已发新码，方法路由层、token 过滤器、以及异步生成状态仍发旧码。新码信封 `code` 是 JSON 数字且带 `errorType`，旧码是字符串且没有——但这判断的是单条错误路径，不是整个接口；CLI 对两代都能识别。报错行会带 `[trace <id>]`，**报障时请带上它**。
 >
-> 其余码（`999003`–`999006`、`999012`–`999016`、`100002`、`100004`、`100005`、`130003`–`130005`、`210001`、`220001`、`230001`、`240002`、`240003`）在实测中未触发到，多被上面的兜底码接管，CLI 仍内置了对应提示。⚠️ `110003`（超出时间范围限制）此前也列在这里，**2026-08-08 实测已确认可触发**——凡超出账号数据权限范围的查询都返回它（如 `fundamental income-statement --fiscal-year 2015`）。两个实测坑：**枚举值拼错和分页越界服务端不报错**（静默忽略该筛选条件，v0.32.0 起 CLI 对 `--search-type`/`--rank-type`/`--file-type` 等已知枚举本地拦截）；**`viewpoint-debate` 的敏感内容不会被提前拦截**，会扣满 50 积分再以 `410111` 失败。
+> 其余码（`999003`–`999006`、`999012`–`999016`、`100002`、`210001`、`220001`、`230001`、`240002`、`240003`）在实测中未触发到，多被上面的兜底码接管，CLI 仍内置了对应提示。⚠️ 两个需要留意的行为：**枚举值拼错和分页越界在部分端点上会报 `100005`/`100006`、在另一些端点上被静默忽略**（后者按未传该筛选条件处理，结果看着正常但范围不对——v0.32.0 起 CLI 对 `--search-type`/`--rank-type`/`--file-type` 等已知枚举本地拦截，未覆盖的自由字符串参数要自己核对）；**`viewpoint-debate` 的敏感内容不会被提前拦截**，会扣满 50 积分再以 `410111` 失败。
 
 ---
 

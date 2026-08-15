@@ -68,7 +68,8 @@ const ERROR_HINTS: Record<string, string> = {
   "100003": "msg 已指明字段名或取值范围时直接按 msg 改；msg 只说「参数值非法」时多为枚举参数拼写错误（如 --source / --question-category / --answer-important），对照命令 --help 列出的合法值检查。",
   "100004": "检查 --size / --from 是否为非负数且未超单页上限。",
   "100005": "对照命令 --help 列出的合法取值检查。",
-  "100006": "缩短日期范围或调小 --size / --limit。",
+  // 2026-08-14 起 list 类端点把单页上限（50）也归到此码，不再只是「一次要太多行」。
+  "100006": "缩短日期范围或调小 --size / --limit（list 类端点单页上限为 50，CLI 自动翻页，直发接口时要自己遵守）。",
   // 按参数名判断，不要按命令组：AI 下 management-discuss 的 --report-date 是 date，
   // 而同属 AI 的 knowledge-batch 收时间戳或 datetime——旧文案笼统写"AI 用 datetime"会把
   // --report-date 的用户越导越错。
@@ -79,8 +80,10 @@ const ERROR_HINTS: Record<string, string> = {
   "110003": "查询时间超出本账号的数据权限范围——把日期移进范围内（整个区间都早于下界时缩短窗口无用），或联系客户经理开通更长历史。",
   "120001": "用 `gangtise reference securities-search` 确认代码与后缀（如 600519.SH / 00700.HK）。",
   "130001": "未找到数据——先核对查询条件；EDE 指标端点此码也可能是未开通该指标权限，仍失败联系客户经理。",
-  "130002": "确认下载 ID 有效且本账号可见；下载类还需检查 --file-type 取值是否合法（非法 file-type 也归此码）。",
-  "130003": "该条记录可能未附带文件。",
+  // 2026-08-14 起下载类把「file-type 非法」拆到 130005、「资源未生成」拆到 130003，
+  // 但历史上两者都归过此码，所以提示保留对 --file-type 的指引。
+  "130002": "确认下载 ID 有效且本账号可见；下载类还需检查 --file-type 取值是否合法。",
+  "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment/hasFile 为 true 的），或稍后再试。",
   // 下载类命令各有各的 ID 参数（--report-id / --announcement-id / --chunk-id /
   // --summary-id / --conference-id / --record-id / --file-id / --article-id /
   // --independent-opinion-id）；--data-id 是异步 *-check 用的，不产生此码。

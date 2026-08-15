@@ -489,9 +489,13 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
   }, 30_000)
 
   it("quote fund-flow maps securities, date range, limit and fields to the request body", async () => {
+    // Two plain codes. This used to pass `600519.SH` + `aShares`, which asserted that a
+    // keyword mixed with a code goes out verbatim — a request the server answers by
+    // silently dropping the keyword and returning only the code (exit 0, no warning).
+    // That combination is now rejected locally; see the dedicated guard test below.
     const { code } = await cli([
       "quote", "fund-flow",
-      "--security", "600519.SH", "--security", "aShares",
+      "--security", "600519.SH", "--security", "000858.SZ",
       "--start-date", "2026-06-01", "--end-date", "2026-06-05",
       "--limit", "5000", "--field", "mainNetInflow", "--field", "largeInflow",
       "--format", "json",
@@ -499,7 +503,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(code).toBe(0)
     expect(captured[0].path).toBe("/application/open-quote/fund-flow/daily")
     expect(captured[0].body).toEqual({
-      securityList: ["600519.SH", "aShares"],
+      securityList: ["600519.SH", "000858.SZ"],
       startDate: "2026-06-01",
       endDate: "2026-06-05",
       limit: 5000,
@@ -559,6 +563,164 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     ])
     expect(code).toBe(1)
     expect(out).toContain("requires both --start-date and --end-date")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("quote day-kline shards each market keyword at its own granularity", async () => {
+    // The unified day-kline covers three markets whose whole-market row counts differ
+    // (measured 2026-08-13: A 5543 rows/trading day, US 5919, HK 2810), so one shard size
+    // can't serve all three without either wasting requests or blowing the 10K-row cap.
+    // 2026-08-10..14 is Mon–Fri, so no weekend shard is dropped and the counts are exact.
+    const range = ["--start-date", "2026-08-10", "--end-date", "2026-08-14", "--format", "json"]
+
+    for (const [keyword, expectedShards] of [["aShares", 5], ["usStocks", 5], ["hkStocks", 3]] as const) {
+      captured.length = 0
+      const { code } = await cli(["quote", "day-kline", "--security", keyword, ...range])
+      expect(code, `${keyword} should succeed`).toBe(0)
+      expect(captured, `${keyword} shard count`).toHaveLength(expectedShards)
+      expect(captured.every((c) => c.path === "/application/open-quote/kline/daily")).toBe(true)
+      // Whole-market requests must also carry the lifted row cap, not the 6000 default.
+      expect((captured[0].body as { limit?: number }).limit).toBe(10000)
+    }
+  }, 60_000)
+
+  it("pins the shard granularity of the retired per-market endpoints, including index=15", async () => {
+    // The index endpoint used to split `all` into 30-day windows, which ALWAYS maxed out:
+    // ~531 index rows per trading day x ~22 trading days in 30 days is ~11.7K against a
+    // 10K cap, so every shard silently lost rows (surfaced as exit 3 + truncatedShards).
+    // 15 days caps a window at 11 trading days (~5.8K). Nothing else guards that number —
+    // without this test, changing it back to 30 keeps the whole suite green.
+    // 2026-08-03..09-16 is 45 days: 15->3 shards, 2->23, 1->45.
+    const range = ["--start-date", "2026-08-03", "--end-date", "2026-09-16", "--format", "json"]
+
+    for (const [command, expectedShards] of [
+      ["index-day-kline", 3],
+      ["day-kline-hk", 23],
+      ["day-kline-us", 33], // 1 day/shard, weekends skipped: 45 days -> 33 weekdays
+    ] as const) {
+      captured.length = 0
+      const { code } = await cli(["quote", command, "--security", "all", ...range])
+      expect(code, `${command} should succeed`).toBe(0)
+      expect(captured, `${command} shard count`).toHaveLength(expectedShards)
+    }
+  }, 60_000)
+
+  it("canonicalises fund-flow's keyword, the one endpoint where the server is case-sensitive", async () => {
+    // Probed 2026-08-15: five of the six quote endpoints fold keyword case server-side,
+    // but fund-flow accepts ONLY the literal `aShares` — `ashares` comes back as
+    // `120001 非有效A股`. So here canonicalisation is not tidiness: drop it and this query
+    // stops working entirely.
+    //
+    // Why this is a separate test from the day-kline case above: NOT because that one
+    // would stay green (mutation-tested — stubbing canonicalizeMarketKeywords to identity
+    // reddens both), but because the two failures differ in kind. On day-kline the server
+    // still folds, so the user gets a DEGRADED result — unsharded, capped at 6000 rows or
+    // rejected as "query too large". On fund-flow the server is literal, so `ashares`
+    // becomes a hard `120001`. This test pins the only endpoint where dropping
+    // canonicalisation turns a working query into a broken one.
+    const { code } = await cli([
+      "quote", "fund-flow", "--security", "ASHARES",
+      "--start-date", "2026-06-29", "--end-date", "2026-07-01", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(3) // still recognised as whole-market → per-day shards
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["aShares"])
+  }, 30_000)
+
+  it("folds a cased 'ALL' to the whole-market keyword, matching how the server resolves it", async () => {
+    // `ALL` also happens to be Allstate's NYSE ticker root, but the SERVER resolves a bare
+    // `ALL` to the whole US market (probed: ALL / all / All each return the full market;
+    // ALLSTATE returns 0; ALL.N returns the one stock). Matching case-sensitively here
+    // would not protect that user — it would only stop us from sharding a request the
+    // server already treats as whole-market. So fold, and shard it correctly.
+    const { code } = await cli([
+      "quote", "day-kline-us", "--security", "ALL",
+      "--start-date", "2026-08-13", "--end-date", "2026-08-13", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["all"])
+    expect((captured[0].body as { limit?: number }).limit).toBe(10000) // whole-market lift
+  }, 30_000)
+
+  it("quote day-kline rejects the retired 'all' keyword locally, naming the replacements", async () => {
+    // The server dropped ["all"] on 2026-08-14 and answers it with 120001 "invalid
+    // security code" — which reads as a typo and sends the user looking for a bad code.
+    // Fail before the request with the three keywords that actually work.
+    const { code, out } = await cli([
+      "quote", "day-kline", "--security", "all",
+      "--start-date", "2026-08-13", "--end-date", "2026-08-13", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(out).toContain("aShares / hkStocks / usStocks")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("quote day-kline-hk still accepts 'all' — the retired per-market endpoints kept it", async () => {
+    // Only the unified endpoint changed. Rejecting `all` everywhere would break scripts
+    // against endpoints that still answer it.
+    const { code } = await cli([
+      "quote", "day-kline-hk", "--security", "all",
+      "--start-date", "2026-08-13", "--end-date", "2026-08-13", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["all"])
+  }, 30_000)
+
+  it("rejects a market keyword mixed with security codes before any request", async () => {
+    // The API rejects the combination as a bare 120001 that points at the codes rather
+    // than at the mixing, so say which rule was broken.
+    const { code, out } = await cli([
+      "quote", "day-kline", "--security", "aShares", "--security", "600519.SH",
+      "--start-date", "2026-08-13", "--end-date", "2026-08-13", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(out).toContain("must be passed alone")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("rejects a market keyword mixed with codes on fund-flow, which otherwise silently drops it", async () => {
+    // Worse than the kline case: the server does NOT reject this combination on fund-flow.
+    // It drops `aShares` and answers with only the explicit codes — one row, exit 0, no
+    // warning — so "whole market plus this one" silently becomes "only this one".
+    const { code, out } = await cli([
+      "quote", "fund-flow", "--security", "aShares", "--security", "600519.SH",
+      "--start-date", "2026-08-13", "--end-date", "2026-08-13", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(out).toContain("must be passed alone")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("matches market keywords case-insensitively so a case variant still shards", async () => {
+    // The API itself is case-insensitive (`ashares` returns the full A-share market), so an
+    // exact-match-only CLI would drop `ashares` onto the single-request path with the
+    // 6000-row default — silently truncated, or rejected as "query too large".
+    const { code } = await cli([
+      "quote", "day-kline", "--security", "ashares",
+      "--start-date", "2026-08-10", "--end-date", "2026-08-14", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(5) // sharded per trading day, not one big request
+    // Canonicalised before dispatch so the body carries the documented spelling.
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["aShares"])
+  }, 60_000)
+
+  it("rejects two market keywords on quote realtime before any request", async () => {
+    const { code, out } = await cli([
+      "quote", "realtime", "--security", "aShares", "--security", "hkStocks", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(out).toContain("must be passed alone")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("rejects a market keyword on ai stock-summary, which is now codes-only", async () => {
+    // The endpoint dropped whole-market batches on 2026-08-14. It bills 3 credits/row, so
+    // the failure must land before the request, not after a partial charge.
+    const { code, out } = await cli(["ai", "stock-summary", "--security", "aShares", "--format", "json"])
+    expect(code).toBe(1)
+    expect(out).toContain("explicit security codes only")
     expect(captured).toHaveLength(0)
   }, 30_000)
 

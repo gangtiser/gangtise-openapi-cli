@@ -323,7 +323,7 @@ describe("callKlineWithSharding", () => {
     expect(seen.sort()).toEqual(["2026-07-03", "2026-07-06"])
   })
 
-  it("does not skip weekends for multi-day shards (e.g. day-kline-hk, shardDays 2), which straddle weekdays", async () => {
+  it("does not skip weekends for multi-day shards (e.g. day-kline-hk, shardDays 2)", async () => {
     const seen: string[] = []
     const call = vi.fn().mockImplementation(async (_k: string, body: { startDate: string }) => {
       seen.push(body.startDate)

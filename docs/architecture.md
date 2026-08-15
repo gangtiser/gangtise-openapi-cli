@@ -54,7 +54,7 @@
 |:--|:--|
 | `transport.ts` | Shared `undici.Agent` (keep-alive pool) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for per-call billed endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control |
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
-| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`--security all`) & fund-flow (`--security aShares`) · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
+| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`aShares` / `hkStocks` / `usStocks`; retired per-market endpoints still take `all`) & fund-flow (`aShares`), each market at its own shard size · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
 | `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / screener / time-series `values` matrix flattened into a wide table |
 | `printer.ts` | `printData`: normalize + render + title-cache writeback |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |

@@ -104,13 +104,15 @@ export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
  * indicator's `tradeDate`. A caller-supplied `reportDate` suppresses that
  * injection for its indicator, so the two date fields are never sent together.
  *
- * This used to be load-bearing in a stronger sense: a report-period indicator
- * answered a `tradeDate` with an EMPTY result rather than an error (probed
- * 2026-08-01 on `is_op_rev_mom`). Re-probed 2026-08-08 — the server now resolves
- * a `tradeDate` to the enclosing report period, and `is_op_rev_mom` returns the
- * same 33.4903 either way. Kept regardless: sending the caller's own date field
- * rather than a second one alongside it is the honest request, and it survives a
- * rollback. Injecting into an indicator that takes no date at all is harmless —
+ * This is load-bearing, and the server has moved twice on it. A report-period
+ * indicator answered a `tradeDate` with an EMPTY result (probed 2026-08-01 on
+ * `is_op_rev_mom`), then resolved it to the enclosing report period (2026-08-08,
+ * same 33.4903 either way), and since 2026-08-14 REJECTS it outright:
+ * `100003 指标 is_op_rev_mom 不支持参数 tradeDate; 缺少必填参数 reportDate`
+ * (re-probed 2026-08-15; `reportDate` still returns 33.4903). So a caller-supplied
+ * `reportDate` is now the only way to reach those indicators, and suppressing the
+ * `tradeDate` injection is what makes it work rather than merely being tidier.
+ * Injecting into an indicator that takes no date at all is harmless —
  * `pty_op_scope` still answers normally with a stray `tradeDate` attached.
  *
  * `sDate` is deliberately NOT here. It is an interval START, not a substitute:

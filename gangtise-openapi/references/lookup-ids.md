@@ -6,7 +6,7 @@
 
 ## 中信行业分类（--industry 参数）
 
-完整列表用 `reference constant-list --category citicIndustry`（30 条）。**`--industry` 全命令通用首选用这套（`1008001xx`）**——opinion / research / foreign-report / official-account 都正确过滤（⚠️ 三个例外：`insight foreign-opinion` / `independent-opinion` 传了 `--industry` 拿不到数据、且 **payload 是字面 `null` 不是空 list**；`vault wechat-message-list` 的 `--industry` 两套码都不生效、连乱码也返全量）；这套 ID 同时也是 `--research-area` **行业维度唯一全端点通吃的一套**（见下方研究方向）。
+完整列表用 `reference constant-list --category citicIndustry`（30 条）。**`--industry` 全命令通用首选用这套（`1008001xx`）**——opinion / research / foreign-report / official-account 都正确过滤，`vault wechat-message-list` 也认这一套（⚠️ 两个例外：`insight foreign-opinion` / `independent-opinion` 传了 `--industry` 拿不到数据、且 **payload 是字面 `null` 不是空 list**）；这套 ID 同时也是 `--research-area` **行业维度唯一全端点通吃的一套**（见下方研究方向）。
 
 | ID | 行业 | ID | 行业 |
 |----|------|----|------|
@@ -30,7 +30,7 @@
 
 ## 申万行业（--industry 参数）
 
-完整列表用 `reference constant-list --category swIndustry`（31 条）。⚠️ 申万码（`104xx0000`）只在**部分** insight list 上可作 `--industry` 使用，且**与中信码不等效**——两套码行业成分不同，实测 opinion 与 official-account 上取回的结果集就对不上（同一行业相差约 2%–5%），别混用；用于 `--research-area` 时**只有 `summary` / `pamirs-summary` 认，其余端点返 0**（不报错，与传乱码表现一致）。`vault wechat-message-list` 的 `--industry` **两套码都不生效**（连不存在的码也返全量，该过滤整个被忽略）——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**（含逐端点实测矩阵），勿在此重复枚举。拿不准就统一用上方中信码。
+完整列表用 `reference constant-list --category swIndustry`（31 条）。⚠️ 申万码（`104xx0000`）只在**部分** insight list 上可作 `--industry` 使用，且**与中信码不等效**——两套码行业成分不同，实测 opinion 与 official-account 上取回的结果集就对不上（同一行业相差约 2%–5%），别混用；用于 `--research-area` 时**只有 `summary` / `pamirs-summary` 认，其余端点返 0**（不报错，与传乱码表现一致）。`vault wechat-message-list` 的 `--industry` **只认中信码**，传申万码会被静默忽略并返回全量——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**（含逐端点实测矩阵），勿在此重复枚举。拿不准就统一用上方中信码。
 
 | ID | 行业 | ID | 行业 | ID | 行业 |
 |----|------|----|------|----|------|

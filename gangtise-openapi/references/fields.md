@@ -6,9 +6,9 @@
 
 ## Quote 行情
 
-### 日K线（A股 `quote day-kline` / 港股 `quote day-kline-hk` / 美股 `quote day-kline-us`）
+### 日K线 `quote day-kline`（A股 / 港股 / 美股 / 各类指数；旧的 `day-kline-hk` / `day-kline-us` 已下线，字段相同）
 
-三者字段相同（货币单位随市场：A股=元、港股=港元、美股=美元）：
+各市场字段相同（货币单位随市场：A股=元、港股=港元、美股=美元；**指数为点位、无货币单位，且 `adjustFactor` 恒为 `null`**）：
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|
