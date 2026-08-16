@@ -271,7 +271,8 @@
      gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 1 \
        --size 20 --format json
    - --search-type 2 = 全文（标题搜索是 1，命中少很多：PCB 标题 36 / 全文 113）
-   - --rank-type 1 只在「有 keyword + 全文」时才是真正的相关度排序；要最新就用 2
+   - --rank-type 1 在有 keyword 时按相关度挑条目；要最新就用 2。差别多大取决于关键词本身，
+     --search-type 不影响 rank-type 1 挑哪些条目（这里加 2 是为了扩大命中面，不是为了排序）
    - 筛选项比 summary 少：没有 --source / --institution / --participant-role
 3. 🔴 别拉全量再本地按类别/市场分组——服务端只在你用该字段过滤时才回填标签：
    不带 --category 查，categoryList 100% 是空数组；conceptList 任何查法都是空。

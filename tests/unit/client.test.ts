@@ -221,6 +221,20 @@ describe("GangtiseClient pagination", () => {
     }
   })
 
+  it("skips the total-cap probe on a per-call billed endpoint", async () => {
+    // The probe is free only where billing is per ROW — an empty answer costs nothing.
+    // `retry: "no-replay"` marks the per-CALL endpoints (endpoints.ts), and exactly one
+    // is also paginated: ai.hot-topic (24 paginated ∩ 18 no-replay = 1). There the probe
+    // buys a maybe against a certain charge. Reported by the gangtise-python port (U3).
+    paginatedMock({ total: 40, itemFor: (id) => ({ id }) })
+    const client = createClient()
+    const result = await client.call("ai.hot-topic", { from: 0 }) as { list: unknown[]; totalCapped?: boolean }
+    expect(result.list).toHaveLength(40)
+    expect(result.totalCapped).toBeUndefined()
+    // 40 rows / 20 per page = 2 requests. A third would be the probe.
+    expect(requestMock.mock.calls).toHaveLength(2)
+  })
+
   it("does not flag a fetch-all when the reported total is honest", async () => {
     // The probe past the end comes back empty — no false positive, and on the
     // per-row-billed endpoints it costs nothing because it returns no rows.

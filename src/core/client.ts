@@ -377,9 +377,18 @@ export class GangtiseClient {
     // Probe one row past the claimed end rather than hardcoding any number: the server
     // can change the cap, and evidence survives that where a constant would not. Only on
     // a genuine fetch-all that otherwise looked complete — when `total` is honest the
-    // probe comes back empty (and bills nothing, since these endpoints charge per row).
+    // probe comes back empty and bills nothing, BECAUSE these endpoints charge per row.
+    //
+    // `retry: "no-replay"` marks the endpoints that charge per CALL instead (see
+    // endpoints.ts), where an empty probe is not free. Exactly one endpoint is both
+    // paginated and per-call billed — `ai.hot-topic` (24 paginated ∩ 18 no-replay = 1) —
+    // and there the probe buys a maybe against a certain charge. No capped `total` has
+    // ever been observed outside the three `insight.opinion*` endpoints, all per-row —
+    // so on today's evidence skipping loses nothing, but it does mean a capped `total`
+    // HERE would go undetected. The verbose line below says so rather than leaving that
+    // silent. (Reported by the gangtise-python port, U3.)
     let totalCapped = false
-    if (requestedSize === undefined && total > 0 && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
+    if (endpoint.retry !== "no-replay" && requestedSize === undefined && total > 0 && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
       try {
         const probe = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
         if (this.isPaginatedListResponse(probe) && probe.list.length > 0) totalCapped = true
@@ -390,6 +399,17 @@ export class GangtiseClient {
     }
     if (totalCapped) {
       process.stderr.write(`[gangtise] warning: ${endpoint.key} reported total=${total} but rows exist past that offset — 'total' is a server-side cap, not the real count. This export is TRUNCATED at ${collected.length} rows. Narrow the query (date range / filters) and fetch in slices.\n`)
+    }
+    // Skipping the probe means we cannot detect a capped total here — say so under
+    // verbose rather than leaving a silent hole. Not unconditional: on a per-call
+    // billed endpoint this fires on every successful fetch-all, and no capped total
+    // has ever been observed outside the three per-row `insight.opinion*` endpoints.
+    // Same guards as the probe itself: on a short / drifting / page-capped / partially
+    // failed fetch the probe would not have run anyway, and each of those paths already
+    // prints its own warning — repeating it there is noise, not coverage.
+    if (endpoint.retry === "no-replay" && requestedSize === undefined && total > 0
+      && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0 && isVerbose()) {
+      process.stderr.write(`[gangtise] total-cap probe skipped on ${endpoint.key} (per-call billing) — a capped 'total' would go undetected here\n`)
     }
 
     const out: Record<string, unknown> = {

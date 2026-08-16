@@ -9,6 +9,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "removeComments": true,
     "declaration": false,
     "sourceMap": false,
     "types": ["node"]

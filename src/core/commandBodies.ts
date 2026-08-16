@@ -112,8 +112,46 @@ export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
  * (re-probed 2026-08-15; `reportDate` still returns 33.4903). So a caller-supplied
  * `reportDate` is now the only way to reach those indicators, and suppressing the
  * `tradeDate` injection is what makes it work rather than merely being tidier.
- * Injecting into an indicator that takes no date at all is harmless —
- * `pty_op_scope` still answers normally with a stray `tradeDate` attached.
+ * ⚠️ Injecting into an indicator that takes no date at all used to be harmless
+ * (`pty_op_scope` answered normally with a stray `tradeDate` through 2026-08-03).
+ * The 2026-08-14 tightening ended that.
+ *
+ * 🔴 THE RULE (one-way, NOT iff): `parameterList` contains `tradeDate` → injecting
+ * is safe. It does not → the request is very likely refused. Known exception:
+ * `cdr_conv_ratio` declares `[]` yet ACCEPTS the injected `tradeDate` (200, null
+ * value) — so an empty parameterList does not guarantee refusal. `reportDate` does
+ * not enter into it either way; do NOT write the rule as "has no
+ * tradeDate/reportDate", because the ~117 `is_*` report-period indicators declare
+ * `[reportDate]` and DO refuse an injected `tradeDate`. (Both corrections came from
+ * cross-session review, 2026-08-15.) Four exits:
+ *
+ *   has tradeDate                       → inject, nothing to do
+ *   no tradeDate, has reportDate        → caller passes reportDate; DATE_PARAM_KEYS
+ *                                         suppresses the injection automatically
+ *   no tradeDate, has other params      → pass those AND `"<code>:"` to suppress
+ *   no tradeDate, parameterList empty   → `"<code>:"` alone
+ *
+ * The last two need the opt-out (`noQueryDate`, see args.ts); on the SCREENER they
+ * are unreachable at all (`bug/server-open.md` P1-7).
+ *
+ * 🔴 The RULE is the only stable thing — any list is a snapshot, structurally.
+ * `indicator search` REQUIRES a keyword (server answers `100001 缺少必填参数` to an
+ * empty one), caps `--limit` at 100 and has no `--from`, and the catch-all keyword
+ * `_` returns exactly 100 (truncated). There is no list endpoint, so "scan every
+ * prefix" has no terminus — you cannot know the prefixes up front. Regenerate per
+ * family instead: `indicator search --keyword <prefix>_ --limit 100`, exhausted when
+ * the count is under the limit.
+ *
+ * Snapshot 2026-08-15 (four families exhausted that way — `pty_` 19 / `scr_` 20 /
+ * `div_` 18 / `frcst_` 8): the `pty_*` and `scr_*` static-attribute families, plus
+ * `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`. Other prefixes unscanned.
+ *
+ * `fiscalYear` is deliberately NOT in this set either. It looks like a date axis,
+ * but five indicators require it TOGETHER with `tradeDate` — `frcst_op_rev` /
+ * `frcst_op_rev_yoy` / `frcst_pe` / `frcst_shnp` / `frcst_shnp_yoy` (parameterList,
+ * probed 2026-08-15; all five return values today). Adding it here to reach the
+ * two `div_*` indicators would break those five, which is why the fix is the
+ * per-indicator opt-out and not a wider key set.
  *
  * `sDate` is deliberately NOT here. It is an interval START, not a substitute:
  * `qte_vol_intvl` declares `tradeDate` required (the interval END) and `sDate`
@@ -129,11 +167,19 @@ function withQueryDate(groups: IndicatorParamGroup[] | undefined, codes: string[
     const group = merged.get(code)
     if (!group) {
       merged.set(code, { indicatorCode: code, parameters: [{ paramKey: "tradeDate", paramValue: date }] })
-    } else if (!group.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))) {
+    } else if (!group.noQueryDate && !group.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))) {
       group.parameters.push({ paramKey: "tradeDate", paramValue: date })
     }
   }
-  return [...merged.values()]
+  return [...merged.values()].map(stripMarker)
+}
+
+/** `noQueryDate` is a parse-time marker, not a server field. Sending it would land
+ * in `server-open.md` P1-2's grey zone, where one of the three behaviours for an
+ * unsupported body field is to silently filter the result to nothing. */
+function stripMarker<T extends { noQueryDate?: true }>(item: T): Omit<T, "noQueryDate"> {
+  const { noQueryDate, ...rest } = item
+  return rest
 }
 
 export function buildIndicatorCrossSectionBody(options: IndicatorCrossSectionOptions) {
@@ -155,8 +201,9 @@ export function buildIndicatorTimeSeriesBody(options: IndicatorTimeSeriesOptions
     calendarType: options.calendarType,
     currency: options.currency,
     scale: options.scale,
-    // The endpoint requires the key even with nothing to configure.
-    indicatorParamList: parseIndicatorParams(options.indicatorParam) ?? [],
+    // The endpoint requires the key even with nothing to configure. No date is
+    // injected here, so `"code:"` is a no-op beyond sending an empty param list.
+    indicatorParamList: (parseIndicatorParams(options.indicatorParam) ?? []).map(stripMarker),
   }
 }
 
@@ -165,16 +212,16 @@ export function buildIndicatorScreenerBody(options: IndicatorScreenerOptions) {
   return {
     universe: maybeArray(options.security),
     expression: options.expression,
-    // Every indicator gets a date, including ones whose parameterList is empty.
-    // Harmless there (a parameterless indicator answers normally with a stray
-    // tradeDate), and it keeps one rule for the whole list rather than a
-    // per-indicator exception.
+    // Every indicator gets a date, unconditionally — the cross-section opt-out has
+    // no screener counterpart (parseScreenerIndicators refuses it; the server drops
+    // parameterless screener indicators without a word).
     //
-    // It also used to be load-bearing: through 2026-08-02 the screener DROPPED
-    // any indicator sent with `parameters: []`, so the official doc's own
-    // `F3 contains '酒'` example could not work as written. Re-probed 2026-08-03:
-    // fixed server-side. Kept anyway — unconditional is simpler than conditional,
-    // and it survives a rollback.
+    // ⚠️ The official doc's own `F3 contains '酒'` example does not run as written.
+    // Through 2026-08-02 the screener dropped any indicator sent with
+    // `parameters: []` (re-probed 2026-08-03: fixed). Since 2026-08-14 it fails from
+    // the other side instead — `pty_op_scope` answers `100003 不支持参数 tradeDate`,
+    // and removing the tradeDate puts it right back in the dropped bucket. Nine
+    // indicators are boxed in like this; see `bug/server-open.md` P1-7.
     indicatorList: indicators.map((indicator) => (indicator.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
       ? indicator
       : { ...indicator, parameters: [...indicator.parameters, { paramKey: "tradeDate", paramValue: options.date }] })),

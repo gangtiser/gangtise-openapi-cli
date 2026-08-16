@@ -150,12 +150,110 @@ const ERROR_HINTS: Record<string, string> = {
  * `indicator search` rather than asserting which indicators are affected.
  *
  * Both codes are listed because the server sends this same sentence under either:
- * `is_op_rev` answers 100003, `div_cash_yld` answers 100001 (probed 2026-08-15). */
-const MESSAGE_HINTS: Array<{ codes: string[]; match: RegExp; hint: string }> = [
+ * `is_op_rev` answers 100003, `div_cash_yld` answers 100001 (probed 2026-08-15).
+ *
+ * 🔴 One rule per message SHAPE, not one rule for the whole family. The server sends
+ * four distinct sentences here and only two of them say what the indicator wants:
+ *
+ *   ① 不支持参数 tradeDate; 缺少必填参数 reportDate  → swap to reportDate  (assertive)
+ *   ② 缺少必填参数 reportDate                        → add reportDate     (assertive)
+ *   ③ 不支持参数 X; 缺少必填参数 tradeDate            → swap X → tradeDate (assertive)
+ *   ④ 不支持参数 X  (半句, neither ② nor ③ half)     → UNKNOWN key        (must not assert)
+ *   ⑤ 缺少必填参数 tradeDate                         → injection was off  (K13 path)
+ *
+ * ④ only proves a key was refused. `scr_exchg_mkt` declares an EMPTY parameterList and
+ * refuses reportDate as well; `div_cash_paid_ratio` wants `fiscalYear`. Through v0.34.1
+ * a single regex OR-ed ① and ④ together, so ④ got ①'s assertive text and the user
+ * followed it into `不支持参数 reportDate` — a shape with no rule at all.
+ *
+ * ③ is the mirror of ①, added 2026-08-16 after cross-session review: writing the keys
+ * the wrong way round (`qte_close:reportDate=...`) yields `不支持参数 reportDate; 缺少
+ * 必填参数 tradeDate`, which ④ used to claim as "the server did not say which key" and
+ * prescribed the `"<code>:"` opt-out — wrong AND a dead end (`100001 缺少必填参数
+ * tradeDate`). Same defect as v0.34.1's, moved one shape along. Whenever the server
+ * names both halves it has told you the swap; only the lone half is unknown.
+ *
+ * Hence `notMatch` on ④ excludes BOTH `缺少必填参数` halves: the discriminator is
+ * "did the server also name what it wants". Together with the `when` guard on every
+ * rule (⓪ fires above one shape, ①③④⑤ at or below it), routing does not depend on
+ * array order — mutation P2b (batch rule moved last, guards kept) is green, and that
+ * is now a real result rather than an artifact: the one shape that exercises ④'s own
+ * guard (several indicators, all lone 不支持参数, different refused keys) has a test.
+ * Without it the same mutation was green for want of coverage.
+ *
+ * The remaining order dependency is ③ vs ⑤ — shape ③ matches both, and ③ must come
+ * first. Pinned by the SWAP test, which goes red if ③ is removed. */
+/** How many DISTINCT failure shapes the server described in one message.
+ *
+ * `cross-section` is a batch endpoint, so a single 100003 routinely carries clauses for
+ * several indicators. Counting INDICATORS is the wrong question — what decides whether
+ * one piece of advice fits is whether they failed the same way:
+ *
+ *   same shape  `指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数
+ *               reportDate; 指标 is_dnrpnp <同上>`  → one fix covers both
+ *   diff shapes `指标 qte_close 不支持参数 reportDate; 指标 qte_close 缺少必填参数
+ *               tradeDate; 指标 pty_cn_name 不支持参数 tradeDate`  → opposite fixes;
+ *               the swap rule's "别用空冒号" is exactly what pty_cn_name needs
+ *
+ * Two rounds of cross-session review landed here. First the assertive hints spoke in
+ * the singular about mixed batches (wrong for every indicator but one). Then gating on
+ * distinct INDICATOR count over-corrected: a batch of several `is_*` — the most common
+ * batch failure there is — got downgraded to generic triage even though one sentence
+ * covered all of them. Shape count is the question both were approximating.
+ *
+ * A message with no `指标 <code>` clauses yields 1: unparsed means unambiguous here,
+ * and the assertive rules stay reachable. */
+function distinctFailureShapes(message: string): number {
+  const byCode = new Map<string, Set<string>>()
+  for (const clause of message.split(/[;；]/)) {
+    const m = /指标\s+(\S+)\s+(不支持参数|缺少必填参数)[:：]?\s*(\S+)/.exec(clause)
+    if (!m) continue
+    const [, code, kind, key] = m
+    let shape = byCode.get(code)
+    if (!shape) {
+      shape = new Set<string>()
+      byCode.set(code, shape)
+    }
+    shape.add(`${kind}:${key}`)
+  }
+  if (byCode.size === 0) return 1
+  return new Set([...byCode.values()].map((shape) => [...shape].sort().join("|"))).size
+}
+
+const MESSAGE_HINTS: Array<{ codes: string[]; match: RegExp; also?: RegExp; notMatch?: RegExp; when?: (message: string) => boolean; hint: string }> = [
+  {
+    // Must come first: when the server named several indicators, no singular hint below
+    // can be right about all of them.
+    codes: ["100001", "100003"],
+    match: /不支持参数\s*(?:tradeDate|reportDate)|缺少必填参数[:：]?\s*(?:tradeDate|reportDate)/,
+    when: (message) => distinctFailureShapes(message) > 1,
+    hint: "🔴 **这条报错涉及多个指标，而且它们失败的方式不同**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：msg 里对某个指标说「不支持参数 X; 缺少必填参数 Y」= 把 X 换成 Y（`--indicator-param \"<该指标code>:Y=...\"`）；只说「不支持参数 X」而没说缺什么 = 该指标一个日期都不要，给它加 `--indicator-param \"<该指标code>:\"`（冒号后留空）；只说「缺少必填参数 Y」= 补上 Y。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。以 `indicator search --keyword <指标code> --format json` 的 parameterList 为准。",
+  },
   {
     codes: ["100001", "100003"],
-    match: /不支持参数\s*tradeDate|缺少必填参数[:：]?\s*reportDate/,
-    hint: "这个指标要的是 reportDate（报告期），不是 --date 下发的 tradeDate。补 --indicator-param \"<指标code>:reportDate=YYYY-MM-DD\"（screener 用 \"F1:reportDate=...\"），--date 仍要保留。⚠️ 少数指标两个日期都要（如 div_cash_yld），补完 reportDate 若再报缺 tradeDate，就把 tradeDate 也显式传上；另有指标要的是 fiscalYear。**以 `indicator search` 返回的 parameterList 为准，别按 code 前缀推断**。",
+    match: /缺少必填参数[:：]?\s*reportDate/,
+    when: (message) => distinctFailureShapes(message) <= 1,
+    hint: "报错点名的指标要的是 reportDate（报告期），不是 --date 下发的 tradeDate。给每个被点名的指标各补一条 --indicator-param \"<指标code>:reportDate=YYYY-MM-DD\"（screener 用 \"F1:reportDate=...\"），--date 仍要保留——补上后 CLI 就不再为该指标注入 tradeDate。⚠️ 少数指标两个日期都要（如 div_cash_yld），补完若再报缺 tradeDate，就把 tradeDate 也显式传上。**以 `indicator search` 返回的 parameterList 为准，别按 code 前缀推断**。",
+  },
+  {
+    codes: ["100001", "100003"],
+    match: /不支持参数\s*(?:tradeDate|reportDate)/,
+    also: /缺少必填参数[:：]?\s*tradeDate/,
+    when: (message) => distinctFailureShapes(message) <= 1,
+    hint: "服务端在同一句里**已经点名了两边**：一个键不该出现，另一个键缺了——把前者换成后者即可，别再往里加键。多半是两个日期键写反了：删掉 --indicator-param 里被拒的那个，改成 msg 里说缺的那个（如 --indicator-param \"<指标code>:tradeDate=YYYY-MM-DD\"，screener 用 \"F1:tradeDate=...\"）。⚠️ 别在这一步用 --indicator-param \"<指标code>:\"（「不要日期」的写法）——服务端明说了它要一个日期，那样只会撞下一个报错。",
+  },
+  {
+    codes: ["100001", "100003"],
+    match: /不支持参数\s*(?:tradeDate|reportDate)/,
+    notMatch: /缺少必填参数[:：]?\s*(?:reportDate|tradeDate)/,
+    when: (message) => distinctFailureShapes(message) <= 1,
+    hint: "服务端只说这个键不该出现，**没说该换成哪个**——别照着「改用 reportDate」做，那多半同样被拒。报错点名的指标，其 parameterList 里没有 --date 下发的那个日期键，给每个被点名的指标各加一条 --indicator-param \"<指标code>:\"（冒号后留空）声明「本指标不要查询日期」即可，它与真实参数可以共存。跑 `indicator search --keyword <指标code> --format json` 确认还缺什么：parameterList 为空就只加这一条；还列了 fiscalYear 之类的就连同 --indicator-param \"<指标code>:fiscalYear=2025\" 一起给。⚠️ screener 上这个写法用不了（服务端会静默丢弃该指标并返 0 行），改用 `indicator cross-section` 取回来本地筛。",
+  },
+  {
+    codes: ["100001", "100003"],
+    match: /缺少必填参数[:：]?\s*tradeDate/,
+    when: (message) => distinctFailureShapes(message) <= 1,
+    hint: "--date 的 tradeDate 这次没有下发——你为该指标传了 reportDate/tradeDate，或者用了 --indicator-param \"<指标code>:\" 这个「不要日期」的写法，两者都会关掉自动注入。对症改：如果这个指标两个日期都必填（如 div_cash_yld），把 tradeDate 也显式传上 --indicator-param \"<指标code>:tradeDate=YYYY-MM-DD\"（screener 用 \"F1:tradeDate=...\"）；如果是空冒号那条加错了指标，删掉它即可。",
   },
 ]
 
@@ -181,7 +279,11 @@ export class ApiError extends CliError {
     // sits in the middle because it identifies a narrower cause than the code alone,
     // but a call site that already knows the context still knows better.
     const byMessage = code
-      ? MESSAGE_HINTS.find((rule) => rule.codes.includes(code) && rule.match.test(message))?.hint
+      ? MESSAGE_HINTS.find((rule) => rule.codes.includes(code)
+        && rule.match.test(message)
+        && (rule.also?.test(message) ?? true)
+        && !rule.notMatch?.test(message)
+        && (rule.when?.(message) ?? true))?.hint
       : undefined
     this.hint = hintOverride ?? byMessage ?? (code ? ERROR_HINTS[code] : undefined)
   }

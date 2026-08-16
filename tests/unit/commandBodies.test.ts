@@ -126,6 +126,94 @@ describe("command request body builders", () => {
     })
   })
 
+  it("sends no date at all for an indicator declared with the bare 'code:' opt-out", () => {
+    // The `pty_*` / `scr_*` static-attribute families declare an EMPTY parameterList,
+    // and since the 2026-08-14 tightening the fetch endpoints reject the WHOLE request
+    // over a stray tradeDate: `100003 指标 scr_exchg_mkt 不支持参数 tradeDate`. Since
+    // --date is required, they were unreachable from cross-section until this opt-out.
+    // Verified live: the same body with parameters:[] returns 上海证券交易所.
+    expect(buildIndicatorCrossSectionBody({
+      indicator: ["scr_exchg_mkt"],
+      security: ["600519.SH"],
+      date: "2026-08-13",
+      indicatorParam: ["scr_exchg_mkt:"],
+    })).toMatchObject({
+      indicatorParamList: [{ indicatorCode: "scr_exchg_mkt", parameters: [] }],
+    })
+  })
+
+  it("composes the opt-out with real params, for the fiscalYear-only indicators", () => {
+    // div_cash_paid_ratio / div_cash_yr want fiscalYear and refuse tradeDate, so the
+    // opt-out has to be a flag rather than "an empty parameters array" — the caller
+    // needs both specs at once. Verified live: this exact body returns 79.0004.
+    expect(buildIndicatorCrossSectionBody({
+      indicator: ["div_cash_paid_ratio"],
+      security: ["600519.SH"],
+      date: "2026-08-13",
+      indicatorParam: ["div_cash_paid_ratio:", "div_cash_paid_ratio:fiscalYear=2025"],
+    })).toMatchObject({
+      indicatorParamList: [
+        { indicatorCode: "div_cash_paid_ratio", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] },
+      ],
+    })
+  })
+
+  it("keeps injecting tradeDate for indicators the opt-out does not name", () => {
+    // The opt-out is per indicator, not per request: naming one must not disarm the
+    // injection for the rest of the batch.
+    expect(buildIndicatorCrossSectionBody({
+      indicator: ["scr_exchg_mkt", "qte_close"],
+      security: ["600519.SH"],
+      date: "2026-08-13",
+      indicatorParam: ["scr_exchg_mkt:"],
+    })).toMatchObject({
+      indicatorParamList: [
+        { indicatorCode: "scr_exchg_mkt", parameters: [] },
+        { indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-08-13" }] },
+      ],
+    })
+  })
+
+  it("does not leak the noQueryDate marker into the request body", () => {
+    // It is a parse-time flag, not a server field. An unsupported body field lands in
+    // `server-open.md` P1-2's grey zone, where one of the three observed behaviours is
+    // to silently filter the result to nothing.
+    const body = buildIndicatorCrossSectionBody({
+      indicator: ["scr_exchg_mkt"],
+      security: ["600519.SH"],
+      date: "2026-08-13",
+      indicatorParam: ["scr_exchg_mkt:"],
+    })
+    expect(Object.keys(body.indicatorParamList[0]).sort()).toEqual(["indicatorCode", "parameters"])
+    const ts = buildIndicatorTimeSeriesBody({
+      indicator: ["scr_exchg_mkt"],
+      security: ["600519.SH"],
+      startDate: "2026-08-11",
+      endDate: "2026-08-13",
+      indicatorParam: ["scr_exchg_mkt:"],
+    })
+    expect(Object.keys(ts.indicatorParamList[0]).sort()).toEqual(["indicatorCode", "parameters"])
+  })
+
+  it("still injects tradeDate alongside fiscalYear — 5 frcst_* indicators require BOTH", () => {
+    // `gangtise-python` U2 proposed adding fiscalYear to DATE_PARAM_KEYS to reach
+    // div_cash_paid_ratio / div_cash_yr. It would REGRESS five working indicators:
+    // frcst_op_rev / frcst_op_rev_yoy / frcst_pe / frcst_shnp / frcst_shnp_yoy each
+    // declare tradeDate AND fiscalYear as required (parameterList, probed 2026-08-15),
+    // and all five return values today with --date + fiscalYear. Suppressing the
+    // injection would answer `100001 缺少必填参数 tradeDate` instead.
+    expect(buildIndicatorCrossSectionBody({
+      indicator: ["frcst_pe"],
+      security: ["600519.SH"],
+      date: "2026-08-13",
+      indicatorParam: ["frcst_pe:fiscalYear=2026"],
+    })).toMatchObject({
+      indicatorParamList: [
+        { indicatorCode: "frcst_pe", parameters: [{ paramKey: "fiscalYear", paramValue: "2026" }, { paramKey: "tradeDate", paramValue: "2026-08-13" }] },
+      ],
+    })
+  })
+
   it("omits empty indicator/security lists and unset options from the cross-section body", () => {
     expect(buildIndicatorCrossSectionBody({
       indicator: [],
@@ -247,6 +335,23 @@ describe("command request body builders", () => {
       expression: "F1 contains '酒'",
       indicatorList: [{ field: "F1", indicatorCode: "pty_op_scope", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] }],
     })
+  })
+
+  it("refuses the no-date opt-out on the screener, where it would answer 0 rows silently", () => {
+    // Probed 2026-08-15: the screener DROPS an indicator sent with `parameters: []`
+    // and says nothing — F1 vanishes from `indicatorList` while a sibling F2 survives.
+    // A genuine no-match returns the identical `{securityCodeList: [], indicatorList:
+    // [], values: []}`, so nothing downstream can tell them apart. Sending a parameter
+    // instead is refused (100003), so these indicators are closed off from both sides;
+    // failing loudly at parse time is the only honest answer, and it also skips a
+    // billed round trip.
+    expect(() => buildIndicatorScreenerBody({
+      indicator: ["F1:scr_exchg_sctr"],
+      security: ["600519.SH"],
+      expression: "F1 contains '主板'",
+      date: "2026-08-13",
+      indicatorParam: ["F1:"],
+    })).toThrow(/opt-out.*not supported by the screener/)
   })
 
   it("rejects a screener param that binds to no variable", () => {

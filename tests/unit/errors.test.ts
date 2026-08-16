@@ -53,6 +53,137 @@ describe("ApiError", () => {
     expect(hint).not.toMatch(/`is_\*`.*只吃|行情 \/ 估值类（qte_\* \/ finc_\*）不受影响/)
   })
 
+  it("does not assert reportDate when the server only says tradeDate was refused", () => {
+    // 半句 vs 拼接句. "不支持参数 tradeDate" alone proves nothing about what the
+    // indicator DOES want: `scr_exchg_mkt` declares an empty parameterList and refuses
+    // reportDate too, `div_cash_paid_ratio` wants fiscalYear. Through v0.34.1 one regex
+    // OR-ed this with the concatenated form, so both got the assertive reportDate text
+    // and following it landed on "不支持参数 reportDate" — a shape with no rule at all.
+    const hint = new ApiError("指标 scr_exchg_mkt 不支持参数 tradeDate", "100003").hint ?? ""
+    expect(hint).not.toMatch(/要的是 reportDate/)
+    expect(hint).toContain("parameterList")
+    // Must name the fix that actually works from cross-section. It used to send the
+    // caller to `indicator time-series`; once the `"<code>:"` opt-out landed that was
+    // no longer true, and the hint contradicted the help text on the same flag.
+    expect(hint).toContain('"<指标code>:"')
+  })
+
+  it("keeps the assertive reportDate hint on the concatenated message", () => {
+    // The other half of the split above: when the server DOES name reportDate as the
+    // missing key, the hint may and should assert it. Pins the discriminator (presence
+    // of the 缺少必填参数 half) rather than the order of the rule array.
+    const hint = new ApiError("指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate", "100003").hint ?? ""
+    expect(hint).toContain("要的是 reportDate")
+    expect(hint).not.toContain("没说该换成哪个")
+  })
+
+  it("hints the reportDate-refused shape the old single regex never matched", () => {
+    // What a user got by following the old hint on scr_exchg_mkt: they add reportDate,
+    // the server refuses that too, and 100003's generic "对照 --help 检查枚举" leaves
+    // them stuck. Probed live 2026-08-15.
+    const hint = new ApiError("指标 scr_exchg_mkt 不支持参数 reportDate", "100003").hint ?? ""
+    expect(hint).toContain("parameterList")
+    expect(hint).toContain('"<指标code>:"')
+  })
+
+  it("tells the caller to SWAP when the server names both halves the other way round", () => {
+    // Mirror of the concatenated reportDate shape. Writing the keys backwards
+    // (`qte_close:reportDate=...`) yields "不支持参数 reportDate; 缺少必填参数
+    // tradeDate". Before 2026-08-16 this fell to the non-assertive rule, which claimed
+    // "服务端没说该换成哪个" — false, it named both — and prescribed the `"<code>:"`
+    // opt-out, which is a DEAD END here (`100001 缺少必填参数 tradeDate`). Probed live.
+    const hint = new ApiError("指标 qte_close 不支持参数 reportDate; 指标 qte_close 缺少必填参数 tradeDate", "100003").hint ?? ""
+    expect(hint).not.toContain("没说该换成哪个")
+    expect(hint).toContain("tradeDate=")
+    // Must actively warn AGAINST the opt-out here: the server said it wants a date.
+    expect(hint).toMatch(/别在这一步用|⚠️/)
+  })
+
+  it("still routes the mirror-image concatenated shape to the reportDate rule", () => {
+    // Guards the new swap rule from swallowing the original ① shape, which has richer
+    // CLI-specific advice. Both halves present, but the missing key is reportDate.
+    const hint = new ApiError("指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate", "100003").hint ?? ""
+    expect(hint).toContain("要的是 reportDate")
+  })
+
+  it("hints the both-dates-required second wall (缺少必填参数 tradeDate)", () => {
+    // K13: supplying reportDate suppresses CLI's tradeDate injection, so div_cash_yld
+    // (both required) fails on the second date. Previously fell to 100001's generic
+    // "对照命令 --help 检查必填项", which does not say --indicator-param.
+    const hint = new ApiError("指标 div_cash_yld 缺少必填参数 tradeDate", "100001").hint ?? ""
+    expect(hint).toContain("--indicator-param")
+    expect(hint).toContain("tradeDate=")
+    // Two paths now suppress the injection (a caller-supplied reportDate, or the
+    // `"<code>:"` opt-out), so the hint must not assert which one the caller took —
+    // it said "你已经给了 reportDate" to someone who had only used the opt-out.
+    expect(hint).not.toMatch(/你已经给了 reportDate/)
+  })
+
+  it("does not give a singular assertive hint when the server named several indicators", () => {
+    // `cross-section` is a BATCH endpoint: one 100003 routinely carries clauses for
+    // several indicators with different causes. Probed 2026-08-16 — mixing pty_* with
+    // is_* is one of the most natural calls there is:
+    //   指标 pty_cn_name 不支持参数 tradeDate; 指标 is_op_rev 不支持参数 tradeDate;
+    //   指标 is_op_rev 缺少必填参数 reportDate
+    // "这个指标要的是 reportDate" is right about is_op_rev and WRONG about pty_cn_name
+    // (which refuses reportDate too — the dead end this whole thread has been chasing).
+    const hint = new ApiError("指标 pty_cn_name 不支持参数 tradeDate; 指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate", "100003").hint ?? ""
+    expect(hint).not.toMatch(/这个指标要的是 reportDate/)
+    expect(hint).toContain("涉及多个指标")
+    // Must still be actionable: name all three shapes, not just "go read the docs".
+    expect(hint).toContain('"<该指标code>:"')
+  })
+
+  it("does not carry the swap rule's anti-opt-out warning into a batch message", () => {
+    // The sharper half of the same defect, introduced by the swap rule itself: its
+    // "⚠️ 别在这一步用空冒号" is correct for qte_close and exactly BACKWARDS for
+    // pty_cn_name in the same message, which needs precisely the opt-out.
+    const hint = new ApiError("指标 qte_close 不支持参数 reportDate; 指标 qte_close 缺少必填参数 tradeDate; 指标 pty_cn_name 不支持参数 tradeDate", "100003").hint ?? ""
+    expect(hint).not.toMatch(/别在这一步用/)
+    expect(hint).toContain("涉及多个指标")
+  })
+
+  it("keeps the specific hint when several indicators failed the SAME way", () => {
+    // Gating on distinct INDICATOR count over-corrected: a batch of report-period
+    // indicators — the most common batch failure on cross-section — all say the same
+    // thing, so one sentence covers them and generic triage is a downgrade. The gate
+    // counts distinct FAILURE SHAPES instead. (Cross-session review R4-1, 2026-08-16.)
+    const hint = new ApiError("指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate; 指标 is_dnrpnp 不支持参数 tradeDate; 指标 is_dnrpnp 缺少必填参数 reportDate", "100003").hint ?? ""
+    expect(hint).toContain("reportDate")
+    expect(hint).not.toContain("失败的方式不同")
+  })
+
+  it("keeps the opt-out hint when several parameterless indicators failed the same way", () => {
+    // The half-sentence twin of the above. This shape is also what proved rule ④'s
+    // routing was held by array order rather than a guard — no test covered it, so the
+    // N2b mutation came back green and was misread as "the guards are load-bearing".
+    const hint = new ApiError("指标 pty_cn_name 不支持参数 tradeDate; 指标 scr_code 不支持参数 tradeDate", "100003").hint ?? ""
+    expect(hint).toContain('"<指标code>:"')
+    expect(hint).not.toContain("失败的方式不同")
+  })
+
+  it("routes an all-half-clause batch with DIFFERENT refused keys to triage", () => {
+    // The one shape that exercises rule ④'s own guard: several indicators, every clause
+    // a lone 不支持参数 (so ④'s notMatch does not block it), but the refused keys differ.
+    // Probed live: `--indicator pty_cn_name --indicator scr_code --indicator-param
+    // "scr_code:reportDate=..."` → 指标 scr_code 不支持参数 reportDate; 指标
+    // pty_cn_name 不支持参数 tradeDate.
+    //
+    // Without this test the P2 mutation (drop ④'s guard + move the batch rule last)
+    // came back GREEN and was misread as "the guard is redundant" — the same
+    // green-mutation-means-no-coverage trap recorded in bug/closed.md K1.
+    const hint = new ApiError("指标 scr_code 不支持参数 reportDate; 指标 pty_cn_name 不支持参数 tradeDate", "100003").hint ?? ""
+    expect(hint).toContain("失败的方式不同")
+  })
+
+  it("still gives the singular hint when the same indicator is named several times", () => {
+    // The gate counts DISTINCT codes, not clauses — a two-clause message about one
+    // indicator is still unambiguous and should keep the specific advice.
+    const hint = new ApiError("指标 qte_close 不支持参数 reportDate; 指标 qte_close 缺少必填参数 tradeDate", "100003").hint ?? ""
+    expect(hint).toContain("tradeDate=")
+    expect(hint).not.toContain("涉及多个指标")
+  })
+
   it("does not fire the reportDate hint on other 100003 causes", () => {
     // Guards the regex from widening into every EDE input error and burying the
     // generic advice under an irrelevant report-period lecture.

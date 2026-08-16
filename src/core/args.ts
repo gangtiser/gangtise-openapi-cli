@@ -142,7 +142,7 @@ const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
  */
 export function parseDateOption(value: string, optionName: string): string {
   if (!YYYY_MM_DD.test(value)) {
-    throw new ValidationError(`Invalid ${optionName}: expected YYYY-MM-DD, got "${value}" — only that form is forwarded; some endpoints silently misread other layouts (e.g. "07/01/2026") as a different day`)
+    throw new ValidationError(`Invalid ${optionName}: expected YYYY-MM-DD, got "${value}" — only that form is forwarded as-is; on some endpoints other layouts (e.g. "07/01/2026") are read as a different day`)
   }
   // Shape alone lets 2026-02-30 / 2026-13-01 through; round-trip to reject those.
   // Built from the ISO string, not Date.UTC(y,...), whose two-digit-year mapping
@@ -278,6 +278,9 @@ export interface IndicatorParam {
 export interface IndicatorParamGroup {
   indicatorCode: string
   parameters: IndicatorParam[]
+  /** Set by the bare `"code:"` spec — "this indicator takes no query date".
+   * A parse-time marker, stripped before the body is built; never sent. */
+  noQueryDate?: true
 }
 
 export interface ScreenerIndicator {
@@ -290,8 +293,9 @@ export interface ScreenerIndicator {
 // The left-hand side is an indicator code for cross-section / time-series and a
 // screener variable (F1, F2…) for the screener, so it stays an opaque string
 // here. Multiple specs for the same lhs accumulate, first-seen order.
-function parseParamSpecs(specs: string[], option: string, syntax: string): Map<string, IndicatorParam[]> {
+function parseParamSpecs(specs: string[], option: string, syntax: string): { groups: Map<string, IndicatorParam[]>; noQueryDate: Set<string> } {
   const groups = new Map<string, IndicatorParam[]>()
+  const noQueryDate = new Set<string>()
   for (const spec of specs) {
     const colon = spec.indexOf(":")
     const rest = colon === -1 ? "" : spec.slice(colon + 1)
@@ -299,6 +303,28 @@ function parseParamSpecs(specs: string[], option: string, syntax: string): Map<s
     const lhs = colon === -1 ? "" : spec.slice(0, colon).trim()
     const paramKey = eq === -1 ? "" : rest.slice(0, eq).trim()
     const paramValue = eq === -1 ? "" : rest.slice(eq + 1).trim()
+    // Bare `"<lhs>:"` — "this indicator takes no query date, do not inject one".
+    // Needed by every indicator whose parameterList has neither tradeDate nor any
+    // other date key: the `pty_*` / `scr_*` static-attribute families, plus
+    // div_cash_paid_ratio / div_cash_yr (fiscalYear) and pty_shr_reg (currency/scale).
+    // See the DATE_PARAM_KEYS comment in commandBodies.ts for the full rule and the
+    // command that regenerates the list. The fetch endpoints reject the WHOLE request
+    // over a stray tradeDate and `--date` is required, so these were unreachable from
+    // cross-section and screener — with no fallback at all on the screener, since
+    // `indicator time-series` cannot filter.
+    //
+    // A flag rather than "an empty parameters array" so it composes with real
+    // params: the fiscalYear pair needs `"code:"` AND `"code:fiscalYear=2025"`.
+    // Opt-in on purpose: this spelling used to be a ValidationError, so no existing
+    // invocation changes behaviour. NOT a blanket `fiscalYear` entry in
+    // DATE_PARAM_KEYS — that would regress the five `frcst_*` indicators, which
+    // require tradeDate AND fiscalYear together (see commandBodies.ts).
+    if (rest.trim() === "") {
+      if (!lhs) throw new ValidationError(`Invalid ${option}: expected "${syntax}", got "${spec}"`)
+      noQueryDate.add(lhs)
+      if (!groups.has(lhs)) groups.set(lhs, [])
+      continue
+    }
     if (!lhs || !paramKey) {
       throw new ValidationError(`Invalid ${option}: expected "${syntax}", got "${spec}"`)
     }
@@ -309,14 +335,17 @@ function parseParamSpecs(specs: string[], option: string, syntax: string): Map<s
     }
     params.push({ paramKey, paramValue })
   }
-  return groups
+  return { groups, noQueryDate }
 }
 
 // Parse repeatable `--indicator-param "code:key=value"` specs into the nested
 // indicatorParamList the EDE cross-section / time-series endpoints expect.
 export function parseIndicatorParams(specs: string[]): IndicatorParamGroup[] | undefined {
   if (specs.length === 0) return undefined
-  return [...parseParamSpecs(specs, "--indicator-param", "code:key=value")].map(([indicatorCode, parameters]) => ({ indicatorCode, parameters }))
+  const { groups, noQueryDate } = parseParamSpecs(specs, "--indicator-param", "code:key=value")
+  return [...groups].map(([indicatorCode, parameters]) => (noQueryDate.has(indicatorCode)
+    ? { indicatorCode, parameters, noQueryDate: true as const }
+    : { indicatorCode, parameters }))
 }
 
 /** Screener variables are `F` + a positive integer; the server rejects anything
@@ -427,7 +456,7 @@ export function screenerExpressionFields(expression: string | undefined): string
 // code, because the same indicator may legitimately appear under two variables
 // with different parameters (e.g. the same price on two dates).
 export function parseScreenerIndicators(bindings: string[], paramSpecs: string[], expression?: string): ScreenerIndicator[] {
-  const params = parseParamSpecs(paramSpecs, "--indicator-param", "F1:key=value")
+  const { groups: params, noQueryDate } = parseParamSpecs(paramSpecs, "--indicator-param", "F1:key=value")
   const indicators = new Map<string, ScreenerIndicator>()
   for (const spec of bindings) {
     const colon = spec.indexOf(":")
@@ -443,6 +472,19 @@ export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]
       throw new ValidationError(`Duplicate --indicator variable "${field}": each variable must bind exactly one indicator`)
     }
     indicators.set(field, { field, indicatorCode, parameters: params.get(field) ?? [] })
+  }
+  // The cross-section opt-out (`--indicator-param "code:"`) has no screener
+  // equivalent, and offering one would be a trap: the server DROPS any screener
+  // indicator sent with `parameters: []` and says nothing (probed 2026-08-15 —
+  // F1 with empty params vanishes from `indicatorList` while a sibling F2
+  // survives; a genuine no-match returns the identical empty payload, so the two
+  // are indistinguishable). Sending a parameter instead is refused outright for
+  // these nine indicators, so the screener is closed to them from both sides —
+  // that half is server-side (`bug/server-open.md` P1-7) and this is only the
+  // guard that keeps the failure loud. Remove it once the screener stops dropping
+  // parameterless indicators.
+  if (noQueryDate.size > 0) {
+    throw new ValidationError(`--indicator-param "${[...noQueryDate][0]}:" (the no-date opt-out) is not supported by the screener: an indicator sent with no parameters does not take part in the screen, so it would run without that condition and answer 0 rows with no error. Read the value with 'indicator cross-section --indicator-param "<code>:"' and filter client-side.`)
   }
   // A param for an unbound variable is silently dropped by the server, so the
   // query would run with a filter the caller believes is applied but is not.

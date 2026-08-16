@@ -49,7 +49,20 @@ gangtise indicator cross-section --indicator <code> [--indicator <code2>] \
 - `--indicator`（**至少 1 个**）：指标编码，来自 `search`，可重复传多个
 - `--security`（**至少 1 个**）：证券代码，如 `600519.SH`（A股）/ `09992.HK`（港股）/ `AAPL.O`（美股，用 `.O`/`.N` 后缀，非 `.US`），可重复传多个。**也接受板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，如 `1000000287` 中信白酒 → 19 只成分股），代码与板块可混传，服务端取并集去重。⚠️ 中信行业码那类 9 位 ID（`100800109`）**不是** `sectorId`，传进去返 0 只
 - `--date`（**必选**）：数据日期 `yyyy-MM-dd`。**CLI 把它下发为每个指标各自的 `tradeDate`**（2026-08-01 起服务端取消了根级 date）。日期语义按指标分两类——财务报表指标=报告期末（可为非交易日，实测 `2024-03-31` 可取数）、`finc_pe_ttm` / `finc_pb_mrq` 等日频估值=交易日（详见下方「日期路由」）
-  - `--date` 必填是 CLI 的**护栏**，不是协议要求：`cross-section` 本身接受 `indicatorParamList: []`（无参指标如 `pty_op_scope` 照常返值，实测 2026-08-02）。但绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以宁可多带一个无害参数。（`screener` 的 `--date` 也必填，同理）
+  - `--date` 必填是 CLI 的**护栏**，不是协议要求：`cross-section` 本身接受 `indicatorParamList: []`。但绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以宁可多带一个。（`screener` 的 `--date` 也必填，同理）
+  - 🔴 **判据一句话：该指标的 `parameterList` 里有 `tradeDate` 就不用管；没有，`--date` 下发的 `tradeDate` 就可能被拒。** 按这条走，四种情形四种写法（`parameterList` 从 `indicator search --keyword <code> --format json` 读，别按 code 前缀推断）：
+
+    | `parameterList` | 怎么写 |
+    | :--- | :--- |
+    | 有 `tradeDate` | 什么都不用加，`--date` 即可 |
+    | 无 `tradeDate`、有 `reportDate`（`is_*` 等报告期类） | 加 `--indicator-param "<code>:reportDate=2024-12-31"`；CLI 检测到就不再注入 `tradeDate` |
+    | 无 `tradeDate`、有别的参数 | 传那些参数，**再加一条 `--indicator-param "<code>:"`**（冒号后留空 = 不要日期）。如 `div_cash_paid_ratio` / `div_cash_yr` 要 `fiscalYear`、`pty_shr_reg`(注册资本) 只有 `currency`/`scale` |
+    | 无 `tradeDate`、`parameterList` 为空 | 只加 `--indicator-param "<code>:"` |
+
+    - **空冒号那条与真实参数可以共存**：`"div_cash_yr:" "div_cash_yr:fiscalYear=2025"` 两条一起给，前者只关掉日期注入，不会把 `fiscalYear` 清掉
+    - **哪些指标属于后两种**：已知是 `pty_*`（公司属性：注册地址 / 法定代表人 / 经营范围 / 公司简介…）与 `scr_*`（证券属性：证券简称 / ISIN / 上市市场 / 上市板块 / 上市日期…）两族，加上 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。🔴 **这只是当前已知的快照，不是完整清单**——`indicator search` 必须给关键词、`--limit` 上限 100 且没有翻页，所以指标库无法整体枚举。**永远以 `parameterList` 为准**；要重新生成某一族用 `indicator search --keyword <前缀>_ --limit 100`，返回条数小于 100 即该族已列全
+    - ⚠️ **别把「有 `fiscalYear`」当成「不要 `tradeDate`」**——`frcst_pe` / `frcst_shnp` / `frcst_op_rev` 等预测类指标 `parameterList` 里**两个都是必填**，照常用 `--date` 再加一条 `fiscalYear`，**不要**加空冒号那条
+    - ⚠️ **也别把「有 `reportDate`」当成「不受影响」**——报告期类指标同样拒收注入的 `tradeDate`，只是解法（自己传 `reportDate`）刚好顺带关掉了注入
   - 🔴 **吃 `reportDate` 的指标必须显式传 `reportDate`**：`--indicator-param "code:reportDate=2024-12-31"`。**2026-08-15 起服务端不再接受 `tradeDate`**——只给 `--date` 会报 `100003「指标 xxx 不支持参数 tradeDate; 指标 xxx 缺少必填参数 reportDate」`（此前一版会把 `tradeDate` 归一到所在报告期，现已改为报错）。哪些指标属于这一类看 `indicator search` 的 `parameterList`：`reportDate` 标 `required: true` 且列表里没有 `tradeDate` 的就是。利润表 / 资产负债表 / 现金流量表类（`is_*` 等）都在此列；行情与估值类（`qte_*` / `finc_*`）仍用 `--date` 即可。CLI 检测到你已为某指标传了 `tradeDate` 或 `reportDate` 就不再注入 `--date`，所以补上 `--indicator-param` 就能正常取数
   - `sDate`（区间起始日）**不算**替代日期：它和 `tradeDate` 共存（`tradeDate` 是区间终点且 required），传了 `sDate` 后 `--date` 照常下发
 - `--currency`：币种 `DFT`(原始,默认)/`CNY`/`HKD`/`USD`/`EUR`/`GBP`/`JPY`/`TWD`/`MOP`/`AUD`（**大写**，2026-08-01 起服务端枚举已统一大写）
@@ -110,7 +123,8 @@ gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
   - 比较：`==` `>` `<` `>=` `<=` `!=`
   - 文本：`contains` / `notcontains`（不区分大小写，**仅对 `dataType: string` 的指标有效**）
   - 逻辑：`&&` `||`，分组 `(` `)`
-- `--date`（**必选**）：下发为**每个**指标的 `tradeDate`（已带 `tradeDate`/`reportDate` 的不覆盖）。绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以必填。对无参指标（如 `pty_op_scope`）多挂一个 `tradeDate` 无害，因此不做例外
+- `--date`（**必选**）：下发为**每个**指标的 `tradeDate`（已带 `tradeDate`/`reportDate` 的不覆盖）。绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以必填
+- 🔴 **`parameterList` 里一个日期参数都没有的指标（`pty_*` / `scr_*` 静态属性两族、`div_cash_paid_ratio` / `div_cash_yr`、`pty_shr_reg`），`screener` 上当前取不到**：带 `tradeDate` 会被拒（`100003`）；不带则该指标不进结果，**筛选条件等于没加、返回 0 行且不报错**——这一档最危险，看起来像「没有标的符合条件」。CLI 因此在 `screener` 上拦下 `--indicator-param "F1:"` 写法并说明原因（同样的写法在 `cross-section` 上可用）。**替代做法**：用 `indicator cross-section` 把这几列取回来，在本地筛。注意这只影响**没有任何日期参数**的指标，报告期类（`is_*` 等）在 `screener` 上给 `F1:reportDate=...` 照常可用
 - `--indicator-param`：格式是 **`F1:key=value`（按变量，不是按 code）**。引用了没绑定的变量会直接报错，不会静默丢弃
 - `--expression` 里引用未绑定的变量，CLI **本地就拦**（不发请求、不计费）；服务端也会报 `100003`
 - **输出（宽表）**：同 `cross-section`，每行一只**命中**的证券，列为 `security / name / <各指标名>…`；无命中返回空表
@@ -134,9 +148,14 @@ gangtise indicator screener --indicator F1:qte_close --indicator F2:qte_close \
 
 ```bash
 # 文本筛选：白酒板块里经营范围含「酒」的公司
-gangtise indicator screener --indicator F1:pty_op_scope \
-  --security 1000000287 --expression "F1 contains '酒'" \
-  --date 2026-07-31 --format table   # 19 只全部命中
+# ⚠️ pty_op_scope 的 parameterList 为空，属于上面说的「screener 当前取不到」那一类，改走 cross-section 本地筛：
+gangtise indicator cross-section --indicator pty_op_scope \
+  --indicator-param "pty_op_scope:" \
+  --security 1000000287 --date 2026-08-13 --format jsonl | grep 酒
+# screener 上可用的文本筛选换成有日期参数的字符串指标，例如：
+gangtise indicator screener --indicator F1:mgn_flag \
+  --security 1000000287 --expression "F1 contains '是'" \
+  --date 2026-08-13 --format table   # 融资融券标的
 ```
 
 ```bash

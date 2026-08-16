@@ -6,6 +6,7 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.35.0 — 2026-08-16**：新增 `--indicator-param "<code>:"`（冒号后留空）声明「这个指标不要查询日期」，用于 `parameterList` 里没有日期参数的指标——`pty_*`（经营范围/注册地/法定代表人…）、`scr_*`（上市市场/上市板块/ISIN…）两族，以及 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。这类指标此前在 `indicator cross-section` 上取不到数（`--date` 必填且会注入 `tradeDate`，而它们不收，整条请求被拒）；该写法可与真实参数共存（`"code:" + "code:fiscalYear=2025"`）。**EDE 日期参数报错提示重写**：拆成五种报文形态分别给建议，服务端同时点名「不该有的键」和「缺的键」时直说换哪个，只说了一半时不再瞎猜，多指标批量报错时不再用单数口吻指向其中一个指标。另：`--rank-type` 的说明按实测更正（差别大小取决于关键词，`--search-type` 不影响 `--rank-type 1` 取回哪些条目）；`ai hot-topic` 全量拉取不再多花一次按次计费的调用。
 - **v0.34.1 — 2026-08-15**：EDE 报告期类指标传错日期参数时，报错里直接给出该改的 CLI 写法（此前只有服务端那句「缺少必填参数 reportDate」，要自己推断该用 `--indicator-param`）；该提示对 `100001` / `100003` 两个错误码都生效，并注明少数指标两个日期都要、另有指标要 `fiscalYear`，一律以 `indicator search` 的 `parameterList` 为准。另修复下载文件名缓存在并发写入下可能丢条目的问题（单进程使用不受影响）。
 - **v0.34.0 — 2026-08-15**：跟进 2026-08-14 服务端更新。🔴 **破坏性**：`quote day-kline --security all` 已失效（服务端停止支持），改用 `aShares` / `hkStocks` / `usStocks`，且市场关键字必须单独传（不能与证券代码或另一个关键字混填）——这两种写法 CLI 都会在发请求前报错并指出正确写法；`ai stock-summary` 同理不再接受市场关键字。`day-kline` 现覆盖 A股/港股/美股个股与交易所/概念/行业指数（可混查），三个旧命令 `day-kline-hk`/`day-kline-us`/`index-day-kline` 标记为已下线；`minute-kline` 支持指数。**另两处影响取数完整性的修复**：`quote fund-flow` 把市场关键字与证券代码混填时，此前会只返回那几个代码的数据且不报错（"全市场 + 这只"静默变成"只有这只"），现改为本地拦截；`quote index-day-kline --security all` 跨 30 天以上时分片过宽会撞行数上限被截断（标 `partial` + 退出 3），现已调细粒度，同区间可完整取回。另：三大报表新增 `earliestAnncDate`（做时点对齐用它，不要用 `announcementDate`），EDE 报告期类指标改为必须显式传 `reportDate`，错误码提示按新行为更新。
 - **v0.33.0 — 2026-08-09**：四处行为变更，都是把「静默给出看着正常的错结果」改成显式失败——分页端点返回异形首包（含 `data: null`）改退出码 3；`total` 被服务端封顶时探测并标 `totalCapped` + 退出 3（三个 opinion 端点的 `total` 恒为 10000 而实际远不止，全量导出此前会被静默截断）；空结果不再在 stdout 留空行、`null` 不再被渲染成一条记录。另补多处帮助文案与 EDE 占位值（个别指标填 `0` 而非 `null`）的说明。
@@ -343,7 +344,8 @@ gangtise insight opinion list --keyword AI
 gangtise insight summary list --keyword 算力
 
 # 帕米尔专家纪要（需单独购买专家纪要库；全文搜索 + 时间倒序）
-# --rank-type 2 = 严格时间倒序；换成 1（综合排序）在「全文搜索 + 有关键词」下是真正的相关度重排
+# --rank-type 2 = 严格时间倒序；换成 1（综合排序）在有 --keyword 时按相关度挑条目。
+# 差别多大取决于关键词本身；--search-type 不影响 --rank-type 1 挑哪些条目（详见 skill 的 insight.md）
 gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 2 --size 20
 gangtise insight pamirs-summary download --summary-id 5863771 --file-type 2
 # → PCB钻针：高端钻针扩产有壁垒，供需紧缺会持续到28年.html
@@ -603,10 +605,17 @@ gangtise indicator screener \
   --expression "F1 >= 500 && F2 <= 30" \
   --date 2026-07-31 --format table
 
-# 文本筛选：经营范围含「酒」（contains/notcontains 只对 string 类型指标有效）
-gangtise indicator screener --indicator F1:pty_op_scope \
-  --security 1000000287 --expression "F1 contains '酒'" \
-  --date 2026-07-31 --format table
+# 文本筛选：contains/notcontains 只对 string 类型指标有效
+gangtise indicator screener --indicator F1:mgn_flag \
+  --security 1000000287 --expression "F1 contains '是'" \
+  --date 2026-08-13 --format table   # 白酒板块里的融资融券标的
+
+# ⚠️ 公司/证券静态属性（pty_* 经营范围·注册地 / scr_* 上市板块·ISIN 等）的 parameterList
+# 里没有日期参数，screener 上当前取不到；改用 cross-section 取回来再本地筛，
+# 并加一条 "code:"（冒号后留空）声明该指标不要 --date 注入的 tradeDate：
+gangtise indicator cross-section --indicator pty_op_scope \
+  --indicator-param "pty_op_scope:" \
+  --security 1000000287 --date 2026-08-13 --format jsonl | grep 酒
 
 # 复权 / 指标专属参数用 --indicator-param "code:key=value"
 # ⚠️ 参数名必须以 search 的 parameterList 为准；写错名会报 100003 并指出是哪个指标的哪个参数
