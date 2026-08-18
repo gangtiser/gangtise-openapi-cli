@@ -247,7 +247,7 @@ const MESSAGE_HINTS: Array<{ codes: string[]; match: RegExp; also?: RegExp; notM
     match: /不支持参数\s*(?:tradeDate|reportDate)/,
     notMatch: /缺少必填参数[:：]?\s*(?:reportDate|tradeDate)/,
     when: (message) => distinctFailureShapes(message) <= 1,
-    hint: "服务端只说这个键不该出现，**没说该换成哪个**——别照着「改用 reportDate」做，那多半同样被拒。报错点名的指标，其 parameterList 里没有 --date 下发的那个日期键，给每个被点名的指标各加一条 --indicator-param \"<指标code>:\"（冒号后留空）声明「本指标不要查询日期」即可，它与真实参数可以共存。跑 `indicator search --keyword <指标code> --format json` 确认还缺什么：parameterList 为空就只加这一条；还列了 fiscalYear 之类的就连同 --indicator-param \"<指标code>:fiscalYear=2025\" 一起给。⚠️ screener 上这个写法用不了（服务端会静默丢弃该指标并返 0 行），改用 `indicator cross-section` 取回来本地筛。",
+    hint: "服务端只说这个键不该出现，**没说该换成哪个**——别照着「改用 reportDate」做，那多半同样被拒。报错点名的指标，其 parameterList 里没有 --date 下发的那个日期键，给每个被点名的指标各加一条 --indicator-param \"<指标code>:\"（冒号后留空）声明「本指标不要查询日期」即可，它与真实参数可以共存。跑 `indicator search --keyword <指标code> --format json` 确认还缺什么：parameterList 为空就只加这一条；还列了 fiscalYear 之类的就连同 --indicator-param \"<指标code>:fiscalYear=2025\" 一起给。screener 上是同一个写法，只是按变量写：--indicator-param \"F1:\"。",
   },
   {
     codes: ["100001", "100003"],

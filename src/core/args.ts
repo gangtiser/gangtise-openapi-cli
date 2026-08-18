@@ -111,48 +111,64 @@ export function parseChoiceList(values: string[], optionName: string, allowed: r
   return maybeArray(values)
 }
 
-const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
+/** The three year-first date layouts, all normalized to `YYYY-MM-DD` before the
+ * request goes out. The backreference makes the separator consistent, so
+ * `2026-07/01` is not a date. */
+const YEAR_FIRST_DATE = /^(\d{4})([-/]?)(\d{2})\2(\d{2})$/
+
+/** `YYYY-MM-DD` | `YYYY/MM/DD` | `YYYYMMDD` -> `YYYY-MM-DD`; anything else undefined.
+ *
+ * Year-FIRST only, on purpose. All three read as the same day to anyone, whichever
+ * date convention they hold, so accepting them costs nothing. Year-LAST is a
+ * different proposition and stays rejected — see parseDateOption.
+ *
+ * Normalizing rather than forwarding as typed keeps one shape on the wire: the
+ * server's lenient parsing is not guaranteed uniform across endpoint groups, and
+ * `YYYY-MM-DD` is the form every group is probed against. */
+function normalizeYearFirstDate(value: string): string | undefined {
+  const parts = YEAR_FIRST_DATE.exec(value)
+  return parts ? `${parts[1]}-${parts[3]}-${parts[4]}` : undefined
+}
 
 /**
- * Strict `YYYY-MM-DD` guard for Quote/Fundamental date options.
+ * Year-first date guard for Quote/Fundamental date options. Accepts the three
+ * year-first layouts and normalizes them to `YYYY-MM-DD`; rejects year-last.
  *
- * Beyond the documented shape the server accepts two extra year-last formats
- * whose day/month order is *opposite* to each other (probed 2026-07-20 on
- * quote/kline/daily and fundamental/balance-sheet; other groups sharing these
- * flags were not probed, so the guard is applied uniformly as the safe default):
+ * The server parses year-last layouts too, and reads them month-first — the US
+ * convention (re-probed 2026-08-17):
  *
- *   "07/01/2026" -> 2026-01-07   slash  reads DD/MM/YYYY
- *   "07-01-2026" -> 2026-07-01   hyphen reads MM-DD-YYYY
+ *   "01-07-2026" / "01/07/2026" -> 2026-01-07
+ *   "07-01-2026" / "07/01/2026" -> 2026-07-01
  *
- * Same three digits, six months apart, both HTTP 200, and nothing in the
- * response echoes which date the server actually used. Confirmed by the
- * complement: "25/12/2026" parses while "12/25/2026" errors, and the hyphen
- * forms behave exactly the other way round. Since the CLI cannot know which
- * reading was meant, it forwards only the unambiguous form.
+ * That is a platform convention, not a defect: both separators agree (an earlier
+ * build read slash as DD/MM and hyphen as MM-DD — fixed 2026-08-15, `bug/closed.md`
+ * P0-3), and it is documented in README + SKILL.md.
  *
- * Other unambiguous shapes (`20260701`, `2026/07/01`) are rejected too, even
- * though the server handles them — one accepted form beats a per-shape allowlist
- * that has to be re-probed per endpoint group. The message says which form is
- * wanted rather than claiming the input itself was ambiguous.
+ * The CLI still refuses year-last, and the asymmetry with year-first is the whole
+ * point: `2026/07/01` means one day to every reader, while `01-07-2026` means
+ * 7 January to an American and 1 July to a European. Forwarding it would hand
+ * half of them data six months off with HTTP 200 and a plausible row count —
+ * the CLI cannot know which reading was meant. Failing here also beats a round
+ * trip: no request, no billing, and the message names the form that works.
  *
- * Datetime options (`--start-time`) are guarded separately: pass-through ones by
- * `parseDatetimeOption` (a timezone-free field check that returns the string as-is),
- * and the two conversion endpoints (A-share announcement / knowledge-batch) by
- * `parseTimestamp13`.
+ * Datetime options (`--start-time`) are guarded separately but follow the same
+ * rule: pass-through ones by `parseDatetimeOption`, and the two conversion
+ * endpoints (A-share announcement / knowledge-batch) by `parseTimestamp13`.
  */
 export function parseDateOption(value: string, optionName: string): string {
-  if (!YYYY_MM_DD.test(value)) {
-    throw new ValidationError(`Invalid ${optionName}: expected YYYY-MM-DD, got "${value}" — only that form is forwarded as-is; on some endpoints other layouts (e.g. "07/01/2026") are read as a different day`)
+  const normalized = normalizeYearFirstDate(value)
+  if (normalized === undefined) {
+    throw new ValidationError(`Invalid ${optionName}: expected YYYY-MM-DD (YYYY/MM/DD and YYYYMMDD also accepted), got "${value}" — year-last layouts are refused because the API reads them month-first (US convention): "01-07-2026" means 7 January, not 1 July`)
   }
   // Shape alone lets 2026-02-30 / 2026-13-01 through; round-trip to reject those.
   // Built from the ISO string, not Date.UTC(y,...), whose two-digit-year mapping
   // would turn a valid year 0050 into 1950 and report it as a non-existent date.
-  const [year, month, day] = value.split("-").map(Number)
-  const parsed = new Date(`${value}T00:00:00Z`)
+  const [year, month, day] = normalized.split("-").map(Number)
+  const parsed = new Date(`${normalized}T00:00:00Z`)
   if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
     throw new ValidationError(`Invalid ${optionName}: "${value}" is not a real calendar date`)
   }
-  return value
+  return normalized
 }
 
 /** Commander argParser factory — `.option("--start-date <date>", desc, dateArg("--start-date"))`. */
@@ -160,15 +176,28 @@ export function dateArg(optionName: string): (value: string) => string {
   return (value: string) => parseDateOption(value, optionName)
 }
 
-/** `yyyy-MM-dd` with an optional ` HH:mm[:ss]` / `THH:mm[:ss]` tail. Anything else
- * is rejected rather than handed to `new Date()`: V8's fallback parser accepts the
- * same year-last shapes the server does but reads them the OTHER way round —
- * `07/01/2026` is July 1 to V8 and January 7 to the server, `25/12/2026` is invalid
- * to V8 and valid to the server (both probed 2026-07-20). Since `announcement list`
- * converts locally while its HK/US siblings pass the string through, an open
- * fallback made the same flag mean two dates six months apart across sibling
- * commands, silently and with exit 0. */
-const LOCAL_DATETIME = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+/** A year-first date (any of the three layouts, separator consistent via the
+ * backreference) with an optional ` HH:mm[:ss]` / `THH:mm[:ss]` tail. Anything
+ * else is rejected rather than handed to `new Date()`: V8's fallback parser
+ * accepts the year-last shapes the server does but reads them the OTHER way round
+ * — `07/01/2026` is July 1 to V8 and January 7 to the server, `25/12/2026` is
+ * invalid to V8 and valid to the server (both probed 2026-07-20). Since
+ * `announcement list` converts locally while its HK/US siblings pass the string
+ * through, an open fallback made the same flag mean two dates six months apart
+ * across sibling commands, silently and with exit 0.
+ *
+ * Groups: 1=year 2=separator 3=month 4=day 5=hour 6=minute 7=second. */
+const LOCAL_DATETIME = /^(\d{4})([-/]?)(\d{2})\2(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+
+/** Rewrite the date part of an already-validated datetime to `YYYY-MM-DD`, leaving
+ * the time part and its separator untouched. Pass-through endpoints echo whatever
+ * we send, so they should see the one canonical layout. */
+function normalizeDatetime(value: string): string {
+  const parts = LOCAL_DATETIME.exec(value)
+  if (!parts) return value
+  const [, y, sep, mo, d] = parts
+  return sep === "" ? `${y}-${mo}-${d}${value.slice(8)}` : `${y}-${mo}-${d}${value.slice(10)}`
+}
 
 /** Field-level datetime validation, timezone-free — a real calendar day plus a
  * valid clock time, judged by arithmetic alone (no Date construction, so no
@@ -178,7 +207,7 @@ const LOCAL_DATETIME = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}
 function datetimeFieldsValid(value: string): boolean {
   const parts = LOCAL_DATETIME.exec(value)
   if (!parts) return false
-  const [, y, mo, d, hh = "0", mi = "0", ss = "0"] = parts
+  const [, y, , mo, d, hh = "0", mi = "0", ss = "0"] = parts
   const year = Number(y), month = Number(mo), day = Number(d)
   if (month < 1 || month > 12) return false
   const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
@@ -208,7 +237,7 @@ export function toTimestamp13(value: string | undefined): number | undefined {
   // HH:mm:ss")` parses as local time — for CST users the two forms would differ by 8
   // hours. Build from local components so both mean the same wall-clock day.
   const parts = LOCAL_DATETIME.exec(value)!
-  const [, y, mo, d, hh = "0", mi = "0", ss = "0"] = parts
+  const [, y, , mo, d, hh = "0", mi = "0", ss = "0"] = parts
   const year = Number(y)
   const dt = new Date(year, Number(mo) - 1, Number(d), Number(hh), Number(mi), Number(ss))
   // Full round-trip on every field: rejects the two inputs that cannot convert
@@ -225,7 +254,7 @@ export function parseTimestamp13(value: string | undefined, optionName: string):
   if (value === undefined) return undefined
   const parsed = toTimestamp13(value)
   if (parsed === undefined) {
-    throw new ValidationError(`Invalid ${optionName}: expected a Unix timestamp or "YYYY-MM-DD" optionally with " HH:mm[:ss]" (space or T separator), got "${value}" — year-last forms are refused because Node and the API read their day/month order the opposite way round`)
+    throw new ValidationError(`Invalid ${optionName}: expected a Unix timestamp or "YYYY-MM-DD" optionally with " HH:mm[:ss]" (space or T separator; YYYY/MM/DD and YYYYMMDD also accepted), got "${value}" — year-last layouts are refused because the API reads them month-first (US convention): "01-07-2026" means 7 January, not 1 July`)
   }
   return parsed
 }
@@ -241,17 +270,23 @@ export function parseTimestamp13(value: string | undefined, optionName: string):
  *
  * Validated with `datetimeFieldsValid`, NOT `toTimestamp13`: the latter's local Date
  * round-trip would reject a DST-gap string (e.g. `2026-03-08 02:30:00` under
- * America/New_York) that the server accepts — the CLI forwards this string as-is and
- * the server resolves it in its own zone, so the client's timezone must not decide
+ * America/New_York) that the server accepts — the CLI forwards this string and the
+ * server resolves it in its own zone, so the client's timezone must not decide
  * validity. Distinct from `parseTimestamp13`, which DOES convert (A-share
  * announcement / knowledge-batch want epoch millis, where an unrepresentable local
  * instant genuinely cannot convert).
+ *
+ * Epochs pass through untouched; a datetime has only its DATE part rewritten to
+ * `YYYY-MM-DD` (so `2026/07/01 09:30` goes out as `2026-07-01 09:30`). The time
+ * part is never reformatted — the endpoints echo it verbatim and accept both the
+ * space and `T` separators.
  */
 export function parseDatetimeOption(value: string, optionName: string): string {
-  if (epochMillis(value) === undefined && !datetimeFieldsValid(value)) {
-    throw new ValidationError(`Invalid ${optionName}: expected a Unix timestamp or "YYYY-MM-DD" optionally with " HH:mm[:ss]" (space or T separator), got "${value}" — year-last forms are refused because the API reads their day/month order differently per separator`)
+  if (epochMillis(value) !== undefined) return value
+  if (!datetimeFieldsValid(value)) {
+    throw new ValidationError(`Invalid ${optionName}: expected a Unix timestamp or "YYYY-MM-DD" optionally with " HH:mm[:ss]" (space or T separator; YYYY/MM/DD and YYYYMMDD also accepted), got "${value}" — year-last layouts are refused because the API reads them month-first (US convention): "01-07-2026" means 7 January, not 1 July`)
   }
-  return value
+  return normalizeDatetime(value)
 }
 
 /** Commander argParser factory for pass-through datetime options — same role as
@@ -287,6 +322,9 @@ export interface ScreenerIndicator {
   field: string
   indicatorCode: string
   parameters: IndicatorParam[]
+  /** Set by the bare `"F1:"` spec — "this indicator takes no query date".
+   * A parse-time marker, stripped before the body is built; never sent. */
+  noQueryDate?: true
 }
 
 // Parse repeatable `"<lhs>:key=value"` specs into per-lhs parameter lists.
@@ -471,20 +509,9 @@ export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]
     if (indicators.has(field)) {
       throw new ValidationError(`Duplicate --indicator variable "${field}": each variable must bind exactly one indicator`)
     }
-    indicators.set(field, { field, indicatorCode, parameters: params.get(field) ?? [] })
-  }
-  // The cross-section opt-out (`--indicator-param "code:"`) has no screener
-  // equivalent, and offering one would be a trap: the server DROPS any screener
-  // indicator sent with `parameters: []` and says nothing (probed 2026-08-15 —
-  // F1 with empty params vanishes from `indicatorList` while a sibling F2
-  // survives; a genuine no-match returns the identical empty payload, so the two
-  // are indistinguishable). Sending a parameter instead is refused outright for
-  // these nine indicators, so the screener is closed to them from both sides —
-  // that half is server-side (`bug/server-open.md` P1-7) and this is only the
-  // guard that keeps the failure loud. Remove it once the screener stops dropping
-  // parameterless indicators.
-  if (noQueryDate.size > 0) {
-    throw new ValidationError(`--indicator-param "${[...noQueryDate][0]}:" (the no-date opt-out) is not supported by the screener: an indicator sent with no parameters does not take part in the screen, so it would run without that condition and answer 0 rows with no error. Read the value with 'indicator cross-section --indicator-param "<code>:"' and filter client-side.`)
+    indicators.set(field, noQueryDate.has(field)
+      ? { field, indicatorCode, parameters: params.get(field) ?? [], noQueryDate: true }
+      : { field, indicatorCode, parameters: params.get(field) ?? [] })
   }
   // A param for an unbound variable is silently dropped by the server, so the
   // query would run with a filter the caller believes is applied but is not.

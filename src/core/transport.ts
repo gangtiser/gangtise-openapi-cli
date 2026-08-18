@@ -127,8 +127,9 @@ const TERMINAL_API_CODES = new Set(["999011", "140002"])
 // replay cannot double-execute (or double-bill) anything even under "no-replay".
 const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"])
 
-/** "no-replay" (per-call billed endpoints — billing probed non-idempotent, no
- * cache-hit exemption): never resend a request the server may have executed.
+/** "no-replay" (replay-safety marker — NOT a billing-model flag; see endpoints.ts):
+ * never resend a request the server may already have executed, because a replay can
+ * double-bill.
  * Only connect-phase errors, 429 (rejected before processing) and the explicit
  * token-self-heal mark retry; 5xx / response timeouts / 999999 fail fast.
  * "no-999999" (EDE indicator endpoints): 999999 is a server-side fault here (it

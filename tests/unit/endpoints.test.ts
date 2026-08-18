@@ -487,11 +487,15 @@ describe("ENDPOINTS", () => {
     expect(ep.pagination).toBeUndefined()
   })
 
-  it("marks per-call billed generation/submission endpoints as no-replay", () => {
-    // Billing probed 2026-07-11: the platform charges per call with NO cache-hit
-    // exemption, so replaying a 5xx/timeout on these fixed-price endpoints
-    // double-bills. Per-ROW billed lists stay on the default policy — a failed
-    // response returned no rows, so nothing was billed.
+  it("marks the replay-unsafe endpoints as no-replay", () => {
+    // A replay of a request the server may already have executed double-bills, so
+    // these never resend a 5xx/timeout. Most are per-call billed with NO cache-hit
+    // exemption (probed 2026-07-11); `ai.hot-topic` is the exception — priced per
+    // returned item, marked because replaying a page could re-bill rows already
+    // delivered. So do NOT read this list as "the per-call billed endpoints":
+    // reading the flag that way is what once made the total-cap probe skip
+    // `ai.hot-topic` (see client.ts). Ordinary lists stay on the default policy —
+    // a failed response returned no rows, so nothing was billed.
     const NO_REPLAY_KEYS = [
       "ai.one-pager",
       "ai.investment-logic",

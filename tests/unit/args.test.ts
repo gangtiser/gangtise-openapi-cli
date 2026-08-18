@@ -124,8 +124,26 @@ describe("parseDateOption", () => {
     expect(() => parseDateOption("07/01/2026", "--start-date")).toThrow(/YYYY-MM-DD/)
   })
 
+  it("accepts the other two year-first layouts and normalizes them", () => {
+    // Year-FIRST is unambiguous to every reader, so it is accepted for convenience;
+    // normalized on the way out so only one layout ever reaches the wire (the
+    // server's lenient parsing is not guaranteed uniform across endpoint groups).
+    expect(parseDateOption("2026/07/01", "--start-date")).toBe("2026-07-01")
+    expect(parseDateOption("20260701", "--start-date")).toBe("2026-07-01")
+    // Calendar validation applies to the normalized value, not just the shape.
+    expect(() => parseDateOption("2026/02/30", "--start-date")).toThrow(/not a real calendar date/)
+    expect(() => parseDateOption("20260230", "--start-date")).toThrow(/not a real calendar date/)
+  })
+
+  it("rejects a mixed separator, which is a typo rather than a layout", () => {
+    // The backreference in YEAR_FIRST_DATE pins this: "2026-07/01" is nobody's format.
+    for (const bad of ["2026-07/01", "2026/07-01"]) {
+      expect(() => parseDateOption(bad, "--start-date"), `should reject ${bad}`).toThrow(ValidationError)
+    }
+  })
+
   it("rejects other shapes that would reach the server unvalidated", () => {
-    for (const bad of ["2026/07/01", "20260701", "2026-7-1", "July 1 2026", "2026-07-01 00:00:00", ""]) {
+    for (const bad of ["2026-7-1", "July 1 2026", "2026-07-01 00:00:00", "2026.07.01", ""]) {
       expect(() => parseDateOption(bad, "--end-date"), `should reject ${JSON.stringify(bad)}`).toThrow(ValidationError)
     }
   })
@@ -165,8 +183,8 @@ describe("dateArg", () => {
 })
 
 describe("parseDatetimeOption", () => {
-  it("accepts date / datetime / timestamp shapes and returns them unchanged", () => {
-    // Returned verbatim, not converted — the pass-through endpoints echo the string.
+  it("keeps a canonical datetime and an epoch unchanged", () => {
+    // Not converted — the pass-through endpoints echo the string back.
     expect(parseDatetimeOption("2026-01-07", "--start-time")).toBe("2026-01-07")
     expect(parseDatetimeOption("2026-01-07 10:30:00", "--start-time")).toBe("2026-01-07 10:30:00")
     expect(parseDatetimeOption("2026-01-07T10:30", "--start-time")).toBe("2026-01-07T10:30")
@@ -177,9 +195,18 @@ describe("parseDatetimeOption", () => {
     // Probed 2026-07-21 on insight research list: 07/01/2026 came back as 2026-01-07
     // (total 1562) but 07-01-2026 as 2026-07-01 (total 210) — a half-year apart,
     // both HTTP 200 with nothing flagging which the server used.
-    for (const bad of ["07/01/2026", "07-01-2026", "25/12/2026", "12/25/2026", "2026/01/07", "July 1 2026", "Infinity", "1e309", "2026-13-01", "2026-02-30", "1.7512992e12", "0x174876e800", "17512992000", " 1751299200000 "]) {
+    for (const bad of ["07/01/2026", "07-01-2026", "25/12/2026", "12/25/2026", "July 1 2026", "Infinity", "1e309", "2026-13-01", "2026-02-30", "1.7512992e12", "0x174876e800", "17512992000", " 1751299200000 ", "2026-01/07"]) {
       expect(() => parseDatetimeOption(bad, "--start-time"), bad).toThrow(ValidationError)
     }
+  })
+
+  it("normalizes the DATE part of the other year-first layouts, leaving the time alone", () => {
+    // Only the date half is rewritten: the time separator (space vs T) and whether
+    // seconds are present are echoed verbatim by these endpoints, so they stay.
+    expect(parseDatetimeOption("2026/01/07", "--start-time")).toBe("2026-01-07")
+    expect(parseDatetimeOption("20260107", "--start-time")).toBe("2026-01-07")
+    expect(parseDatetimeOption("2026/01/07 10:30:00", "--start-time")).toBe("2026-01-07 10:30:00")
+    expect(parseDatetimeOption("20260107T10:30", "--start-time")).toBe("2026-01-07T10:30")
   })
 
   it("validates fields without a local Date, so a DST-gap string is not client-timezone-dependent", () => {
@@ -243,9 +270,17 @@ describe("toTimestamp13", () => {
     // `announcement list` converts locally while announcement-hk passes the string
     // through, an open `new Date()` fallback made one flag mean two dates six months
     // apart across sibling commands, both exiting 0.
-    for (const bad of ["07/01/2026", "07-01-2026", "25/12/2026", "12/25/2026", "20260701", "July 1 2026"]) {
+    for (const bad of ["07/01/2026", "07-01-2026", "25/12/2026", "12/25/2026", "July 1 2026"]) {
       expect(toTimestamp13(bad), `should reject ${bad}`).toBeUndefined()
     }
+  })
+
+  it("converts the other year-first layouts to the same instant as the canonical one", () => {
+    // 8 digits cannot collide with an epoch (those are exactly 10 or 13), so the
+    // compact form is unambiguous here too.
+    expect(toTimestamp13("2026/07/01")).toBe(toTimestamp13("2026-07-01"))
+    expect(toTimestamp13("20260701")).toBe(toTimestamp13("2026-07-01"))
+    expect(toTimestamp13("2026/07/01 10:30:00")).toBe(toTimestamp13("2026-07-01 10:30:00"))
   })
 
   it("still accepts the documented datetime forms", () => {

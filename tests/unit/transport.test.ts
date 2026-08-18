@@ -128,12 +128,12 @@ describe("withRetry", () => {
   })
 })
 
-// Billing probed 2026-07-11: per-call charging with NO cache-hit exemption, so a
-// replay of a request the server may already have executed double-bills. Under
-// "no-replay" only errors proving the request never reached the server (connect
-// phase), 429 (rejected before processing), and the explicit token-self-heal
-// mark may retry.
-describe("withRetry no-replay policy (per-call billed endpoints)", () => {
+// "no-replay" is a REPLAY-SAFETY policy, not a billing-model flag: a replay of a
+// request the server may already have executed double-bills (most endpoints carrying
+// it are per-call billed with NO cache-hit exemption, probed 2026-07-11). Under it
+// only errors proving the request never reached the server (connect phase), 429
+// (rejected before processing), and the explicit token-self-heal mark may retry.
+describe("withRetry no-replay policy (replay-unsafe endpoints)", () => {
   it("does not retry a 5xx (server may have executed and billed)", async () => {
     const err = new ApiError("server error", undefined, 503)
     const fn = vi.fn().mockRejectedValue(err)

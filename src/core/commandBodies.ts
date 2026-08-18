@@ -131,8 +131,9 @@ export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
  *   no tradeDate, has other params      → pass those AND `"<code>:"` to suppress
  *   no tradeDate, parameterList empty   → `"<code>:"` alone
  *
- * The last two need the opt-out (`noQueryDate`, see args.ts); on the SCREENER they
- * are unreachable at all (`bug/server-open.md` P1-7).
+ * The last two need the opt-out (`noQueryDate`, see args.ts). It works the same on
+ * the screener since 2026-08-17 — before that the server silently dropped bindings
+ * sent with `parameters: []`, so the spelling was refused there (`bug/closed.md` P1-7).
  *
  * 🔴 The RULE is the only stable thing — any list is a snapshot, structurally.
  * `indicator search` REQUIRES a keyword (server answers `100001 缺少必填参数` to an
@@ -212,18 +213,16 @@ export function buildIndicatorScreenerBody(options: IndicatorScreenerOptions) {
   return {
     universe: maybeArray(options.security),
     expression: options.expression,
-    // Every indicator gets a date, unconditionally — the cross-section opt-out has
-    // no screener counterpart (parseScreenerIndicators refuses it; the server drops
-    // parameterless screener indicators without a word).
-    //
-    // ⚠️ The official doc's own `F3 contains '酒'` example does not run as written.
-    // Through 2026-08-02 the screener dropped any indicator sent with
-    // `parameters: []` (re-probed 2026-08-03: fixed). Since 2026-08-14 it fails from
-    // the other side instead — `pty_op_scope` answers `100003 不支持参数 tradeDate`,
-    // and removing the tradeDate puts it right back in the dropped bucket. Nine
-    // indicators are boxed in like this; see `bug/server-open.md` P1-7.
-    indicatorList: indicators.map((indicator) => (indicator.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
-      ? indicator
-      : { ...indicator, parameters: [...indicator.parameters, { paramKey: "tradeDate", paramValue: options.date }] })),
+    // Every indicator gets a date unless it opts out with the bare `"F1:"` spec —
+    // the same escape hatch cross-section has, and for the same reason: indicators
+    // whose parameterList declares no date key answer `100003 不支持参数 tradeDate`
+    // for the WHOLE request. Sending them with `parameters: []` is how the screener
+    // reaches them (probed 2026-08-17: the binding survives and the condition
+    // applies — `scr_exchg_sctr contains '创业板'` picks 宁德时代 out of a four-stock
+    // universe). Through 2026-08-16 the server dropped such bindings silently, which
+    // is why this opt-out used to be refused here; that half is now fixed.
+    indicatorList: indicators.map((indicator) => (indicator.noQueryDate || indicator.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
+      ? stripMarker(indicator)
+      : { ...stripMarker(indicator), parameters: [...indicator.parameters, { paramKey: "tradeDate", paramValue: options.date }] })),
   }
 }

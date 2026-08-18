@@ -124,7 +124,7 @@ gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
   - 文本：`contains` / `notcontains`（不区分大小写，**仅对 `dataType: string` 的指标有效**）
   - 逻辑：`&&` `||`，分组 `(` `)`
 - `--date`（**必选**）：下发为**每个**指标的 `tradeDate`（已带 `tradeDate`/`reportDate` 的不覆盖）。绝大多数指标吃 `tradeDate`，漏传就是一张空表且退出码 0，所以必填
-- 🔴 **`parameterList` 里一个日期参数都没有的指标（`pty_*` / `scr_*` 静态属性两族、`div_cash_paid_ratio` / `div_cash_yr`、`pty_shr_reg`），`screener` 上当前取不到**：带 `tradeDate` 会被拒（`100003`）；不带则该指标不进结果，**筛选条件等于没加、返回 0 行且不报错**——这一档最危险，看起来像「没有标的符合条件」。CLI 因此在 `screener` 上拦下 `--indicator-param "F1:"` 写法并说明原因（同样的写法在 `cross-section` 上可用）。**替代做法**：用 `indicator cross-section` 把这几列取回来，在本地筛。注意这只影响**没有任何日期参数**的指标，报告期类（`is_*` 等）在 `screener` 上给 `F1:reportDate=...` 照常可用
+- 🔴 **`parameterList` 里一个日期参数都没有的指标（`pty_*` / `scr_*` 静态属性两族、`div_cash_paid_ratio` / `div_cash_yr`、`pty_shr_reg`）必须显式声明「不要日期」**：写 `--indicator-param "F1:"`（冒号后什么都不写）。不写的话 `--date` 会给它注入 `tradeDate`，而这些指标不接受该参数，**整条请求**报 `100003 指标 xxx 不支持参数 tradeDate`。`F1:` 与真参数可组合，`div_cash_*` 要同时给 `F1:` 和 `F1:fiscalYear=2025`。这与 `cross-section` 的 `"code:"` 是同一个写法。注意只有**没有任何日期参数**的指标需要，报告期类（`is_*` 等）给 `F1:reportDate=...` 即可
 - `--indicator-param`：格式是 **`F1:key=value`（按变量，不是按 code）**。引用了没绑定的变量会直接报错，不会静默丢弃
 - `--expression` 里引用未绑定的变量，CLI **本地就拦**（不发请求、不计费）；服务端也会报 `100003`
 - **输出（宽表）**：同 `cross-section`，每行一只**命中**的证券，列为 `security / name / <各指标名>…`；无命中返回空表
@@ -148,11 +148,12 @@ gangtise indicator screener --indicator F1:qte_close --indicator F2:qte_close \
 
 ```bash
 # 文本筛选：白酒板块里经营范围含「酒」的公司
-# ⚠️ pty_op_scope 的 parameterList 为空，属于上面说的「screener 当前取不到」那一类，改走 cross-section 本地筛：
-gangtise indicator cross-section --indicator pty_op_scope \
-  --indicator-param "pty_op_scope:" \
-  --security 1000000287 --date 2026-08-13 --format jsonl | grep 酒
-# screener 上可用的文本筛选换成有日期参数的字符串指标，例如：
+# ⚠️ pty_op_scope 的 parameterList 为空 → 必须带 "F1:" 声明它不吃日期，否则整条请求报 100003
+gangtise indicator screener --indicator F1:pty_op_scope \
+  --indicator-param "F1:" \
+  --security 1000000287 --expression "F1 contains '酒'" \
+  --date 2026-08-13 --format table
+# 有日期参数的字符串指标不需要 "F1:"，直接筛：
 gangtise indicator screener --indicator F1:mgn_flag \
   --security 1000000287 --expression "F1 contains '是'" \
   --date 2026-08-13 --format table   # 融资融券标的

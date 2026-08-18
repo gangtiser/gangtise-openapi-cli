@@ -6,14 +6,11 @@
 
 README 仅列最近 5 个版本摘要：
 
-- **v0.35.0 — 2026-08-16**：新增 `--indicator-param "<code>:"`（冒号后留空）声明「这个指标不要查询日期」，用于 `parameterList` 里没有日期参数的指标——`pty_*`（经营范围/注册地/法定代表人…）、`scr_*`（上市市场/上市板块/ISIN…）两族，以及 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。这类指标此前在 `indicator cross-section` 上取不到数（`--date` 必填且会注入 `tradeDate`，而它们不收，整条请求被拒）；该写法可与真实参数共存（`"code:" + "code:fiscalYear=2025"`）。**EDE 日期参数报错提示重写**：拆成五种报文形态分别给建议，服务端同时点名「不该有的键」和「缺的键」时直说换哪个，只说了一半时不再瞎猜，多指标批量报错时不再用单数口吻指向其中一个指标。另：`--rank-type` 的说明按实测更正（差别大小取决于关键词，`--search-type` 不影响 `--rank-type 1` 取回哪些条目）；`ai hot-topic` 全量拉取不再多花一次按次计费的调用。
+- **v0.36.0 — 2026-08-18**：**日期写法放宽**——`YYYY-MM-DD`、`YYYY/MM/DD`、`YYYYMMDD` 三种「年在前」写法都收，统一归一成 `YYYY-MM-DD` 发出（datetime 只归一日期部分，Unix 时间戳原样透传）；「年在后」写法（`01-07-2026`）仍在本地拒绝——接口会按美式「月在前」解析它，欧洲习惯写法会静默拿到差半年的数据，详见「关于日期格式」。**`indicator screener` 支持无日期指标**：`--indicator-param "F1:"`（冒号后留空）声明该指标不要查询日期，`pty_*` / `scr_*` 静态属性两族与 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg` 现在可以直接用于条件选股（此前只能在 `cross-section` 取回后本地筛），写法与截面一致、可与真实参数共存。**全量拉取的 `total` 封顶探测恢复覆盖 `ai hot-topic`**（v0.35.0 曾跳过它，前提有误——见下）。另：EDE 报错提示同步更新；补充计费说明（`ai hot-topic` 50/篇 的「篇」= 一整份报告；按篇/按条计费的接口查不到内容不扣分）。
+- **v0.35.0 — 2026-08-16**：新增 `--indicator-param "<code>:"`（冒号后留空）声明「这个指标不要查询日期」，用于 `parameterList` 里没有日期参数的指标——`pty_*`（经营范围/注册地/法定代表人…）、`scr_*`（上市市场/上市板块/ISIN…）两族，以及 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。这类指标此前在 `indicator cross-section` 上取不到数（`--date` 必填且会注入 `tradeDate`，而它们不收，整条请求被拒）；该写法可与真实参数共存（`"code:" + "code:fiscalYear=2025"`）。**EDE 日期参数报错提示重写**：拆成五种报文形态分别给建议，服务端同时点名「不该有的键」和「缺的键」时直说换哪个，只说了一半时不再瞎猜，多指标批量报错时不再用单数口吻指向其中一个指标。另：`--rank-type` 的说明按实测更正（差别大小取决于关键词，`--search-type` 不影响 `--rank-type 1` 取回哪些条目）；`ai hot-topic` 全量拉取跳过 `total` 封顶探测（**该改动已撤回，见下一版**——它的前提「`hot-topic` 按次计费」是错的，实际按篇计费，而按篇/按条计费的接口查不到内容不扣分，所以那次探测本来就不花钱）。
 - **v0.34.1 — 2026-08-15**：EDE 报告期类指标传错日期参数时，报错里直接给出该改的 CLI 写法（此前只有服务端那句「缺少必填参数 reportDate」，要自己推断该用 `--indicator-param`）；该提示对 `100001` / `100003` 两个错误码都生效，并注明少数指标两个日期都要、另有指标要 `fiscalYear`，一律以 `indicator search` 的 `parameterList` 为准。另修复下载文件名缓存在并发写入下可能丢条目的问题（单进程使用不受影响）。
 - **v0.34.0 — 2026-08-15**：跟进 2026-08-14 服务端更新。🔴 **破坏性**：`quote day-kline --security all` 已失效（服务端停止支持），改用 `aShares` / `hkStocks` / `usStocks`，且市场关键字必须单独传（不能与证券代码或另一个关键字混填）——这两种写法 CLI 都会在发请求前报错并指出正确写法；`ai stock-summary` 同理不再接受市场关键字。`day-kline` 现覆盖 A股/港股/美股个股与交易所/概念/行业指数（可混查），三个旧命令 `day-kline-hk`/`day-kline-us`/`index-day-kline` 标记为已下线；`minute-kline` 支持指数。**另两处影响取数完整性的修复**：`quote fund-flow` 把市场关键字与证券代码混填时，此前会只返回那几个代码的数据且不报错（"全市场 + 这只"静默变成"只有这只"），现改为本地拦截；`quote index-day-kline --security all` 跨 30 天以上时分片过宽会撞行数上限被截断（标 `partial` + 退出 3），现已调细粒度，同区间可完整取回。另：三大报表新增 `earliestAnncDate`（做时点对齐用它，不要用 `announcementDate`），EDE 报告期类指标改为必须显式传 `reportDate`，错误码提示按新行为更新。
 - **v0.33.0 — 2026-08-09**：四处行为变更，都是把「静默给出看着正常的错结果」改成显式失败——分页端点返回异形首包（含 `data: null`）改退出码 3；`total` 被服务端封顶时探测并标 `totalCapped` + 退出 3（三个 opinion 端点的 `total` 恒为 10000 而实际远不止，全量导出此前会被静默截断）；空结果不再在 stdout 留空行、`null` 不再被渲染成一条记录。另补多处帮助文案与 EDE 占位值（个别指标填 `0` 而非 `null`）的说明。
-- **v0.32.0 — 2026-08-08**：新增帕米尔专家纪要列表与下载；跟进 2026-08-07 服务端更新——EDE 缺数据不再整列/整行消失（退出码 3 现在专指「代码没被识别」），条件选股重复指标的 `unreliable` 告警随之移除；`--search-type`/`--rank-type`/`--file-type` 等枚举改为本地拦截（此前传非法值不会报错，会拿到未过滤的全量）。
-- **v0.31.0 — 2026-08-03**：修复 v0.30.1 的矩阵维度校验误杀「单指标 × 板块 ID」时序查询的回归；EDE 结果不完整或不可信时改以退出码 3 标记（`partial` / `unreliable`）。
-- **v0.30.1 — 2026-08-02**：修复 `sDate` 吞掉查询日期导致的区间指标静默错数，让条件选股的文本筛选真正可用，并在服务端整行/整列丢数据时给出警告。
-- **v0.30.0 — 2026-08-02**：适配 EDE 接口重构（`universe` 取代 `securityCodeList`、截面矩阵转置、指标元数据结构化），新增 `indicator screener` 条件选股，并修正复权参数名。
 
 ### 历史里程碑
 
@@ -263,7 +260,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——按次计费不幂等，重放即重复扣分；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的占位单元格（多数指标 `null`、个别如 `is_dnrpnp` 是 `0`），空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——**重放会重复扣分**：服务端可能已经执行并计费，重发按次计费的再扣一次，重发按篇/按条计费的会把已交付的行再计一次；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的占位单元格（多数指标 `null`、个别如 `is_dnrpnp` 是 `0`），空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
 - **Token 自愈**：调用返回 `0000001008` / `999002` 时自动强制刷新 Token 并重试一次。
 - **K线/资金流向自动分片**：`quote day-kline --security aShares|hkStocks|usStocks`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、港股 2 天/片；已下线的 `day-kline-hk`/`day-kline-us`/`index-day-kline` 用 `all`，分别 2/1/15 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
@@ -707,10 +704,33 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 - `--from`：非负整数
 - `--size` / `--limit` / `--top`：正整数
 - `--file-type` / `--resource-type` 以及数值型列表参数：有限数字
-- 所有 date 参数（`--start-date`/`--end-date`/`--date`/`--report-date`，含 Quote/Fundamental/AI/Alternative/Indicator）：`YYYY-MM-DD`（严格——年在后等歧义格式在发请求前拒绝）
-- 所有 `--start-time` / `--end-time`（Insight/Vault/AI 透传、`quote minute-kline`，以及 A 股公告 / `knowledge-batch` 两个转换端点）：`YYYY-MM-DD[ HH:mm[:ss]]`（时间部分秒可省、空格或 `T` 分隔）或 10/13 位 Unix 时间戳（严格校验——年在后等歧义格式在发请求前拒绝）
+- 所有 date 参数（`--start-date`/`--end-date`/`--date`/`--report-date`，含 Quote/Fundamental/AI/Alternative/Indicator）：`YYYY-MM-DD`、`YYYY/MM/DD` 或 `YYYYMMDD`，统一归一成 `YYYY-MM-DD` 发出（年在后等歧义写法在发请求前拒绝，见下节）
+- 所有 `--start-time` / `--end-time`（Insight/Vault/AI 透传、`quote minute-kline`，以及 A 股公告 / `knowledge-batch` 两个转换端点）：上述三种日期写法 + 可选的 `[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔），或 10/13 位 Unix 时间戳（同样归一日期部分、拒绝年在后写法）
 
 校验失败会输出 `ValidationError: Invalid ...` 并以非 0 状态退出。
+
+### 关于日期格式
+
+**CLI 接受三种「年在前」写法，并统一归一成 `YYYY-MM-DD` 再发出：**
+
+| 你写的 | 发出去的 |
+|--------|---------|
+| `2026-07-01` | `2026-07-01` |
+| `2026/07/01` | `2026-07-01` |
+| `20260701` | `2026-07-01` |
+
+datetime 参数（`--start-time` / `--end-time`）同理，只归一日期部分：`2026/07/01 09:30:00` → `2026-07-01 09:30:00`；Unix 时间戳原样透传。
+
+**「年在后」的写法（`07-01-2026`、`01/07/2026`）会被本地拒绝**，因为它对不同人意思不同：
+
+| 写法 | 美式读法 | 欧洲读法 | 平台实际按 |
+|------|---------|---------|-----------|
+| `01-07-2026` | 1 月 7 日 | 7 月 1 日 | **1 月 7 日**（美式） |
+| `07-01-2026` | 7 月 1 日 | 1 月 7 日 | **7 月 1 日**（美式） |
+
+平台接口本身会解析年在后写法，**一律按美式「月在前」**。所以按欧洲/国际习惯用 `01-07-2026` 表示「7 月 1 日」的话，会拿到 1 月 7 日的数据——请求返回 200、行数看着也正常，**不会有任何报错提示**。CLI 在发请求前就拒掉这类写法（不发请求、不计费，报错直接给出可用的格式），所以经 CLI 调用不会踩到这个坑。
+
+⚠️ **绕过 CLI 直接调 HTTP 接口时，请统一使用 `YYYY-MM-DD`。**
 
 ## 常见错误
 

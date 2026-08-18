@@ -337,21 +337,40 @@ describe("command request body builders", () => {
     })
   })
 
-  it("refuses the no-date opt-out on the screener, where it would answer 0 rows silently", () => {
-    // Probed 2026-08-15: the screener DROPS an indicator sent with `parameters: []`
-    // and says nothing — F1 vanishes from `indicatorList` while a sibling F2 survives.
-    // A genuine no-match returns the identical `{securityCodeList: [], indicatorList:
-    // [], values: []}`, so nothing downstream can tell them apart. Sending a parameter
-    // instead is refused (100003), so these indicators are closed off from both sides;
-    // failing loudly at parse time is the only honest answer, and it also skips a
-    // billed round trip.
-    expect(() => buildIndicatorScreenerBody({
+  it("honours the no-date opt-out on the screener and never leaks the marker", () => {
+    // Probed 2026-08-17: the screener keeps a binding sent with `parameters: []` and
+    // applies its condition — `scr_exchg_sctr contains '创业板'` picks 宁德时代 out of a
+    // four-stock universe, `contains '不存在的板'` returns none. Until 2026-08-16 the
+    // server dropped such bindings silently, which is why this used to be refused.
+    // Sending any parameter instead is still refused (100003 不支持参数), so the empty
+    // list is the only way to reach these indicators.
+    expect(buildIndicatorScreenerBody({
       indicator: ["F1:scr_exchg_sctr"],
       security: ["600519.SH"],
       expression: "F1 contains '主板'",
       date: "2026-08-13",
       indicatorParam: ["F1:"],
-    })).toThrow(/opt-out.*not supported by the screener/)
+    })).toEqual({
+      universe: ["600519.SH"],
+      expression: "F1 contains '主板'",
+      indicatorList: [{ field: "F1", indicatorCode: "scr_exchg_sctr", parameters: [] }],
+    })
+  })
+
+  it("composes the screener opt-out with a real param", () => {
+    // The fiscalYear pair needs both spellings: `"F1:"` to suppress the tradeDate and
+    // `"F1:fiscalYear=2025"` for the param the indicator does declare.
+    expect(buildIndicatorScreenerBody({
+      indicator: ["F1:div_cash_paid_ratio"],
+      security: ["600519.SH"],
+      expression: "F1 > 50",
+      date: "2026-08-13",
+      indicatorParam: ["F1:", "F1:fiscalYear=2025"],
+    })).toEqual({
+      universe: ["600519.SH"],
+      expression: "F1 > 50",
+      indicatorList: [{ field: "F1", indicatorCode: "div_cash_paid_ratio", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] }],
+    })
   })
 
   it("rejects a screener param that binds to no variable", () => {

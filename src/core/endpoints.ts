@@ -17,9 +17,15 @@ export interface EndpointDefinition {
   timeoutMs?: number
   /** "no-replay": never resend a request the server may already have executed
    * (no 5xx/timeout/999999 retry; connect-phase errors, 429 and token self-heal
-   * still retry). Billing probed 2026-07-11: the platform charges per call with
-   * no cache-hit exemption, so a replay on these expensive (🔴-tier) endpoints
-   * double-bills.
+   * still retry), because a replay can double-bill. Most endpoints carrying it are
+   * per-call billed with no cache-hit exemption (probed 2026-07-11), which is why
+   * a replayed 5xx charges twice.
+   *
+   * ⚠️ This is a REPLAY-SAFETY marker, NOT a billing-model one — never read it as
+   * "per-call billed". `ai.hot-topic` carries it while being priced per returned
+   * item; it is marked because replaying a page could re-bill rows the server
+   * already delivered. Reading it as a billing flag is what once made the
+   * total-cap probe skip that endpoint (see client.ts).
    * "no-999999": EDE used to answer a no-data query with HTTP 500 + 999999
    * (probed 2026-07-11). It stopped doing that on 2026-08-01, and since
    * 2026-08-07 a no-data answer is a null cell with its row and column intact,

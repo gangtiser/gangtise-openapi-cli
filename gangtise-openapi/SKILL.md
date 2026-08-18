@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.35.0"
+version: "0.36.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -24,7 +24,7 @@ description: |-
 1. **`--format json`**：列表/数据类必加。AI 内容生成（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `*-check`）也加 json，但呈现时**直接取 `content` 字段**，不要展示 JSON 包装层。
 2. **opaque ID**：先读 `references/lookup-ids.md`；找不到再按类型查：行业/区域/公告分类/城市 → `reference constant-list --category <分类>`（分类代码用 `reference constant-category` 查）；题材 → `reference concept-search --keyword <名>`；板块 → `reference sector-search --keyword <名>`；申万 `--gts-code` 行业代码全量 → `sector-search --keyword 申万一级行业指数` 取指数数据板块层级的 sectorId 再 `sector-constituents`；券商/牵头/观点机构（按名称找 ID）→ `reference institution-search --keyword <名> [--category ...]`（服务端搜索，返回 `institutionId` + `usageScopes` 标明该 ID 用于哪个接口的哪个参数；覆盖 `--broker` / `--institution` 全部 5 类机构，含 `foreignOpinionInstitution`）——仅当要**全量枚举**时才用本地表 `gangtise lookup broker-org/meeting-org list`（institution-search 是搜索型：top≤10、非全量）。**绝不猜测**。
 3. **公司名 → 证券代码**：先查下方速查表（5 只 mega-cap），其余一律 `gangtise reference securities-search --keyword <名> --category stock` 取 `list[0].gtsCode`。
-4. **时间格式**：datetime `"YYYY-MM-DD HH:mm:ss"`（引号包裹），date `YYYY-MM-DD`。
+4. **时间格式**：datetime `"YYYY-MM-DD HH:mm:ss"`（引号包裹），date `YYYY-MM-DD`（`YYYY/MM/DD`、`YYYYMMDD` 也收，会归一；**年在后写法一律拒绝**）。
 5. **多值参数**：优先重复传（最稳、最明确）：`--security 600519.SH --security 000858.SZ`。CLI 也支持半/全角逗号分隔（`args.ts` 为语音输入容错），但重复传不易被 shell 吞。
 6. **K 线"最近 N 条"**：必须用 `--start-date`/`--end-date` 拉日期范围，从结果按 `tradeDate` 取尾部最近 N 条。**不要只用 `--limit N`**（截取的是窗口开头）。
 6.1. **日 K 仅历史**：`day-kline` **不返回盘中实时数据**。当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00（北京时间）。需要盘中快照请走 `quote realtime`。
@@ -74,9 +74,12 @@ description: |-
 - **按条（观点/含详情类 list）**：independent-opinion list 与 `ai security-clue` 5；roadshow/site-visit/strategy/forum list 20；opinion / foreign-opinion list 30；`fundamental earning-forecast` 0.5；`ai stock-summary` 3（无看点的证券不返回也不扣）；`alternative edb-data` 30
 - **各 download（/篇）**：announcement / official-account / research 10；announcement-hk / announcement-us 20；independent-opinion 30；summary / foreign-report / my-conference 50；`performance-calendar download` A 股 10 / 港美股 20
 - **按页**：`tool file-parse` 0.8/页，**提交（`--file`）时按实际页数一次性扣**，取结果（`file-parse-check`）免费——50 页 PDF = 40 积分，别重复提交同一文件
-- 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**；`ai hot-topic` 50/篇
+- 🔴 **按次贵**：`ai knowledge-batch` 10、`management-discuss-*` 10；AI Agent（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `earnings-review` / `viewpoint-debate` / `theme-tracking`）**50/次**
+- 🔴 **`ai hot-topic` 50/篇，按返回条数计**（不是按调用次数）。📌 **一「篇」= 一整份报告**（一份早报 / 午报 / 盘中快报 / 晚报），**不是报告里的一条话题**——一份报告通常包含多条热点话题。所以 `--size 20` 的一页 = 最多 20 份报告 = 1000 积分，**先用 `--start-date`/`--end-date` + `--category` 收窄再拉**，别省略 `--size` 直接全量。**可查的历史范围跟账号权限走**（试用档是滚动的「当前 −1 个月」，正式/定制档更长）——超出范围的日期返回空结果而不是报错，拿到空先想想是不是撞了权限窗口
 - 🔴 **极贵**：`alternative concept-info` / `concept-securities` **500/次**
-- ⚠️ **同参数重复调用不免费**：按次计费无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）——生成类结果拿到后自行留存复用，别为"刷新"重调；CLI 已对上述 🔴 贵档端点关闭 5xx/超时自动重放，50/篇 的 `summary` / `foreign-report` / `my-conference` download、单价未公布但保守同档处理的 `pamirs-summary` download、以及 `tool file-parse` 的提交，同样不重放（共 18 个端点），正是为防重复扣分
+- ✅ **按篇 / 按条计费的接口，没查到内容就不扣分**（空结果 = 0 积分）：各 download（`pamirs-summary` 除外，见 ②）、`ai hot-topic`（50/篇）、`ai stock-summary`（3/条，无看点总结的个股不进返回列表也不计费）。**所以「先小范围试探再放大」是安全的**——先用窄条件确认能查到东西，再扩范围。⚠️ **两类不适用**：① **按次计费的**——`ai knowledge-batch` / `management-discuss-*`、AI Agent 那批 50/次、`alternative concept-info` / `concept-securities` 500/次，不管有没有内容都扣，超时报错也可能已经扣过；② **单价未公布的**——`pamirs-summary`（见下），别据此假定
+- ⚠️ **同参数重复调用不免费**：按次计费的那批无缓存命中豁免（2026-07-11 实测 `one-pager` 重复调用每次扣分，即使秒回缓存内容）；**按篇/按条的也一样**——重拉同一批 `hot-topic` 就是按条数再计一次费。生成类与列表结果拿到后自行留存复用，别为「刷新」重调
+- ⚠️ **贵档端点超时/5xx 不自动重放**（共 18 个：AI Agent 那批 + `ai knowledge-batch` / `management-discuss-*` / `hot-topic`、`alternative concept-info`·`concept-securities`、50/篇 的 `summary`·`foreign-report`·`my-conference` download 与同档处理的 `pamirs-summary` download、`tool file-parse` 提交）。**理由是重放会重复扣分**——服务端可能已经执行并计费，重发按次计费的会再扣一次，重发按篇/按条计费的会把**已交付的行**再计一次；两种都亏。仅连接失败、429 与 token 自愈会重试
 - **按单元格**：`indicator cross-section` / `time-series` / `screener`（A股 0.05 / 港股 0.1 / 美股 0.2 积分每 100 单元格；screener 按**筛选前**范围计费，见 `indicator.md`）；`ai knowledge-resource-download` 按下游资源计费
 - **单价未公布**：`insight pamirs-summary list` / `download`——spec 只写了「需购买专家纪要数据库」这个准入门槛，没给单次价格。**别据此假定免费**；大批量拉取前先小量试，或向平台确认
 
@@ -263,9 +266,9 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | 最新一期 / 最新报告期（财报） | — | — | 省略 `--fiscal-year`，传 `--period latest`（默认） |
 | 最新观点 / 今日观点 | 1 天范围 + `--rank-type 2` | — | — |
 
-日期参数**按参数名判断、不按命令组**（命令组会误导——AI 里既有 `--start-time` 又有 `--date`/`--report-date`；Insight 里 `performance-calendar` 是唯一用 `--start-date`/`--end-date` 的 list）：名字带 `-date` 的（`--start-date`/`--end-date`/`--date`/`--report-date`）一律 `YYYY-MM-DD`，覆盖 Quote/Fundamental、`insight performance-calendar`、AI 的 `theme-tracking`(`--date`)/`hot-topic`/`management-discuss-*`(`--report-date`)、Alternative `edb-data`、Indicator `cross-section`(`--date`)/`time-series`；名字带 `-time` 的（`--start-time`/`--end-time`）用 `YYYY-MM-DD[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔）或 10/13 位时间戳，覆盖 Insight/Vault 各 list、`quote minute-kline`、`ai security-clue`、`ai knowledge-batch`。其中 **A 股公告（`insight announcement list`）与 `knowledge-batch` 会把输入转成 13 位毫秒**（10 位秒自动 ×1000），其余 `-time` 命令（含 `announcement-hk`/`announcement-us`）原样透传字符串；CLI 输入统一接受 10/13 位纯数字或 `YYYY-MM-DD[ HH:mm[:ss]]`（同上：秒可省、空格或 `T` 分隔）。
+日期参数**按参数名判断、不按命令组**（命令组会误导——AI 里既有 `--start-time` 又有 `--date`/`--report-date`；Insight 里 `performance-calendar` 是唯一用 `--start-date`/`--end-date` 的 list）：名字带 `-date` 的（`--start-date`/`--end-date`/`--date`/`--report-date`）一律年在前日期（`YYYY-MM-DD` 首选，`YYYY/MM/DD`/`YYYYMMDD` 也收），覆盖 Quote/Fundamental、`insight performance-calendar`、AI 的 `theme-tracking`(`--date`)/`hot-topic`/`management-discuss-*`(`--report-date`)、Alternative `edb-data`、Indicator `cross-section`(`--date`)/`time-series`；名字带 `-time` 的（`--start-time`/`--end-time`）用年在前日期 + `[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔）或 10/13 位时间戳，覆盖 Insight/Vault 各 list、`quote minute-kline`、`ai security-clue`、`ai knowledge-batch`。其中 **A 股公告（`insight announcement list`）与 `knowledge-batch` 会把输入转成 13 位毫秒**（10 位秒自动 ×1000），其余 `-time` 命令（含 `announcement-hk`/`announcement-us`）原样透传字符串；CLI 输入统一接受 10/13 位纯数字或 `YYYY-MM-DD[ HH:mm[:ss]]`（同上：秒可省、空格或 `T` 分隔）。
 
-支持排序切换的命令：opinion / summary / pamirs-summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。**要最新的加 `--rank-type 2`（严格按 `publishTime` 倒序）；要最相关的用默认 `--rank-type 1` + `--keyword`（综合排序按相关度挑条目）**——两者从同一结果集里取的是**不同的子集**，不是同一批内容换个排法。🔴 **`--search-type` 不改变 `--rank-type 1` 取回哪些条目**（实测 19 组 0 反例，前 50 逐位相同，其中一组 `total` 从 1522 涨到 45257 仍逐位不变），**要相关度不必加 `--search-type 2`**；它扩大的是命中总数和 `--rank-type 2` 的候选池。🔴 **两档差别有多大取决于关键词，别拿一个词判断参数有没有用**：有些关键词下两档返回同一批，有些交集接近 0，判据见 `insight.md` 开头。⚠️ 综合排序**挑完之后仍按时间倒序排列**，所以别用「结果是不是时间倒序」判断它有没有生效，要比条目 ID。没有 `--keyword` 时两者无差异，属正常。详见 `insight.md` 开头。其他 list 命令按 API 默认排序。
+支持排序切换的命令：opinion / summary / pamirs-summary / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。**要最新的加 `--rank-type 2`（严格按 `publishTime` 倒序）；要最相关的用默认 `--rank-type 1` + `--keyword`（综合排序按相关度挑条目）**——两者从同一结果集里取的是**不同的子集**，不是同一批内容换个排法。🔴 **`--search-type` 不改变 `--rank-type 1` 取回哪些条目**（同一关键词下，两档的 `--rank-type 1` 结果相同——即使 `--search-type 2` 让 `total` 大出一个数量级），**要相关度不必加 `--search-type 2`**；它扩大的是命中总数和 `--rank-type 2` 的候选池。🔴 **两档差别有多大取决于关键词，别拿一个词判断参数有没有用**：有些关键词下两档返回同一批，有些交集接近 0，判据见 `insight.md` 开头。⚠️ 综合排序**挑完之后仍按时间倒序排列**，所以别用「结果是不是时间倒序」判断它有没有生效，要比条目 ID。没有 `--keyword` 时两者无差异，属正常。详见 `insight.md` 开头。其他 list 命令按 API 默认排序。
 
 ## 异常处理
 
@@ -305,7 +308,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | ✅ `140002` | 终态参数错：AI 异步生成失败，或 `indicator` 的指标必填参数缺失 / 枚举越界 / 表达式语法错（实测 2026-08-02） | **不重试**（终态码） | 按 msg 改参数重提；EDE 的参数名与枚举读 `indicator search --format json` 的 `parameterList` |
 
 **⚠️ 几类"不报错"的坑（最难发现，逐条都关系到拿没拿到对的数）**
-- **日期只写 `YYYY-MM-DD`、时间只写 `YYYY-MM-DD HH:mm:ss`（或 10/13 位时间戳）**。CLI v0.28.0 起 date 与 datetime 两类（含所有 insight/vault 透传参数）都在发请求前校验，其余写法直接报 `ValidationError`。接口本身能接受多种格式，但**「年在后」写法（`01-07-2026`）存在月/日歧义**——会按月在前读作 1 月 7 日，本意写 7 月 1 日的就拿到差半年的数据且不报错。**CLI 只放行 `YYYY-MM-DD` 就是为了堵掉这个歧义，这是有意的**；绕过 CLI 直连接口时务必自己用标准格式
+- **日期用「年在前」写法**：`YYYY-MM-DD`（首选）、`YYYY/MM/DD`、`YYYYMMDD` 三种 CLI 都收，并**统一归一成 `YYYY-MM-DD` 再发出**；时间加 `[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔）或用 10/13 位时间戳。🔴 **「年在后」写法（`01-07-2026`、`07/01/2026`）CLI 直接报 `ValidationError`，这是有意的**——接口本身会解析它，且**一律按美式「月在前」**（`01-07-2026` = 1 月 7 日，`07-01-2026` = 7 月 1 日）。按欧洲/国际习惯写 `01-07-2026` 想表达「7 月 1 日」的，会拿到差半年的数据且**不报错**；本地拒掉才有信号，还省一次请求与计费。绕过 CLI 直连接口时务必自己统一用 `YYYY-MM-DD`
 - **财报接口的日期按「报告期末」过滤**，不是公告日：`fundamental balance-sheet` 等的 `--start-date`/`--end-date` 匹配的是 `endDate` 字段（如 `20200630`）；公告日看 `earliestAnncDate`（首次公告日，做时点对齐用这个）而不是 `announcementDate`。**查某期财报要传季度末日期**（`2020-06-30` / `2020-03-31` / `2020-09-30` / `2020-12-31`）；传 `2020-07-01` 这类非报告期日期会返回 0 行，属正常行为，不是没数据
 - **非法证券代码**：`quote day-kline` / `realtime` / `minute-kline` / `fund-flow` 与 Fundamental 系都会报 `120001`，按报错核对后缀即可。⚠️ **三个已下线的旧端点 `quote day-kline-hk` / `day-kline-us` / `index-day-kline` 则返回 `total:0`**，与"该票该区间真无数据"无法区分——**用这三个拿到空结果时先回头核对代码后缀**。它们的能力已并入统一 `day-kline`（支持 A 股 / 港股 / 美股 / 交易所指数 / 概念指数 `.GT` / 申万行业指数 `.SWI`），新代码直接用 `day-kline`
 - **枚举值拼错的后果按端点不同，且部分端点不报错**：纪要 `summary`、三个公告 list、路演 `roadshow`、调研 `site-visit` 的 `--search-type` / `--rank-type` / `--category` / `--market` 等传非法值会报 `100005`；而 `insight research`（内资研报）、`foreign-report`（外资研报）、`official-account`、`opinion` 上非法值被**静默忽略**，该筛选按未传处理。🔴 **最坏的一种**：`research` / `foreign-report` 上非法的 `--search-type` 会**连带吞掉 `--keyword`**——`research list --keyword 茅台 --search-type 99` 拿到的是**未经筛选的全库**，与不传 `--keyword` 的结果一致，而不是搜索结果。**v0.32.0 起 CLI 本地拦截**：全部 `--search-type` / `--rank-type`（19 处）、全部 `--file-type`（9 处下载，`foreign-report` 为 1–4、其余 1–2）、`pamirs-summary` 的 `--category` / `--market`、`--top` 上限、以及 `reference securities-search` / `institution-search` / `official-account-search` 的 `--category`。**仍未覆盖**：`insight research/summary --category`、`--market`、`--source`、`--llm-tag` 等仍是自由字符串，拼错不报错也不生效——这些要自己核对。**拼错的筛选条件会伪装成"结果正常"，枚举拼写要自己保证**

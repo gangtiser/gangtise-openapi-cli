@@ -2,7 +2,7 @@
 
 注意：`ai one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `viewpoint-debate-check` / `earnings-review-check` 返回 `{content: "markdown文本"}`；这类命令仍然加 `--format json`，但呈现给用户时直接取 `content` 字段，不要展示 JSON 包装层。
 
-**⏱ 超时与重复扣分**：7 个 agent 类（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`）CLI 已内置 120s 超时下限，**无需前缀**；`stock-summary` / `hot-topic` 首次生成也常 >30s，仍建议前置 `GANGTISE_TIMEOUT_MS=120000`。自 v0.26.0 起**贵档端点超时/5xx 不再自动重试**（重放=重复扣分）——超时报错后内容可能已在服务端生成并扣费，同参数再调会**再扣一次**（实测按次计费、无缓存命中豁免），所以一次调用给足超时比失败重跑省钱；拿到的生成内容自行留存复用，别为"刷新"重调。`earnings-review` / `viewpoint-debate` 是异步——用 `--wait`（工具超时 ≥360s）或 `*-check` 轮询，不吃这个超时。
+**⏱ 超时与重复扣分**：7 个 agent 类（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`）CLI 已内置 120s 超时下限，**无需前缀**；`stock-summary` / `hot-topic` 首次生成也常 >30s，仍建议前置 `GANGTISE_TIMEOUT_MS=120000`。自 v0.26.0 起**贵档端点超时/5xx 不再自动重试**（重放=重复扣分）——超时报错后内容可能已在服务端生成并扣费，同参数再调会**再扣一次**（`one-pager` 等生成类实测按次计费、无缓存命中豁免），所以一次调用给足超时比失败重跑省钱；拿到的生成内容自行留存复用，别为"刷新"重调。`earnings-review` / `viewpoint-debate` 是异步——用 `--wait`（工具超时 ≥360s）或 `*-check` 轮询，不吃这个超时。
 
 ---
 
@@ -126,6 +126,8 @@ gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <nam
 - `--category`：`morningBriefing` 早报 | `noonBriefing` 午报 | `afternoonFlash` 盘中快报 | `eveningBriefing` 晚报（可重复，默认全部）
 - `--with-related-securities` / `--with-close-reading`：默认开启；`--no-with-related-securities` / `--no-with-close-reading` 显式排除（响应里相应字段置空）
 - 自动翻页，单页最大 20
+- 🔴 **计费 50/篇，按返回条数计**（不是按调用次数）。📌 **一「篇」= 一整份报告**（一份早报 / 午报 / 盘中快报 / 晚报），**不是报告里的一条话题**——一份报告通常包含多条热点话题，`--category` 选的也是报告类型而不是话题。所以一页 20 条 = 20 份报告 = 1000 积分：**先用 `--start-date`/`--end-date` + `--category` 把范围收窄，再考虑要不要全量**（省略 `--size` 即拉全量）
+- **可查的历史范围跟账号权限走**：试用档是滚动的「当前 −1 个月」，正式/定制档更长。超出范围的日期**返回空结果、不报错**——拿到空先确认是不是撞了本账号的窗口，别当成「那天没有报告」
 
 ## 管理层讨论-财报 `ai management-discuss-announcement`
 

@@ -221,18 +221,55 @@ describe("GangtiseClient pagination", () => {
     }
   })
 
-  it("skips the total-cap probe on a per-call billed endpoint", async () => {
-    // The probe is free only where billing is per ROW — an empty answer costs nothing.
-    // `retry: "no-replay"` marks the per-CALL endpoints (endpoints.ts), and exactly one
-    // is also paginated: ai.hot-topic (24 paginated ∩ 18 no-replay = 1). There the probe
-    // buys a maybe against a certain charge. Reported by the gangtise-python port (U3).
+  it("still probes past the end on a no-replay endpoint", async () => {
+    // `ai.hot-topic` is the only endpoint that is both paginated and `no-replay`, and it
+    // MUST still be probed. An earlier build skipped it, reading `no-replay` as a
+    // per-call billing marker; it is not one — it means "never resend a request the
+    // server may already have executed", and the probe is a new request, not a resend.
+    // Billing-wise hot-topic is priced per returned item, and the platform does not
+    // charge a per-item endpoint for a query that finds nothing — so the gate saved no
+    // credits while costing this endpoint its only truncation check.
     paginatedMock({ total: 40, itemFor: (id) => ({ id }) })
     const client = createClient()
     const result = await client.call("ai.hot-topic", { from: 0 }) as { list: unknown[]; totalCapped?: boolean }
     expect(result.list).toHaveLength(40)
     expect(result.totalCapped).toBeUndefined()
-    // 40 rows / 20 per page = 2 requests. A third would be the probe.
-    expect(requestMock.mock.calls).toHaveLength(2)
+    // 40 rows / 20 per page = 2 pages, plus the probe past the end.
+    expect(requestMock.mock.calls).toHaveLength(3)
+    const probed = requestMock.mock.calls.some((c) => {
+      const body = JSON.parse((c[1] as { body?: string } | undefined)?.body ?? "{}") as { from?: number; size?: number }
+      return body.from === 40 && body.size === 1
+    })
+    expect(probed).toBe(true)
+  })
+
+  it("flags a capped total on a no-replay endpoint too", async () => {
+    // The positive half: skipping the probe here used to make a truncated hot-topic
+    // export indistinguishable from a complete one. Rows past the claimed end must
+    // surface as `totalCapped`, exactly as on the `insight.opinion*` endpoints.
+    const CAP = 40
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      const size = body.size ?? 20
+      // Server always claims CAP but keeps serving rows well past it.
+      const list = Array.from({ length: size }, (_, i) => ({ id: from + i + 1 }))
+      return Promise.resolve(jsonResponse({ total: CAP, list }))
+    })
+    const previousExit = process.exitCode
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      const client = createClient()
+      const result = await client.call("ai.hot-topic", { from: 0 }) as { list: unknown[]; partial?: boolean; totalCapped?: boolean }
+      expect(result.list).toHaveLength(CAP)
+      expect(result.totalCapped).toBe(true)
+      // partial must agree, because printData maps it to exit 3.
+      expect(result.partial).toBe(true)
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("TRUNCATED")
+    } finally {
+      process.exitCode = previousExit
+      errSpy.mockRestore()
+    }
   })
 
   it("does not flag a fetch-all when the reported total is honest", async () => {

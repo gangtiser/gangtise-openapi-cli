@@ -2,6 +2,35 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.36.0 — 2026-08-18
+
+**1. 日期写法放宽到三种「年在前」格式，统一归一后发出**
+
+`--start-date` / `--end-date` / `--date` / `--report-date` 以及各 `--start-time` / `--end-time` 现在都接受 `YYYY-MM-DD`、`YYYY/MM/DD`、`YYYYMMDD`，一律归一成 `YYYY-MM-DD` 再发请求（datetime 只归一日期那一半，时间部分与分隔符原样保留；Unix 时间戳原样透传）。三种写法对任何读者都是同一天，接受它们没有成本。
+
+**「年在后」写法（`01-07-2026` / `07/01/2026`）仍在本地拒绝**，这是有意的：接口本身会解析它，且一律按美式「月在前」——按欧洲/国际习惯写 `01-07-2026` 表示「7 月 1 日」的人会拿到 1 月 7 日的数据，HTTP 200、行数看着也正常、没有任何报错。本地拒掉才有信号，还省一次请求与计费。README 新增「关于日期格式」一节写清两张对照表。
+
+**2. `indicator screener` 放开无日期指标**
+
+`parameterList` 里没有任何日期键的指标（`pty_*` / `scr_*` 静态属性两族，加 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`）现在可以直接用于条件选股：`--indicator-param "F1:"`（冒号后留空）声明该变量不要查询日期，与 `cross-section` 的 `"code:"` 是同一个写法，且可与真实参数共存（`"F1:" + "F1:fiscalYear=2025"`）。此前这类筛选只能先用 `cross-section` 取回再本地筛。
+
+`errors.ts` 里指向旧限制的那句提示同步改成给出 screener 的等价写法。
+
+**3. 撤回 v0.35.0 的「`totalCapped` 探针跳过 `no-replay` 端点」**
+
+v0.35.0 给全量拉取的封顶探针加了 `endpoint.retry !== "no-replay"` 排除，理由写成「`no-replay` 标的是按次计费的端点，那里空探针不免费」。**这个理由两层都不成立**，由 `gangtise-mcp` 提出、本仓复核后采纳：
+
+1. **`no-replay` 不是计费标记。** 它的定义是「never resend a request the server may already have executed」——**重放安全**：请求超时或 5xx 时你不知道服务端执行没执行，自动重发可能被扣两次。而探针是一个**从未发过的新请求**（`from = total`），不是重发，这个标记对它无话可说。
+2. **`ai.hot-topic` 不按次计费。** 它是 50/篇，一「篇」= 一整份报告（早报/午报/盘中快报/晚报），即**按返回条数计**；而按篇/按条计费的接口**查不到内容就不扣积分**。所以空探针本来就是 0 积分，那个排除**一分钱也没省**。
+
+代价却是实的：同时满足「分页」与 `no-replay` 的端点全库只有 `ai.hot-topic` 一个（24 ∩ 18 = 1），排除之后它就是**唯一没有截断检测的分页端点**——省不下钱，只丢检测。
+
+现已撤掉排除项与那段错误注释，并补两条测试钉住：`ai.hot-topic` 上仍会发出 `from = total, size = 1` 的探针；rows 越过 `total` 时照常标 `totalCapped` + `partial`。变异验证：把排除项加回去 → **只有这两条红**，其余 686 条不受影响。同时订正了 `endpoints.ts` / `transport.ts` / `docs/architecture.md` 里把 `no-replay` 描述成「按次计费端点」的措辞——**那才是这次错误的源头**：它是重放安全标记，`ai.hot-topic` 带着它却是按篇计费。
+
+**另修一处文案**：EDE 报错提示里「screener 上这个写法用不了」那句已过期（服务端 2026-08-17 起接受该写法），改为给出 screener 的等价写法 `--indicator-param "F1:"`。
+
+`gangtise-mcp` 已先行撤回同款改动；`gangtise-python`（该改动的最初提出方）已同步撤回。
+
 ### v0.35.0 — 2026-08-16（跟进下游两仓的上游反馈）
 
 逐条复核 `gangtise-mcp` 的 `bug/cli-upstream.md`（C5 / C6 / C7）与 `gangtise-python` 的 `bug/upstream-cli.md`（U1–U4）。**七条里六条成立**，其中一条（U2 的一半）**驳回并附反例**，并在追查过程中查出一条新的服务端问题。
