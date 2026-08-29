@@ -1013,6 +1013,53 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     })
   }, 30_000)
 
+  // --- the orphan --indicator-param guard, through the real CLI ---
+  //
+  // commandBodies.test.ts calls the builders directly, which proves the guard's LOGIC
+  // and nothing about whether `--indicator-param` still reaches it. Both commands hand
+  // the whole commander `options` object to their builder, so today the flag rides along
+  // for free — but a refactor into an explicit object (the shape `emit`/`withClient`
+  // already pushed other commands toward) drops it silently: no param on the wire, the
+  // guard never fires, and the request that goes out is the one the caller thinks they
+  // narrowed. These two are what would go red.
+  //
+  // Zero requests is the load-bearing half. Exit 1 alone would also be satisfied by the
+  // server rejecting the body, which is exactly the round trip the guard exists to save.
+  for (const [command, dateArgs] of [
+    ["cross-section", ["--date", "2026-03-31"]],
+    ["time-series", ["--start-date", "2026-07-30", "--end-date", "2026-07-31"]],
+  ] as const) {
+    it(`indicator ${command} rejects an --indicator-param whose code no --indicator names, before any request`, async () => {
+      const { code, out } = await cli([
+        "indicator", command,
+        "--indicator", "is_op_rev", "--security", "600519.SH", ...dateArgs,
+        // `is_op_rve` — the transposition a real caller makes, not a sentinel.
+        "--indicator-param", "is_op_rve:reportDate=2025-06-30", "--format", "json",
+      ])
+      expect(code, out).toBe(1)
+      expect(out).toContain("is_op_rve")
+      expect(captured, "the guard must fire before the request, not after").toHaveLength(0)
+    }, 30_000)
+  }
+
+  it("indicator cross-section forwards a valid --indicator-param instead of injecting tradeDate over it", async () => {
+    // The positive half: proves the flag actually arrives, so the negative tests above
+    // cannot be satisfied by an --indicator-param that never reaches the builder at all.
+    // reportDate also has to SUPPRESS the --date injection — sending both is what the
+    // server rejects outright.
+    const { code, out } = await cli([
+      "indicator", "cross-section",
+      "--indicator", "cf_finc_exp", "--security", "600519.SH", "--date", "2026-03-31",
+      "--indicator-param", "cf_finc_exp:reportDate=2025-12-31", "--format", "json",
+    ])
+    expect(code, out).toBe(0)
+    expect(captured[0].body).toMatchObject({
+      indicatorParamList: [
+        { indicatorCode: "cf_finc_exp", parameters: [{ paramKey: "reportDate", paramValue: "2025-12-31" }] },
+      ],
+    })
+  }, 30_000)
+
   it("indicator screener sends the variable bindings and expression", async () => {
     const { code, out } = await cli([
       "indicator", "screener",

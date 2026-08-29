@@ -1,5 +1,6 @@
 import type { IndicatorParamGroup } from "./args.js"
 import { maybeArray, parseFrom, parseIndicatorParams, parseOptionalNumberOption, parseScreenerIndicators, parseSize } from "./args.js"
+import { ValidationError } from "./errors.js"
 
 interface QuoteKlineOptions {
   security: string[]
@@ -161,6 +162,31 @@ export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
  * without a tradeDate vs 65,687,435 with tradeDate=2024-01-31, both exit 0. */
 const DATE_PARAM_KEYS = new Set(["tradeDate", "reportDate"])
 
+/**
+ * Every `--indicator-param` group must name an indicator that `--indicator` also lists.
+ * The screener has enforced the equivalent since it shipped (`parseScreenerIndicators`
+ * rejects a param for an unbound `F<n>`); cross-section and time-series did not, so a
+ * mistyped code went out as a parameter group for an indicator that was never queried:
+ *
+ *   --indicator is_op_rev --indicator-param "is_op_rve:reportDate=2025-06-30"
+ *   → indicatorCodeList: ["is_op_rev"],  indicatorParamList: [{ indicatorCode: "is_op_rve", … }]
+ *
+ * On time-series that is silent end to end — nothing there injects a date, so the
+ * parameters the caller believes they set simply never apply and the query runs on
+ * whatever the server defaults to. Covers the bare `"<code>:"` opt-out too: mistyping
+ * THAT leaves the real indicator with its injected `tradeDate`, which is the exact
+ * thing the opt-out exists to remove.
+ */
+function assertParamCodesBound(groups: IndicatorParamGroup[] | undefined, codes: string[]): void {
+  if (!groups?.length) return
+  const bound = new Set(codes)
+  for (const group of groups) {
+    if (!bound.has(group.indicatorCode)) {
+      throw new ValidationError(`--indicator-param references "${group.indicatorCode}", which no --indicator names`)
+    }
+  }
+}
+
 function withQueryDate(groups: IndicatorParamGroup[] | undefined, codes: string[], date: string): IndicatorParamGroup[] {
   const merged = new Map<string, IndicatorParamGroup>()
   for (const group of groups ?? []) merged.set(group.indicatorCode, group)
@@ -184,16 +210,20 @@ function stripMarker<T extends { noQueryDate?: true }>(item: T): Omit<T, "noQuer
 }
 
 export function buildIndicatorCrossSectionBody(options: IndicatorCrossSectionOptions) {
+  const groups = parseIndicatorParams(options.indicatorParam)
+  assertParamCodesBound(groups, options.indicator)
   return {
     indicatorCodeList: maybeArray(options.indicator),
     universe: maybeArray(options.security),
     currency: options.currency,
     scale: options.scale,
-    indicatorParamList: withQueryDate(parseIndicatorParams(options.indicatorParam), options.indicator, options.date),
+    indicatorParamList: withQueryDate(groups, options.indicator, options.date),
   }
 }
 
 export function buildIndicatorTimeSeriesBody(options: IndicatorTimeSeriesOptions) {
+  const groups = parseIndicatorParams(options.indicatorParam)
+  assertParamCodesBound(groups, options.indicator)
   return {
     indicatorCodeList: maybeArray(options.indicator),
     universe: maybeArray(options.security),
@@ -204,7 +234,7 @@ export function buildIndicatorTimeSeriesBody(options: IndicatorTimeSeriesOptions
     scale: options.scale,
     // The endpoint requires the key even with nothing to configure. No date is
     // injected here, so `"code:"` is a no-op beyond sending an empty param list.
-    indicatorParamList: (parseIndicatorParams(options.indicatorParam) ?? []).map(stripMarker),
+    indicatorParamList: (groups ?? []).map(stripMarker),
   }
 }
 

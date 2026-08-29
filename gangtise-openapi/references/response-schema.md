@@ -4,7 +4,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 
 > 例外：`indicator`（EDE）四个接口（`search` / `cross-section` / `time-series` / `screener`）成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`）。内层字段名 2026-08-01 起为 `securityCodeList` / `securityNameList` / `indicatorList[{code,name,dataType}]`（screener 另带 `field`），`values` 是 2D 矩阵：**截面与 screener 为 `[证券][指标]`**（该版转置过，此前是 `[指标][证券]`）、时序仍为 `[序列][日期]`。
 >
-> **缺数据 vs 代码写错**（2026-08-15 实测）：无数据 / 无覆盖一律保留行列并给占位单元格——**多数指标是 `null`，个别（如 `is_dnrpnp`）是 `0`，`0` 会穿过比较与聚合，详见 `commands/indicator.md`**。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；`partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3 的差集检测仍保留作兜底，但当前服务端行为下基本收不到样本。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
+> **缺数据 vs 代码写错**（2026-08-15 实测）：无数据 / 无覆盖一律保留行列并给占位单元格——**占位值统一为 `null`**；⚠️ 报告期类指标（`is_*`）的时序只有报告期末那几行是真值，其余全是 `null`，详见 `commands/indicator.md`。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；`partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3 的差集检测仍保留作兜底，但当前服务端行为下基本收不到样本。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
 
 ## 通用模式（5 类）
 

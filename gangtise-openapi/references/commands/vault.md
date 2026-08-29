@@ -49,7 +49,7 @@ gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wec
 
 - 数据权限：仅用户已绑定并激活群消息助理、且助理已入群的群消息
 - `--security`：按证券代码过滤（如 `000001.SZ`），可重复
-- `--industry`：**只认中信码**（`1008001xx`，见 `reference constant-list --category citicIndustry`）。⚠️ 申万码（`104xx0000`）和任何不认识的值都会被**静默忽略、返回未过滤的全量**，不报错——所以别混用码表，拿到的条数与不加过滤一样时先核对码系。返回行里不含行业标签字段，过滤在服务端完成
+- `--industry`：**只认中信码**（`1008001xx`，见 `reference constant-list --category citicIndustry`）。⚠️ 申万码（`104xx0000`）与任何不认识的值都报 `100005 枚举值非法`——**换中信码即可**。返回行里不含行业标签字段，过滤在服务端完成
 - 🔴 **`--industry` 是收窄工具，不是全量召回**：行业标签由服务端标注，**同一条消息可能挂多个行业，也可能一个都没挂**。实测同一个关键词加上「本行业」过滤后，命中数掉到三到四成——**少掉的既有没打标签的，也有被标到相邻行业去的**（如半导体相关的消息在计算机 / 机械 / 通信下同样查得到）。所以「按行业筛出 N 条」不能读成「该行业只有 N 条」；要尽量全，用 `--keyword` 取回后本地判断，或把相邻行业码一起查再去重
 - `--wechat-group-id`：先用 `vault wechat-chatroom-list` 查；可重复
 - `--category`：`text` | `image` | `documents` | `url`（可重复）

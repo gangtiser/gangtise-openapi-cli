@@ -1,9 +1,12 @@
 import { execFile } from "node:child_process"
+import fsp from "node:fs/promises"
+import http from "node:http"
+import type { AddressInfo } from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
-import { describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 // End-to-end smoke test: runs the real CLI (built once by tests/globalSetup.ts)
 // so command wiring, option parsing, and the top-level error handler are
@@ -363,5 +366,159 @@ describe("cli smoke", () => {
       expect(code).toBe(0)
       expect(out, market).toContain("--file-type")
     }
+  }, 30_000)
+})
+
+/**
+ * The `--resolve-title` WIRING, against a local stub server.
+ *
+ * `resolveTitle` itself is unit-tested in download.test.ts, and that is not the same
+ * thing: those tests hand it `{ allowLookup: true }` directly, so every one of them
+ * stays green while `cli.ts` passes a constant. The half a user actually touches —
+ * the flag reaching the function — had no guard at all, which is why this file (the
+ * only one that runs the real command wiring) is where it belongs.
+ *
+ * The assertions are request COUNTS, not just filenames: the point of the default is
+ * that a cache miss spends nothing, and only a count can show that. A filename-only
+ * check passes just as well when four billed list requests were fired and then thrown
+ * away.
+ */
+describe("download title lookup wiring", () => {
+  const LIST_PATH = "/application/open-insight/announcement-us/getList"
+  const DOWNLOAD_PATH = "/application/open-insight/announcement-us/download/file"
+
+  let server: http.Server
+  let baseUrl: string
+  let listBodies: Array<{ from?: number; size?: number }> = []
+  let listReturnsNull = false
+  let workDir: string
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      let raw = ""
+      req.on("data", (chunk) => { raw += chunk })
+      req.on("end", () => {
+        const url = req.url ?? ""
+        if (url.startsWith(DOWNLOAD_PATH)) {
+          // No content-disposition on purpose: that makes the auto filename fall all
+          // the way through to `<fallbackPrefix>-<id><ext>`, so the title path and the
+          // no-title path produce visibly different names.
+          res.writeHead(200, { "content-type": "application/pdf" })
+          res.end(Buffer.from("%PDF-1.4 stub"))
+          return
+        }
+        if (!url.startsWith(LIST_PATH)) {
+          res.writeHead(404).end()
+          return
+        }
+        const body = JSON.parse(raw || "{}") as { from?: number; size?: number }
+        listBodies.push(body)
+        res.writeHead(200, { "content-type": "application/json" })
+        if (listReturnsNull) {
+          // The shape that makes requestPaginated set exit 3 (K18's trigger).
+          res.end(JSON.stringify({ code: "000000", status: true, data: null }))
+          return
+        }
+        const from = body.from ?? 0
+        const size = Math.min(body.size ?? 50, 50)
+        res.end(JSON.stringify({
+          code: "000000",
+          status: true,
+          data: { total: 500, list: Array.from({ length: size }, (_, i) => ({ announcementId: from + i, title: `标题${from + i}` })) },
+        }))
+      })
+    })
+    await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", resolve) })
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => { server.close(() => resolve()) })
+  })
+
+  beforeEach(async () => {
+    listBodies = []
+    listReturnsNull = false
+    // One temp dir per test, used as BOTH the working directory (an auto-named
+    // download writes into cwd) and as HOME. The title cache path is derived from
+    // os.homedir() and is not configurable, so overriding HOME is the only way to
+    // keep the developer's real cache from leaking in — or getting written to.
+    workDir = await fsp.mkdtemp(path.join(os.tmpdir(), "gangtise-title-wiring-"))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(workDir, { recursive: true, force: true })
+  })
+
+  async function download(args: string[]): Promise<{ code: number; out: string }> {
+    const env = {
+      ...process.env,
+      HOME: workDir,
+      USERPROFILE: workDir,
+      GANGTISE_ACCESS_KEY: "",
+      GANGTISE_SECRET_KEY: "",
+      GANGTISE_TOKEN: "stub-token",
+      GANGTISE_TOKEN_CACHE_PATH: path.join(workDir, "token.json"),
+      GANGTISE_BASE_URL: baseUrl,
+    }
+    try {
+      const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { cwd: workDir, env, timeout: 25_000 })
+      return { code: 0, out: stdout + stderr }
+    } catch (error) {
+      const e = error as { code?: number; stdout?: string; stderr?: string }
+      return { code: typeof e.code === "number" ? e.code : 1, out: (e.stdout ?? "") + (e.stderr ?? "") }
+    }
+  }
+
+  const listed = async () => (await fsp.readdir(workDir)).filter((f) => f.endsWith(".pdf"))
+
+  it("spends nothing on the list endpoint when the title cache misses", async () => {
+    const { code, out } = await download(["insight", "announcement-us", "download", "--announcement-id", "3"])
+    expect(code, out).toBe(0)
+    // The whole point of the default: a miss must cost ZERO requests, not four.
+    expect(listBodies).toEqual([])
+    expect(await listed()).toEqual(["announcement-us-3.pdf"])
+  }, 30_000)
+
+  it("queries the list endpoint only when --resolve-title is passed", async () => {
+    const { code, out } = await download(["insight", "announcement-us", "download", "--announcement-id", "3", "--resolve-title"])
+    expect(code, out).toBe(0)
+    // TITLE_LOOKUP_SIZE 200 over a 50-row page cap = one first page + three fanned out.
+    // The SET and the count are the cost contract and must stay exact; the arrival
+    // ORDER is not — pages 2-4 go out concurrently through runWithConcurrency, so
+    // sorting first keeps a real regression red while an incidental interleaving stays
+    // green. A guard that goes red at random gets re-run instead of read.
+    expect([...listBodies].sort((a, b) => (a.from ?? 0) - (b.from ?? 0))).toEqual([
+      { from: 0, size: 50 },
+      { from: 50, size: 50 },
+      { from: 100, size: 50 },
+      { from: 150, size: 50 },
+    ])
+    expect(await listed()).toEqual(["标题3.pdf"])
+  }, 30_000)
+
+  it("banks the fetched titles so the next download in the batch is free", async () => {
+    const first = await download(["insight", "announcement-us", "download", "--announcement-id", "7", "--resolve-title"])
+    expect(first.code, first.out).toBe(0)
+    expect(listBodies).toHaveLength(4)
+
+    // A DIFFERENT id, and without the flag: it can only resolve if the first run wrote
+    // the whole page set to the cache rather than just the row it came for.
+    listBodies = []
+    const second = await download(["insight", "announcement-us", "download", "--announcement-id", "42"])
+    expect(second.code, second.out).toBe(0)
+    expect(listBodies).toEqual([])
+    expect((await listed()).sort()).toEqual(["标题42.pdf", "标题7.pdf"])
+  }, 45_000)
+
+  it("keeps exit 0 when the opted-in lookup hits a malformed list response", async () => {
+    // K18 end to end. requestPaginated sets exit 3 on a first page with no
+    // {total,list}; that verdict is about the lookup, while the file itself arrived
+    // intact — a script reading `!= 0` must not see this as a failed download.
+    listReturnsNull = true
+    const { code, out } = await download(["insight", "announcement-us", "download", "--announcement-id", "12345", "--resolve-title"])
+    expect(code, out).toBe(0)
+    expect(out).toContain("unexpected shape") // the warning still reaches stderr
+    expect(await listed()).toEqual(["announcement-us-12345.pdf"])
   }, 30_000)
 })

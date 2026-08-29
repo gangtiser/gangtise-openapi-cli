@@ -122,6 +122,13 @@ function addDownloadCommand(parent: Command, spec: {
     cmd.addOption(spec.fileType.required ? option.makeOptionMandatory() : option.default(spec.fileType.default))
   }
   if (spec.contentTypeDescription) cmd.requiredOption("--content-type <type>", spec.contentTypeDescription)
+  // Opt-in because it is NOT free: on a title-cache miss the lookup pulls
+  // TITLE_LOOKUP_SIZE rows (4 requests) from a list endpoint that is metered per row
+  // on most of these commands. Running `... list` first caches the titles and makes
+  // the friendly name free, which is the documented workflow.
+  if (spec.titleListEndpoint) {
+    cmd.option("--resolve-title", "On a title-cache miss, query the list endpoint for a friendly filename (4 extra requests; most of these list endpoints bill per row). Without it the server filename or <prefix>-<id> is used. Ignored when --output is given")
+  }
   cmd.option("--output <path>").action((options) => withClient(async (client) => {
     const id = options[spec.idField] as string
     const qp: Record<string, string | number> = { [spec.idField]: id }
@@ -131,7 +138,9 @@ function addDownloadCommand(parent: Command, spec: {
     await runDownload(client, spec.endpointKey, qp, {
       output: options.output,
       fallbackName: `${spec.fallbackPrefix}-${id}`,
-      resolveOutputPath: titleList ? (result) => resolveTitle(client, result, titleList, spec.idField, id) : undefined,
+      resolveOutputPath: titleList
+        ? (result) => resolveTitle(client, result, titleList, spec.idField, id, { allowLookup: Boolean(options.resolveTitle) })
+        : undefined,
     })
   }))
 }
@@ -432,7 +441,7 @@ addTimeFilters(announcementUs.command("list").addOption(new Option("--search-typ
   }), { endpointKey: "insight.announcement-us.list", idField: "announcementId" }))
 addDownloadCommand(announcementUs, { endpointKey: "insight.announcement-us.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-us", fileType: { description: "File type: 1=original PDF 2=Markdown", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.announcement-us.list" })
 
-addTimeFilters(foreignOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code -- only 'gl' returns rows on this endpoint; cn/us/jp come back as a null payload with no error. Filter on the region field client-side", collectList, []).option("--industry <id>", "Industry ID -- NOT effective on this endpoint: any value yields a null payload (not an empty list), with no error. Omit it and filter on industryList[] client-side", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-opinion.list", {
+addTimeFilters(foreignOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code -- this endpoint accepts only cn/cnHk/cnTw/us/jp/uk; the other 13 values of regionCategory (sea/gl/fr/de/kr/in/ca/me/othAs/othEur/latAm/oce/af) are rejected here with 100005 though they all work on foreign-report", collectList, []).option("--industry <id>", "Industry ID -- swIndustry codes only (104xx0000); citicIndustry codes are rejected with 100005 even where constant-category declares them", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
@@ -442,7 +451,7 @@ addTimeFilters(foreignOpinion.command("list").addOption(new Option("--rank-type 
     ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
   })))
 
-addTimeFilters(independentOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. GSK.N)", collectList, []).option("--industry <id>", "Industry ID -- NOT effective on this endpoint: any value yields a null payload (not an empty list), with no error. Omit it and filter on industryList[] client-side", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.independent-opinion.list", {
+addTimeFilters(independentOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. GSK.N)", collectList, []).option("--industry <id>", "Industry ID -- swIndustry codes only (104xx0000); citicIndustry codes are rejected with 100005 even where constant-category declares them", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.independent-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
@@ -527,17 +536,20 @@ const FUND_FLOW_MARKETS = ["aShares"]
  * with `total: 0` — a silent empty result indistinguishable from "no data".
  *
  * Compared lower-cased, and 🔴 **that folding is load-bearing, not tidiness** — the API's
- * own case handling differs BY ENDPOINT (probed 2026-08-15, all six):
+ * own case handling used to differ BY ENDPOINT. Re-probed 2026-08-24 (curl direct, all six):
  *
- *   folds case:      day-kline (aShares/…), realtime, day-kline-hk/-us/index (all)
- *   case-SENSITIVE:  fund-flow — only the literal `aShares` works; `ashares` / `ASHARES`
- *                    come back as `120001 非有效A股`
+ *   folds case:      ALL SIX, including fund-flow — `aShares` / `ashares` / `ASHARES` /
+ *                    `AShares` / `aSHARES` all return the same rows.
  *
- * So on five endpoints canonicalising merely keeps our shard lookup in step with the
- * server (drop it and a case variant degrades to an unsharded 6000-row request), but on
- * `fund-flow` it is the ONLY reason `--security ashares` works at all. Removing
- * `canonicalizeMarketKeywords` would turn that from a working query into a hard error —
- * see the fund-flow case test, which exists to pin exactly that.
+ * Until 2026-08-21 `fund-flow` was the lone exception: only the literal `aShares` worked
+ * and every other casing came back as `120001 非有效A股`. That is fixed server-side now,
+ * so canonicalising is no longer load-bearing for correctness anywhere — on every endpoint
+ * it merely keeps our shard lookup in step with the server (drop it and a case variant
+ * degrades to an unsharded 6000-row request).
+ *
+ * Keep it anyway: it normalises rather than rejects, so it can only be more forgiving than
+ * the server, and it costs nothing. The fund-flow case test stays as a regression pin —
+ * but note it now pins OUR normalisation, not a server-side quirk.
  *
  * ⚠️ `all` collides with a real ticker root (`ALL` is Allstate on the NYSE), so a bare
  * `--security ALL` fetches the whole US market instead of that stock. That resolution
@@ -638,7 +650,7 @@ quote.command("realtime").description("Realtime quote snapshot (A-share / HK / U
   checkMarketKeywords(options.security, REALTIME_MARKETS, "quote realtime")
   return emit(options, (client) => client.call("quote.realtime", { securityList: maybeArray(options.security), fieldList: maybeArray(options.field) }))
 })
-quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").option("--security <code>", "Security code (e.g. 600519.SH / 872931.BJ), or 'aShares' for full A-share market — auto-sharded by day (repeat)", collectList, []).option("--start-date <date>", "Start date yyyy-MM-dd (default: endDate minus 1 year)", dateArg("--start-date")).option("--end-date <date>", "End date yyyy-MM-dd (default: latest trading day)", dateArg("--end-date")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000; single-security cap — aShares auto-shards by day)").option("--field <field>", "Field, e.g. mainNetInflow/largeInflow/xlargeOutflow (repeat); omit for all", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").option("--security <code>", "Security code (e.g. 600519.SH / 920982.BJ), or 'aShares' for full A-share market — auto-sharded by day (repeat)", collectList, []).option("--start-date <date>", "Start date yyyy-MM-dd (default: endDate minus 1 year)", dateArg("--start-date")).option("--end-date <date>", "End date yyyy-MM-dd (default: latest trading day)", dateArg("--end-date")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000; single-security cap — aShares auto-shards by day)").option("--field <field>", "Field, e.g. mainNetInflow/largeInflow/xlargeOutflow (repeat); omit for all", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
   // fund-flow needs this guard MORE than the kline commands, not less: mixing the keyword
   // with codes doesn't even fail here. The server silently drops `aShares` and answers
   // with just the explicit codes — one row, exit 0, no warning — so "whole market plus

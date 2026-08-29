@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApiError, ValidationError } from "../../src/core/errors.js"
 import { GangtiseClient } from "../../src/core/client.js"
+import { ENDPOINTS } from "../../src/core/endpoints.js"
 
 const { requestMock } = vi.hoisted(() => ({
   requestMock: vi.fn(),
@@ -67,6 +68,17 @@ function binaryResponse(data: Uint8Array) {
       text: vi.fn(),
     },
   }
+}
+
+/** Did the run issue the totalCapped probe — the extra `{from: total, size: 1}` request
+ * that tells a server-capped `total` from an honest one? Six guards decide whether it
+ * fires; asserting only on `partial` cannot tell a suppressed probe from a fired one,
+ * because several of those guards mark the result partial by another route anyway. */
+function probedPastEnd(total: number): boolean {
+  return requestMock.mock.calls.some((call) => {
+    const body = JSON.parse((call[1] as { body?: string } | undefined)?.body ?? "{}") as { from?: number; size?: number }
+    return body.from === total && body.size === 1
+  })
 }
 
 interface PageDef {
@@ -343,6 +355,49 @@ describe("GangtiseClient pagination", () => {
     expect(secondHeaders.Authorization).toBeDefined()
   })
 
+  it("lifts a download to the endpoint's timeout floor, redirect hops included", async () => {
+    // `requestJson` has always run its request through `resolveTimeoutMs`; `download`
+    // read the global config directly and silently ignored an endpoint's declared floor.
+    // No download endpoint declares one TODAY, so the floor is set here to pin the
+    // behaviour for the day one does — `tool.file-parse.result` is the obvious
+    // candidate, a 500-page parse result outgrowing the 30s default.
+    const endpoint = ENDPOINTS["insight.research.download"] as { timeoutMs?: number }
+    const previous = endpoint.timeoutMs
+    try {
+      endpoint.timeoutMs = 120_000
+      requestMock
+        .mockResolvedValueOnce({ statusCode: 302, headers: { location: "/real/file.pdf" }, body: { text: vi.fn().mockResolvedValue("") } })
+        .mockResolvedValueOnce(binaryResponse(new Uint8Array([7])))
+
+      const client = createClient() // config timeoutMs is 30_000 — the floor must win
+      await client.call("insight.research.download", undefined, { reportId: "1" })
+
+      expect(requestMock.mock.calls).toHaveLength(2)
+      for (const call of requestMock.mock.calls) {
+        const opts = call[1] as { headersTimeout?: number; bodyTimeout?: number }
+        expect(opts.headersTimeout).toBe(120_000)
+        expect(opts.bodyTimeout).toBe(120_000)
+      }
+    } finally {
+      endpoint.timeoutMs = previous
+    }
+  })
+
+  it("never lowers a user-configured download timeout to the endpoint floor", async () => {
+    const endpoint = ENDPOINTS["insight.research.download"] as { timeoutMs?: number }
+    const previous = endpoint.timeoutMs
+    try {
+      endpoint.timeoutMs = 5_000
+      requestMock.mockResolvedValueOnce(binaryResponse(new Uint8Array([7])))
+      const client = createClient() // 30_000 configured
+      await client.call("insight.research.download", undefined, { reportId: "1" })
+      const opts = requestMock.mock.calls[0][1] as { headersTimeout?: number }
+      expect(opts.headersTimeout).toBe(30_000)
+    } finally {
+      endpoint.timeoutMs = previous
+    }
+  })
+
   it("drops Authorization when a download redirect leaves the API origin", async () => {
     requestMock
       .mockResolvedValueOnce({ statusCode: 302, headers: { location: "https://oss.example.com/signed.pdf" }, body: { text: vi.fn().mockResolvedValue("") } })
@@ -605,6 +660,42 @@ describe("GangtiseClient pagination", () => {
       expect(result.failedPages?.length).toBeGreaterThan(0)
       expect(result.partial).toBe(true)
       expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("results are partial"))
+      // …and the totalCapped probe must NOT fire: `total` is only meaningful as a
+      // completeness claim when the fetch was complete. Probing a holed result can only
+      // produce a verdict about a `total` we already know we did not fill, on an endpoint
+      // that bills per row. This is the `failedPages.length === 0` guard; without this
+      // assertion the row count and `partial` both stay green when it is deleted.
+      expect(probedPastEnd(150)).toBe(false)
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("does not probe past the end when 'total' drifted mid-fetch", async () => {
+    // The `!totalDrift` guard. A drifting total means rows shifted underneath us, so
+    // `from = total` addresses an offset in a list that no longer exists — whatever comes
+    // back says nothing about whether the ORIGINAL total was capped, while still costing
+    // a billed request. The result is already partial via the drift path, so the probe
+    // cannot add information either.
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const from = (JSON.parse(opts?.body ?? "{}") as { from?: number }).from ?? 0
+        // maxPageSize 50, total 150 → first page + fan-out at from=50 and from=100.
+        // Every page returns its full 50 rows, so `short` stays false and only the
+        // drifting total can suppress the probe.
+        const list = Array.from({ length: 50 }, (_, i) => ({ id: from + i + 1 }))
+        return Promise.resolve(jsonResponse({ total: from === 0 ? 150 : 151, list }))
+      })
+
+      const client = createClient()
+      const result = await client.call("insight.opinion.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean; totalCapped?: boolean }
+
+      expect(result.list).toHaveLength(150)
+      expect(result.partial).toBe(true)
+      expect(result.totalCapped).toBeUndefined()
+      expect(probedPastEnd(150)).toBe(false)
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("changed across pages"))
     } finally {
       errSpy.mockRestore()
     }

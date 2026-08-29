@@ -584,6 +584,12 @@ export class GangtiseClient {
       url.searchParams.set(key, String(value))
     })
     const authState = { retried: false }
+    // Same floor `requestJson` applies: an endpoint that declares `timeoutMs` needs it
+    // here too, and reading the global config directly silently ignored it. No download
+    // endpoint declares one today — `tool.file-parse.result` is the obvious candidate
+    // the day a 500-page result ZIP outgrows 30s — so this closes a landmine rather
+    // than a live bug, and it never lowers a higher user-configured timeout.
+    const timeoutMs = resolveTimeoutMs(this.config.timeoutMs, endpoint)
 
     return withRetry(async () => {
       const authorization = await this.getAuthorizationHeader()
@@ -597,8 +603,8 @@ export class GangtiseClient {
           ? { Authorization: authorization, 'content-type': 'application/json' }
           : { Authorization: authorization },
         body: isPost ? JSON.stringify(body ?? {}) : undefined,
-        headersTimeout: this.config.timeoutMs,
-        bodyTimeout: this.config.timeoutMs,
+        headersTimeout: timeoutMs,
+        bodyTimeout: timeoutMs,
         dispatcher,
       })
 
@@ -617,8 +623,8 @@ export class GangtiseClient {
         response = await request(currentUrl, {
           method: 'GET',
           headers: auth ? { Authorization: auth } : {},
-          headersTimeout: this.config.timeoutMs,
-          bodyTimeout: this.config.timeoutMs,
+          headersTimeout: timeoutMs,
+          bodyTimeout: timeoutMs,
           dispatcher,
         })
       }

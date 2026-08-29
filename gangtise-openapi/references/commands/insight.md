@@ -94,7 +94,7 @@ gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--
   - **不带筛选时经常整条为空**，用 `--category` 或 `--market` 过滤时回填率明显更高（这两个字段是绑定的：用任一过滤，两个都会有值）。有值时给的是该记录的**全部**值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，不是"回显过滤值"）
   - **所以别拉全量再本地分组**——会漏掉大量记录。要按类别/市场分组就逐个枚举值各查一遍再合并（请求数放大 2~4 倍），或直接让服务端筛
   - **反过来也别据此断言某条记录没有该属性**——标签为空只说明这次查询没回填，不代表该纪要真的没有概念/分类/市场归属
-  - `researchAreaList` 和 `securityList` 相对完整，抽样空值比例都在 10% 以内
+  - `researchAreaList` 和 `securityList` 的回填要完整得多，不受上面这条影响，可以直接用来做本地分组
 
 ```bash
 # 近一周的帕米尔纪要
@@ -144,7 +144,7 @@ gangtise insight performance-calendar download --performance-report-id <id> [--o
 - 只给 `--security`（不给日期/`--size`）时，CLI 额外套一个 **1000 行隐式上限**：单只证券的整段日历只有几十条，正常查询感知不到；万一服务端哪天不再按 `securityList` 过滤，结果会在 1000 行截断并标 `partial`（stderr 警告 + 退出码 3），而不是闷头翻完全表。判据是 `total`：只有「取满 1000 行且 total 显示还有更多」才告警——恰好 1000 行且 total=1000 是完整结果，退出码仍是 0。看到告警说明筛选**可能**没生效，改用日期范围重查
 - 返回字段：`performanceReportId`（下载用）/ `securityCodeList[]`（A+H 同时上市会有多个代码）/ `securityName` / `category` / `publishDate` / `title` / `hasAttachment`
 - 实测 `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`（文档写 `yyyy-MM-dd`），取日期请截前 10 位
-- download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用真实标题命名（走 title-cache，未命中会回查 list 接口，那次回查按 0.1/条 计费——批量下载建议显式 `--output`）
+- download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用 title-cache 里的真实标题命名，**未命中不再自动回查**（v0.37.0 起），退回服务端文件名或 `<type>-<id>`。要回查加 `--resolve-title`——拉 200 条、按 0.1/条 约 20 积分，取回的标题会写回缓存供同批复用
 - **积分**：list 0.1/条；download A 股 10/篇、港美股 20/篇
 
 ## 研报 `insight research list/download`
@@ -216,8 +216,8 @@ gangtise insight foreign-opinion list [--rank-type <n>] [--security <code>] [--r
 ```
 
 - `--security`：境外证券代码，如 `UBER.N`
-- ⚠️ `--region`：`cn` | `cnHk` | `cnTw` | `us` | `jp` | `uk` | `gl`——**本端点上该过滤当前取不到数据**：除 `gl` 外的取值返回 `null` payload 而不是报错。需要按区域筛请不带该参数取回后按 `region` 字段本地筛。注意这是本端点的情况，`insight foreign-report` 的 `--region` 可正常收窄结果
-- ⚠️ `--industry`：**当前传任何值都拿不到数据**（中信码 / 申万码 / 乱码一样，不报错、退出码 0）。🔴 **返回的 payload 是字面 `null`，不是 `{total:0,list:[]}`** ——按空列表解析的脚本（`data.list.length`、`for row in data["list"]`）会在这里抛错或静默跳过，务必先判 `null`。需要按行业筛时不带该参数取回后本地按 `industryList[]` 筛
+- ⚠️ `--region`：**本端点只接受 6 个取值**——`cn` | `cnHk` | `cnTw` | `us` | `jp` | `uk`。`regionCategory` 常量表里另外 13 个（`sea` / `gl` / `fr` / `de` / `kr` / `in` / `ca` / `me` / `othAs` / `othEur` / `latAm` / `oce` / `af`）在这里一律报 `100005 枚举值非法`，**而它们在 `insight foreign-report` 上全部合法且能正常收窄**。要按这 13 个区域筛，只能用 `foreign-report`，或不带该参数取回后按 `region` 字段本地筛
+- ⚠️ `--industry`：**只认申万码**（`104xx0000`）。中信码报 `100005 枚举值非法`——即使 `reference constant-category` 把本端点列在 `citicIndustry` 的 `usageScopes` 里也一样。⚠️ **返回记录的 `industryList[]` 同时带两套码**（如 `100800122 中信非银` + `104490000 申万非银金融`），**回查时要挑申万那条**，拿中信码回查会报错
 - `--broker`：外资券商 ID（见 `references/lookup-ids.md`）
 - `--rating` / `--rating-change`：同研报
 - 返回字段：`foreignOpinionId` / `title` / `titleTranslate` / `content` / `contentTranslate` / `publishTime` / `publisher{brokerId, brokerName}` / `securityList[]{securityCode, rating, targetPrice, currency}` / `region`
@@ -230,7 +230,7 @@ gangtise insight independent-opinion download --independent-opinion-id <id> --fi
 ```
 
 - `--security`：境外证券代码，如 `GSK.N`
-- ⚠️ `--industry`：**当前传任何值都拿不到数据，且 payload 是字面 `null` 而非空 list**（同 foreign-opinion，注意事项见上），改用不带该参数取回后按 `industryList[]` 本地筛
+- ⚠️ `--industry`：**只认申万码**（`104xx0000`），中信码报 `100005 枚举值非法`（同 `foreign-opinion`，见上）。返回记录的 `industryList[]` 两套码都带，回查挑申万那条
 - `--rating` / `--rating-change`：同外资观点
 - `--file-type`（download **必选**）：`1` 原文 HTML | `2` 中文翻译 HTML
 - 返回字段：`independentOpinionId` / `title` / `titleTranslate` / `brief` / `briefTranslate` / `publishTime` / `analyst{analystId, analystName}` / `securityList[]` / `industryList[]`

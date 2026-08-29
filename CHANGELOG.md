@@ -2,6 +2,55 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+> 🔴 **服务端问题的逐轮复核记录在 `bug/review-log.md`**，不在本文件。本文件只记版本变更。
+
+### v0.37.0 — 2026-08-29
+
+**1. 🔴 下载的「智能文件命名」不再自动付费回查（行为变更）**
+
+省略 `--output` 时的文件名解析原本是两级：先读 `title-cache`，未命中就自动查 list 接口最近 200 条去匹配标题。第二级不是免费的：
+
+- `TITLE_LOOKUP_SIZE = 200`，而 list 单页上限 50 → **每次未命中发 4 次请求**（实测；且目标常在第 1 页，后 3 页纯浪费）
+- 12 个接了标题回查的下载命令里，**9 个的 list 按 0.1 积分/条计费** → 一次未命中 ≈ **20 积分**，而下载本身才 10–50
+- 取回的 200 条**没有写回缓存**，所以批量下 N 篇 = 4N 次请求、20N 积分
+
+改为：**默认只读缓存**，未命中退回服务端 `Content-Disposition` 文件名，再退到 `<type>-<id>.<ext>`。回查改为显式 `--resolve-title`，且回查取到的 200 条标题**一并写回缓存**，同批后续下载不再重复付费。
+
+先 `list` 再 `download` 的正常工作流**行为完全不变**（缓存命中，零额外调用）。
+
+**2. 下载成功却退出 3（`resolveTitle` 的退出码外溢）**
+
+标题回查走的是分页端点，`requestPaginated` 在首包异形时会写 `process.exitCode = 3`。回查本身是「尽力而为」的（失败就静默退回 ID 文件名），但这个副作用没人回滚——于是**文件完整下载成功、进程却退出 3**，而 3 的语义是「有数据但不完整」，按 `!= 0` 判失败的脚本会把成功的下载当失败。实测复现：
+
+```
+$ gangtise insight announcement-us download --announcement-id 12345
+[gangtise] warning: insight.announcement-us.list is marked paginated but the first page has an unexpected shape ...
+x.pdf
+EXIT=3        ← 文件是完整的
+```
+
+`resolveTitle` 现在在回查前后保存/还原 `process.exitCode`。还原而不是清零——下载自身设的退出码必须原样存活。
+
+**3. `--indicator-param` 引用未绑定的指标 code 不再静默发出**
+
+`indicator screener` 一直会拦「参数绑到没有 `--indicator` 绑定的变量」，`cross-section` / `time-series` 没有同款检查：
+
+```
+--indicator is_op_rev --indicator-param "is_op_rve:reportDate=2025-06-30"   # 拼写错
+→ indicatorCodeList: ["is_op_rev"]，indicatorParamList: [{ indicatorCode: "is_op_rve", … }]
+```
+
+`time-series` 上全程静默（那里不注入日期，没有冲突暴露它），用户以为设上的参数根本没生效。拼错**裸 `"<code>:"` 不要日期**那种写法更糟：真正的指标保留了被注入的 `tradeDate`，而那正是该写法要去掉的东西。现改为发请求前 `ValidationError`。
+
+**4. 下载路径不认端点声明的超时下限**
+
+`requestJson` 一直走 `resolveTimeoutMs(config, endpoint)`，`download()` 直读全局 `config.timeoutMs`，端点声明的 `timeoutMs` 被静默忽略（重定向跳转同样）。当前没有 download 端点声明下限，所以是**潜伏缺陷而非现行 bug**——`tool.file-parse.result` 是最可能触发的那个（500 页解析结果 ZIP）。已改为与 `requestJson` 同一条路径，并加测试钉住。
+
+**5. 两条测试/文档守卫补齐（`bug/closed.md` K15 / K16）**
+
+- **K15**：`totalCapped` 探针的 6 个 guard 里 `!totalDrift` 与 `failedPages.length === 0` 零覆盖——原有测试只断言最终 `partial`，而这两种情形本来就会由别的路径标 `partial`，删掉守卫测试照绿。新增两条测试直接断言**探针请求没有发出**（`{from: total, size: 1}`）。
+- **K16**：README 与 SKILL.md 里「共 18 个 `no-replay` 端点」的点名清单是注册表的第二份手抄件，没有守卫。两份文档各加一段 HTML 注释形式的 endpoint key 清单（读者不可见、机器可解析），`docsConsistency.test.ts` 对其做 set-equality，并另行校验正文里的「共 N 个」。判据实测：加第 19 个 `no-replay` 端点而不改文档 → 4 条测试红。
+
 ### v0.36.0 — 2026-08-18
 
 **1. 日期写法放宽到三种「年在前」格式，统一归一后发出**
@@ -82,7 +131,7 @@ v0.34.0 把 P2-7（`rankType=1` 综合排序）判为已修复、**并撤掉了�
 
 🔴 **顺带纠正一条我们自己写错的建议**：`searchType` **完全不影响 `rankType=1` 取回哪些条目**（3 关键词 × 2 命令前 50 逐位相同，尽管 `total` 差 5–15 倍）。「要最相关必须加 `--search-type 2`」已从 `insight.md` / `SKILL.md` 撤掉。
 
-**这一条是本轮最贵的教训**：前三轮每一轮的证据在自己的样本里都自洽，而三轮各自只动了一个变量（端点 / `searchType`），真正的变量始终没被动过。CLAUDE.md 里「别只测一个切面」就是为 `rankType` 写的——**写下规则之后仍然连犯两轮**。
+**判别要点**：前三轮每轮的证据在各自样本里都自洽，而三轮各自只动了一个变量（端点 / `searchType`），真正的变量始终没被动过。
 
 **5. 新发现：`screener` 静默丢弃 `parameters: []` 的指标（`server-open.md` P1-7）**
 
@@ -107,7 +156,6 @@ v0.34.0 把 P2-7（`rankType=1` 综合排序）判为已修复、**并撤掉了�
 
 **这一轮真正的产出是 `bug/closed.md` K1 那条根因——「验证对象不是被验证的那个东西」，现在有八种面孔**：变异变错形态 / 拿陈旧 `dist` 跑 live / `N` 凭印象 / 用一个接口的字段校验另一个接口 / 转述只发半张配对表 / 批处理抛错却拿测试绿当验证 / 变异全绿当护栏有效 / 清扫范围按改动文件划。八种都会给出一个**很像成功的信号**，所以不会自己暴露。
 
-**这一轮的教训**：`closed.md` 不是终点——P2-7 在**同一天内**被推翻两次。CLAUDE.md 里「别只测一个切面」那条已经写着 rankType 栽过三轮，这是第四、五轮，而且是在规则已经写下之后犯的。
 
 ---
 
@@ -194,50 +242,6 @@ CLI 侧：`--security all` 与混填都在**发请求前**报错，并直接给�
 **7. 新增指标**
 
 `scr_indu_citic` / `scr_indu_sw` / `scr_indu_gics` 三个行业组合指标（体系写进编码，只需可选的 `industryLevel`）；区间融资融券指标的 `changePeriod` 改为可选。
-
----
-
-## 服务端问题复核 — 2026-08-15（跟进 2026-08-14 服务端更新）
-
-对 `bug/server-open.md` 的 22 条逐条实测复跑。**结论：7 条已修复、2 条部分修复、13 条仍在、2 条阻塞。**
-
-> ⚠️ **7 条已修里只有 2 条出现在 08-14 官方更新日志里。** P0-2 / P1-4 / P2-6（EDE 参数校验收紧）、P2-7（`rankType`）、P2-8（微信群 `industryList`）都是日志没提、跑复现命令才发现的。**更新日志只能当线索，不能当复核清单。**
-
-### 已修复（整段移入 `bug/closed.md`，编号保留）
-
-| 编号 | 修复内容 | 判别性证据 |
-| :-- | :-- | :-- |
-| **P0-2** | EDE 参数名写错改报 `100003` 并指名参数 | `adjustType=3` 仍返 13609.6168；`adjustmentType` / `startDate` / 臆造键全部报错且 msg 带上错名 |
-| **P0-3** | 「年在后」日期不再按分隔符翻转日月 | `07/01/2026` 与 `07-01-2026` 现在给出**同一个** total（36454，= 7月1日），而 `01/07/2026` 与 `01-07-2026` 同为 258909（= 1月7日）——旧行为下前两者会分属不同结果 |
-| **P1-4** | EDE 整轴代码写错改报 `100003` 并指名代码 | 关键是「**无对照物**」那一档：只查一个拼错的指标也报错，不再是空表 + 退出 0 |
-| **P2-1** | `companyType` / `currency` 不再互换 | 换四种公司类型（一般企业/银行/保险/证券）`companyType` 跟着变而 `currency` 恒为人民币——排除了「碰巧都对」 |
-| **P2-6** | 重复 `indicatorCode` 改报 `100003 重复配置` | 单组仍正常出数，只有重复才报错 |
-| **P2-7** | `rankType=1` 改为真正的相关度选取 | 单页 50 条比 **ID 集合**：与 `rank2` 交集仅 1–9/50（旧行为几乎完全重合）。把 rank2 拉到 300 条建索引，rank1 的条目全在其中、位置散布在 26/90/141/144/157/165 |
-| **P2-8** | 微信群 `industryList` 中信码过滤生效 | 五个行业码各返一组不同条数，且正文内容逐个对得上（啤酒→食品饮料、中芯→电子、3D打印/机床→机械） |
-
-### 部分修复（范围已收窄，条目留在 open）
-
-- **P1-1 枚举非法值静默忽略** —— `summary` / 三个公告 list / `roadshow` / `site-visit` 已改报 `100005`；**`research`（内资研报）与 `foreign-report`（外资研报）仍吞 `keyword` 返全库**。`size` 越界也是同一批端点被收紧（超 50 报 `100006`），未被收紧的端点是静默截到 50 ——**两份名单完全重合**，指向同一批代码没改到。
-- **P1-3 Quote 非法代码静默返空** —— 统一 `day-kline` / `realtime` / `minute-kline` / `fund-flow` 已报 `120001`；**已下线的 `day-kline-hk` / `day-kline-us` / `index-day-kline` 仍返 `total:0`**。
-
-### 仍未修复（13 条，逐条实测确认）
-
-P0-1（`valuation-analysis` TTM 五个日期逐位不变）· P0-4（screener 边界跟着「今天」一起前移，仍精确等于 today−3 年）· P0-5（AAPL/MSFT 的 `is_dnrpnp` 仍是 `0`；时序 104 行里 102 行填 0，整列均值 6.95 亿 vs 正确 361 亿）· P1-2 · P1-5（`data: null`）· P1-6（`from=30000` 仍能取到行）· P2-2 · P2-3 · P2-4（5 端点 × 3 码系矩阵逐格相同）· P2-5 · P2-9 · P2-10（客户端够不着）；PM-1 / PM-2 仍 `999004` 阻塞。
-
-**P0-1 有一个进展**：08-14 新增的 `earliestAnncDate`（首次公告日）**是正确的**——五粮液 FY2025 四期分别返 20250426 / 20250828 / 20251031 / 20260430，与 `insight announcement` 核出的真实披露日一致（盘后披露计次日，方向安全）；坏的只是 `announcementDate`。**做 point-in-time 对齐改用 `earliestAnncDate`。**
-
-### 新发现（两条 CLI 侧破坏性变更，记入 `bug/cli-backlog.md`）
-
-- 🔴 **K8：`quote day-kline --security all` 报 `120001`** —— 服务端 08-14 停止支持 `["all"]`，改为 `aShares` / `hkStocks` / `usStocks` 且必须单独传。`quoteSharding.ts` 的整套分片以 `"all"` 为触发条件，现已走不到。**坏的只有 A 股全市场日 K 这一条路径**（三个旧端点的 `all` 仍可用，`fund-flow` / `realtime` 用的是 `aShares`，均正常）。
-- 🔴 **K9：报告期类指标（`is_*`）不再接受 `tradeDate`** —— 只给 `--date` 会报「不支持参数 tradeDate; 缺少必填参数 reportDate」，须补 `--indicator-param "code:reportDate=..."`。行情/估值类（`qte_*` / `finc_*`）不受影响。⚠️ 这条**推翻了 `closed.md` F6 记录的「服务端会把 tradeDate 归一到报告期」**，该条已加订正——**已关闭条目里的行为描述同样会过期**。
-- K10：统一 `day-kline` 已覆盖港股/美股/交易所指数/概念指数/申万行业指数，三个旧端点冗余且不校验代码，是否下线待评估。
-- K11：P1-4 修复后 EDE 的差集推断基本收不到样本，列为清理候选但**暂不动**（它是纯增量信号，不会拒掉合法查询，与「绕行变负资产」不同类）。
-
-### 已撤掉的 CLI 侧绕行文案
-
-按 `bug/README.md` 的规矩，关闭条目后立刻撤对应绕行：`vault.md` + `--industry` help（P2-8）、`insight.md` 开头的 rankType 实测表 + `SKILL.md` 排序段（P2-7，原文在劝客户放弃一个已经能用的能力）、`SKILL.md` / `indicator.md` / `README.md` 的「参数名写错按默认值取数」（P0-2）、`SKILL.md` / `indicator.md` / `response-schema.md` / `examples.md` / `README.md` 的「整列/整行消失 + 退出码 3」模型（P1-4）、`SKILL.md` 的枚举与 `120001` 措辞（P1-1 / P1-3 按残余范围收窄）、`lookup-ids.md` / `reference-and-lookup.md` 三处码表说明。
-
-**唯一有意保留的是 P0-3 的本地日期拦截**：服务端现在按「月在前」统一解析，但 `01-07-2026` 这类写法对欧洲习惯的用户仍会静默差半年。CLI 只放行 `YYYY-MM-DD` 堵掉这个歧义——**这是有意决定，已记入 `closed.md` P0-3，别在下一轮当过期绕行撤掉。**
 
 ---
 

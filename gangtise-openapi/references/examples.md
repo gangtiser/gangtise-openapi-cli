@@ -105,7 +105,7 @@
 3. Pre-flight："那个"暗示特定文件 → 🔴 展示结果让用户选择
 4. gangtise vault drive-list --keyword AI --file-type 1 --format json
 5. 展示前 10 条让用户挑 → gangtise vault drive-download --file-id <id>
-   （省略 --output 自动用真实标题做文件名）
+   （第 4 步的 drive-list 已把标题写进 title-cache，省略 --output 即自动用真实标题做文件名）
 ```
 
 ## 例 8：跨资源类型语义搜索
@@ -257,7 +257,7 @@
        --date 2026-07-31 --key-by code --format json
 4. 按 security 合并两张宽表（列头即 indicatorCode，各取所需日期的值）；不要把不同日期语义的指标塞进同一个 --date。
 5. 计费：search 免费；两次取数各按请求单元格数量计费，每次不足 100 单元格按 100 计。
-6. 无数据（无覆盖 / 非交易日 / 未来日期）一律保留行列并给占位单元格，退出码 0——但占位值多数是 null、个别指标（如 is_dnrpnp）是 0，0 会穿过比较与聚合，别当真值（见 commands/indicator.md）。代码写错或参数名写错则直接报 100003 并点名是哪个（指标码拼错、证券后缀错如美股写成 .US、参数名写错、同 code 重复配置），按报错改即可。
+6. 无数据（无覆盖 / 非交易日 / 未来日期）一律保留行列并给占位单元格，退出码 0——占位值统一是 null（见 commands/indicator.md）；⚠️ 报告期类指标（is_*）的时序只有报告期末那几行是真值，别对整列手工求均值。代码写错或参数名写错则直接报 100003 并点名是哪个（指标码拼错、证券后缀错如美股写成 .US、参数名写错、同 code 重复配置），按报错改即可。
 ```
 
 ## 例 15b：帕米尔专家纪要（新库，筛选项与踩坑都和 summary 不同）

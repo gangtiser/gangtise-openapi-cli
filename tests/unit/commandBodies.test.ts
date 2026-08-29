@@ -273,6 +273,67 @@ describe("command request body builders", () => {
     })
   })
 
+  // The screener has always rejected a param bound to no variable. Cross-section and
+  // time-series did not, so a mistyped code went out as a parameter group for an
+  // indicator that was never queried — silently on time-series, which injects no date
+  // to collide with it, so the parameters the caller believes they set never apply.
+  describe("rejects an --indicator-param whose code no --indicator names", () => {
+    it("cross-section, key=value form", () => {
+      expect(() => buildIndicatorCrossSectionBody({
+        indicator: ["is_op_rev"],
+        security: ["600519.SH"],
+        date: "2026-07-31",
+        indicatorParam: ["is_op_rve:reportDate=2025-06-30"],
+      })).toThrow(/is_op_rve/)
+    })
+
+    it("cross-section, bare 'code:' opt-out form", () => {
+      // Mistyping the opt-out is worse than mistyping a param: the real indicator keeps
+      // its injected tradeDate, which is the exact thing the opt-out exists to remove.
+      expect(() => buildIndicatorCrossSectionBody({
+        indicator: ["pty_op_scope"],
+        security: ["600519.SH"],
+        date: "2026-07-31",
+        indicatorParam: ["pty_opscope:"],
+      })).toThrow(/pty_opscope/)
+    })
+
+    it("time-series, key=value form", () => {
+      expect(() => buildIndicatorTimeSeriesBody({
+        indicator: ["is_op_rev"],
+        security: ["600519.SH"],
+        startDate: "2025-01-01",
+        endDate: "2025-12-31",
+        indicatorParam: ["is_op_rve:reportDate=2025-06-30"],
+      })).toThrow(/is_op_rve/)
+    })
+
+    it("time-series, bare 'code:' opt-out form", () => {
+      expect(() => buildIndicatorTimeSeriesBody({
+        indicator: ["pty_op_scope"],
+        security: ["600519.SH"],
+        startDate: "2025-01-01",
+        endDate: "2025-12-31",
+        indicatorParam: ["pty_opscope:"],
+      })).toThrow(/pty_opscope/)
+    })
+
+    it("accepts a param for one of several bound indicators", () => {
+      // The guard checks membership, not a one-to-one pairing: naming a param for only
+      // some of the queried indicators is normal and must stay legal.
+      const body = buildIndicatorCrossSectionBody({
+        indicator: ["qte_close", "is_op_rev"],
+        security: ["600519.SH"],
+        date: "2026-07-31",
+        indicatorParam: ["is_op_rev:reportDate=2025-06-30"],
+      })
+      expect(body.indicatorParamList).toEqual([
+        { indicatorCode: "is_op_rev", parameters: [{ paramKey: "reportDate", paramValue: "2025-06-30" }] },
+        { indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] },
+      ])
+    })
+  })
+
   it("builds a screener body with variable bindings, expression, and per-variable params", () => {
     expect(buildIndicatorScreenerBody({
       indicator: ["F1:qte_mkt_cptl", "F2:finc_pe_ttm"],

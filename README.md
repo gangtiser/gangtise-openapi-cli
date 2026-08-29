@@ -6,11 +6,11 @@
 
 README 仅列最近 5 个版本摘要：
 
-- **v0.36.0 — 2026-08-18**：**日期写法放宽**——`YYYY-MM-DD`、`YYYY/MM/DD`、`YYYYMMDD` 三种「年在前」写法都收，统一归一成 `YYYY-MM-DD` 发出（datetime 只归一日期部分，Unix 时间戳原样透传）；「年在后」写法（`01-07-2026`）仍在本地拒绝——接口会按美式「月在前」解析它，欧洲习惯写法会静默拿到差半年的数据，详见「关于日期格式」。**`indicator screener` 支持无日期指标**：`--indicator-param "F1:"`（冒号后留空）声明该指标不要查询日期，`pty_*` / `scr_*` 静态属性两族与 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg` 现在可以直接用于条件选股（此前只能在 `cross-section` 取回后本地筛），写法与截面一致、可与真实参数共存。**全量拉取的 `total` 封顶探测恢复覆盖 `ai hot-topic`**（v0.35.0 曾跳过它，前提有误——见下）。另：EDE 报错提示同步更新；补充计费说明（`ai hot-topic` 50/篇 的「篇」= 一整份报告；按篇/按条计费的接口查不到内容不扣分）。
-- **v0.35.0 — 2026-08-16**：新增 `--indicator-param "<code>:"`（冒号后留空）声明「这个指标不要查询日期」，用于 `parameterList` 里没有日期参数的指标——`pty_*`（经营范围/注册地/法定代表人…）、`scr_*`（上市市场/上市板块/ISIN…）两族，以及 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。这类指标此前在 `indicator cross-section` 上取不到数（`--date` 必填且会注入 `tradeDate`，而它们不收，整条请求被拒）；该写法可与真实参数共存（`"code:" + "code:fiscalYear=2025"`）。**EDE 日期参数报错提示重写**：拆成五种报文形态分别给建议，服务端同时点名「不该有的键」和「缺的键」时直说换哪个，只说了一半时不再瞎猜，多指标批量报错时不再用单数口吻指向其中一个指标。另：`--rank-type` 的说明按实测更正（差别大小取决于关键词，`--search-type` 不影响 `--rank-type 1` 取回哪些条目）；`ai hot-topic` 全量拉取跳过 `total` 封顶探测（**该改动已撤回，见下一版**——它的前提「`hot-topic` 按次计费」是错的，实际按篇计费，而按篇/按条计费的接口查不到内容不扣分，所以那次探测本来就不花钱）。
+- **v0.37.0 — 2026-08-29**：🔴 **下载的「智能文件命名」改为默认只读缓存**。省略 `--output` 时仍优先用 `title-cache` 里的真实标题——先 `list` 再 `download` 的常规用法**不受影响，也不产生额外调用**；但**缓存未命中时不再自动回查 list 接口**，改为退回服务端返回的文件名或 `<type>-<id>.<ext>`。回查一次要拉 200 条记录（4 次请求），而这 12 个下载命令里有 9 个的 list 按 0.1 积分/条计费，约 20 积分——这笔开销只用于取一个更易读的文件名，所以改成显式的 `--resolve-title`。加了该参数时，取回的 200 条标题会一并写入缓存，同一批后续下载不再重复回查。⚠️ **依赖旧行为拿中文文件名的脚本**：升级后会得到 ID 文件名，补 `--resolve-title`，或按推荐用法先跑一次 `list`。**另有三项修正**：① 下载已成功、仅标题回查阶段遇到异常响应时，退出码会变成 3（脚本按 `!= 0` 判失败会误判为下载失败），现已隔离——下载完整就是 0；② `indicator cross-section` / `time-series` 的 `--indicator-param` 若写了 `--indicator` 里没有的指标编码（多为拼写错误），此前该参数不会作用到你要查的指标上且没有任何提示，现改为发请求前直接报错并指出是哪个编码（`screener` 一直是这个行为）；③ 下载请求的超时改为与其他请求同一套解析逻辑，行为对齐。
+- **v0.36.0 — 2026-08-18**：**日期写法放宽**——`YYYY-MM-DD`、`YYYY/MM/DD`、`YYYYMMDD` 三种「年在前」写法都收，统一归一成 `YYYY-MM-DD` 发出（datetime 只归一日期部分，Unix 时间戳原样透传）；「年在后」写法（`01-07-2026`）仍在本地拒绝——接口会按美式「月在前」解析它，欧洲习惯写法会静默拿到差半年的数据，详见「关于日期格式」。**`indicator screener` 支持无日期指标**：`--indicator-param "F1:"`（冒号后留空）声明该指标不要查询日期，`pty_*` / `scr_*` 静态属性两族与 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg` 现在可以直接用于条件选股（此前只能在 `cross-section` 取回后本地筛），写法与截面一致、可与真实参数共存。**全量拉取的 `total` 封顶探测恢复覆盖 `ai hot-topic`**（v0.35.0 曾跳过）。另：EDE 报错提示同步更新；补充计费说明（`ai hot-topic` 50/篇 的「篇」= 一整份报告；按篇/按条计费的接口查不到内容不扣分）。
+- **v0.35.0 — 2026-08-16**：新增 `--indicator-param "<code>:"`（冒号后留空）声明「这个指标不要查询日期」，用于 `parameterList` 里没有日期参数的指标——`pty_*`（经营范围/注册地/法定代表人…）、`scr_*`（上市市场/上市板块/ISIN…）两族，以及 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。这类指标此前在 `indicator cross-section` 上取不到数（`--date` 必填且会注入 `tradeDate`，而它们不收，整条请求被拒）；该写法可与真实参数共存（`"code:" + "code:fiscalYear=2025"`）。**EDE 日期参数报错提示重写**：拆成五种报文形态分别给建议，服务端同时点名「不该有的键」和「缺的键」时直说换哪个，只说了一半时不再瞎猜，多指标批量报错时不再用单数口吻指向其中一个指标。另：`--rank-type` 的说明按实测更正（差别大小取决于关键词，`--search-type` 不影响 `--rank-type 1` 取回哪些条目）；`ai hot-topic` 全量拉取跳过 `total` 封顶探测（**已于 v0.36.0 撤回**——该探测不额外计费）。
 - **v0.34.1 — 2026-08-15**：EDE 报告期类指标传错日期参数时，报错里直接给出该改的 CLI 写法（此前只有服务端那句「缺少必填参数 reportDate」，要自己推断该用 `--indicator-param`）；该提示对 `100001` / `100003` 两个错误码都生效，并注明少数指标两个日期都要、另有指标要 `fiscalYear`，一律以 `indicator search` 的 `parameterList` 为准。另修复下载文件名缓存在并发写入下可能丢条目的问题（单进程使用不受影响）。
 - **v0.34.0 — 2026-08-15**：跟进 2026-08-14 服务端更新。🔴 **破坏性**：`quote day-kline --security all` 已失效（服务端停止支持），改用 `aShares` / `hkStocks` / `usStocks`，且市场关键字必须单独传（不能与证券代码或另一个关键字混填）——这两种写法 CLI 都会在发请求前报错并指出正确写法；`ai stock-summary` 同理不再接受市场关键字。`day-kline` 现覆盖 A股/港股/美股个股与交易所/概念/行业指数（可混查），三个旧命令 `day-kline-hk`/`day-kline-us`/`index-day-kline` 标记为已下线；`minute-kline` 支持指数。**另两处影响取数完整性的修复**：`quote fund-flow` 把市场关键字与证券代码混填时，此前会只返回那几个代码的数据且不报错（"全市场 + 这只"静默变成"只有这只"），现改为本地拦截；`quote index-day-kline --security all` 跨 30 天以上时分片过宽会撞行数上限被截断（标 `partial` + 退出 3），现已调细粒度，同区间可完整取回。另：三大报表新增 `earliestAnncDate`（做时点对齐用它，不要用 `announcementDate`），EDE 报告期类指标改为必须显式传 `reportDate`，错误码提示按新行为更新。
-- **v0.33.0 — 2026-08-09**：四处行为变更，都是把「静默给出看着正常的错结果」改成显式失败——分页端点返回异形首包（含 `data: null`）改退出码 3；`total` 被服务端封顶时探测并标 `totalCapped` + 退出 3（三个 opinion 端点的 `total` 恒为 10000 而实际远不止，全量导出此前会被静默截断）；空结果不再在 stdout 留空行、`null` 不再被渲染成一条记录。另补多处帮助文案与 EDE 占位值（个别指标填 `0` 而非 `null`）的说明。
 
 ### 历史里程碑
 
@@ -260,7 +260,29 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`jsonl`/`csv` 格式且 `--output` 指定时，超过 1000 行自动切换为逐行写盘，避免一次性构建百 MB 字符串。
-- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——**重放会重复扣分**：服务端可能已经执行并计费，重发按次计费的再扣一次，重发按篇/按条计费的会把已交付的行再计一次；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的占位单元格（多数指标 `null`、个别如 `is_dnrpnp` 是 `0`），空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**贵档端点例外**（one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载，共 18 个）：5xx/超时不重放——**重放会重复扣分**：服务端可能已经执行并计费，重发按次计费的再扣一次，重发按篇/按条计费的会把已交付的行再计一次；仅连接失败、429 与 token 自愈重试。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（该码 2026-08-01 前还兼表「查询无数据」，现在无数据是保留行列的占位单元格（统一 `null`），空表另表示整轴 code 未识别）。**终态码 `999011`（凭证无效）/ `140002`（异步生成失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，异步生成失败是终态。
+
+<!-- no-replay-endpoints
+     上面那句点名的「不重放」端点，完整清单如下（endpoint key，与 `gangtise raw list` 一致）：
+ai.earnings-review.get-id
+ai.hot-topic
+ai.investment-logic
+ai.knowledge-batch
+ai.management-discuss-announcement
+ai.management-discuss-earnings-call
+ai.one-pager
+ai.peer-comparison
+ai.research-outline
+ai.theme-tracking
+ai.viewpoint-debate.get-id
+alternative.concept-info
+alternative.concept-securities
+insight.foreign-report.download
+insight.pamirs-summary.download
+insight.summary.download
+tool.file-parse.submit
+vault.my-conference.download
+-->
 - **Token 自愈**：调用返回 `0000001008` / `999002` 时自动强制刷新 Token 并重试一次。
 - **K线/资金流向自动分片**：`quote day-kline --security aShares|hkStocks|usStocks`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、港股 2 天/片；已下线的 `day-kline-hk`/`day-kline-us`/`index-day-kline` 用 `all`，分别 2/1/15 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
@@ -301,20 +323,27 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
-- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**2026-08-15 起这个分支基本收不到样本**——服务端现在对解析不了的代码直接报 `100003` 并点名是哪个（指标码拼错 →「指标 xxx 不存在」；证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O` →「xxx 不是有效证券或者板块ID」），**无论同批有没有正确的代码都会报**，CLI 相应退出 1。真实的无数据/无覆盖仍是占位单元格 + 退出码 0。🔴 **占位值不统一**：多数指标是 `null`，个别（如 `is_dnrpnp`）是 `0`，而 `0` 会穿过比较与聚合——别把它当真值，详见 skill 的 `references/commands/indicator.md`。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集不能直接当成「无标的符合条件」——头号嫌疑是某个变量拿到的是占位 `0`。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
-- **分页端点返回 `null` 也退出 3**：分页端点本该返回 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`（已知一例：`insight foreign-opinion` / `independent-opinion` 传 `--industry`），CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
-- 🔴 **`total` 被服务端封顶时会标 `totalCapped` 并退出 3**：`insight opinion` / `foreign-opinion` / `independent-opinion` 三个端点的 `total` 恒为 `10000`，而实际记录远不止（把 `from` 加到远超该值仍能取到真实记录）。省略 `--size` 的全量拉取本来会**正好取满 10000 条就停、且不报任何异常**——导出的文件是截断的却看不出来。现在全量拉取结束后会**多探一行**（`from = total`）：探到数据就标 `partial` + `totalCapped` 并退出 3。判据不写死 10000，服务端改配置仍然有效；`total` 诚实时探针返回空、不产生计费。传了 `--size` 的有界请求不做此探测。
+- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**2026-08-15 起这个分支基本收不到样本**——服务端现在对解析不了的代码直接报 `100003` 并点名是哪个（指标码拼错 →「指标 xxx 不存在」；证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O` →「xxx 不是有效证券或者板块ID」），**无论同批有没有正确的代码都会报**，CLI 相应退出 1。真实的无数据/无覆盖仍是占位单元格 + 退出码 0。占位值统一是 `null`。⚠️ **报告期类指标（`is_*`）的时序上大部分行都是占位**（只有报告期末那几行是真值），`null` 虽被 Excel / pandas / SQL 的聚合跳过，**但行数不变**，手工「总和 ÷ 行数」仍会差几十倍；详见 skill 的 `references/commands/indicator.md`。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集不能直接当成「无标的符合条件」——另有两种成因产生**逐字相同**的输出：**日期没落在报告期末**（报告期类指标此时整批 `null`），或**该指标不覆盖这批证券**（如拿 A 股专属指标查港美股）。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
+- **分页端点返回 `null` 也退出 3**：分页端点的正常响应是 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`，CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
+- 🔴 **`total` 被服务端封顶时会标 `totalCapped` 并退出 3**：分页端点的 `total` 若被服务端封顶（返回一个固定上限而非真实条数），省略 `--size` 的全量拉取会**正好取满那个上限就停、且不报任何异常**——导出的文件是截断的却看不出来。现在全量拉取结束后会**多探一行**（`from = total`）：探到数据就标 `partial` + `totalCapped` 并退出 3。判据不写死 10000，服务端改配置仍然有效；`total` 诚实时探针返回空、不产生计费。传了 `--size` 的有界请求不做此探测。
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 
 ## 智能文件命名
 
 下载命令（`summary download`、`pamirs-summary download`、`research download`、`foreign-report download`、`announcement download`、`announcement-hk download`、`announcement-us download`、`official-account download`、`performance-calendar download`、`vault drive-download`、`vault record-download`、`vault my-conference-download`）省略 `--output` 时，自动使用真实标题作为文件名：
 
-1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，无额外 API 调用
-2. **API 回查** — 缓存未命中时，自动查询最近 200 条记录匹配标题
-3. **兜底** — 都找不到时使用服务器返回的原始文件名或 `{type}-{id}.{ext}`
+1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，**无额外 API 调用、无额外积分**
+2. **兜底** — 缓存未命中时使用服务器返回的原始文件名，无则 `{type}-{id}.{ext}`
 
-推荐工作流：先 `list` 再 `download`，文件名自动正确。
+推荐工作流：先 `list` 再 `download`，文件名自动正确且零额外成本。
+
+🔴 **缓存未命中时不会自动回查 list 接口**（v0.37.0 起）。回查要拉最近 200 条记录（4 次请求），而上面 12 个命令里有 9 个的 list 按 **0.1 积分/条**计费，约 20 积分——这笔开销只用于取一个更易读的文件名（下载本身 10–50 积分），所以改成按需开启。需要时加 `--resolve-title`：
+
+```bash
+gangtise insight research download --report-id 432092410345574400 --resolve-title
+```
+
+`--resolve-title` 取回的 200 条标题会一并写入缓存，所以同一批后续的下载不再重复回查。带 `--output` 时该参数无效（文件名已由你指定）。
 
 ## 常用示例
 
@@ -347,9 +376,12 @@ gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 2
 gangtise insight pamirs-summary download --summary-id 5863771 --file-type 2
 # → PCB钻针：高端钻针扩产有壁垒，供需紧缺会持续到28年.html
 
-# 下载：先 list 再 download，自动使用真实标题作为文件名
+# 下载：先 list 再 download，标题已在缓存里，文件名自动正确且零额外成本
 gangtise insight summary download --summary-id 4902586
 # → 超颖电子：2026年4月7日投资者关系活动记录表.txt
+
+# 没先跑过 list（缓存未命中）时，默认退回 ID 文件名；要标题就显式回查
+gangtise insight summary download --summary-id 4902586 --resolve-title
 
 # 下载 Markdown 版本
 gangtise insight research download --report-id 432092410345574400 --file-type 2
@@ -512,9 +544,8 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 gangtise ai knowledge-batch --query 新能源汽车 --resource-type 10 --resource-type 11 --top 10
 gangtise ai security-clue --start-time "2026-04-01 00:00:00" --end-time "2026-04-09 23:59:59" --query-mode byIndustry --gts-code 821035.SWI --source researchReport --source announcement
 gangtise ai one-pager --security-code 600519.SH
-# 个股看点（精炼投研总结，仅 A 股/港股）：传具体代码，或 aShares/hkStocks 拉全市场
+# 个股看点（精炼投研总结，仅 A 股/港股）：只收具体代码，单次最多 6000 个；不支持全市场关键字
 gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json
-gangtise ai stock-summary --security hkStocks --format json
 gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
 gangtise ai earnings-review --security-code 600519.SH --period 2025q3
@@ -747,7 +778,7 @@ datetime 参数（`--start-time` / `--end-time`）同理，只归一日期部分
 | `999010` | 接口地址不存在（`raw call` 的 key 可能已下线，用 `raw list` 核对） |
 | `999012` / `999013` / `999014` | 账号禁用 / 已过期 / 租户失效 |
 | `999016` | 调用方 IP 不在允许范围 |
-| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点的「无数据」已不再用此码——有效 code 无数据返回占位单元格（多数 `null`、个别指标 `0`），此码基本只剩真故障） |
+| `999999` | Gangtise 系统错误，请稍后重试（`indicator` 端点的「无数据」已不再用此码——有效 code 无数据返回占位单元格（统一 `null`），此码基本只剩真故障） |
 | `140002` | 终态失败：AI 异步生成失败，或 `indicator` 的参数/表达式错误（枚举越界、语法错）——改参数重提，不重试 |
 | `100003` | 参数值非法——**最宽的兜底码**；msg 通常已指明字段（如「limit 最小为 1，最大为 10000」），先读 msg |
 | `100001` | 缺必填参数（msg 带字段名，如「缺少必填参数: reportId」） |

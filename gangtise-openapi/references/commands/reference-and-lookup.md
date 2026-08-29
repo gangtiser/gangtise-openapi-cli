@@ -108,7 +108,7 @@ gangtise reference constant-category [--format json]
 >
 > 先记住三套码的归属，**别把行业码算到 `gangtiseIndustry` 头上**：`citicIndustry` = 30 条行业码 `1008001xx`；`swIndustry` = 31 条行业码 `104xx0000`；`gangtiseIndustry` = **只有 6 条方向码** `122000xxx`（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`），里面**没有任何行业**，去它那里找「食品饮料」永远找不到。
 >
-> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / official-account 正确过滤。`swIndustry`（`104xx0000`）在这 4 个上**也生效，但不是等效**——两套码的行业成分不同，4 个里有 2 个结果集对不上（research / foreign-report 完全一致；**opinion 与 official-account 传两套码取回的条数相差约 2%–5%**）。所以**统一用中信码**，同一批查询里别把两套码混着传。方向码 `122000xxx` 在 `--industry` 上一律返 0。⚠️ 一个例外：`insight foreign-opinion` / `independent-opinion` 只要传 `--industry` 就拿不到数据（不报错，且 **payload 是字面 `null`、不是空 list**，详见 `insight.md`），只能不带该过滤取回后本地筛。`vault wechat-message-list` 的 `--industry` **只认中信码**，申万码会被静默忽略并返回全量（详见 `vault.md`）。
+> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / official-account 正确过滤。`swIndustry`（`104xx0000`）在这 4 个上**也生效，但不是等效**——两套码的行业成分不同，4 个里有 2 个结果集对不上（research / foreign-report 完全一致；**opinion 与 official-account 传两套码取回的条数相差约 2%–5%**）。所以**统一用中信码**，同一批查询里别把两套码混着传。方向码 `122000xxx` 在 `--industry` 上一律返 0。⚠️ 一个例外：`insight foreign-opinion` / `independent-opinion` 的 `--industry` **只认申万码 `104xx0000`**，传中信码报 `100005 枚举值非法`（详见 `insight.md`）。`vault wechat-message-list` 反过来**只认中信码**，传申万码报 `100005`（详见 `vault.md`）。
 > - **`--research-area`（researchAreaList）→ 用 `citicIndustry` 行业码 `1008001xx`，方向再叠 `gangtiseIndustry` 的 `122000xxx`**。⚠️ **申万码 `104xx0000` 只有 `summary` / `pamirs-summary` 认**，其余端点返 0（与传乱码表现一致，不报错）。逐端点实测（同一行业分别传三套码，✅ = 正常过滤，❌ = 返 0）：
 >
 > | 端点 | 中信 `1008001xx` | 申万 `104xx0000` | 方向 `122000xxx` |
@@ -224,9 +224,9 @@ gangtise lookup meeting-org list          # 会议/牵头机构全量（--instit
 | 银行 / 银行股 | 银行 | `104480000` | `821047.SWI` |
 | 汽车 / 新车 | 汽车 | `104280000` | `821036.SWI` |
 
-> ¹ 第 3 列是**申万码**（`104xx0000`），仅在 opinion / research / foreign-report / official-account 上可作 `--industry` 使用，且**与中信码不等效**（opinion / official-account 两套码结果集不同，见上方 ⭐ 权威口径）；用于 `--research-area` 时只有 summary / pamirs-summary 认，其余端点返 0。`vault wechat-message-list` 的 `--industry` **只认中信码，申万码被静默忽略**。通用/推荐的**中信码**（`1008001xx`）见 `references/lookup-ids.md` 中信表或 `constant-list --category citicIndustry`。
+> ¹ 第 3 列是**申万码**（`104xx0000`），仅在 opinion / research / foreign-report / official-account 上可作 `--industry` 使用，且**与中信码不等效**（opinion / official-account 两套码结果集不同，见上方 ⭐ 权威口径）；用于 `--research-area` 时只有 summary / pamirs-summary 认，其余端点返 0。`vault wechat-message-list` 的 `--industry` **只认中信码，传申万码报 `100005`**。通用/推荐的**中信码**（`1008001xx`）见 `references/lookup-ids.md` 中信表或 `constant-list --category citicIndustry`。
 
-> **参数名选择**：`--industry`（industryList，用 `citicIndustry` 码 `1008001xx`）用于 opinion / research / foreign-report / official-account / `vault wechat-message-list`（后者只认中信码）；`foreign-opinion` / `independent-opinion` 也有这个参数，但**当前不生效**，见上方 ⭐ 权威口径；`--research-area`（researchAreaList，行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`）用于 opinion / summary / pamirs-summary / roadshow / site-visit / forum / my-conference；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）。注意 strategy（线下策略会）无 `--research-area`，只按 `--institution` / `--location` 筛。
+> **参数名选择**：`--industry`（industryList，用 `citicIndustry` 码 `1008001xx`）用于 opinion / research / foreign-report / official-account / `vault wechat-message-list`（后者只认中信码）；`foreign-opinion` / `independent-opinion` 的这个参数**只认申万码 `104xx0000`**，见上方 ⭐ 权威口径；`--research-area`（researchAreaList，行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`）用于 opinion / summary / pamirs-summary / roadshow / site-visit / forum / my-conference；`--gts-code` 仅用于 `ai security-clue`（需申万格式 `821xxx.SWI`，不是数字 ID）。注意 strategy（线下策略会）无 `--research-area`，只按 `--institution` / `--location` 筛。
 
 > **"消费"歧义**：用户说"消费/大消费"覆盖多个子行业（食品饮料 `104340000` / 商贸零售 `104450000` / 社会服务 `104460000` / 家电 `104330000` / 纺织服饰 `104350000` / 美容护理 `104770000`），需向用户确认具体方向，或用 `--keyword 消费` 做宽泛搜索。
 

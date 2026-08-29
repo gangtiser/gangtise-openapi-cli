@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 
 import { extFromContentType, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
 import { DownloadError } from "../../src/core/errors.js"
-import { readTitleCache } from "../../src/core/titleCache.js"
+import { readTitleCache, writeTitleCache } from "../../src/core/titleCache.js"
 
 const { requestMock } = vi.hoisted(() => ({
   requestMock: vi.fn(),
@@ -22,9 +22,11 @@ vi.mock("undici", async () => {
 
 // resolveTitle reads the on-disk title cache via readTitleCache(); stub it to an
 // empty cache so these tests stay hermetic and fast (the real cache can be large).
+// writeTitleCache is stubbed for the same reason — the write-back assertions check
+// that it was CALLED with the whole page set, not that it reached disk.
 vi.mock("../../src/core/titleCache.js", async () => {
   const actual = await vi.importActual<typeof import("../../src/core/titleCache.js")>("../../src/core/titleCache.js")
-  return { ...actual, readTitleCache: vi.fn().mockResolvedValue({}) }
+  return { ...actual, readTitleCache: vi.fn().mockResolvedValue({}), writeTitleCache: vi.fn().mockResolvedValue(undefined) }
 })
 
 describe("extFromContentType", () => {
@@ -44,9 +46,14 @@ describe("extFromContentType", () => {
 })
 
 describe("resolveTitle", () => {
-  // readTitleCache is stubbed to {}, so the lookup misses and we fall through
-  // to the (mocked) list endpoint.
+  // readTitleCache is stubbed to {}, so the lookup misses; whether we then fall
+  // through to the (mocked) list endpoint is what `allowLookup` decides.
   const ENDPOINT = "test.resolve-title.list"
+  const LOOKUP = { allowLookup: true }
+
+  beforeEach(() => {
+    vi.mocked(writeTitleCache).mockClear()
+  })
 
   it("returns a filename from the title cache without calling the list endpoint", async () => {
     // The common path: a prior `list` cached the title, so download resolves the
@@ -60,26 +67,83 @@ describe("resolveTitle", () => {
     expect(listSpy).not.toHaveBeenCalled()
   })
 
+  it("does NOT query the list endpoint on a cache miss unless the lookup is opted into", async () => {
+    // The paid half of title resolution. On a miss the fallback pulls TITLE_LOOKUP_SIZE
+    // rows over 4 requests, and most of the wired-up list endpoints bill per row — a
+    // charge levied for nothing but a nicer filename. Default must be cache-only; the
+    // caller then keeps the server's Content-Disposition name or <prefix>-<id>.
+    const listSpy = vi.fn()
+    expect(await resolveTitle({ call: listSpy }, { contentType: "application/pdf" }, ENDPOINT, "reportId", "123")).toBeUndefined()
+    expect(listSpy).not.toHaveBeenCalled()
+  })
+
   it("builds a sanitized filename from the matched list item and content type", async () => {
     const client = { call: vi.fn().mockResolvedValue({ list: [{ reportId: "123", title: "Q3 业绩/点评" }] }) }
-    const name = await resolveTitle(client, { contentType: "application/pdf" }, ENDPOINT, "reportId", "123")
+    const name = await resolveTitle(client, { contentType: "application/pdf" }, ENDPOINT, "reportId", "123", LOOKUP)
     expect(name).toBe("Q3 业绩_点评.pdf")
   })
 
   it("does not double-append an extension the title already has", async () => {
     const client = { call: vi.fn().mockResolvedValue({ list: [{ reportId: "1", title: "report.pdf" }] }) }
-    const name = await resolveTitle(client, { filename: "x.pdf" }, ENDPOINT, "reportId", "1")
+    const name = await resolveTitle(client, { filename: "x.pdf" }, ENDPOINT, "reportId", "1", LOOKUP)
     expect(name).toBe("report.pdf")
   })
 
   it("returns undefined when no item matches", async () => {
     const client = { call: vi.fn().mockResolvedValue({ list: [{ reportId: "999", title: "T" }] }) }
-    expect(await resolveTitle(client, {}, ENDPOINT, "reportId", "123")).toBeUndefined()
+    expect(await resolveTitle(client, {}, ENDPOINT, "reportId", "123", LOOKUP)).toBeUndefined()
   })
 
   it("returns undefined when the list endpoint throws", async () => {
     const client = { call: vi.fn().mockRejectedValue(new Error("network")) }
-    expect(await resolveTitle(client, {}, ENDPOINT, "reportId", "123")).toBeUndefined()
+    expect(await resolveTitle(client, {}, ENDPOINT, "reportId", "123", LOOKUP)).toBeUndefined()
+  })
+
+  it("banks every title from the fetched page set, not just the one it came for", async () => {
+    // Those rows are already paid for. Without the write-back a batch of N downloads
+    // re-buys the same page set N times (measured: 4 list requests per download).
+    const client = {
+      call: vi.fn().mockResolvedValue({
+        list: [{ reportId: "1", title: "First" }, { reportId: "2", title: "Second" }, { reportId: "3", title: "Third" }],
+      }),
+    }
+    expect(await resolveTitle(client, {}, ENDPOINT, "reportId", "2", LOOKUP)).toBe("Second")
+    expect(writeTitleCache).toHaveBeenCalledWith(ENDPOINT, { "1": "First", "2": "Second", "3": "Third" })
+  })
+
+  it("does not leak the lookup's exit code onto a download that already succeeded", async () => {
+    // The list call runs through requestPaginated, which sets exit 3 when a first page
+    // loses the {total,list} shape. That verdict is about the LOOKUP; the file itself
+    // downloaded intact, and exit 3 means "data is incomplete" to every consuming
+    // script. Simulated here by a client.call that sets the code the way the real
+    // pagination path does.
+    const previousExit = process.exitCode
+    try {
+      const client = {
+        call: vi.fn().mockImplementation(async () => {
+          process.exitCode = 3
+          return null
+        }),
+      }
+      expect(await resolveTitle(client, {}, ENDPOINT, "reportId", "123", LOOKUP)).toBeUndefined()
+      expect(process.exitCode).toBeUndefined()
+    } finally {
+      process.exitCode = previousExit
+    }
+  })
+
+  it("restores an exit code that was already set before the lookup", async () => {
+    // Containment must not become suppression: a code set by the download itself has
+    // to survive the lookup untouched.
+    const previousExit = process.exitCode
+    try {
+      process.exitCode = 3
+      const client = { call: vi.fn().mockResolvedValue({ list: [{ reportId: "1", title: "T" }] }) }
+      await resolveTitle(client, {}, ENDPOINT, "reportId", "1", LOOKUP)
+      expect(process.exitCode).toBe(3)
+    } finally {
+      process.exitCode = previousExit
+    }
   })
 })
 

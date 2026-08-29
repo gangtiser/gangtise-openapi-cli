@@ -3,7 +3,7 @@ import { extname } from "node:path"
 
 import { DownloadError } from "./errors.js"
 import { saveOutputIfNeeded } from "./output.js"
-import { lookupTitleCache, readTitleCache, TITLE_LOOKUP_SIZE } from "./titleCache.js"
+import { extractTitles, lookupTitleCache, readTitleCache, TITLE_LOOKUP_SIZE, writeTitleCache } from "./titleCache.js"
 
 /** Replace filesystem-unsafe characters (path separators, wildcards, and control
  * characters / NUL) with `_` so a title or a server-supplied filename can't create
@@ -92,14 +92,26 @@ export function extFromContentType(contentType?: string): string {
   return MIME_EXT[mime] ?? ""
 }
 
+/**
+ * Resolve a friendly filename for a downloaded file.
+ *
+ * The title cache (populated by any prior `list` on the same endpoint) is always
+ * consulted and is free. The LIST FALLBACK is not: `TITLE_LOOKUP_SIZE` rows across
+ * 4 requests, and 9 of the 12 endpoints wired up for title lookup are metered at
+ * 0.1 credits/row — roughly 20 credits levied for nothing but a nicer filename, on
+ * a download that itself costs 10–50. So the fallback is opt-in (`--resolve-title`)
+ * and off by default; without it the caller keeps the server's own
+ * Content-Disposition name, or `<prefix>-<id>.<ext>`.
+ */
 export async function resolveTitle(
   client: TitleLookupClient,
   result: unknown,
   listEndpoint: string,
   idField: string,
   idValue: string,
-  titleField = "title",
+  options: { titleField?: string; allowLookup?: boolean } = {},
 ): Promise<string | undefined> {
+  const titleField = options.titleField ?? "title"
   const file = result as { filename?: string; contentType?: string }
   const serverExt = file.filename ? extname(file.filename) : extFromContentType(file.contentType)
 
@@ -119,14 +131,31 @@ export async function resolveTitle(
     // Ignore corrupt cache data and fall back to the list endpoint.
   }
 
+  if (!options.allowLookup) return undefined
+
+  // `process.exitCode` is saved and restored around the lookup. The call below goes
+  // through `requestPaginated`, which sets exit 3 on a malformed first page — a verdict
+  // about THIS LOOKUP, not about the file that was already downloaded intact. Leaving it
+  // set makes a complete download report "data is incomplete", which is the one thing
+  // exit 3 must never be able to say wrongly. Restoring the previous value (rather than
+  // clearing) keeps an exit code set before the lookup.
+  const previousExitCode = process.exitCode
   try {
     const resp = await client.call(listEndpoint, { from: 0, size: TITLE_LOOKUP_SIZE }) as { list?: Array<Record<string, unknown>> }
-    const items = Array.isArray(resp) ? resp : (resp.list ?? [])
-    const match = items.find(item => String(item[idField]) === String(idValue))
-    const rawTitle = match?.[titleField]
-    if (typeof rawTitle === "string" && rawTitle) return buildFilename(rawTitle)
+    const items = Array.isArray(resp) ? resp : (resp?.list ?? [])
+    // Bank the WHOLE page set, not just the row we came for: those rows are already
+    // paid for, and without the write-back a batch of N downloads re-buys them N times
+    // (measured: 4 list requests per download, every time).
+    const titles = extractTitles(items, { endpointKey: listEndpoint, idField, titleField })
+    if (Object.keys(titles).length > 0) {
+      await writeTitleCache(listEndpoint, titles).catch(() => {})
+    }
+    const rawTitle = titles[String(idValue)]
+    if (rawTitle) return buildFilename(rawTitle)
   } catch {
     return undefined
+  } finally {
+    process.exitCode = previousExitCode
   }
 
   return undefined
