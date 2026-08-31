@@ -148,11 +148,11 @@ gangtise indicator screener --indicator F1:qte_close --indicator F2:qte_close \
 > `contains` / `notcontains` 对大小写不敏感（`CONTAINS` / `contains` / 混合写法等价）。
 
 ```bash
-# 文本筛选：白酒板块里经营范围含「酒」的公司
+# 文本筛选：白酒板块里经营范围提到葡萄酒的公司
 # ⚠️ pty_op_scope 的 parameterList 为空 → 必须带 "F1:" 声明它不吃日期，否则整条请求报 100003
 gangtise indicator screener --indicator F1:pty_op_scope \
   --indicator-param "F1:" \
-  --security 1000000287 --expression "F1 contains '酒'" \
+  --security 1000000287 --expression "F1 contains '葡萄酒'" \
   --date 2026-08-13 --format table
 # 有日期参数的字符串指标不需要 "F1:"，直接筛：
 gangtise indicator screener --indicator F1:mgn_flag \
@@ -276,7 +276,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 | `100003`@400 | 入参/表达式错误：`time-series` 传了「多指标 × 多证券」、`expression` 引用未声明变量、`indicatorParamList` 的 code 不在 `indicatorCodeList` 里 | 按 msg 改；多 × 多改用 `cross-section`。CLI 已在本地拦截「表达式引用未绑定变量」，不会白发一次请求 |
 | `140002`@500 | **终态参数错**：指标必填参数缺失、枚举越界（如「参数 adjustType 的值 99 不在有效范围内 [1,2,3,4]」）、表达式语法错误 | **不重试**（CLI 已把 140002 列为终态码）。读 `search --format json` 的 `parameterList` 改参数名/取值 |
 | `999999` | 系统故障。2026-08-01 起「无数据」不再用此码，所以它基本只剩真故障（2026-07-26 曾出现 EDE 取数端全线 999999，08-01 已恢复）。⚠️ 别把它和空表混为一谈：无数据现在是占位单元格（统一 `null`），空表表示整轴 code 未识别 | CLI 对 indicator 端点**不重试此码**（v0.27.0）；确认参数无误仍报错就是服务端问题 |
-| `110003` | **超出账号数据权限的时间范围**。⚠️ EDE 三个接口的可查范围可能不一致：出现过同日同指标同证券 `cross-section` 正常出数、而 `screener` 报此码 | 把日期移进范围；`screener` 撞界时先用 `cross-section` 查同一天验证，能取到就改用它拉数再本地筛 |
+| `110003` | **超出账号数据权限的时间范围**。窗口按**账号**配、不按接口配——`cross-section` / `time-series` / `screener` 同界，实测 `quote day-kline` 也在同一条界上 | 把日期移进范围；整段区间都早于下界时缩短窗口无用，**换接口绕不过去**，要更长历史联系客户经理开通 |
 | `130001`（旧 `410004`） | 数据未找到，或**该指标无权限**（内层信封失败会带具体 msg，如"指标无权限"；此码被服务端复用） | 检查查询条件与指标权限；换证券/日期仍失败多为无权限，联系管理员开通 |
 
 ### 必填参数（`140002` 的根因）
@@ -423,5 +423,5 @@ gangtise indicator cross-section --indicator scr_indu_citic --indicator scr_indu
 - **发现流程**：`indicator search --format json` → 核对 `indicatorName` + `description`、`scopeList`（含 `usageRestriction`）、`parameterList`（**参数名以此为准**）→ 三项都通过才用 `cross-section` / `time-series` / `screener`
 - **积分**：`search` 免费；`cross-section` / `time-series` / `screener` 按请求单元格数量计费，标价为每 100 单元格 A 股 0.05 / 港股 0.1 / 美股 0.2 积分，每次查询不足 100 单元格按 100 计
 - **空结果排查顺序**：真无数据会返回占位单元格（统一 `null`）而不是空表，所以**空表基本等于「没有任何 code 被认出来」或参数名写错**。按序排查：① 证券代码与后缀对不对（美股 `.O`/`.N`，不是 `.US`）② 指标 code 拼写对不对 ③ 参数名对不对（`indicator search` 的 `parameterList`）④ 日期语义对不对（`tradeDate` vs `reportDate`——报告期类指标日期用错会整批返 `null`，看着像「没数据」）
-- **数据权限**：正式账号行情 / 财务 / 指标类可回溯的年限按服务等级而定，试用账号更短。⚠️ **同一账号下三个 EDE 接口的可查范围可能不一致**：出现过同一天、同一指标、同一证券在 `cross-section` 取得到、而 `screener` 报 `110003`（超出时间范围）的情况。**选股撞到 `110003` 时先别改日期格式**——用 `cross-section` 拉同一天的数据验证一下，能取到就说明是接口间范围差异，改用 `cross-section` 拉数再本地筛即可
+- **数据权限**：正式账号行情 / 财务 / 指标类可回溯的年限按服务等级而定，试用账号更短。这个时间窗口按**账号**配、不按接口配——三个 EDE 接口同界（实测 `quote day-kline` 也在同一条界上），撞界统一返 `110003`，**换接口绕不过去**；整段区间都早于下界时缩短窗口无用，要更长历史联系客户经理开通
 - 所有格式（table/json/jsonl/csv/markdown）均可用；导出宽表给 Excel 直接用 `--format csv --output xxx.csv`

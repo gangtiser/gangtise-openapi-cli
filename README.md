@@ -6,11 +6,11 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.37.1 — 2026-08-31**：**文档修正，无代码变更**。① `indicator screener` 用静态属性选股的示例补进 README——`pty_*`（经营范围·注册地…）/ `scr_*`（上市板块·ISIN…）两族用 `--indicator-param "F1:"`（冒号后留空）声明该指标不吃查询日期后，可直接用于条件选股（v0.36.0 起支持），此前 README 示例仍写着要先用 `cross-section` 取回再本地筛。② **数据权限时间范围的说明按实测更正**：这个窗口按**账号**配、不按接口配——`indicator` 的 `cross-section` / `time-series` / `screener` 与 `quote day-kline` 在同一条边界上，**撞到 `110003` 换接口绕不过去**，正确做法是把日期移进权限范围，或联系客户经理开通更长历史；文档此前建议的「`screener` 撞界改用 `cross-section` 拉数再本地筛」已不适用。③ EDE 文本筛选示例换成有区分度的条件，避免示例条件把整个板块原样返回、看不出筛选是否生效。
 - **v0.37.0 — 2026-08-29**：🔴 **下载的「智能文件命名」改为默认只读缓存**。省略 `--output` 时仍优先用 `title-cache` 里的真实标题——先 `list` 再 `download` 的常规用法**不受影响，也不产生额外调用**；但**缓存未命中时不再自动回查 list 接口**，改为退回服务端返回的文件名或 `<type>-<id>.<ext>`。回查一次要拉 200 条记录（4 次请求），而这 12 个下载命令里有 9 个的 list 按 0.1 积分/条计费，约 20 积分——这笔开销只用于取一个更易读的文件名，所以改成显式的 `--resolve-title`。加了该参数时，取回的 200 条标题会一并写入缓存，同一批后续下载不再重复回查。⚠️ **依赖旧行为拿中文文件名的脚本**：升级后会得到 ID 文件名，补 `--resolve-title`，或按推荐用法先跑一次 `list`。**另有三项修正**：① 下载已成功、仅标题回查阶段遇到异常响应时，退出码会变成 3（脚本按 `!= 0` 判失败会误判为下载失败），现已隔离——下载完整就是 0；② `indicator cross-section` / `time-series` 的 `--indicator-param` 若写了 `--indicator` 里没有的指标编码（多为拼写错误），此前该参数不会作用到你要查的指标上且没有任何提示，现改为发请求前直接报错并指出是哪个编码（`screener` 一直是这个行为）；③ 下载请求的超时改为与其他请求同一套解析逻辑，行为对齐。
 - **v0.36.0 — 2026-08-18**：**日期写法放宽**——`YYYY-MM-DD`、`YYYY/MM/DD`、`YYYYMMDD` 三种「年在前」写法都收，统一归一成 `YYYY-MM-DD` 发出（datetime 只归一日期部分，Unix 时间戳原样透传）；「年在后」写法（`01-07-2026`）仍在本地拒绝——接口会按美式「月在前」解析它，欧洲习惯写法会静默拿到差半年的数据，详见「关于日期格式」。**`indicator screener` 支持无日期指标**：`--indicator-param "F1:"`（冒号后留空）声明该指标不要查询日期，`pty_*` / `scr_*` 静态属性两族与 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg` 现在可以直接用于条件选股（此前只能在 `cross-section` 取回后本地筛），写法与截面一致、可与真实参数共存。**全量拉取的 `total` 封顶探测恢复覆盖 `ai hot-topic`**（v0.35.0 曾跳过）。另：EDE 报错提示同步更新；补充计费说明（`ai hot-topic` 50/篇 的「篇」= 一整份报告；按篇/按条计费的接口查不到内容不扣分）。
 - **v0.35.0 — 2026-08-16**：新增 `--indicator-param "<code>:"`（冒号后留空）声明「这个指标不要查询日期」，用于 `parameterList` 里没有日期参数的指标——`pty_*`（经营范围/注册地/法定代表人…）、`scr_*`（上市市场/上市板块/ISIN…）两族，以及 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。这类指标此前在 `indicator cross-section` 上取不到数（`--date` 必填且会注入 `tradeDate`，而它们不收，整条请求被拒）；该写法可与真实参数共存（`"code:" + "code:fiscalYear=2025"`）。**EDE 日期参数报错提示重写**：拆成五种报文形态分别给建议，服务端同时点名「不该有的键」和「缺的键」时直说换哪个，只说了一半时不再瞎猜，多指标批量报错时不再用单数口吻指向其中一个指标。另：`--rank-type` 的说明按实测更正（差别大小取决于关键词，`--search-type` 不影响 `--rank-type 1` 取回哪些条目）；`ai hot-topic` 全量拉取跳过 `total` 封顶探测（**已于 v0.36.0 撤回**——该探测不额外计费）。
 - **v0.34.1 — 2026-08-15**：EDE 报告期类指标传错日期参数时，报错里直接给出该改的 CLI 写法（此前只有服务端那句「缺少必填参数 reportDate」，要自己推断该用 `--indicator-param`）；该提示对 `100001` / `100003` 两个错误码都生效，并注明少数指标两个日期都要、另有指标要 `fiscalYear`，一律以 `indicator search` 的 `parameterList` 为准。另修复下载文件名缓存在并发写入下可能丢条目的问题（单进程使用不受影响）。
-- **v0.34.0 — 2026-08-15**：跟进 2026-08-14 服务端更新。🔴 **破坏性**：`quote day-kline --security all` 已失效（服务端停止支持），改用 `aShares` / `hkStocks` / `usStocks`，且市场关键字必须单独传（不能与证券代码或另一个关键字混填）——这两种写法 CLI 都会在发请求前报错并指出正确写法；`ai stock-summary` 同理不再接受市场关键字。`day-kline` 现覆盖 A股/港股/美股个股与交易所/概念/行业指数（可混查），三个旧命令 `day-kline-hk`/`day-kline-us`/`index-day-kline` 标记为已下线；`minute-kline` 支持指数。**另两处影响取数完整性的修复**：`quote fund-flow` 把市场关键字与证券代码混填时，此前会只返回那几个代码的数据且不报错（"全市场 + 这只"静默变成"只有这只"），现改为本地拦截；`quote index-day-kline --security all` 跨 30 天以上时分片过宽会撞行数上限被截断（标 `partial` + 退出 3），现已调细粒度，同区间可完整取回。另：三大报表新增 `earliestAnncDate`（做时点对齐用它，不要用 `announcementDate`），EDE 报告期类指标改为必须显式传 `reportDate`，错误码提示按新行为更新。
 
 ### 历史里程碑
 
@@ -638,9 +638,12 @@ gangtise indicator screener --indicator F1:mgn_flag \
   --security 1000000287 --expression "F1 contains '是'" \
   --date 2026-08-13 --format table   # 白酒板块里的融资融券标的
 
-# ⚠️ 公司/证券静态属性（pty_* 经营范围·注册地 / scr_* 上市板块·ISIN 等）的 parameterList
-# 里没有日期参数，screener 上当前取不到；改用 cross-section 取回来再本地筛，
-# 并加一条 "code:"（冒号后留空）声明该指标不要 --date 注入的 tradeDate：
+# 公司/证券静态属性（pty_* 经营范围·注册地 / scr_* 上市板块·ISIN 等）的 parameterList
+# 里没有日期参数，要加一条冒号后留空的绑定声明「该指标不要 --date 注入的 tradeDate」；
+# 截面与选股写法一致，选股上按变量名（F1:）、截面上按指标 code（code:）：
+gangtise indicator screener --indicator F1:pty_op_scope --indicator-param "F1:" \
+  --security 1000000287 --expression "F1 contains '葡萄酒'" \
+  --date 2026-08-13 --format table   # 白酒板块里经营范围提到葡萄酒的公司
 gangtise indicator cross-section --indicator pty_op_scope \
   --indicator-param "pty_op_scope:" \
   --security 1000000287 --date 2026-08-13 --format jsonl | grep 酒

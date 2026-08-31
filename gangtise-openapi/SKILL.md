@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.37.0"
+version: "0.37.1"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -117,7 +117,7 @@ vault.my-conference.download
 | 管理层讨论 / A·港·美股公告 / `alternative edb-*` 行业指标 | 前溯 **3 年**（原 1 年） |
 | `insight pamirs-summary` 帕米尔纪要 | **不限**（但需单独购买专家纪要库） |
 
-⚠️ **这是官方口径，不是硬边界**：实际范围按账号等级而定，**同一账号下按接口还可能不同**（实测 `indicator screener` 仍卡 today−3 年，而同模块的 `cross-section`/`time-series` 已放宽）。超范围查询返回 `110003`，**不是空结果**——拿到 `110003` 就是撞了权限边界，缩窗口对「整段都在界外」的查询无效，要把日期移进范围或联系客户经理。
+⚠️ **这是官方口径，不是硬边界**：服务端按**账号**配这个时间窗口、不按接口配——**换接口绕不过去**（实测 `indicator` 三接口与 `quote day-kline` 逐日同界）。超范围查询返回 `110003`，**不是空结果**——拿到 `110003` 就是撞了权限边界，缩窗口对「整段都在界外」的查询无效，要把日期移进范围或联系客户经理。
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -319,7 +319,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | ✅ `100001` | 缺必填参数——**msg 带字段名**（「缺少必填参数: reportId」） | — | 按 msg 指的字段补上 |
 | ✅ `110001` / `110002` | 日期格式错（msg 带字段名）/ 起晚于止。⚠️ **服务端 2026-08-14 起对多种格式做宽松解析**（`2026/07/01`、`20260701`、`07/01/2026` 都能被接受），所以「没报 110001」不等于「格式被按你的意思理解了」 | — | 按参数名：`--*-date` 用 `YYYY-MM-DD`、`--*-time` 用 `YYYY-MM-DD HH:mm:ss`；`ai knowledge-batch` 的 --start-time/--end-time 收时间戳或 datetime，CLI 统一转 13 位毫秒 |
 | ✅ `120001` | 证券代码无效——msg 带原因（「非有效A股」）。Fundamental 系与 `quote day-kline`/`realtime`/`minute-kline`/`fund-flow` 都会报；**旧版 `day-kline-hk`/`day-kline-us`/`index-day-kline` 仍静默返回空** | — | `reference securities-search` 确认代码与后缀（`600519.SH` / `00700.HK`） |
-| ✅ `110003` | **超出账号数据权限的时间范围**。范围按账号等级而定、**不是平台常量**，且**同一账号下按接口还可能不一样**——出现过同日同指标同证券 `cross-section` 取得到、`indicator screener` 却报此码的情况 | — | 把日期移进权限范围内；整个区间都早于下界时缩短窗口无用（`--fiscal-year 2015` 无论怎么缩都报错）。`screener` 撞界改用 `cross-section` 拉数再本地筛，否则联系客户经理开通 |
+| ✅ `110003` | **超出账号数据权限的时间范围**。范围按账号等级而定、**不是平台常量**；窗口按**账号**配、不按接口配 | — | 把日期移进权限范围内；整个区间都早于下界时缩短窗口无用（`--fiscal-year 2015` 无论怎么缩都报错）；**换接口绕不过去**，要更长历史联系客户经理开通 |
 | ✅ `100006` | 查询/下载数量超限——**取代旧 `430007`**；实测 `fund-flow` 全市场不传日期即此码 | — | 缩短日期范围或调小 `--size`/`--limit`；全市场场景应已自动分片 |
 | ✅ `240001` | 财报期未披露或超出查询期（`earnings-review` 提交阶段就报，**不扣积分**） | — | 换更早的 `--period`（`2025q3` → `2025interim`） |
 | ✅ `250001` | 不支持的数据源——**取代旧 `433007`** | — | 检查 `resourceType + sourceId` 组合 |
