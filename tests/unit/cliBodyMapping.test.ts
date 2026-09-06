@@ -446,8 +446,9 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured[0].body).toEqual({
       from: 0,
       size: 3,
-      startTime: new Date(2026, 3, 1).getTime(),
-      endTime: new Date(2026, 3, 2).getTime(),
+      // Beijing midnight, whatever zone the test machine (or CI) runs in.
+      startTime: Date.UTC(2026, 3, 1) - 8 * 3_600_000,
+      endTime: Date.UTC(2026, 3, 2) - 8 * 3_600_000,
       searchType: 1,
       rankType: 1,
       securityList: ["000001.SZ"],
@@ -462,7 +463,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     await cli(["ai", "knowledge-batch", "--query", "x", "--start-time", "1784476800", "--format", "json"])
     await cli(["ai", "knowledge-batch", "--query", "x", "--start-time", "1784476800000", "--format", "json"])
     expect(captured.map((c) => (c.body as { startTime?: number }).startTime)).toEqual([
-      new Date(2026, 6, 20).getTime(), // date → local midnight
+      Date.UTC(2026, 6, 20) - 8 * 3_600_000, // date → Beijing midnight, independent of the machine zone
       1784476800000, // 10-digit seconds ×1000
       1784476800000, // 13-digit verbatim
     ])
