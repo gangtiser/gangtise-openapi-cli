@@ -12,12 +12,13 @@ interface PartClient {
 /** Upper bound on the trading days per security in a date range, for sizing a request
  * against the per-request row cap: the exact weekday count (holidays only remove days,
  * so this never under-estimates — an under-estimate sends one request where two were
- * needed and the answer comes back capped). A missing or unusable range means the
- * server's default one-year window: 262 weekdays. */
+ * needed and the answer comes back capped). The server fills a missing end with the
+ * latest trading day, so only a start counts up to tomorrow; a missing start means the
+ * server's default one-year window, 262 weekdays, whatever the end. */
 export function estimateTradingDays(startDate: string | undefined, endDate: string | undefined): number {
-  if (!startDate || !endDate) return 262
+  if (!startDate) return 262
   const start = Date.parse(`${startDate}T00:00:00Z`)
-  const end = Date.parse(`${endDate}T00:00:00Z`)
+  const end = endDate ? Date.parse(`${endDate}T00:00:00Z`) : Date.now() + 86_400_000
   if (Number.isNaN(start) || Number.isNaN(end) || end < start) return 262
   let days = 0
   for (let t = start; t <= end; t += 86_400_000) {
@@ -77,6 +78,13 @@ export async function callPerSecurity(
     }
     if (rec.partial === true) partial = true
     if (rec.list.length === 0) {
+      // A part that claims rows it did not deliver (total > 0, or an explicit partial
+      // marker) is a contradiction, not a quiet window: the caller named this security,
+      // so its rows going missing is exactly what the exit code exists to surface.
+      if ((typeof rec.total === "number" && rec.total > 0) || rec.partial === true) {
+        const claim = typeof rec.total === "number" && rec.total > 0 ? `reported total=${rec.total}` : "carried a partial marker"
+        throw markStructural(new ApiError(`${label}: ${securities[i]} ${claim} but delivered no rows — the response is inconsistent`, undefined, undefined, rec))
+      }
       if (!emptyFields && Array.isArray(rec.fieldList)) emptyFields = rec.fieldList
       return
     }

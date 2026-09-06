@@ -88,7 +88,7 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 **12. 多证券 K 线逐只并发（K27）**
 
-新增 `src/core/perSecurity.ts`：`callPerSecurity` 按 `PAGE_CONCURRENCY` 逐只请求、按传入顺序合并；各只必须回同一列布局，否则整条命令报结构性错误（不像按日分片那样容忍坏片——用户点名了每一只，少一只就是退出码该暴露的缺口）；任一只填满 `--limit` 标 `partial` + `truncatedSecurities`。`minute-kline` 的 `--security` 改为可重复（缺省本地报 `--security is required`）；`day-kline` 显式多证券在「证券数 × 交易日数上界」超过 `--limit` 时走逐只路径（上界 = 区间内工作日精确计数，节假日只会更少所以不会漏分批；无日期按 262）。单只与不超限的多只仍是原来的单请求。合并规则：空表（`list: []`）不参与列比较、也不设置表头，只在全部为空时供出 `fieldList` 让缺列护栏仍能报告；带数组行的响应必须自带合法 `fieldList`（存在、不重名、每行等宽），缺失即该只结构性报错，与到达顺序无关（列式校验 `columnarSchemaValid` 与分片合并共用，位于 `normalize.ts`）；任一只自带的 `partial` 透传到合并结果。9 个单元测试 + 4 个端到端。
+新增 `src/core/perSecurity.ts`：`callPerSecurity` 按 `PAGE_CONCURRENCY` 逐只请求、按传入顺序合并；各只必须回同一列布局，否则整条命令报结构性错误（不像按日分片那样容忍坏片——用户点名了每一只，少一只就是退出码该暴露的缺口）；任一只填满 `--limit` 标 `partial` + `truncatedSecurities`。`minute-kline` 的 `--security` 改为可重复（缺省本地报 `--security is required`）；`day-kline` 显式多证券在「证券数 × 交易日数上界」超过 `--limit` 时走逐只路径（上界 = 区间内工作日精确计数，节假日只会更少所以不会漏分批；只传起始日期时计到明天——服务端用最新交易日补结束日；只缺起始日期才按一年 262）。单只与不超限的多只仍是原来的单请求。合并规则：空表（`list: []`）不参与列比较、也不设置表头，只在全部为空时供出 `fieldList` 让缺列护栏仍能报告，但 `total > 0` 或带 `partial` 却没有行的空表是矛盾响应，按结构性错误拒绝（与分片合并同一判据）；带数组行的响应必须自带合法 `fieldList`（存在、不重名、每行等宽），缺失即该只结构性报错，与到达顺序无关（列式校验 `columnarSchemaValid` 与分片合并共用，位于 `normalize.ts`）；任一只自带的 `partial` 透传到合并结果。11 个单元测试 + 5 个端到端。
 
 **13. skill 场景评测集（K28）**
 

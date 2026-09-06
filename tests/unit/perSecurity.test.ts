@@ -76,6 +76,27 @@ describe("callPerSecurity", () => {
     }
   })
 
+  it("rejects an empty part that claims rows (total > 0 or partial) in either position, as a structural error", async () => {
+    const data = { total: 1, fieldList: ["securityCode", "close"], list: [["000858.SZ", 1]] }
+    for (const claim of [{ total: 1, fieldList: [], list: [] }, { total: 0, partial: true, fieldList: ["close"], list: [] }]) {
+      for (const order of [["600519.SH", "000858.SZ"], ["000858.SZ", "600519.SH"]]) {
+        const call = vi.fn().mockImplementation(async (_key: string, b: { securityCode: string }) => (b.securityCode === "600519.SH" ? claim : data))
+        let caught: unknown
+        try {
+          await callPerSecurity({ call }, "quote.day-kline", order, body, 6000, "quote day-kline")
+        } catch (error) {
+          caught = error
+        }
+        expect((caught as ApiError).message).toContain("600519.SH")
+        expect((caught as ApiError).message).toContain("delivered no rows")
+        expect(isStructuralError(caught)).toBe(true)
+      }
+    }
+    // Every part contradictory → still an error, never an empty success.
+    const call = vi.fn().mockResolvedValue({ total: 3, fieldList: [], list: [] })
+    await expect(callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ"], body, 6000, "quote day-kline")).rejects.toThrow("delivered no rows")
+  })
+
   it("keeps an empty part's fieldList as the header only when no part had rows", async () => {
     const call = vi.fn().mockResolvedValue({ total: 0, fieldList: ["close"], list: [] })
     const result = await callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ"], body, 6000, "quote day-kline")
@@ -115,6 +136,13 @@ describe("estimateTradingDays", () => {
     expect(estimateTradingDays("2026-08-08", "2026-08-09")).toBe(0) // Sat–Sun
     expect(estimateTradingDays(undefined, "2026-08-14")).toBe(262)
     expect(estimateTradingDays("2026-08-14", "2026-08-10")).toBe(262)
+  })
+
+  it("counts a start-only range up to today, since the server fills the end with the latest day", () => {
+    const start = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10)
+    const days = estimateTradingDays(start, undefined)
+    expect(days).toBeGreaterThanOrEqual(285) // ≈ 400 × 5/7, never the one-year fallback
+    expect(days).toBeLessThanOrEqual(288)
   })
 
   it("batches two securities over a Mon–Fri week when the limit only fits 9 rows", () => {

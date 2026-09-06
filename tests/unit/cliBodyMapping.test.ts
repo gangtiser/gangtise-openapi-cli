@@ -1523,6 +1523,19 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect((JSON.parse(stdout) as { total: number }).total).toBe(9) // 3 parts × the stub's 3 rows
   }, 30_000)
 
+  it("quote day-kline with only --start-date batches per security when the window up to today would not fit", async () => {
+    // The server fills a missing end date with the latest trading day, so a start 400 days
+    // back spans ~286 weekdays per security: 2 × 286 > 500 must go out as two requests.
+    const start = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10)
+    const { code } = await cli([
+      "quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-date", start, "--limit", "500", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(2)
+    expect(captured.map((c) => (c.body as { securityList: string[] }).securityList)).toEqual([["600519.SH"], ["000858.SZ"]])
+  }, 30_000)
+
   it("quote day-kline keeps one request when the estimate fits the limit", async () => {
     const { code } = await cli([
       "quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ",
