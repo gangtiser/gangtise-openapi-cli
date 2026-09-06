@@ -166,6 +166,26 @@ describe("ExportSink", () => {
     await expect(fs.access(target)).rejects.toThrow()
   })
 
+  it("csv: a read failure while a wide header is still draining rejects normally instead of escaping as an uncaught error", async () => {
+    // 1000 long column names make a header far above the writer's 64 KiB buffer, so the
+    // header write waits on the disk; the rows file is made unreadable meanwhile. The
+    // reader's error must arrive through the iteration (a rejection), never as an
+    // unhandled 'error' event — vitest would report that as an unhandled error.
+    const target = path.join(dir, "wide-header.csv")
+    const sink = new ExportSink(target, "csv")
+    const wide: Record<string, number> = {}
+    for (let c = 0; c < 1000; c++) wide[`a_rather_long_column_name_that_pads_the_header_out_to_many_kilobytes_${String(c).padStart(4, "0")}`] = c
+    await sink.push([wide, ...Array.from({ length: 999 }, (_, i) => ({ id: i }))])
+    for (let i = 0; i < 50; i++) { try { await fs.access(`${target}.rows.part`); break } catch { await new Promise((r) => setTimeout(r, 10)) } }
+    await fs.chmod(`${target}.rows.part`, 0o000)
+    await expect(sink.finish()).rejects.toThrow()
+    await sink.abort()
+    await new Promise((r) => setTimeout(r, 300))
+    await expect(fs.access(`${target}.part`)).rejects.toThrow()
+    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
+    await expect(fs.access(target)).rejects.toThrow()
+  })
+
   it("caps the collected titles at the cache's per-endpoint limit", async () => {
     const target = path.join(dir, "many-titles.jsonl")
     const sink = new ExportSink(target, "jsonl", { endpointKey: "insight.research.list", idField: "reportId" })

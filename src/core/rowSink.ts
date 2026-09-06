@@ -173,12 +173,20 @@ export class ExportSink {
     const out = createWriteStream(this.partPath, { encoding: "utf8" })
     out.on("error", () => {})
     this.stream = out
+    const objectMode = this.objectRows > 0
+    const columns = objectMode ? this.columns : ["index", "value"]
+    // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK. A wide
+    // header can exceed the writer's buffer, so this await may wait on the disk — which
+    // is why the reader is NOT created until after it: a Readable created before an await
+    // has nobody listening for 'error' until the loop below starts, and an open failure
+    // in that window is an uncaught exception, not a rejection.
+    await writeLine(out, "\ufeff" + columns.map(csvEscape).join(","))
+    // Created in the same synchronous segment as the loop that consumes it: async
+    // iteration attaches its error handling at loop entry, so no error can slip in
+    // between. A read error rejects the loop (readline's error semantics vary by
+    // version; iterating the Readable itself is unambiguous).
     const input = createReadStream(this.rowsPath, { encoding: "utf8" })
     try {
-      const objectMode = this.objectRows > 0
-      const columns = objectMode ? this.columns : ["index", "value"]
-      // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK.
-      await writeLine(out, "\ufeff" + columns.map(csvEscape).join(","))
       let index = 0
       const emit = async (line: string): Promise<void> => {
         if (!line) return
@@ -190,9 +198,7 @@ export class ExportSink {
           await writeLine(out, `${csvEscape(String(index++))},${csvEscape(formatScalar(item))}`)
         }
       }
-      // Async iteration over the Readable rejects on a read error (readline would end the
-      // loop quietly and leave a truncated csv); JSON.stringify never emits a raw newline,
-      // so splitting on "\n" is exact.
+      // JSON.stringify never emits a raw newline, so splitting on "\n" is exact.
       let rest = ""
       for await (const chunk of input) {
         const lines = (rest + String(chunk)).split("\n")
