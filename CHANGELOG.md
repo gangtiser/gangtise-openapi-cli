@@ -6,120 +6,40 @@
 
 ### v0.38.0 — 2026-09-06
 
-**两部分：跟进 2026-09-05 接口变更通知（文档与 help）；两轮质检（本仓 + Codex）共识的第一批数据正确性护栏。**
+**行情与数据接口**
 
-**1. 行情三接口新增沪深 ETF 与 20 个全球指数**
+1. **沪深 ETF 与 20 个全球指数**：`quote realtime` / `day-kline` / `minute-kline` 直接传 `512800.SH` 这类 ETF 代码和 `SPX.SPI`（标普500）/ `N225.NKI`（日经225）/ `HSI.HI`（恒生）等全球指数代码；清单在 `references/commands/quote.md`。全市场关键字 `aShares` 不含 ETF，ETF 与各类指数都要逐个传代码。全球指数：realtime 的 `volume` / `amount` / `amplitude`、分钟 K 的 `volume` / `amount`、日 K 的 `amount` 为 `null`；`tradeDate` / `tradeTime` 是交易所当地时间，分钟 K 的时间过滤也按当地时间。ETF 有复权因子（day-kline `adjustFactor`、EDE `qte_adj_factor`），`volume` 单位为「份」。
+2. **`quote realtime` 字段集**：新增 `tradeStatus`（交易状态，仅 A 股 / 港股个股有值）；`turnoverRate` / `volumeRatio` 不返回——传了会连字段名一起被丢弃、不报错，换手率改走 EDE `qte_turn`。美股 `amount` 为 `null`。
+3. **`fundamental earning-forecast` 的 `roe` 单位为百分比**（`35.6` = 35.6%），做过换算的脚本要撤掉。
 
-`quote realtime` / `day-kline` / `minute-kline` 都能直接传 `512800.SH` 这类 ETF 代码和 `SPX.SPI`（标普500）/ `N225.NKI`（日经225）/ `HSI.HI`（恒生）等 20 个全球指数代码，CLI 参数透传、不需要改逻辑；更新三条命令的 `--security` help 与 skill / README 的品种表，20 个全球指数代码清单放进 `references/commands/quote.md`（逐个实测出数）。实测要点：
+**数据正确性护栏**
 
-- 全市场关键字 `aShares` **不含 ETF**（全 A 5556 行里 0 只）——ETF 与各类指数一样要逐个传代码
-- 全球指数：realtime 的 `volume` / `amount` / `amplitude`、分钟 K 的 `volume` / `amount`、日 K 的 `amount` 为 `null`；`tradeDate` / `tradeTime` 是交易所当地时间（美股个股同：`AAPL.O` 收盘快照 `16:00`），分钟 K 的时间过滤也按当地时间
-- ETF 有复权因子（day-kline `adjustFactor`，EDE `qte_adj_factor` 的 `scopeList` 已含「场内基金」）；`volume` 单位为「份」
+4. **缺列护栏**：`quote` 系带 `--field` 时，请求了但服务端没回的列（字段名写错或已下线，服务端不报错）标 `partial` + `missingFields`、退出码 3 并在 stderr 点名。只判「请求了但没回」，不依赖字段白名单。`--field` 只回点名的列、不自动附带身份列：日 K 要自己写进 `securityCode` / `tradeDate`，分钟 K 是 `securityCode` / `tradeTime`，realtime 是 `securityCode`；`fund-flow` 会自动附带。
+5. **列结构护栏**：K 线全市场分片合并按列名把各片对齐到首片列序；每一片的数组行必须与自己的 `fieldList` 等宽、列名唯一、且有 `fieldList`，不合格的片记入 `failedShards` 并标 `partial`；空片（`list: []`）不充当合并表头，`total > 0` 却零行的片按失败片处理。任何响应的 `fieldList` 有重名列、或数组行没有 `fieldList` 时报错退出 1（含 `alternative edb-data`），不按位置拍平。`quote` 单请求收到无 `list` 的载荷报错退出 1（报错带 traceId），分片路径对这类片只记当前片失败、其余片照常。后续页 / 分片自带的 `partial` 保留到合并结果。全量翻页从末页起步时同样做 `total` 封顶探测。
+6. **多证券 K 线**：`quote minute-kline` 的 `--security` 可重复，逐只并发请求后按传入顺序合并；`quote day-kline` 显式多证券在「证券数 × 交易日数上界」超过 `--limit` 时自动逐只请求合并（上界为区间内工作日数；只传起始日期时计到今天，只缺起始日期按一年）。合并规则：各只列布局必须一致；空表不参与列比较，但 `total > 0` 或带 `partial` 却无行的空表按结构性错误拒绝；任一只自带的 `partial` 透传；填满 `--limit` 的证券标 `partial` + `truncatedSecurities`。
 
-**2. `quote realtime` 字段集变化（台账 P1-11 关闭）**
+**大导出**
 
-新增 `tradeStatus`（交易状态中文，仅 A 股 / 港股个股有值）；**`turnoverRate` / `volumeRatio` 已不再返回**——传了会连字段名一起被静默丢掉、不报错，存量脚本要改口径（换手率可走 EDE `qte_turn`）。美股 `amount` 由 `0` 改为 `null`，全市场 5585 行有成交记录 100% 为 `null`、0 行为 `0`，`fields.md` 三处「美股恒 0」标注撤掉。realtime 对不存在的字段名现在是名和值一起丢，`--field` 文案把它从「回显字段名」那一组移出（`main-business` 仍是回显，CLI 照常拦截长度不匹配）。
+7. **按到达顺序逐批写盘**：`--format jsonl` / `csv` 加 `--output` 时，翻页、全市场分片、逐只请求的行按到达顺序逐批写入 `<file>.part`，完成后改名，取数阶段不再持有整份结果，内存不随行数增长（80 万行 × 12 列导出常驻约 150 MB）；csv 先落临时行文件、收尾时按列并集写表头再逐行转成 csv。不足 1000 行的结果仍整体写出，文件字节与之前一致。任一只 / 页 / 片失败时，命令退出前后台已停止取数与写盘，不留临时文件。行为变更：无 `total` 的裸数组 ≥ 1000 行时与 < 1000 行同一成行规则（有对象行时丢弃 null / 标量行，全标量写成 `{index, value}`）。
+8. **导出元信息**：`csv` / `jsonl` 落盘时旁边写 `<file>.meta.json`——`file` / `format` / `rows`（文件里的数据行数）/ `complete`（与退出码一致，退出 3 即 `false`）/ `exitCode` / `command`（argv，JSON 参数与结果里的 key / secret / token 类字段写成 `[redacted]`）/ `cliVersion` / `fetchedAt`（含时区偏移）/ `timezone` / `columns` / `result`（结果对象除 `list` 外的全部顶层键）。元信息与数据文件同一代发布：先暂存，数据写成后再改名，任一步失败都不会出现新数据配旧元信息，也不留残片。`json` 自带标记，不生成。
 
-**3. 盈利预测 `roe` 单位改为百分比**
+**其它行为变更**
 
-`fundamental earning-forecast --consensus roe` 返回值单位由万分比改为百分比（茅台 `2025E` = `35.6`），`fundamental.md` 补充说明；存量脚本若做过换算要撤掉。
+9. **`ai stock-summary` 单次最多 5000 只**：更大的批次服务端返回空列表且不报错，CLI 超过 5000 只直接报错并提示分批；help、README、skill 同步。
+10. **A 股公告与 `ai knowledge-batch` 的 `--start-time` / `--end-time` 按北京时间换算成毫秒**，与运行机器的时区无关；`YYYY-MM-DD` 与 `YYYY-MM-DD HH:mm:ss` 两种写法一致，10 / 13 位时间戳原样透传。
+11. **自动命名的下载并发安全**：省略 `--output` 时通过独占创建目标文件名占位，多个下载并发写同一名字各得其名（`-1`、`-2` 后缀），不会互相覆盖；写入失败释放占位。
+12. **`raw call auth.login` 不需要环境里先有凭证**：登录端点的凭证在 `--body` 里，不再先索取 token。
+13. `minute-kline` 的截断提示指向该命令实际的 `--start-time` / `--end-time`。
 
-**4. 🔴 缺列护栏（`missingFields`）**
+**文档**
 
-realtime / day-kline / minute-kline / fund-flow 对不认识或已下线的字段名是名和值一起丢、HTTP 200——长度仍相等，v0.28.3 的错列护栏管不到它，结果就是「少一列、退出 0」，脚本按列名取值拿到 `undefined`。现在 `flagMissingFields` 比对请求的 `--field` 与响应 `fieldList`，缺列标 `partial` + `missingFields`（退出 3）并在 stderr 点名。只判「请求了但没回」，不依赖字段白名单，服务端新增列不受影响。两轮质检都把它列为 P1。
+14. `SKILL.md` 精简为规则 + 工作流 + 计费 + 路由 + 响应骨架 + 高频错误码 + 引用索引；错误码全表、不报错的坑、退出码 3 与 `screener` 缺列判据、Troubleshooting 集中到新文件 `references/errors.md`。`indicator.md` 整篇按现行口径重写。
+15. 指令修正：截面 `--indicator-param` 的写法是 `"<code>:reportDate=..."`（`F1:` 是 `screener` 语法）；`securities-search` 的取值路径是 `list[0].gtsCode`，顶层结构为 `{returnedCount, list}`；分钟 K 的身份列是 `securityCode` / `tradeTime`。
+16. 估值指标历史序列的说明改按财报版本解释：`fundamental valuation-analysis` 保留当时披露的原始数据，EDE 按含重述后的最新数据回算，重述过的标的两条序列会持续分叉；时点对齐用三大报表的 `earliestAnncDate`，`announcementDate` 是返回版本的公告日；`--report-type consolidated` 对重述过的报告期返回重述后数值。
 
-**5. K 线分片合并按列名对齐（Codex P1）**
+**工程（不影响使用）**
 
-`quoteSharding` 合并时只保留第一片的 `fieldList`，其余片的行按位置直接拼接——某一片列序不同（`volume, close` vs `close, volume`）就会静默错列，且无任何标记。现在每片按自己的 `fieldList` 重排到首片列序；缺少首片某列的片按失败片处理（`failedShards` + `partial`），不再按错名合并。属客户端缺陷，尚未观察到线上触发。
-
-**6. 完整性检查补齐两处分支（Codex P2）**
-
-- `requestPaginated` 从末页起步的全量拉取（`from=9950`、`total=10000`）在首页即完成的分支上直接返回，跳过了 `total` 封顶探测；探针抽成 `flagIfTotalCapped`，两条出口共用
-- `quote` 单请求路径收到 `data: null` 会把 `null` 打出去、退出 0；分片路径早已把无 `list` 的片当失败。新增 `requireListPayload`，四个 quote 命令的单请求与分片出口统一：无 `list` 数组即报错退出 1
-
-**7. 测试覆盖本次契约（Codex P2）**
-
-realtime 桩改为当前形态（15 列、不认识的字段名连名带值一起丢、`tradeStatus` / 美股 `amount` / 全球指数三个 `null`），旧的「回显字段名」桩只在请求含 `close` 时返回，继续守错列护栏。新增 11 个用例：缺列退出 3、15 列契约透传、`data: null` 退出 1、分钟 K 截断提示的参数名、分片列对齐（重排 / 缺列）、封顶探针的首页完成分支（有 / 无 `--size`）、`flagMissingFields` 三态。
-
-**8. 线上契约探针 `npm run contract`（不发布）**
-
-`scripts/contract-probe.mjs` 跑 13 次免费调用（三个行情接口的列名与各品种的 `null` 形态、5 个指标的 `parameterList` / `scopeList`、常量分类），与 `contracts/api-contract.json` 基线比对，有差异退出 1；`--update` 重写基线。进发版前复核步骤（`release.md` 3.5）。只比名字与 `null`，不比数值，交易日与假日出同一份快照。
-
-**9. Skill 指令一致性（Codex P1）**
-
-`SKILL.md` 两处会直接导致调用失败的写法：截面示例 `--indicator-param "F1:reportDate=..."`（`F1:` 是 screener 语法，截面要 `<code>:`）→ 改正并注明；`securities-search` 取值路径 `data.list[0].gtsCode` → `list[0].gtsCode`（CLI 已剥信封）。`indicator.md` 同一处示例一并改。主规则里「全球指数成交量额类字段为 `null`」补上日 K `volume` 有值的区别。
-
-**10. 其它**
-
-`minute-kline` 的截断提示原来指向 `--start-date/--end-date`，改为该命令实际的 `--start-time/--end-time`。`normalize.ts` 顶部关于 realtime 回显字段名的注释按 09-05 复测更正。
-
-**跨 session 复核第一轮（Codex）修掉的 8 条**
-
-- R1 / R2：分片合并加 schema 校验——每片的数组行必须与自己的 `fieldList` 等宽、列名唯一、且有 `fieldList`，否则按失败片处理（此前重排会把短行补 `undefined`、长行裁掉、重复列取后者，绕过 `zipFieldRow` 的行宽护栏）；空片（`list: []`）既不当合并表头也不当失败片（此前首片 `fieldList: []` 会把后续全部列吞成 `{}`）。6 个反例测试
-- R3 / R4：契约探针执行失败与契约变化分开记，`--update` 遇执行失败不写基线、退出 1；按证券排序后比较，行序不再是契约。`tests/unit/contractProbe.test.ts` 用 `tests/fixtures/fake-gangtise.mjs` 替身 CLI 覆盖 5 个用例
-- R5：每个 quote 命令、每条出口（单请求 / 分片）各一条缺列端到端（此前删掉 `minute-kline` 那一句接入全套仍绿）；桩按实测拆开——`fund-flow` 自动附带 `securityCode` / `tradeDate`，kline 系只回点名的列。这条线上事实同时补进 `quote.md` / `fields.md` / `SKILL.md` / README
-- R6：空载荷检查从 `cli.ts` 移到 `client.requestJson`，由端点注册表的 `expects: "list"` 驱动——`data: null` 挂不上 traceId 符号，只有在信封还在手上的那一层才能把 traceId 带进报错
-- R7：`SKILL.md` 证券搜索的顶层结构写成 `{returnedCount, list}`（此前误写 `{total, list}`）
-- R8：`bug/cli-backlog.md` 的「真待办」总述同步到 K22 / K24–K28；`bug/README.md` 通则 ⑭ 记下接线层零覆盖的又一次复发
-
-**跨 session 复核第二轮修掉的 7 条**
-
-- N1：只有经数组行校验过的 `fieldList` 才能成为合并表头；对象行片的 `fieldList` 不再约束后续数组片
-- N2：`expects: "list"` 抛出的 ApiError 标记为结构性错误（`markStructural` / `isStructuralError`），分片器对它只记当前片失败、不中止其余片；此前一个 `data: null` 片会让后续片全部不发
-- N3：三个已下线 K 线端点也标 `expects: "list"`（实测它们对无效代码与空区间都答 `{total: 0, list: []}`），`data: null` 不再退回成功
-- N4：`total > 0`（或带 `partial`）却零行的片按失败片处理，不再当假日空窗
-- N5：输出的 `fieldList` 只取校验过的列式表头，基片自带的空 `fieldList` 不再随展开带出（此前会让 `flagMissingFields` 把对象行里明明有的列报成缺失）
-- N6：文档里分钟 K 的身份列写错成 `tradeDate`，改为 `tradeTime`（线上实测），四处文案同步；分钟桩改为按请求回列并断言这个示例
-- N7：契约测试补「真实列变化 → 普通运行退出 1、基线不动、`--update` 才接受」
-
-**跨 session 复核第三轮修掉的 2 条**
-
-- M1：合并结果的 `fieldList` 分三档——校验过的列式表头；否则对象行的键并集（返回的列就是键，`flagMissingFields` 的依据不再随删除 `fieldList` 一起丢）；全空结果保留服务端明确给出的列集（含空集），只有完全没有元信息时才不带。此前第三轮把非列式结果的 `fieldList` 一律删除，对象行合并里真正缺失的请求列不再报 `missingFields`
-- M2：空片带显式 `partial` 的分支补独立测试（删掉该条件此前 750 项仍绿）；警告文案区分「total>0」与「带 partial 标记」
-
-**跨 session 复核第四轮修掉的 2 条**
-
-- F1：全空结果的元信息只从「合法空片」取——已判失败的片（`total>0` 却零行、带 `partial`、schema 不过）不再充当基片，其 `fieldList` 不再变成「服务端返回的列」（此前失败首片的 `[]` 会让存活空片明确返回的列被报成缺失）。全部分片失败仍直接抛错；部分失败保留 `partial` / `failedShards`；`{}` 只是防御性的元信息默认值
-- F2：对象行键并集补「列只在后续行出现」的用例（正反两种行序），只遍历首行的退化会被拦住
-
-**11. 对外文档去流水账 + SKILL 瘦身（K29）**
-
-用户要求对外文档只写现行口径。`SKILL.md` 从 62KB 精简到规则 + 工作流 + 计费 + 路由 + 响应骨架 + 时间词 + 高频错误码 + 引用索引；错误码全表、「不报错的坑」、未见触发的码、退出码 3 与 `screener` 缺列判据、Troubleshooting 整体移到新文件 `references/errors.md`；规则 11 与「易混淆消歧」里的 EDE 长段压成判据句 + 指向 `indicator.md`。`indicator.md` 整篇重写：去掉「2026-xx 实测 / 起 / 此前一版」叙述与抽样计数，保留判据与示例；`qte_vol` 随机 `null` 一节改为现象 + 做法，删掉日期表；原文里「空表基本只意味着真的没数据」与末尾「空表等于 code 未识别或参数名写错」自相矛盾，按后者统一。其余 references（examples / insight / response-schema / quote / reference-and-lookup / ai / fundamental / lookup-ids / vault / tool / fields）与 README 正文逐句改：日期与版本号叙述删除或改成当前行为，「取代旧 X」改成「旧码 X」，错误码重排段改成「两代并存」的现行说明。示例命令里的日期参数是样例值，保留。`docsConsistency` 守卫要求的 no-replay 注释块与「共 18 个」句子原样保留。
-
-**12. 多证券 K 线逐只并发（K27）**
-
-新增 `src/core/perSecurity.ts`：`callPerSecurity` 按 `PAGE_CONCURRENCY` 逐只请求、按传入顺序合并；各只必须回同一列布局，否则整条命令报结构性错误（不像按日分片那样容忍坏片——用户点名了每一只，少一只就是退出码该暴露的缺口）；任一只填满 `--limit` 标 `partial` + `truncatedSecurities`。`minute-kline` 的 `--security` 改为可重复（缺省本地报 `--security is required`）；`day-kline` 显式多证券在「证券数 × 交易日数上界」超过 `--limit` 时走逐只路径（上界 = 区间内工作日精确计数，节假日只会更少所以不会漏分批；只传起始日期时计到明天——服务端用最新交易日补结束日；只缺起始日期才按一年 262）。单只与不超限的多只仍是原来的单请求。合并规则：空表（`list: []`）不参与列比较、也不设置表头，只在全部为空时供出 `fieldList` 让缺列护栏仍能报告，但 `total > 0` 或带 `partial` 却没有行的空表是矛盾响应，按结构性错误拒绝（与分片合并同一判据）；带数组行的响应必须自带合法 `fieldList`（存在、不重名、每行等宽），缺失即该只结构性报错，与到达顺序无关（列式校验 `columnarSchemaValid` 与分片合并共用，位于 `normalize.ts`）；任一只自带的 `partial` 透传到合并结果。11 个单元测试 + 5 个端到端。
-
-**13. skill 场景评测集（K28）**
-
-`evals/scenarios.json` 16 个场景（公司重名与 A+H、ETF 与全球指数路由、全市场关键字、EDE 报告期 vs 交易日、日频估值、realtime 缺字段改口径、多证券身份列、分钟 K 多只、退出码 3 处理、screener 空集归因、高积分与全市场限制、盈利预测单位、年在后日期、公告的 `--start-time`），每条按「命令 / 参数 / 证券 / 单位 / 完整性」五维度正则判分。`scripts/skill-eval.mjs` 用 `codex exec`（默认 `gpt-6-astra` / `model_reasoning_effort=high`）逐场景独立会话、`--output-schema` 强制 `{commands, notes}`；`--live` 真跑并把本仓 `dist/` 包成 `gangtise` 放到 PATH 最前，提示里给绝对路径并要求 `gangtise --version` 自检，结果里校验版本。无效运行（codex 退出非 0 含超时、回复解析失败、实跑 `cli=` 自检不等于本仓版本）整场景判无效、检查全计未过；匹配前去掉无空白 token 的引号；超时杀整个进程组；`--rescore <results.json>` 用保存的回复按当前判据重算。基线（按现行 64 项判据重算保存的回复）：干跑 64/64、实跑 64/64，全部核验为 0.38.0。首轮实跑因登录 shell 重建 PATH 而跑到全局 0.37.1，按现行规则 0/64 全部无效。实跑还顺带发现 `stock-summary` 5556 只返回 0 行（`bug/server-open.md` P1-12）。原始回复落 `evals/results/`（gitignored），基线表在 `evals/README.md`。
-
-**14. 大导出按批写出 + 导出元信息（K24）**
-
-`--format jsonl` / `csv` 加 `--output` 时，翻页（`requestPaginated`）、全市场分片（`callKlineWithSharding`）、逐只请求（`callPerSecurity`）三条取数路径把行按到达顺序逐批交给 `src/core/rowSink.ts` 的 `ExportSink` 写盘，不再先攒成整份 `list`：新增 `transport.runInOrder`（结果按序号顺序消费；取数侧在待写结果达到并发宽度时等待；任一侧失败即停止领取、丢弃迟到结果，等在途工作结束后才抛错——调用方拿到异常时后台已无取数与写盘）；sink 先缓冲到 1000 行才开文件（`<file>.part` + rename，失败 unlink），不足 1000 行原样交回普通渲染路径，文件字节与之前一致（28 组基线对照）；csv 先把行写到 `<file>.rows.part` 累计列并集，收尾时逐行转成带表头的 csv（磁盘两遍、内存不变）；结果对象 `list` 为空、非枚举 symbol 挂 sink，`printData` 据此收尾；`total` / `partial` 等标记不变，`flagIfImplicitCapHit` 改用 `rowCount()`；命令内只有第一次翻页 / 分片 / 逐只调用拿到 sink，`raw call` 同样接入；下载文件名缓存由 sink 在写出时收集标题，上限与持久缓存一致（5000）。判据：80 万行 × 12 列在 `--max-old-space-size=100` 下流式成功（RSS 148 MB），收集模式 OOM（无上限 RSS 704 MB）。
-
-`csv` / `jsonl` 落盘时旁边写 `<file>.meta.json`：`file` / `format` / `rows`（按渲染规则数出的数据行：jsonl 每行一条，csv 只数对象行）/ `complete`（与退出码一致，退出 3 即 `false`，不只看 `partial`）/ `exitCode` / `command`（argv；JSON 参数里的 key / secret / token 类字段与 `result` 里的同类字段写成 `[redacted]`）/ `cliVersion` / `fetchedAt`（含时区偏移）/ `timezone` / `columns`（`fieldList`）/ `result`（结果对象除 `list` 外的全部顶层键）。元信息先写 `.meta.json.part`、数据文件发布后再改名，任一步失败（含暂存写到一半）都不会出现「新数据配旧 sidecar」或残片；`json` 自带标记不生成；没有关闭开关。脱敏按 CLI 实际语法解析（`--body <json>`、`--body=<json>`、前置空白都覆盖）。jsonl 的成行规则（`output.jsonlItems`）由渲染、流式写、计数三处共用，裸数组（无 `total` 的结果）在 1000 行阈值两侧行为一致——**行为变更**：≥ 1000 行的裸数组此前原样写出每一项，现在与 < 1000 行一致：有对象行时丢弃 null / 标量行，全标量列表写成 `{index, value}` 对象；带 `total` 的结果不受影响。csv 第二遍的写流由 `abort()` 统一清理，读流在表头写完后才创建（大表头触发写背压时读流出错才不会成为进程级未捕获异常）。单位信息 CLI 不掌握（待 K25），未写入。42 个新测试。
-
-**15. `ai stock-summary` 单次最多 5000 只（本地拦截）**
-
-服务端对约 5040 只以上的 `securityList` 整批返回空列表（HTTP 200、无错误，28 次实测 5041 正常 / 5042 返空，台账 P1-12）。CLI 超过 5000 只直接报 `ValidationError` 并提示分批，不再把「全都没看点」的空导出交给用户；help / README / `ai.md` / `SKILL.md` 同步改为 5000。服务端修好后回到文档的 6000。
-
-**16. A 股公告 / `knowledge-batch` 的时间参数按北京时间换算（K2）**
-
-`toTimestamp13` 把 `YYYY-MM-DD[ HH:mm[:ss]]` 锚到 `+08:00` 再转毫秒，不再按运行机器的时区：这两个端点的窗口语义是北京时间，此前在 UTC 沙箱 / CI 里跑同一句「查 8 月 1 日的公告」会整体偏 8 小时且退出 0。date-only 与 datetime 两种写法一致；10 / 13 位时间戳仍原样透传；年 0050 按字面保留（不再被 `new Date(50, …)` 重映射为 1950，也不再拒绝）；固定偏移下没有 DST 缺口，`02:30` 这类本机不存在的墙钟时刻照常转换。测试在 UTC / 纽约 / 上海 / 豪勋爵岛四个 TZ 下断言同一毫秒值。
-
-**17. 第二个 Codex 会话复核的 4 处**
-
-- **并发下载同名文件互相写坏（P1）**：`uniquePath` 只查存在不占位，两个进程会共用一个 `.part`（一个 rename 报 ENOENT、另一个发布错误字节）；占 `.part` 也不够——慢的一方在快的一方 rename 之后仍能重建已消失的 `.part` 再覆盖。现在用 `O_EXCL` 独占创建**最终文件名本身**作为空占位，占到谁就是谁；写入方的 `.part` + rename 替换的是自己的占位；保存未发生时 `releaseClaim` 只删仍为空的占位
-- **重复列名静默覆盖（P2）**：`normalizeRows` 与流式导出（`ExportSink`）共用 `assertColumnarHeader`：带数组行的响应 `fieldList` 重名即报结构性错误（此前 `close:10` / `close:999` 只剩后者、退出 0），没有 `fieldList` 同样报错；1000 行阈值两侧接受的东西一致；`alternative edb-data` 自己拍平 `dataList` 的入口也过同一检查
-- **后续分页 / 分片的 `partial` 丢失（P2）**：合并结果只带首页 / 首片的元数据，现在任一后续页或分片自带 `partial: true` 都让合并结果保持 `partial` 并告警
-- **`raw call auth.login` 先要求鉴权（P2）**：登录端点的凭证在 body 里，不再先索取 token；无环境凭证也能调用
-
-**18. 测试入口每次干净构建（K22）**
-
-`tests/globalSetup.ts` 不再按「dist 比 src 新」跳过重建：保留旧 mtime 的还原（`cp -p`）、只改 `tsconfig.json`、删掉 dist 里的某个模块，此前都会让 spawn 型测试跑在过期产物上。现在每次 `vitest run` 先删 dist 再 tsc。
-
-**未做、记入 `bug/cli-backlog.md`**：标题缓存跨进程写丢（K23，有意暂不做）；`cli.ts` 按命令组拆分 + 端点契约元数据（K25）；统一请求预算 / 总超时 / 限流（K26）。
+17. `npm run contract`：线上契约探针，13 次免费调用比对三个行情接口的列名与 `null` 形态、指标参数与范围、常量分类（本机工具，不随包发布）。测试入口每次先干净重建 `dist`。测试 832 项。
 
 ### v0.37.1 — 2026-08-31
 
