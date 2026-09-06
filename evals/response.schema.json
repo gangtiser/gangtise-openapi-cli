@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "commands": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "按执行顺序列出的完整 gangtise 命令，每条一个完整命令行"
+    },
+    "notes": {
+      "type": "string",
+      "description": "简短说明：路由理由、单位、需要向用户确认的点"
+    }
+  },
+  "required": ["commands", "notes"],
+  "additionalProperties": false
+}

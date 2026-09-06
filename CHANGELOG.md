@@ -90,6 +90,10 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 新增 `src/core/perSecurity.ts`：`callPerSecurity` 按 `PAGE_CONCURRENCY` 逐只请求、按传入顺序合并；各只必须回同一列布局，否则整条命令报结构性错误（不像按日分片那样容忍坏片——用户点名了每一只，少一只就是退出码该暴露的缺口）；任一只填满 `--limit` 标 `partial` + `truncatedSecurities`。`minute-kline` 的 `--security` 改为可重复（缺省本地报 `--security is required`）；`day-kline` 显式多证券在「证券数 × 估算交易日数」超过 `--limit` 时走逐只路径（估算：日历天数 × 5/7，无日期按 250 天）。单只与不超限的多只仍是原来的单请求。5 个单元测试 + 4 个端到端。
 
+**13. skill 场景评测集（K28）**
+
+`evals/scenarios.json` 16 个场景（公司重名与 A+H、ETF 与全球指数路由、全市场关键字、EDE 报告期 vs 交易日、日频估值、realtime 缺字段改口径、多证券身份列、分钟 K 多只、退出码 3 处理、screener 空集归因、高积分与全市场限制、盈利预测单位、年在后日期、公告的 `--start-time`），每条按「命令 / 参数 / 证券 / 单位 / 完整性」五维度正则判分。`scripts/skill-eval.mjs` 用 `codex exec`（默认 `gpt-6-astra` / `model_reasoning_effort=high`）逐场景独立会话、`--output-schema` 强制 `{commands, notes}`；`--live` 真跑并把本仓 `dist/` 包成 `gangtise` 放到 PATH 最前，提示里给绝对路径并要求 `gangtise --version` 自检，结果里校验版本。基线：干跑 61/62（唯一未过项是判据写死了五粮液代码，agent 先查代码是对的，已放宽）、实跑 62/62，全部核验为 0.38.0。首轮实跑因登录 shell 重建 PATH 而跑到全局 0.37.1，作废并修运行器。实跑还顺带发现 `stock-summary` 5556 只返回 0 行（`bug/server-open.md` P1-12）。原始回复落 `evals/results/`（gitignored），基线表在 `evals/README.md`。
+
 **未做、记入 `bug/cli-backlog.md`**：标题缓存跨进程写丢（K23，有意暂不做）；大导出按批规范化写出 + 导出元信息（K24）；`cli.ts` 按命令组拆分 + 端点契约元数据（K25）；统一请求预算 / 总超时 / 限流（K26）；显式多证券 K 线自动分批与分钟 K 多只并发（K27）；skill 场景评测集（K28）。
 
 ### v0.37.1 — 2026-08-31

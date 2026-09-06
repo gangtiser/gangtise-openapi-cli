@@ -30,7 +30,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "prepare": "node scripts/prepare.cjs && npm run build",
-    "contract": "node scripts/contract-probe.mjs"
+    "contract": "node scripts/contract-probe.mjs",
+    "skill-eval": "node scripts/skill-eval.mjs"
   },
   "engines": {
     "node": ">=20.18.1"
