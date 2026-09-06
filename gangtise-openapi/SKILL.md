@@ -162,7 +162,7 @@ vault.my-conference.download
 | 跨类型语义搜索（研报+纪要+...） | `ai knowledge-batch`（多个 `--resource-type`） |
 | 知识库原文下载（搜到后取全文） | `ai knowledge-resource-download`（前置：`knowledge-batch` 拿 `resourceType`+`sourceId`；`250001`/旧 `433007`=组合不匹配） |
 | 一页通 / 投资逻辑 / 同业对比 / 调研提纲 | `ai one-pager / investment-logic / peer-comparison / research-outline` |
-| 个股看点 / 投研总结 / 公司速览 | `ai stock-summary`（`--security` **只收具体代码**，单次最多 6000 个；仅 A 股/港股，不支持 `aShares`/`hkStocks` 全市场批量） |
+| 个股看点 / 投研总结 / 公司速览 | `ai stock-summary`（`--security` **只收具体代码**，单次最多 5000 个、超过 CLI 本地拦截并提示分批；仅 A 股/港股，不支持 `aShares`/`hkStocks` 全市场批量） |
 | 业绩点评（异步） | `ai earnings-review` |
 | 观点 PK / 多空辩论（异步） | `ai viewpoint-debate` |
 | 投研线索 | `ai security-clue`（前置：`reference securities-search` 拿 `gts-code`） |

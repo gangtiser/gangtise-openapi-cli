@@ -1015,6 +1015,22 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     })
   }, 30_000)
 
+  it("ai stock-summary refuses more than 5000 codes locally and sends exactly 5000", async () => {
+    // The server answers ~5042+ codes with an empty list and no error; the CLI must say so
+    // instead of exporting "no highlights". 5000 itself still goes out as one request.
+    const codes = (n: number) => Array.from({ length: n }, (_, i) => `${String(600000 + i).padStart(6, "0")}.SH`)
+    const flags = (n: number) => codes(n).flatMap((c) => ["--security", c])
+    const tooMany = await cli(["ai", "stock-summary", ...flags(5001), "--format", "json"])
+    expect(tooMany.code).toBe(1)
+    expect(tooMany.stderr).toContain("5000")
+    expect(tooMany.stderr).toContain("empty list")
+    expect(captured).toHaveLength(0)
+    const ok = await cli(["ai", "stock-summary", ...flags(5000), "--format", "json"])
+    expect(ok.code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect((captured[0].body as { securityList: string[] }).securityList).toHaveLength(5000)
+  }, 60_000)
+
   it("ai stock-summary maps --security to securityList", async () => {
     const { code } = await cli(["ai", "stock-summary", "--security", "600519.SH", "--format", "json"])
     expect(code).toBe(0)

@@ -100,7 +100,11 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 `csv` / `jsonl` 落盘时旁边写 `<file>.meta.json`：`file` / `format` / `rows`（按渲染规则数出的数据行：jsonl 每行一条，csv 只数对象行）/ `complete`（与退出码一致，退出 3 即 `false`，不只看 `partial`）/ `exitCode` / `command`（argv；JSON 参数里的 key / secret / token 类字段与 `result` 里的同类字段写成 `[redacted]`）/ `cliVersion` / `fetchedAt`（含时区偏移）/ `timezone` / `columns`（`fieldList`）/ `result`（结果对象除 `list` 外的全部顶层键）。元信息先写 `.meta.json.part`、数据文件发布后再改名，任一步失败都不会出现「新数据配旧 sidecar」；`json` 自带标记不生成；没有关闭开关。单位信息 CLI 不掌握（待 K25），未写入。42 个新测试。
 
-**15. 测试入口每次干净构建（K22）**
+**15. `ai stock-summary` 单次最多 5000 只（本地拦截）**
+
+服务端对约 5040 只以上的 `securityList` 整批返回空列表（HTTP 200、无错误，28 次实测 5041 正常 / 5042 返空，台账 P1-12）。CLI 超过 5000 只直接报 `ValidationError` 并提示分批，不再把「全都没看点」的空导出交给用户；help / README / `ai.md` / `SKILL.md` 同步改为 5000。服务端修好后回到文档的 6000。
+
+**16. 测试入口每次干净构建（K22）**
 
 `tests/globalSetup.ts` 不再按「dist 比 src 新」跳过重建：保留旧 mtime 的还原（`cp -p`）、只改 `tsconfig.json`、删掉 dist 里的某个模块，此前都会让 spawn 型测试跑在过期产物上。现在每次 `vitest run` 先删 dist 再 tsc。
 

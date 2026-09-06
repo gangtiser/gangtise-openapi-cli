@@ -881,10 +881,21 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   }
 }))
 ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient((client) => checkAsyncContent(client, "ai.viewpoint-debate.get-content", options.dataId, parseOutputFormat(options.format), options.output)))
-ai.command("stock-summary").description("Stock highlights: refined research summary per security (A-share / HK)").option("--security <code>", "Security code (e.g. 600519.SH / 00700.HK), up to 6000 per call; market keywords are NOT supported by this endpoint", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+/** Local ceiling on codes per `ai stock-summary` call. The API documents 6000, but a
+ * request of about 5042 codes or more comes back as `{total: 0, list: []}` with HTTP 200
+ * and no error (28 probes on 2026-09-06: 5041 fine, 5042 empty; `bug/server-open.md`
+ * P1-12) — an export that reads as "no security has highlights". Refusing above 5000
+ * turns that silent empty result into an explicit error with the fix in it. Lift back
+ * to the documented limit once the server errors on, or serves, larger batches. */
+const STOCK_SUMMARY_MAX_SECURITIES = 5000
+
+ai.command("stock-summary").description("Stock highlights: refined research summary per security (A-share / HK)").option("--security <code>", `Security code (e.g. 600519.SH / 00700.HK), up to ${STOCK_SUMMARY_MAX_SECURITIES} per call (larger batches are answered with an empty list by the server); market keywords are NOT supported by this endpoint`, collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
   // Guard against an empty --security: omitting it would send securityList:undefined,
   // which the backend may treat as all-market (3 credits/row × thousands of rows).
-  if (!options.security.length) throw new ValidationError("--security is required: pass one or more security codes (A-share / HK), up to 6000 per call")
+  if (!options.security.length) throw new ValidationError(`--security is required: pass one or more security codes (A-share / HK), up to ${STOCK_SUMMARY_MAX_SECURITIES} per call`)
+  if (options.security.length > STOCK_SUMMARY_MAX_SECURITIES) {
+    throw new ValidationError(`ai stock-summary: ${options.security.length} securities in one call — the server answers batches above about 5040 with an empty list (HTTP 200, no error), so the CLI stops at ${STOCK_SUMMARY_MAX_SECURITIES}. Split the codes into batches of at most ${STOCK_SUMMARY_MAX_SECURITIES} and run one call per batch.`)
+  }
   // The endpoint dropped whole-market batches on 2026-08-14 and now answers a market
   // keyword with 120001 "invalid security code" — which reads as a typo in the code.
   checkMarketKeywords(options.security, [], "ai stock-summary")
