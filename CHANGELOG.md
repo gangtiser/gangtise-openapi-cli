@@ -86,6 +86,10 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 用户要求对外文档只写现行口径。`SKILL.md` 从 62KB 精简到规则 + 工作流 + 计费 + 路由 + 响应骨架 + 时间词 + 高频错误码 + 引用索引；错误码全表、「不报错的坑」、未见触发的码、退出码 3 与 `screener` 缺列判据、Troubleshooting 整体移到新文件 `references/errors.md`；规则 11 与「易混淆消歧」里的 EDE 长段压成判据句 + 指向 `indicator.md`。`indicator.md` 整篇重写：去掉「2026-xx 实测 / 起 / 此前一版」叙述与抽样计数，保留判据与示例；`qte_vol` 随机 `null` 一节改为现象 + 做法，删掉日期表；原文里「空表基本只意味着真的没数据」与末尾「空表等于 code 未识别或参数名写错」自相矛盾，按后者统一。其余 references（examples / insight / response-schema / quote / reference-and-lookup / ai / fundamental / lookup-ids / vault / tool / fields）与 README 正文逐句改：日期与版本号叙述删除或改成当前行为，「取代旧 X」改成「旧码 X」，错误码重排段改成「两代并存」的现行说明。示例命令里的日期参数是样例值，保留。`docsConsistency` 守卫要求的 no-replay 注释块与「共 18 个」句子原样保留。
 
+**12. 多证券 K 线逐只并发（K27）**
+
+新增 `src/core/perSecurity.ts`：`callPerSecurity` 按 `PAGE_CONCURRENCY` 逐只请求、按传入顺序合并；各只必须回同一列布局，否则整条命令报结构性错误（不像按日分片那样容忍坏片——用户点名了每一只，少一只就是退出码该暴露的缺口）；任一只填满 `--limit` 标 `partial` + `truncatedSecurities`。`minute-kline` 的 `--security` 改为可重复（缺省本地报 `--security is required`）；`day-kline` 显式多证券在「证券数 × 估算交易日数」超过 `--limit` 时走逐只路径（估算：日历天数 × 5/7，无日期按 250 天）。单只与不超限的多只仍是原来的单请求。5 个单元测试 + 4 个端到端。
+
 **未做、记入 `bug/cli-backlog.md`**：标题缓存跨进程写丢（K23，有意暂不做）；大导出按批规范化写出 + 导出元信息（K24）；`cli.ts` 按命令组拆分 + 端点契约元数据（K25）；统一请求预算 / 总超时 / 限流（K26）；显式多证券 K 线自动分批与分钟 K 多只并发（K27）；skill 场景评测集（K28）。
 
 ### v0.37.1 — 2026-08-31

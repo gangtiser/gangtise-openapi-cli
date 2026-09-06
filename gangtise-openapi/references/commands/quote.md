@@ -62,7 +62,7 @@ gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 
 - **全市场**：`--security aShares` / `hkStocks` / `usStocks`，**必须单独传**（见文件开头）。⚠️ **关键字只覆盖个股**：指数不支持全市场关键字，**`aShares` 也不含 ETF**——ETF 与各类指数都要逐个传代码
 - 混市场查询时各证券只返回其所属交易所的交易日：春节期间 A 股休市而美股正常，则当期只有美股行；美国独立日反之
-- `--limit` 默认 6000，上限 10000
+- `--limit` 默认 6000，上限 10000。**显式多证券且「证券数 × 交易日数」超过 `--limit` 时，CLI 自动逐只请求并按传入顺序合并**（每只各自受 `--limit` 约束，撞上的标 `partial` + `truncatedSecurities`）；估算不超限时仍是单请求
 - 常用字段：`open` `high` `low` `close` `pctChange` `volume` `amount` `adjustFactor`
 - `adjustFactor` 复权因子：后复权价 = 不复权价 × `adjustFactor`；前复权价 = 不复权价 × `adjustFactor` ÷ 最新交易日的 `adjustFactor`。**指数无复权因子，该字段为 `null`**；ETF 有，EDE 的 `qte_adj_factor` 同样覆盖场内基金
 - ETF 的 `volume` 单位是「份」（由「万份」× 10000 换算，可能有细微误差）
@@ -134,7 +134,7 @@ gangtise quote minute-kline --security <code> [--start-time <datetime>] [--end-t
 ```
 
 - 支持**沪深** A 股个股（`.SH` / `.SZ`，不含北交所）、沪深 ETF（`512800.SH`）、交易所指数（`.SH` / `.SZ`）、概念指数（`.GT`）、行业指数（`.CI` / `.SWI`）、20 个全球指数（`SPX.SPI` / `N225.NKI` / `HSI.HI`…，清单见日 K 一节）；**必须传 `--security`**（否则返回 `100003`「securityCode不可为空」）
-- **一次只能查一只**（参数是 `securityCode` 单值，不是列表），要多只就循环调用
+- `--security` 可重复传多只：接口一次只收一只，CLI 逐只并发请求后按传入顺序合并；任一只撞上 `--limit` 时结果标 `partial` + `truncatedSecurities`、退出码 3
 - `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全）
 - `--limit` 默认 6000，上限 10000
 - 常用字段：`securityCode` `tradeTime` `open` `high` `low` `close` `change` `pctChange` `volume` `amount`

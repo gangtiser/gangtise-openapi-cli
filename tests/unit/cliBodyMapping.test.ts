@@ -143,7 +143,8 @@ beforeAll(async () => {
         const KNOWN = ["securityCode", "tradeTime", "open", "high", "low", "close", "change", "pctChange", "volume", "amount"]
         const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
         const fieldList = requested ? KNOWN.filter((f) => requested.includes(f)) : ["securityCode", "tradeTime", "close"]
-        const list = [1, 2, 3].map((n) => fieldList.map((f) => (f === "securityCode" ? "600519.SH" : f === "tradeTime" ? `2026-06-01 09:3${n - 1}:00` : n)))
+        const code = (body as { securityCode?: string } | undefined)?.securityCode ?? "600519.SH"
+        const list = [1, 2, 3].map((n) => fieldList.map((f) => (f === "securityCode" ? code : f === "tradeTime" ? `2026-06-01 09:3${n - 1}:00` : n)))
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList, list } }))
         return
       }
@@ -1480,6 +1481,56 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       expect(stdout.trim(), command).toBe("")
     }
   }, 60_000)
+
+  it("quote minute-kline with several --security issues one request each and merges them in order", async () => {
+    const { code, stdout } = await cli([
+      "quote", "minute-kline", "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 09:32:00",
+      "--field", "securityCode", "--field", "tradeTime", "--field", "close", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured.map((c) => (c.body as { securityCode: string }).securityCode)).toEqual(["600519.SH", "000858.SZ"])
+    const parsed = JSON.parse(stdout) as { total: number; list: Record<string, unknown>[] }
+    expect(parsed.total).toBe(6)
+    expect(parsed.list.map((r) => r.securityCode)).toEqual(["600519.SH", "600519.SH", "600519.SH", "000858.SZ", "000858.SZ", "000858.SZ"])
+  }, 30_000)
+
+  it("quote minute-kline with several --security flags the ones that filled their row cap", async () => {
+    const { code, stdout, out } = await cli([
+      "quote", "minute-kline", "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 09:32:00",
+      "--limit", "3", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect((JSON.parse(stdout) as { truncatedSecurities?: string[] }).truncatedSecurities).toEqual(["600519.SH", "000858.SZ"])
+    expect(out).toContain("--limit")
+  }, 30_000)
+
+  it("quote day-kline batches per security when securities × trading days would exceed the limit", async () => {
+    // 3 securities × 261 trading days (a full year) = 783 rows > --limit 500: one request
+    // per security, each with the caller's limit, merged in input order. Below the limit
+    // the single-request path is kept (asserted by the existing single-security test).
+    const { code, stdout } = await cli([
+      "quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ", "--security", "300750.SZ",
+      "--start-date", "2026-01-01", "--end-date", "2026-12-31", "--limit", "500",
+      "--field", "securityCode", "--field", "close", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(3)
+    expect(captured.map((c) => (c.body as { securityList: string[] }).securityList)).toEqual([["600519.SH"], ["000858.SZ"], ["300750.SZ"]])
+    expect(captured.every((c) => (c.body as { limit: number }).limit === 500)).toBe(true)
+    expect((JSON.parse(stdout) as { total: number }).total).toBe(9) // 3 parts × the stub's 3 rows
+  }, 30_000)
+
+  it("quote day-kline keeps one request when the estimate fits the limit", async () => {
+    const { code } = await cli([
+      "quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-date", "2026-08-10", "--end-date", "2026-08-14", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["600519.SH", "000858.SZ"])
+  }, 30_000)
 
   it("quote minute-kline flags a dropped --field column", async () => {
     const { code, stdout } = await cli([

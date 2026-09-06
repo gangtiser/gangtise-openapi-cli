@@ -71,7 +71,7 @@
 
 `partial: true`，保留已取到的部分；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题。**拿到 3 就必须告知用户缺了哪段，不能当成功静默继续。**
 
-- 触发场景：翻页 / K 线分片有页失败、服务端返回行数与 `total` 矛盾（提前短页）、`total` 撞服务端上限（`totalCapped`，见 opinion 家族）、`quote` 系带 `--field` 时请求了但服务端没回的列（`missingFields`）。附带定位字段：页失败 `failedPages`；分片失败 `failedShards`、分片撞行数上限 `truncatedShards`（均带日期区间可缩窗补拉）；缺列 `missingFields`（字段名写错或已下线，按 `references/fields.md` 核对）。EDE 的 `omittedIndicators` / `omittedSecurities` 仍在，但写错的 code 在服务端就被 `100003` 拒了（退出 1），这条路基本收不到样本
+- 触发场景：翻页 / K 线分片有页失败、服务端返回行数与 `total` 矛盾（提前短页）、`total` 撞服务端上限（`totalCapped`，见 opinion 家族）、`quote` 系带 `--field` 时请求了但服务端没回的列（`missingFields`）。附带定位字段：页失败 `failedPages`；分片失败 `failedShards`、分片撞行数上限 `truncatedShards`（均带日期区间可缩窗补拉）；缺列 `missingFields`（字段名写错或已下线，按 `references/fields.md` 核对）；多证券逐只请求里撞行数上限的证券 `truncatedSecurities`。EDE 的 `omittedIndicators` / `omittedSecurities` 仍在，但写错的 code 在服务端就被 `100003` 拒了（退出 1），这条路基本收不到样本
 - **EDE 代码写错是退出码 1 + `100003`，msg 里直接点名是哪个 code**（美股后缀用 `.O`/`.N`，不是 `.US`），不用从退出码 3 反推。真的没覆盖是占位单元格（统一 `null`）+ 退出码 0
 - **`screener` 的缺列按表达式的布尔结构判**：把缺列的变量当作「无法求值」，看整个表达式**是否还有一条能成立的分支**——`A && B` 要两边都可求值，`A || B` 只要一边。**一条分支都不剩 → 退出码 1、不输出任何结果**（返回的行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；**还有分支可求值，或缺的只是未参与表达式的辅助变量 → `partial` + 退出码 3**。所以 `F1 || F2` 缺 F1 是降级，缺两个则是致命；`F1 && (F2 || F3)` 缺 F1 仍是致命。⚠️ **前提是服务端返回了命中行**——零命中时走「nothing matched」+ **退出码 0**。**空集别急着当成「条件成立但无标的符合」**：指标码写错会直接报 `100003`（退出 1），剩下**三种成因产生逐字相同的输出**——① 真的没有标的满足条件；② **日期没落在报告期末**（报告期类指标此时整批 `null`）；③ **该指标不覆盖这批证券**（拿 A 股专属指标查港美股，如 `finc_pb_mrq` / `mgn_*`）。②③ 都要靠单查一行确认，不能只改日期
 

@@ -30,7 +30,7 @@ description: |-
 6. **K 线"最近 N 条"**：必须用 `--start-date`/`--end-date` 拉日期范围，从结果按 `tradeDate` 取尾部最近 N 条。**不要只用 `--limit N`**（截取的是窗口开头）。
 6.1. **日 K 仅历史**：`day-kline` **不返回盘中实时数据**。当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00（北京时间）。需要盘中快照请走 `quote realtime`。
 6.1.1. 🔴 **`quote day-kline` 一个命令覆盖 A 股 / 港股 / 美股 / 沪深 ETF / 各类指数（含 20 个全球指数）**，可混着传代码。**全市场关键字是 `aShares` / `hkStocks` / `usStocks`，必须单独传**（不能与代码或另一个关键字混填；`--security all` 会被 CLI 拒并提示改用哪个）。**关键字只覆盖个股**：ETF 与各类指数（`.SH`/`.SZ`/`.BJ` 交易所指数、`.GT` 概念、`.CI`/`.SWI` 行业、`SPX.SPI` 等全球指数，清单见 `references/commands/quote.md`）须逐个传代码。全球指数 realtime 的 `volume` / `amount` / `amplitude` 与分钟 K 的 `volume` / `amount` 为 `null`，日 K 只有 `amount` 为 `null`；`tradeTime` 是交易所当地时间。`day-kline-hk` / `day-kline-us` / `index-day-kline` 已下线（接口仍可调、仍用 `all`），**新代码别用**——它们不校验证券代码，传错返空而不报错。
-6.2. **多标的日 K 不自动分片**：只有全市场关键字才按日切片提额；显式传多个 `--security` 时走单请求（默认 `--limit 6000` / 上限 10000），**返回行数撞上 `--limit` 时结果会标 `partial`、退出码 3、stderr 警告**（`--limit` 超 10000 本地直接报错）。先估 标的数 × 交易日数，接近/超 6000 → 逐只分开拉、或显式 `--limit 10000` 并按日期区间分批。
+6.2. **多标的日 K**：显式传多个 `--security` 时，「证券数 × 交易日数」不超过 `--limit`（默认 6000 / 上限 10000）走单请求；超过则 CLI 自动逐只请求并按传入顺序合并，每只各自受 `--limit` 约束，撞上的标 `partial` + `truncatedSecurities`、退出码 3。单只超 10000 行仍要缩日期区间分批。
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取；🔴 **全量拉取结束会多探一行验证 `total` 是不是服务端封顶**（`opinion` / `foreign-opinion` / `independent-opinion` 的 `total` 恒为 10000 但实际远不止）——探到就标 `partial` + `totalCapped` + 退出 3，**这时导出的是截断结果，要缩小时间范围分片拉**
    - K 线全市场关键字（`aShares` / `hkStocks` / `usStocks`；旧命令 `all`）跨日期 → 自动按日切片并合并，粒度按各市场单日行数定（A 1 天 / 港 2 天 / 美 1 天）
@@ -173,7 +173,7 @@ vault.my-conference.download
 | 日 K（历史，A 股 / 港股 / 美股 / 沪深 ETF / 各类指数含 20 个全球指数，可混查） | `quote day-kline` |
 | 全部沪深京指数日 K / 要指数名称 | `quote index-day-kline`（**旧命令仍有两处 `day-kline` 做不到**：`--security all` 一次拿全部指数；返回 `securityName` 指数名称——`day-kline` 查指数只有代码没有名称） |
 | ~~港股 / 美股日 K~~ | ⚠️ 已下线，用 `quote day-kline`（`day-kline-hk` / `day-kline-us` 仍可调但不校验代码） |
-| 分钟 K（沪深 A 股 / ETF + 各类指数含全球指数） | `quote minute-kline`（一次一只） |
+| 分钟 K（沪深 A 股 / ETF + 各类指数含全球指数） | `quote minute-kline`（`--security` 可重复，逐只并发合并） |
 | 实时行情（A / 港 / 美 / 沪深 ETF / 各类指数含全球指数） | `quote realtime` |
 | A股资金流向（主力/大单净流入，日频） | `quote fund-flow`（`--security` 或 `aShares` 全市场〔须带 `--start-date`/`--end-date`，按日自动分片〕；免费） |
 | 单证券 A股完整利润表 / 资产负债 / 现金流（累计 / 单季） | `fundamental income-statement[-quarterly] / balance-sheet / cash-flow[-quarterly]` |
@@ -296,7 +296,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 ## 异常处理
 
-**退出码**：`0` 完整成功（含合法空结果）／ `3` 有数据但不完整（`partial: true`；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题。定位字段：页失败 `failedPages`、分片失败 `failedShards`、分片撞行数上限 `truncatedShards`、`total` 撞服务端上限 `totalCapped`、`--field` 请求了但没回的列 `missingFields`、EDE 整轴没回 `omittedIndicators` / `omittedSecurities`）／ `1` 硬失败。**拿到 3 就必须告知用户缺了哪段，不能当成功静默继续。** 报错行带 `[trace <id>]`，**报障给 Gangtise 时务必带上**。
+**退出码**：`0` 完整成功（含合法空结果）／ `3` 有数据但不完整（`partial: true`；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题。定位字段：页失败 `failedPages`、分片失败 `failedShards`、分片撞行数上限 `truncatedShards`、`total` 撞服务端上限 `totalCapped`、`--field` 请求了但没回的列 `missingFields`、逐只请求里撞行数上限的证券 `truncatedSecurities`、EDE 整轴没回 `omittedIndicators` / `omittedSecurities`）／ `1` 硬失败。**拿到 3 就必须告知用户缺了哪段，不能当成功静默继续。** 报错行带 `[trace <id>]`，**报障给 Gangtise 时务必带上**。
 
 最高频的几个码（全表、「不报错的坑」、`screener` 缺列判据与困境自救见 `references/errors.md`）：
 

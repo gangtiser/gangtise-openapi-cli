@@ -6,6 +6,7 @@ import { readTokenCache, redactTokenCache } from "./core/auth.js"
 import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
+import { callPerSecurity, estimateTradingDays } from "./core/perSecurity.js"
 import { callKlineWithSharding, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
@@ -622,11 +623,20 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
         await printData(data, format, options.output)
         return
       }
-      // Explicit securities go out as one request: pin the limit to the known default so
-      // the sent limit and the truncation cap are the same number by construction.
+      // Explicit securities: pin the limit to the known default so the sent limit and the
+      // truncation cap are the same number by construction.
       const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
-      // (Nothing to shard: sharding only ever applied to whole-market queries, so this
-      // is exactly the passthrough callKlineWithSharding would have done.)
+      const securities = body.securityList ?? []
+      // Several securities over a range that would not fit one request (securities ×
+      // trading days > limit) go out one request per security, merged in input order.
+      // One request would come back capped at `limit` with the tail securities missing
+      // (partial + exit 3); per-security batching keeps each part well under the cap.
+      if (securities.length > 1 && securities.length * estimateTradingDays(body.startDate, body.endDate) > limit) {
+        const data = await callPerSecurity(client, endpointKey, securities, (code) => ({ ...body, securityList: [code], limit }), limit, `quote ${name}`)
+        flagMissingFields(data, body.fieldList, `quote ${name}`)
+        await printData(data, format, options.output)
+        return
+      }
       const data = await client.call(endpointKey, { ...body, limit })
       flagIfLimitTruncated(data, limit, name)
       flagMissingFields(data, body.fieldList, `quote ${name}`)
@@ -641,12 +651,19 @@ addKlineCommand("day-kline-us", "quote.day-kline-us", "[deprecated: use 'day-kli
 // at the 10K cap and lost ~11% of the range (it surfaced as exit 3 + truncatedShards, but
 // the split was never sized to avoid it in the first place).
 addKlineCommand("index-day-kline", "quote.index-day-kline", "[deprecated: use 'day-kline'] Index code (.SH/.SZ/.BJ, or 'all' for full market)", LEGACY_ALL_MARKET(15))
-quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), ETF .SH/.SZ (e.g. 512800.SH), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); no whole-market keyword").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), ETF .SH/.SZ (e.g. 512800.SH), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); repeat for several — one request each, run concurrently and merged; no whole-market keyword", collectList, []).option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }) ?? DEFAULT_QUOTE_LIMIT
   const fieldList = maybeArray<string>(options.field)
-  const data = await client.call("quote.minute-kline", { securityCode: options.security, startTime: options.startTime, endTime: options.endTime, limit, fieldList })
-  flagIfLimitTruncated(data, limit, "minute-kline", "--start-time/--end-time")
+  const securities = options.security as string[]
+  if (securities.length === 0) throw new ValidationError("--security is required (repeat it for several securities)")
+  const makeBody = (code: string) => ({ securityCode: code, startTime: options.startTime, endTime: options.endTime, limit, fieldList })
+  // The API takes ONE securityCode per request; several go out concurrently and merge in
+  // input order (callPerSecurity owns the per-security truncation flag).
+  const data = securities.length === 1
+    ? await client.call("quote.minute-kline", makeBody(securities[0]))
+    : await callPerSecurity(client, "quote.minute-kline", securities, makeBody, limit, "quote minute-kline")
+  if (securities.length === 1) flagIfLimitTruncated(data, limit, "minute-kline", "--start-time/--end-time")
   flagMissingFields(data, fieldList, "quote minute-kline")
   await printData(data, format, options.output)
 }))
