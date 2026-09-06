@@ -3,7 +3,7 @@ import { gzipSync } from "node:zlib"
 import { describe, expect, it, vi } from "vitest"
 
 import { ApiError } from "../../src/core/errors.js"
-import { decodeResponseBody, markRetryable, parseRetryAfterMs, quoteBigIntFields, resolvePageConcurrency, runWithConcurrency, withRetry } from "../../src/core/transport.js"
+import { decodeResponseBody, markRetryable, parseRetryAfterMs, quoteBigIntFields, resolvePageConcurrency, runInOrder, runWithConcurrency, withRetry } from "../../src/core/transport.js"
 
 describe("runWithConcurrency", () => {
   it("preserves item order in the results", async () => {
@@ -308,5 +308,52 @@ describe("quoteBigIntFields", () => {
     expect(quoteBigIntFields('{"taskId":"123"}', ["taskId"])).toBe('{"taskId":"123"}')
     expect(quoteBigIntFields('{"total":126683}', ["taskId"])).toBe('{"total":126683}')
     expect(quoteBigIntFields('{"taskId":123}', undefined)).toBe('{"taskId":123}')
+  })
+})
+
+describe("runInOrder", () => {
+  it("consumes results strictly in item order even when later items finish first", async () => {
+    const consumed: number[] = []
+    await runInOrder([40, 5, 20, 1], 4, (ms) => new Promise<number>((r) => setTimeout(() => r(ms), ms)), (ms) => { consumed.push(ms) })
+    expect(consumed).toEqual([40, 5, 20, 1])
+  })
+
+  it("never lets the producer run more than the concurrency width ahead of a slow consumer", async () => {
+    let fetched = 0
+    let consumed = 0
+    let maxAhead = 0
+    await runInOrder(Array.from({ length: 40 }, (_, i) => i), 3, async (i) => {
+      fetched++
+      maxAhead = Math.max(maxAhead, fetched - consumed)
+      return i
+    }, async () => {
+      await new Promise((r) => setTimeout(r, 2))
+      consumed++
+    })
+    expect(consumed).toBe(40)
+    // width results waiting + the one in flight per worker
+    expect(maxAhead).toBeLessThanOrEqual(3 + 3)
+  })
+
+  it("stops starting items and rethrows once consume fails", async () => {
+    const started: number[] = []
+    await expect(runInOrder([1, 2, 3, 4, 5, 6], 2, async (i) => {
+      started.push(i)
+      await new Promise((r) => setTimeout(r, 1))
+      return i
+    }, (i) => {
+      if (i === 2) throw new Error("disk full")
+    })).rejects.toThrow("disk full")
+    expect(started.length).toBeLessThan(6)
+  })
+
+  it("propagates a producer failure like runWithConcurrency", async () => {
+    await expect(runInOrder([1, 2], 2, async (i) => { if (i === 2) throw new Error("boom"); return i }, () => {})).rejects.toThrow("boom")
+  })
+
+  it("does nothing for empty input", async () => {
+    const consume = vi.fn()
+    await runInOrder([], 3, async (i: number) => i, consume)
+    expect(consume).not.toHaveBeenCalled()
   })
 })

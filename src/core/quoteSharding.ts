@@ -1,6 +1,7 @@
 import { isStructuralError } from "./errors.js"
 import { columnarSchemaValid } from "./normalize.js"
-import { isVerbose, PAGE_CONCURRENCY, runWithConcurrency } from "./transport.js"
+import { attachRowSink, type JsonlRowSink } from "./rowSink.js"
+import { isVerbose, PAGE_CONCURRENCY, runInOrder } from "./transport.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -25,6 +26,8 @@ interface ShardConfig {
 
 interface KlineClient {
   call(endpointKey: string, body?: unknown): Promise<unknown>
+  /** Present on GangtiseClient: the sink of a large jsonl export, if the command opened one. */
+  claimRowSink?(): JsonlRowSink | undefined
 }
 
 const DAY_MS = 86_400_000
@@ -177,7 +180,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   const failedShards: Array<{ startDate: string; endDate: string }> = []
   let firstError: unknown = null
   let aborted = false
-  const results = await runWithConcurrency(shards, config.concurrency ?? PAGE_CONCURRENCY, async (shard) => {
+  const fetchShard = async (shard: { startDate: string; endDate: string }): Promise<unknown> => {
     // A prior shard hit a hard error (rate limit, no-perm, retries exhausted). Stop
     // dispatching the rest rather than burning quota into the same failure; record them
     // as failed so the merged result is flagged partial. Mirrors requestPaginated.
@@ -204,8 +207,12 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
       failedShards.push(shard)
       return null
     }
-  })
+  }
 
+  // A large jsonl export streams rows out shard by shard (JsonlRowSink) instead of holding
+  // the merged list; shards are merged in date order as they complete (runInOrder), so
+  // the file order equals the in-memory merge order.
+  const sink = client.claimRowSink?.()
   let fieldList: unknown[] | undefined
   /** Meta (total, partial, …) is copied from the first shard that contributed rows;
    * `fallback` serves an all-empty result and is taken only from a shard that passed as a
@@ -214,15 +221,23 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   let header: Record<string, unknown> | null = null
   let fallback: Record<string, unknown> | null = null
   const merged: unknown[] = []
+  let count = 0
+  /** Keys of the object rows kept — the returned columns when no columnar header exists. */
+  const objectKeys = new Set<string>()
   // Record WHICH windows maxed out, not just how many: a script/agent consumer
   // needs the concrete date ranges to re-pull narrower windows (mirrors failedShards).
   const truncatedShards: Array<{ startDate: string; endDate: string }> = []
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i]
-    if (!(r && typeof r === "object")) continue
+  const keep = async (rows: unknown[]): Promise<void> => {
+    count += rows.length
+    if (!fieldList) for (const row of rows) if (row && typeof row === "object" && !Array.isArray(row)) for (const key of Object.keys(row)) objectKeys.add(key)
+    if (sink) await sink.push(rows)
+    else for (const row of rows) merged.push(row)
+  }
+  const mergeShard = async (r: unknown, i: number): Promise<void> => {
+    if (!(r && typeof r === "object")) return
     const rec = r as Record<string, unknown>
     if (isTruncated(rec)) truncatedShards.push(shards[i])
-    if (!Array.isArray(rec.list)) continue
+    if (!Array.isArray(rec.list)) return
     if (rec.list.length === 0) {
       // A shard that claims rows it did not deliver (total > 0, or an explicit partial
       // marker) is a contradiction, not a holiday: keep the completeness signal.
@@ -230,14 +245,14 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
         failedShards.push(shards[i])
         const claim = typeof rec.total === "number" && rec.total > 0 ? `reported total=${rec.total}` : "carried a partial marker"
         process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} ${claim} but delivered no rows; treated as failed (see failedShards)\n`)
-        continue
+        return
       }
       // A genuinely empty window (a weekend / holiday): it says nothing about the column
       // layout, so it neither supplies the merged header — an empty fieldList would
       // swallow every later column — nor counts as failed for lacking one. It is the only
       // kind of shard an all-empty result may take its metadata from.
       if (!fallback) fallback = rec
-      continue
+      return
     }
     const shardFields = Array.isArray(rec.fieldList) && rec.fieldList.length > 0 ? rec.fieldList : undefined
     const columnar = rec.list.some(Array.isArray)
@@ -250,12 +265,15 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     if (columnar && !columnarSchemaValid(shardFields, rec.list)) {
       failedShards.push(shards[i])
       process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} returned columnar rows that do not match its own fieldList (missing, duplicated or mis-sized); its rows were dropped (see failedShards)\n`)
-      continue
+      return
     }
     // Only a schema that was validated against columnar rows may become the merged
     // header. An object-row shard's fieldList (if it carries one) constrains nothing of
     // its own, was never checked, and must not constrain the array shards that follow.
-    if (!fieldList && columnar && shardFields) fieldList = shardFields
+    if (!fieldList && columnar && shardFields) {
+      fieldList = shardFields
+      sink?.setFieldList(fieldList)
+    }
     if (!header) header = rec
     // The merged result carries ONE fieldList (the first data shard's) and columnar rows
     // are zipped against it by position. A shard whose fieldList differs in order would be
@@ -266,12 +284,12 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     if (remap === undefined) {
       failedShards.push(shards[i])
       process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} returned columns that cannot be aligned with the first shard's fieldList; its rows were dropped (see failedShards)\n`)
-      continue
+      return
     }
-    // Append one-by-one rather than push(...list): a future higher row cap could
-    // make a single shard's list large enough to overflow the stack via spread.
-    for (const item of rec.list as unknown[]) merged.push(remap && Array.isArray(item) ? remap.map((k) => item[k]) : item)
+    const rows = rec.list as unknown[]
+    await keep(remap ? rows.map((item) => (Array.isArray(item) ? remap.map((k) => item[k]) : item)) : rows)
   }
+  await runInOrder(shards, config.concurrency ?? PAGE_CONCURRENCY, fetchShard, mergeShard)
 
   // Every shard failed → surface the error loudly (non-zero exit) rather than
   // masking a total outage as an empty success.
@@ -285,7 +303,8 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   const base: Record<string, unknown> = header ?? fallback ?? {}
   // `total` on a shard is that shard's own row count; overwrite it with the merged count
   // so the JSON `total` and the `Total:` stderr line reflect the whole combined result.
-  const out: Record<string, unknown> = { ...base, total: merged.length, list: merged }
+  const out: Record<string, unknown> = { ...base, total: count, list: merged }
+  if (sink) attachRowSink(out, sink)
   // Two different jobs share the output's fieldList: zipping array rows by position (only
   // a header validated against columnar rows may do that), and telling flagMissingFields
   // which columns came back (which needs an honest answer for EVERY shape). So:
@@ -298,10 +317,8 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   //   nothing merged, no metadata at all   → no fieldList (nothing to compare against)
   if (fieldList) {
     out.fieldList = fieldList
-  } else if (merged.length > 0) {
-    const keys = new Set<string>()
-    for (const row of merged) if (row && typeof row === "object" && !Array.isArray(row)) for (const key of Object.keys(row)) keys.add(key)
-    out.fieldList = [...keys]
+  } else if (count > 0) {
+    out.fieldList = [...objectKeys]
   } else if (Array.isArray(base.fieldList)) {
     out.fieldList = base.fieldList
   } else {

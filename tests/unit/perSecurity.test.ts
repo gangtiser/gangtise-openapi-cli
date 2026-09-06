@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ApiError, isStructuralError } from "../../src/core/errors.js"
 import { callPerSecurity, estimateTradingDays } from "../../src/core/perSecurity.js"
+import { getRowSink, JsonlRowSink } from "../../src/core/rowSink.js"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
 const body = (code: string) => ({ securityCode: code })
 
@@ -117,5 +121,28 @@ describe("estimateTradingDays", () => {
     // 2 × 5 = 10 > 9: the calendar-scaled estimate (4 days) said one request would do,
     // and that request came back capped at 9 rows.
     expect(2 * estimateTradingDays("2026-08-10", "2026-08-14") > 9).toBe(true)
+  })
+})
+
+describe("callPerSecurity with a row sink (large jsonl export)", () => {
+  const dir = path.join(os.tmpdir(), `gangtise-persec-sink-${process.pid}`)
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
+
+  it("streams parts in input order under the shared header and leaves the result's list empty", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, b: { securityCode: string }) => {
+      if (b.securityCode === "600519.SH") await new Promise((r) => setTimeout(r, 20))
+      return { total: 600, fieldList: ["securityCode", "close"], list: Array.from({ length: 600 }, (_, i) => [b.securityCode, i]) }
+    })
+    const sink = new JsonlRowSink(path.join(dir, "parts.jsonl"))
+    const result = await callPerSecurity({ call, claimRowSink: () => sink }, "quote.day-kline", ["600519.SH", "000858.SZ"], body, 6000, "quote day-kline")
+    expect(result.total).toBe(1200)
+    expect(result.list).toEqual([])
+    expect(result.fieldList).toEqual(["securityCode", "close"])
+    expect(getRowSink(result)).toBe(sink)
+    await sink.finish()
+    const lines = (await fs.readFile(path.join(dir, "parts.jsonl"), "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { securityCode: string; close: number })
+    expect(lines).toHaveLength(1200)
+    expect(lines[0]).toEqual({ securityCode: "600519.SH", close: 0 })
+    expect(lines[600]).toEqual({ securityCode: "000858.SZ", close: 0 })
   })
 })

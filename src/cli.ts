@@ -16,13 +16,20 @@ import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./co
 import { flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
+import { JsonlRowSink, rowCount } from "./core/rowSink.js"
 import type { GangtiseClient } from "./core/client.js"
 import type { TitleCacheConfig } from "./core/titleCache.js"
 
+/** Output options of a query command, read up front so a large jsonl export to a file
+ * can stream rows out as they arrive (JsonlRowSink) instead of collecting them first. */
+interface StreamOptions { format?: string; output?: string; cache?: TitleCacheConfig }
+
 // --- Lazy-loaded modules (deferred to action handlers) ---
-async function createClient() {
+async function createClient(stream?: StreamOptions) {
   const { GangtiseClient } = await import("./core/client.js")
-  return new GangtiseClient(loadConfig())
+  // Only a jsonl export to a file streams; every other format collects in memory as before.
+  const sink = stream?.output && stream.format === "jsonl" ? new JsonlRowSink(stream.output, stream.cache) : undefined
+  return new GangtiseClient(loadConfig(), sink)
 }
 
 /**
@@ -39,13 +46,28 @@ async function emit(
   // Validate --format before fetching: a typo'd format must not burn a full
   // (possibly credit-metered) data pull only to fail at render time.
   const format = parseOutputFormat(options.format)
-  const client = await createClient()
-  await printData(await produce(client), format, options.output, cache)
+  const client = await createClient({ format, output: options.output, cache })
+  try {
+    await printData(await produce(client), format, options.output, cache)
+  } finally {
+    // A no-op after printData finished the file; on any failure it removes the .part.
+    await client.rowSink?.abort()
+  }
 }
 
-/** Acquire a client and run an arbitrary action (downloads, polling, custom shaping). */
-async function withClient(fn: (client: GangtiseClient) => Promise<void>): Promise<void> {
-  await fn(await createClient())
+/** Acquire a client and run an arbitrary action (downloads, polling, custom shaping).
+ * Query commands that print through printData themselves pass their output options
+ * first, so a jsonl export can stream (see createClient). */
+async function withClient(fn: (client: GangtiseClient) => Promise<void>): Promise<void>
+async function withClient(stream: StreamOptions, fn: (client: GangtiseClient) => Promise<void>): Promise<void>
+async function withClient(a: StreamOptions | ((client: GangtiseClient) => Promise<void>), b?: (client: GangtiseClient) => Promise<void>): Promise<void> {
+  const [stream, fn] = typeof a === "function" ? [undefined, a] : [a, b as (client: GangtiseClient) => Promise<void>]
+  const client = await createClient(stream)
+  try {
+    await fn(client)
+  } finally {
+    await client.rowSink?.abort()
+  }
 }
 
 /**
@@ -334,9 +356,10 @@ const SECURITY_ONLY_ROW_CAP = 1000
 function flagIfImplicitCapHit(data: unknown, cap: number, from: number): void {
   if (!data || typeof data !== "object" || Array.isArray(data)) return
   const rec = data as Record<string, unknown>
-  if (!Array.isArray(rec.list) || rec.list.length < cap) return
+  const rows = rowCount(data)
+  if (rows < cap) return
   const total = typeof rec.total === "number" ? rec.total : undefined
-  if (total !== undefined && from + rec.list.length >= total) return
+  if (total !== undefined && from + rows >= total) return
   rec.partial = true
   process.stderr.write(`[gangtise] warning: --security was the only bound, so the fetch was capped at ${cap} rows and more remain (total=${String(rec.total)}) — the filter may not have narrowed anything. Re-run with --start-date/--end-date or an explicit --size.\n`)
 }
@@ -605,7 +628,7 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
       // check inside the callback would spend a request to then fail locally anyway.
       checkMarketKeywords(options.security, Object.keys(markets), `quote ${name}`)
       options.security = canonicalizeMarketKeywords(options.security, Object.keys(markets))
-      return withClient(async (client) => {
+      return withClient(options, async (client) => {
       const format = parseOutputFormat(options.format)
       const body = buildQuoteKlineBody(options)
       // Each market shards at its own granularity, so resolve which keyword was asked
@@ -651,7 +674,7 @@ addKlineCommand("day-kline-us", "quote.day-kline-us", "[deprecated: use 'day-kli
 // at the 10K cap and lost ~11% of the range (it surfaced as exit 3 + truncatedShards, but
 // the split was never sized to avoid it in the first place).
 addKlineCommand("index-day-kline", "quote.index-day-kline", "[deprecated: use 'day-kline'] Index code (.SH/.SZ/.BJ, or 'all' for full market)", LEGACY_ALL_MARKET(15))
-quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), ETF .SH/.SZ (e.g. 512800.SH), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); repeat for several — one request each, run concurrently and merged; no whole-market keyword", collectList, []).option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), ETF .SH/.SZ (e.g. 512800.SH), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); repeat for several — one request each, run concurrently and merged; no whole-market keyword", collectList, []).option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(options, async (client) => {
   const format = parseOutputFormat(options.format)
   const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }) ?? DEFAULT_QUOTE_LIMIT
   const fieldList = maybeArray<string>(options.field)
@@ -686,7 +709,7 @@ quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").opt
   // request is spent on a query that fails locally.
   checkMarketKeywords(options.security, FUND_FLOW_MARKETS, "quote fund-flow")
   options.security = canonicalizeMarketKeywords(options.security, FUND_FLOW_MARKETS)
-  return withClient(async (client) => {
+  return withClient(options, async (client) => {
   const format = parseOutputFormat(options.format)
   const body = {
     securityList: maybeArray<string>(options.security),

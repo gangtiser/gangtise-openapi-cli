@@ -10,7 +10,8 @@ import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredent
 import { ApiError, attachEnvelopeTraceId, markStructural, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
-import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runWithConcurrency, withRetry } from "./transport.js"
+import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runInOrder, withRetry } from "./transport.js"
+import { attachRowSink, type JsonlRowSink } from "./rowSink.js"
 import type { DownloadResult } from "./download.js"
 
 interface Envelope<T> {
@@ -40,7 +41,18 @@ export class GangtiseClient {
   // login, stop preferring that now-stale token so the retry uses the fresh one.
   private envTokenInvalidated = false
 
-  constructor(private readonly config: CliConfig) {}
+  /** The sink a large jsonl export streams into, if the command opened one. The first
+   * fetch-all / sharded / per-security producer claims it; a later call in the same
+   * command collects in memory as usual (see JsonlRowSink). */
+  private rowSinkClaimed = false
+
+  constructor(private readonly config: CliConfig, readonly rowSink?: JsonlRowSink) {}
+
+  claimRowSink(): JsonlRowSink | undefined {
+    if (!this.rowSink || this.rowSinkClaimed) return undefined
+    this.rowSinkClaimed = true
+    return this.rowSink
+  }
 
   private async getAuthorizationHeader(forceRefresh = false): Promise<string> {
     if (this.config.token && !this.envTokenInvalidated && !forceRefresh) {
@@ -258,22 +270,37 @@ export class GangtiseClient {
     }
 
     const total = firstPage.total
-    const collected: unknown[] = [...firstPage.list]
 
     const available = Math.max(total - startFrom, 0)
     const target = requestedSize === undefined ? available : Math.min(requestedSize, available)
+
+    // Rows either accumulate in `collected` or, for a large jsonl export, go straight out
+    // through the sink in page order (JsonlRowSink); `count` is the row count either way.
+    // With `--size N` at most N rows are kept even if the server over-returns.
+    const sink = this.claimRowSink()
+    if (sink && Array.isArray(firstPage.fieldList)) sink.setFieldList(firstPage.fieldList)
+    const collected: unknown[] = []
+    let count = 0
+    const keep = async (rows: unknown[]): Promise<void> => {
+      const kept = requestedSize === undefined ? rows : rows.slice(0, Math.max(0, requestedSize - count))
+      if (kept.length === 0) return
+      count += kept.length
+      if (sink) await sink.push(kept)
+      else for (const row of kept) collected.push(row)
+    }
+    const result = (): Record<string, unknown> => {
+      const out: Record<string, unknown> = { ...firstPage, total, list: collected }
+      return sink ? attachRowSink(out, sink) : out
+    }
+    await keep(firstPage.list)
 
     // Last page reached on first request. If `total` promises more rows than the
     // short page delivered, the server's page cap may be lower than our configured
     // maxPageSize — say so instead of silently returning a subset as "everything".
     if (firstPage.list.length < firstPageSize) {
-      const out: Record<string, unknown> = {
-        ...firstPage,
-        total,
-        list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
-      }
-      if (collected.length < target) {
-        process.stderr.write(`[gangtise] warning: server returned a short page (${collected.length} rows) but reported total=${total}; treating it as the end of data — results may be incomplete\n`)
+      const out = result()
+      if (count < target) {
+        process.stderr.write(`[gangtise] warning: server returned a short page (${count} rows) but reported total=${total}; treating it as the end of data — results may be incomplete\n`)
         // Machine-readable counterpart of the warning: scripts key off partial /
         // exit code 3, and must not mistake a truncated result for a complete one.
         out.partial = true
@@ -281,18 +308,14 @@ export class GangtiseClient {
       return out
     }
 
-    if (collected.length >= target) {
-      const out: Record<string, unknown> = {
-        ...firstPage,
-        total,
-        list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
-      }
+    if (count >= target) {
+      const out = result()
       // Same probe the fan-out path runs below: a fetch-all that starts inside the last
       // page (from=9950 against total=10000) is just as exposed to a capped `total`, and
       // used to return here without ever checking. `total > firstPageSize` keeps the
       // request count unchanged for a result that genuinely fits in one page from offset
       // 0 — only a late `from` can land here with a total larger than a page.
-      if (requestedSize === undefined && total > firstPageSize) await this.flagIfTotalCapped(endpoint, initialBody, total, out)
+      if (requestedSize === undefined && total > firstPageSize) await this.flagIfTotalCapped(endpoint, initialBody, total, out, count)
       return out
     }
 
@@ -326,7 +349,9 @@ export class GangtiseClient {
     const failedPages: PageReq[] = []
     let firstError: unknown = null
     let aborted = false
-    const pages = await runWithConcurrency(pageRequests, PAGE_CONCURRENCY, async (req) => {
+    // Pages are kept in page order as they complete (runInOrder), so a streamed export
+    // is written in the same order a collected one is returned.
+    await runInOrder(pageRequests, PAGE_CONCURRENCY, async (req) => {
       if (aborted) {
         failedPages.push(req)
         return [] as unknown[]
@@ -352,12 +377,7 @@ export class GangtiseClient {
         failedPages.push(req)
         return [] as unknown[]
       }
-    })
-
-    for (const list of pages) {
-      if (list.length === 0) continue
-      collected.push(...list)
-    }
+    }, (list) => keep(list))
 
     if (unexpectedShape) {
       process.stderr.write(`[gangtise] warning: a page response had unexpected shape; its rows are missing (counted in failedPages)\n`)
@@ -369,19 +389,15 @@ export class GangtiseClient {
     // asked for everything and is silently getting a subset, mirroring the
     // partial-result warning in quoteSharding.
     if (truncatedByPageCap) {
-      process.stderr.write(`[gangtise] warning: hit the ${MAX_PAGES}-page safety cap; fetched ${collected.length} of ${total} rows. Narrow the query (e.g. a shorter date range) or pass --size to fetch a bounded subset.\n`)
+      process.stderr.write(`[gangtise] warning: hit the ${MAX_PAGES}-page safety cap; fetched ${count} of ${total} rows. Narrow the query (e.g. a shorter date range) or pass --size to fetch a bounded subset.\n`)
     }
 
-    const short = collected.length < target
+    const short = count < target
 
-    const out: Record<string, unknown> = {
-      ...firstPage,
-      total,
-      list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
-    }
+    const out = result()
     // Only on a genuine fetch-all that otherwise looked complete — see flagIfTotalCapped.
     if (requestedSize === undefined && total > 0 && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
-      await this.flagIfTotalCapped(endpoint, initialBody, total, out)
+      await this.flagIfTotalCapped(endpoint, initialBody, total, out, count)
     }
     // Unified completeness backstop. Whatever the cause — a failed/shape-broken page,
     // a short later page (server page cap < maxPageSize), the MAX_PAGES cap, or `total`
@@ -397,12 +413,12 @@ export class GangtiseClient {
       out.failedPages = failedPages.map((p) => ({ from: p.from, size: p.size }))
       const detail = firstError instanceof Error ? `: ${firstError.message}` : ""
       const skippedHint = aborted ? " A page hit a non-retryable error (e.g. rate limit); remaining pages were skipped." : ""
-      process.stderr.write(`[gangtise] warning: ${failedPages.length}/${pageRequests.length} pages not fetched${detail}; results are partial — got ${collected.length}/${total} rows (see failedPages).${skippedHint}\n`)
+      process.stderr.write(`[gangtise] warning: ${failedPages.length}/${pageRequests.length} pages not fetched${detail}; results are partial — got ${count}/${total} rows (see failedPages).${skippedHint}\n`)
     } else if (short && !truncatedByPageCap && !totalDrift) {
       // A short later page with no failure, cap, or drift to explain it: the server
       // simply delivered fewer rows than `total` promised. Warn so an interactive run
       // sees why the result is partial (the other causes each warn on their own path).
-      process.stderr.write(`[gangtise] warning: server returned ${collected.length} of ${total} rows (a later page came back short); results may be incomplete\n`)
+      process.stderr.write(`[gangtise] warning: server returned ${count} of ${total} rows (a later page came back short); results may be incomplete\n`)
     }
     return out
   }
@@ -438,7 +454,7 @@ export class GangtiseClient {
    * probe relies on is narrower — on the endpoints where a capped `total` has been
    * observed, an empty answer is not billed.
    */
-  private async flagIfTotalCapped(endpoint: EndpointDefinition, initialBody: Record<string, unknown>, total: number, out: Record<string, unknown>): Promise<void> {
+  private async flagIfTotalCapped(endpoint: EndpointDefinition, initialBody: Record<string, unknown>, total: number, out: Record<string, unknown>, collectedLength: number): Promise<void> {
     let totalCapped = false
     try {
       const probe = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
@@ -448,7 +464,6 @@ export class GangtiseClient {
       // learn whether the total was capped, which is the pre-existing behaviour.
     }
     if (!totalCapped) return
-    const collectedLength = Array.isArray(out.list) ? out.list.length : 0
     process.stderr.write(`[gangtise] warning: ${endpoint.key} reported total=${total} but rows exist past that offset — 'total' is a server-side cap, not the real count. This export is TRUNCATED at ${collectedLength} rows. Narrow the query (date range / filters) and fetch in slices.\n`)
     out.partial = true
     out.totalCapped = true

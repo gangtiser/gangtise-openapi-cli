@@ -1,9 +1,12 @@
 import { ApiError, markStructural } from "./errors.js"
 import { columnarSchemaValid } from "./normalize.js"
-import { PAGE_CONCURRENCY, runWithConcurrency } from "./transport.js"
+import { attachRowSink, type JsonlRowSink } from "./rowSink.js"
+import { PAGE_CONCURRENCY, runInOrder } from "./transport.js"
 
 interface PartClient {
   call(endpointKey: string, body?: unknown): Promise<unknown>
+  /** Present on GangtiseClient: the sink of a large jsonl export, if the command opened one. */
+  claimRowSink?(): JsonlRowSink | undefined
 }
 
 /** Upper bound on the trading days per security in a date range, for sizing a request
@@ -55,39 +58,50 @@ export async function callPerSecurity(
   cap: number,
   label: string,
 ): Promise<Record<string, unknown>> {
-  const results = await runWithConcurrency(securities, PAGE_CONCURRENCY, (code) => client.call(endpointKey, makeBody(code)))
+  // A large jsonl export streams rows out part by part (JsonlRowSink); parts are merged
+  // in input order as they complete (runInOrder).
+  const sink = client.claimRowSink?.()
   let fieldList: unknown[] | undefined
   let headerSecurity: string | undefined
   /** An empty part's fieldList: used as the output header only when NO part had rows, so a
    * requested-but-missing column is still reported by flagMissingFields. */
   let emptyFields: unknown[] | undefined
   const merged: unknown[] = []
+  let count = 0
   const truncated: string[] = []
   let partial = false
-  for (let i = 0; i < results.length; i++) {
-    const rec = results[i] as Record<string, unknown> | null
+  const mergePart = async (part: unknown, i: number): Promise<void> => {
+    const rec = part as Record<string, unknown> | null
     if (!(rec && typeof rec === "object" && Array.isArray(rec.list))) {
       throw markStructural(new ApiError(`${label}: ${securities[i]} returned no list payload — the response layout may have changed`, undefined, undefined, rec))
     }
     if (rec.partial === true) partial = true
     if (rec.list.length === 0) {
       if (!emptyFields && Array.isArray(rec.fieldList)) emptyFields = rec.fieldList
-      continue
+      return
     }
     const fields = Array.isArray(rec.fieldList) && rec.fieldList.length > 0 ? rec.fieldList : undefined
     if (rec.list.some(Array.isArray) && !columnarSchemaValid(fields, rec.list)) {
       throw markStructural(new ApiError(`${label}: ${securities[i]} returned columnar rows without a usable fieldList (missing, duplicated or mis-sized) — they cannot be read by position`, undefined, undefined, rec))
     }
-    if (fields && !fieldList) { fieldList = fields; headerSecurity = securities[i] }
+    if (fields && !fieldList) {
+      fieldList = fields
+      headerSecurity = securities[i]
+      sink?.setFieldList(fieldList)
+    }
     if ((fields ?? fieldList) && !sameColumns(fieldList, fields)) {
       throw markStructural(new ApiError(`${label}: ${securities[i]} answered with columns ${JSON.stringify(fields)} while ${headerSecurity} answered ${JSON.stringify(fieldList)} — the parts cannot be merged`, undefined, undefined, rec))
     }
     if (rec.list.length >= cap) truncated.push(securities[i])
-    for (const row of rec.list) merged.push(row)
+    count += rec.list.length
+    if (sink) await sink.push(rec.list)
+    else for (const row of rec.list) merged.push(row)
   }
-  const out: Record<string, unknown> = { total: merged.length, list: merged }
+  await runInOrder(securities, PAGE_CONCURRENCY, (code) => client.call(endpointKey, makeBody(code)), mergePart)
+  const out: Record<string, unknown> = { total: count, list: merged }
+  if (sink) attachRowSink(out, sink)
   if (fieldList) out.fieldList = fieldList
-  else if (merged.length === 0 && emptyFields) out.fieldList = emptyFields
+  else if (count === 0 && emptyFields) out.fieldList = emptyFields
   if (partial) out.partial = true
   if (truncated.length > 0) {
     out.partial = true

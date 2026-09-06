@@ -94,7 +94,13 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 `evals/scenarios.json` 16 个场景（公司重名与 A+H、ETF 与全球指数路由、全市场关键字、EDE 报告期 vs 交易日、日频估值、realtime 缺字段改口径、多证券身份列、分钟 K 多只、退出码 3 处理、screener 空集归因、高积分与全市场限制、盈利预测单位、年在后日期、公告的 `--start-time`），每条按「命令 / 参数 / 证券 / 单位 / 完整性」五维度正则判分。`scripts/skill-eval.mjs` 用 `codex exec`（默认 `gpt-6-astra` / `model_reasoning_effort=high`）逐场景独立会话、`--output-schema` 强制 `{commands, notes}`；`--live` 真跑并把本仓 `dist/` 包成 `gangtise` 放到 PATH 最前，提示里给绝对路径并要求 `gangtise --version` 自检，结果里校验版本。无效运行（codex 退出非 0 含超时、回复解析失败、实跑 `cli=` 自检不等于本仓版本）整场景判无效、检查全计未过；匹配前去掉无空白 token 的引号；超时杀整个进程组；`--rescore <results.json>` 用保存的回复按当前判据重算。基线（按现行 64 项判据重算保存的回复）：干跑 64/64、实跑 64/64，全部核验为 0.38.0。首轮实跑因登录 shell 重建 PATH 而跑到全局 0.37.1，按现行规则 0/64 全部无效。实跑还顺带发现 `stock-summary` 5556 只返回 0 行（`bug/server-open.md` P1-12）。原始回复落 `evals/results/`（gitignored），基线表在 `evals/README.md`。
 
-**未做、记入 `bug/cli-backlog.md`**：标题缓存跨进程写丢（K23，有意暂不做）；大导出按批规范化写出 + 导出元信息（K24）；`cli.ts` 按命令组拆分 + 端点契约元数据（K25）；统一请求预算 / 总超时 / 限流（K26）；显式多证券 K 线自动分批与分钟 K 多只并发（K27）；skill 场景评测集（K28）。
+**14. 大导出按批写出 + 导出元信息（K24）**
+
+`--format jsonl --output` 时，翻页（`requestPaginated`）、全市场分片（`callKlineWithSharding`）、逐只请求（`callPerSecurity`）三条取数路径把行按到达顺序逐批交给 `src/core/rowSink.ts` 的 `JsonlRowSink` 写盘，不再先攒成整份 `list`：新增 `transport.runInOrder`（结果按序号顺序消费，取数侧在待写结果达到并发宽度时等待，两侧都有界）；sink 先缓冲到 1000 行才开文件（`<file>.part` + rename，失败 unlink），不足 1000 行的结果原样交回普通渲染路径，文件字节与之前一致；结果对象 `list` 为空、用非枚举 symbol 挂着 sink，`printData` 据此收尾；`total` / `partial` / `failedPages` 等标记不变，`flagIfImplicitCapHit` 改用 `rowCount()` 读行数；命令内只有第一次翻页 / 分片 / 逐只调用拿到 sink；下载文件名缓存改由 sink 在写出时收集标题。只做 jsonl（自描述、无需先知列集）；csv 要列并集做表头，取数阶段仍在内存。判据：80 万行 × 12 列导出在 `--max-old-space-size=100` 下流式成功（RSS 148 MB），收集模式 OOM（无上限 RSS 704 MB）；40.7 万行全程 gc 后堆 11–15 MB 不增长。
+
+`csv` / `jsonl` 落盘时旁边写 `<file>.meta.json`：`file` / `format` / `rows` / `complete` / `exitCode` / `command`（argv）/ `cliVersion` / `fetchedAt`（含时区偏移）/ `timezone` / `columns`（`fieldList`）/ `result`（结果对象除 `list` 外的全部顶层键，所以任何新增标记自动进入）。`json` 自带标记不生成；没有关闭开关。单位信息 CLI 不掌握（待 K25 契约元数据），未写入。26 个新测试（sink、`runInOrder` 背压、三条取数路径各自的顺序 / 标记、printer 收尾与 sidecar、端到端 1000 行流式 + 隐式封顶 + csv/json）。
+
+**未做、记入 `bug/cli-backlog.md`**：标题缓存跨进程写丢（K23，有意暂不做）；`cli.ts` 按命令组拆分 + 端点契约元数据（K25）；统一请求预算 / 总超时 / 限流（K26）。
 
 ### v0.37.1 — 2026-08-31
 

@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ApiError, markStructural } from "../../src/core/errors.js"
 import { flagMissingFields } from "../../src/core/normalize.js"
 import { callKlineWithSharding } from "../../src/core/quoteSharding.js"
+import { getRowSink, JsonlRowSink } from "../../src/core/rowSink.js"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
 describe("callKlineWithSharding", () => {
   it("passes through a single-security request without sharding", async () => {
@@ -634,5 +638,55 @@ describe("callKlineWithSharding header provenance and empty-shard contradictions
     expect(result.partial).toBe(true)
     expect(result.failedShards).toEqual([{ startDate: "2026-04-01", endDate: "2026-04-02" }])
     errSpy.mockRestore()
+  })
+})
+
+describe("callKlineWithSharding with a row sink (large jsonl export)", () => {
+  const dir = path.join(os.tmpdir(), `gangtise-shard-sink-${process.pid}`)
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
+
+  it("streams shards in date order under the first shard's header, re-mapping a reordered shard, with an empty list on the result", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      // The middle day is slow and answers its columns in the other order.
+      const reversed = body.startDate === "2026-04-07"
+      if (reversed) await new Promise((r) => setTimeout(r, 30))
+      const rows = Array.from({ length: 400 }, (_, i) => reversed ? [i, body.startDate, `S${i}`] : [`S${i}`, body.startDate, i])
+      return { total: 400, fieldList: reversed ? ["close", "tradeDate", "securityCode"] : ["securityCode", "tradeDate", "close"], list: rows }
+    })
+    const sink = new JsonlRowSink(path.join(dir, "kline.jsonl"))
+    const result = await callKlineWithSharding({ call, claimRowSink: () => sink }, "quote.day-kline", {
+      securityList: ["all"], startDate: "2026-04-06", endDate: "2026-04-08",
+    }, { shardDays: 1 }) as { total: number; list: unknown[]; fieldList: string[]; partial?: boolean }
+    errSpy.mockRestore()
+    expect(result.total).toBe(1200)
+    expect(result.list).toEqual([])
+    expect(result.fieldList).toEqual(["securityCode", "tradeDate", "close"])
+    expect(result.partial).toBeUndefined()
+    expect(getRowSink(result)).toBe(sink)
+    await sink.finish()
+    const lines = (await fs.readFile(path.join(dir, "kline.jsonl"), "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
+    expect(lines).toHaveLength(1200)
+    expect(lines[0]).toEqual({ securityCode: "S0", tradeDate: "2026-04-06", close: 0 })
+    expect(lines[400]).toEqual({ securityCode: "S0", tradeDate: "2026-04-07", close: 0 })
+    expect(lines[1199]).toEqual({ securityCode: "S399", tradeDate: "2026-04-08", close: 399 })
+  })
+
+  it("keeps failedShards / partial while streaming and writes only the surviving shards", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-07") throw markStructural(new ApiError("bad shape"))
+      return { total: 600, fieldList: ["securityCode", "tradeDate"], list: Array.from({ length: 600 }, (_, i) => [`S${i}`, body.startDate]) }
+    })
+    const sink = new JsonlRowSink(path.join(dir, "partial.jsonl"))
+    const result = await callKlineWithSharding({ call, claimRowSink: () => sink }, "quote.day-kline", {
+      securityList: ["all"], startDate: "2026-04-06", endDate: "2026-04-08",
+    }, { shardDays: 1 }) as { total: number; partial?: boolean; failedShards?: unknown[] }
+    errSpy.mockRestore()
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-07", endDate: "2026-04-07" }])
+    expect(result.total).toBe(1200)
+    expect(sink.rows).toBe(1200)
+    await sink.abort()
   })
 })

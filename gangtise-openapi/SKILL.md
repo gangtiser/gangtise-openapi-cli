@@ -62,7 +62,7 @@ description: |-
 - opaque ID → 先 `references/lookup-ids.md`
 - 模糊时间词 → 查"时间词映射"
 - 无时间范围且用户没要求全量 → 主动加 `--size 200` 兜底（不必问）；注意 CLI 省略 `--size` 会拉全量
-- 预估结果 >200 行 → 别全量 `--format json` 引进上下文，改 `--format jsonl --output <file>` 落盘（CLI ≥1000 行自动流式、stdout 只回显文件路径），再 `wc -l` + `head` 采样呈现
+- 预估结果 >200 行 → 别全量 `--format json` 引进上下文，改 `--format jsonl --output <file>` 落盘（行边取边写、内存不随行数增长，stdout 只回显文件路径），再 `wc -l` + `head` 采样呈现。落盘的 `csv` / `jsonl` 旁边会有 `<file>.meta.json`：`complete` / `rows` / `result.partial` 与缺失项标记都在里面，转交文件时一并给、核验完整性先看它；超大导出用 `jsonl`（`csv` 取数阶段仍在内存）
 - 路由到 AI 同步生成命令 → 7 个 agent 类（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`）CLI 已内置 120s 超时下限，无需前缀；`stock-summary` / `hot-topic` 仍建议前置 `GANGTISE_TIMEOUT_MS=120000`。**贵档端点超时/5xx 不自动重试**（重放=重复扣分）——超时报错后内容可能已在服务端生成并扣费，同参数再调仍会**再扣一次**（无缓存豁免），所以一次调用给足超时比失败重跑省钱。`earnings-review` / `viewpoint-debate` 是异步（`--wait` 或 `*-check` 轮询），不吃这个超时
 - "AI速记/智能摘要/会议纪要"→`summary`、"原始文件/原文件"→`original`、"语音识别/转写文本/ASR"→`asr` — 用户已明示时直接映射 content-type，不必问
 
@@ -296,7 +296,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 ## 异常处理
 
-**退出码**：`0` 完整成功（含合法空结果）／ `3` 有数据但不完整（`partial: true`；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题。定位字段：页失败 `failedPages`、分片失败 `failedShards`、分片撞行数上限 `truncatedShards`、`total` 撞服务端上限 `totalCapped`、`--field` 请求了但没回的列 `missingFields`、逐只请求里撞行数上限的证券 `truncatedSecurities`、EDE 整轴没回 `omittedIndicators` / `omittedSecurities`）／ `1` 硬失败。**拿到 3 就必须告知用户缺了哪段，不能当成功静默继续。** 报错行带 `[trace <id>]`，**报障给 Gangtise 时务必带上**。
+**退出码**：`0` 完整成功（含合法空结果）／ `3` 有数据但不完整（`partial: true`；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题——csv/jsonl 落盘时看旁边 `<file>.meta.json` 的 `complete` 与 `result`。定位字段：页失败 `failedPages`、分片失败 `failedShards`、分片撞行数上限 `truncatedShards`、`total` 撞服务端上限 `totalCapped`、`--field` 请求了但没回的列 `missingFields`、逐只请求里撞行数上限的证券 `truncatedSecurities`、EDE 整轴没回 `omittedIndicators` / `omittedSecurities`）／ `1` 硬失败。**拿到 3 就必须告知用户缺了哪段，不能当成功静默继续。** 报错行带 `[trace <id>]`，**报障给 Gangtise 时务必带上**。
 
 最高频的几个码（全表、「不报错的坑」、`screener` 缺列判据与困境自救见 `references/errors.md`）：
 

@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError, isStructuralError, ValidationError } from "../../src/core/errors.js"
 import { GangtiseClient } from "../../src/core/client.js"
 import { ENDPOINTS } from "../../src/core/endpoints.js"
+import { getRowSink, JsonlRowSink } from "../../src/core/rowSink.js"
+import os from "node:os"
 
 const { requestMock } = vi.hoisted(() => ({
   requestMock: vi.fn(),
@@ -1648,4 +1650,89 @@ describe("GangtiseClient expects: list", () => {
     requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: null }))
     await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).resolves.toBeNull()
   })
+})
+
+describe("GangtiseClient pagination with a row sink (large jsonl export)", () => {
+  const dir = path.join(os.tmpdir(), `gangtise-client-sink-${process.pid}`)
+  beforeEach(() => { requestMock.mockReset() })
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
+
+  /** paginatedMock, but page from=50 answers last so the pages complete out of order. */
+  function slowSecondPageMock(total: number) {
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      const size = body.size ?? 20
+      const count = Math.max(0, Math.min(size, total - from))
+      const list = Array.from({ length: count }, (_, i) => ({ id: from + 1 + i }))
+      const delay = from === 50 ? 40 : 1
+      return new Promise((resolve) => setTimeout(() => resolve(jsonResponse({ total, list })), delay))
+    })
+  }
+
+  it("streams the pages to the file in page order, leaves the result's list empty and hangs the sink on it", async () => {
+    slowSecondPageMock(1200)
+    const sink = new JsonlRowSink(path.join(dir, "all.jsonl"))
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
+    const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
+    expect(result.total).toBe(1200)
+    expect(result.list).toEqual([])
+    expect(result.partial).toBeUndefined()
+    expect(getRowSink(result)).toBe(sink)
+    expect(sink.opened).toBe(true)
+    expect(sink.rows).toBe(1200)
+    await sink.finish()
+    const ids = (await fs.readFile(path.join(dir, "all.jsonl"), "utf8")).split("\n").filter(Boolean).map((l) => (JSON.parse(l) as { id: number }).id)
+    expect(ids).toEqual(Array.from({ length: 1200 }, (_, i) => i + 1))
+    // still probes past the end on a fetch-all
+    expect(probedPastEnd(1200)).toBe(true)
+  })
+
+  it("caps a --size export through the sink and keeps a small one buffered for the ordinary path", async () => {
+    slowSecondPageMock(1200)
+    const sink = new JsonlRowSink(path.join(dir, "sized.jsonl"))
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
+    await client.call("insight.research.list", { from: 0, size: 1050 })
+    expect(sink.rows).toBe(1050)
+    await sink.abort()
+
+    requestMock.mockReset()
+    paginatedMock({ total: 118, itemFor: (id) => ({ id }) })
+    const small = new JsonlRowSink(path.join(dir, "small.jsonl"))
+    const client2 = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, small)
+    const result = await client2.call("insight.research.list", { from: 0 }) as { list: unknown[] }
+    expect(result.list).toEqual([])
+    expect(small.opened).toBe(false)
+    expect(small.takeBuffer()).toHaveLength(118)
+  })
+
+  it("only the first paginated call of a command takes the sink", async () => {
+    paginatedMock({ total: 30, itemFor: (id) => ({ id }) })
+    const sink = new JsonlRowSink(path.join(dir, "first.jsonl"))
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
+    const first = await client.call("insight.research.list", { from: 0 }) as { list: unknown[] }
+    const second = await client.call("insight.research.list", { from: 0 }) as { list: unknown[] }
+    expect(getRowSink(first)).toBe(sink)
+    expect(first.list).toEqual([])
+    expect(getRowSink(second)).toBeUndefined()
+    expect(second.list).toHaveLength(30)
+  })
+
+  it("still marks a failed page partial while streaming, and the file holds only the rows that arrived", async () => {
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      if (from === 100) return Promise.resolve(rawJsonResponse({ code: "903301", msg: "rate limited", status: false }, 429))
+      const count = Math.max(0, Math.min(body.size ?? 20, 1200 - from))
+      return Promise.resolve(jsonResponse({ total: 1200, list: Array.from({ length: count }, (_, i) => ({ id: from + 1 + i })) }))
+    })
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const sink = new JsonlRowSink(path.join(dir, "partial.jsonl"))
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
+    const result = await client.call("insight.research.list", { from: 0 }) as { partial?: boolean; failedPages?: unknown[] }
+    errSpy.mockRestore()
+    expect(result.partial).toBe(true)
+    expect(result.failedPages?.length).toBeGreaterThan(0)
+    expect(sink.count).toBe(1200 - 50 * (result.failedPages?.length ?? 0))
+  }, 20_000)
 })

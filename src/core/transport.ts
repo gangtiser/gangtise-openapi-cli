@@ -93,6 +93,69 @@ export async function runWithConcurrency<T, R>(
   return results
 }
 
+/**
+ * runWithConcurrency, but each result is handed to `consume` strictly in item order as
+ * soon as it and every earlier item are done — instead of all results at the end — so a
+ * fan-out can write rows out while later parts are still in flight.
+ *
+ * Memory stays bounded from both sides: a result waits in `pending` only while an earlier
+ * item is unfinished, and a worker that has finished its item waits before taking the
+ * next one whenever `concurrency` results are already waiting — otherwise a fast producer
+ * (many small pages) runs arbitrarily far ahead of a slower consumer (a disk write per
+ * row) and the whole result ends up in `pending` anyway. That wait cannot deadlock: the
+ * lowest unconsumed index is always held by a worker still fetching it, never by one
+ * waiting (a worker waits only after its own result is in `pending`).
+ *
+ * Once `consume` fails, no further items are started and the failure is rethrown after the
+ * in-flight work settles; an `fn` failure propagates as it does from runWithConcurrency.
+ */
+export async function runInOrder<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+  consume: (result: R, index: number) => Promise<void> | void,
+): Promise<void> {
+  const width = Math.max(1, concurrency)
+  const pending = new Map<number, R>()
+  let next = 0
+  let failure: { error: unknown } | null = null
+  let chain: Promise<void> = Promise.resolve()
+  let waiters: Array<() => void> = []
+  const wake = (): void => {
+    const ws = waiters
+    waiters = []
+    for (const w of ws) w()
+  }
+  const drain = (): void => {
+    chain = chain.then(async () => {
+      while (!failure && pending.has(next)) {
+        const result = pending.get(next) as R
+        pending.delete(next)
+        await consume(result, next++)
+        wake()
+      }
+    }).catch((error: unknown) => {
+      failure ??= { error }
+      wake()
+    })
+  }
+  try {
+    await runWithConcurrency(items, width, async (item, index) => {
+      if (failure) return
+      const result = await fn(item, index)
+      pending.set(index, result)
+      drain()
+      while (!failure && pending.size >= width) {
+        await new Promise<void>((resolve) => waiters.push(resolve))
+      }
+    })
+  } finally {
+    await chain
+  }
+  const failed = failure as { error: unknown } | null
+  if (failed) throw failed.error
+}
+
 /** Parse GANGTISE_PAGE_CONCURRENCY defensively. runWithConcurrency clamps to
  * ≥1 worker, so a negative/zero/NaN value silently degrades to SERIAL fetching
  * (slow, confusing); an absurd value fans out up to items.length workers at

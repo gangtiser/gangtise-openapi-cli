@@ -262,13 +262,13 @@ function csvEscape(value: string): string {
   return out
 }
 
-interface LineSink {
+export interface LineSink {
   write(chunk: string, cb?: (err?: Error | null) => void): boolean
   once(event: "drain" | "error", cb: (err?: unknown) => void): unknown
   off(event: "drain" | "error", cb: (err?: unknown) => void): unknown
 }
 
-function writeLine(stream: LineSink, line: string): Promise<void> {
+export function writeLine(stream: LineSink, line: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const ok = stream.write(line + "\n", (err?: Error | null) => err ? reject(err) : undefined)
     if (ok) {

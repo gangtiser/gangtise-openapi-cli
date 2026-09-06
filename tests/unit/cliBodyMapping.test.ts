@@ -1,3 +1,4 @@
+import fs from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { readFile, rm, writeFile } from "node:fs/promises"
 import http from "node:http"
@@ -5,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 // End-to-end option→body mapping tests: run the real CLI via tsx against a local
 // HTTP stub that records each request. This is the layer cli.test.ts (help/validation
@@ -1739,5 +1740,42 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     const { code, stdout } = await cli(["tool", "file-parse-check", "--task-id", "PENDING"])
     expect(code).toBe(0)
     expect(JSON.parse(stdout)).toEqual(expect.objectContaining({ taskId: "PENDING", status: "pending" }))
+  }, 30_000)
+})
+
+describe("large jsonl export streams to disk with a metadata sidecar (real CLI against the local stub)", () => {
+  const dir = path.join(os.tmpdir(), `gangtise-export-e2e-${process.pid}`)
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
+  const readMeta = async (file: string) => JSON.parse(await fs.readFile(`${file}.meta.json`, "utf8")) as Record<string, unknown>
+
+  it("streams a 1000-row calendar in server order and records a complete export", async () => {
+    const out = path.join(dir, "cal.jsonl")
+    const args = ["insight", "performance-calendar", "list", "--security", "EXACT1000.XX", "--format", "jsonl", "--output", out]
+    const { code, stdout } = await cli(args)
+    expect(code).toBe(0)
+    expect(stdout.trim()).toBe(out)
+    const ids = (await fs.readFile(out, "utf8")).split("\n").filter(Boolean).map((l) => (JSON.parse(l) as { performanceReportId: string }).performanceReportId)
+    expect(ids).toEqual(Array.from({ length: 1000 }, (_, i) => String(i)))
+    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    const meta = await readMeta(out)
+    expect(meta).toMatchObject({ file: "cal.jsonl", format: "jsonl", rows: 1000, complete: true, exitCode: 0, result: { total: 1000 } })
+    expect(meta.command).toEqual(args)
+  }, 30_000)
+
+  it("keeps the implicit-cap guard on a streamed result: exit 3 and an incomplete sidecar", async () => {
+    const out = path.join(dir, "capped.jsonl")
+    const { code } = await cli(["insight", "performance-calendar", "list", "--security", "IGNORED.XX", "--format", "jsonl", "--output", out])
+    expect(code).toBe(3)
+    expect((await fs.readFile(out, "utf8")).split("\n").filter(Boolean)).toHaveLength(1000)
+    expect(await readMeta(out)).toMatchObject({ rows: 1000, complete: false, exitCode: 3, result: { total: 3000, partial: true } })
+  }, 30_000)
+
+  it("writes the sidecar for a small csv export too, and none for a json export", async () => {
+    const csv = path.join(dir, "small.csv")
+    expect((await cli(["insight", "performance-calendar", "list", "--security", "000001.SZ", "--format", "csv", "--output", csv])).code).toBe(0)
+    expect(await readMeta(csv)).toMatchObject({ format: "csv", rows: 9, complete: true })
+    const json = path.join(dir, "small.json")
+    expect((await cli(["insight", "performance-calendar", "list", "--security", "000001.SZ", "--format", "json", "--output", json])).code).toBe(0)
+    await expect(fs.access(`${json}.meta.json`)).rejects.toThrow()
   }, 30_000)
 })
