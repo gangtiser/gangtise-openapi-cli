@@ -59,13 +59,63 @@ describe("callPerSecurity", () => {
     const call = vi.fn().mockResolvedValue(null)
     await expect(callPerSecurity({ call }, "quote.day-kline", ["600519.SH"], body, 6000, "quote day-kline")).rejects.toThrow("no list payload")
   })
+
+  it("skips an empty part in either position without comparing its (empty) fieldList", async () => {
+    const empty = { total: 0, fieldList: [], list: [] }
+    const data = { total: 1, fieldList: ["securityCode", "close"], list: [["000858.SZ", 1]] }
+    for (const order of [["EMPTY.SH", "000858.SZ"], ["000858.SZ", "EMPTY.SH"]]) {
+      const call = vi.fn().mockImplementation(async (_key: string, b: { securityCode: string }) => (b.securityCode === "EMPTY.SH" ? empty : data))
+      const result = await callPerSecurity({ call }, "quote.day-kline", order, body, 6000, "quote day-kline")
+      expect(result.fieldList).toEqual(["securityCode", "close"])
+      expect(result.total).toBe(1)
+      expect(result.partial).toBeUndefined()
+    }
+  })
+
+  it("keeps an empty part's fieldList as the header only when no part had rows", async () => {
+    const call = vi.fn().mockResolvedValue({ total: 0, fieldList: ["close"], list: [] })
+    const result = await callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ"], body, 6000, "quote day-kline")
+    expect(result).toEqual({ total: 0, list: [], fieldList: ["close"] })
+  })
+
+  it("rejects a columnar part that lacks its own fieldList, whichever position it is in", async () => {
+    const named = { fieldList: ["close", "volume"], list: [[10, 100]] }
+    const unnamed = { list: [[100, 10]] }
+    for (const order of [["NAMED.SH", "UNNAMED.SZ"], ["UNNAMED.SZ", "NAMED.SH"]]) {
+      const call = vi.fn().mockImplementation(async (_key: string, b: { securityCode: string }) => (b.securityCode === "NAMED.SH" ? named : unnamed))
+      let caught: unknown
+      try {
+        await callPerSecurity({ call }, "quote.day-kline", order, body, 6000, "quote day-kline")
+      } catch (error) {
+        caught = error
+      }
+      expect((caught as ApiError).message).toContain("UNNAMED.SZ returned columnar rows without a usable fieldList")
+      expect(isStructuralError(caught)).toBe(true)
+    }
+  })
+
+  it("keeps a part's own partial marker on the merged result", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, b: { securityCode: string }) => (
+      b.securityCode === "600519.SH" ? { fieldList: ["close"], list: [[1]], partial: true } : { fieldList: ["close"], list: [[2]] }
+    ))
+    const result = await callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ"], body, 6000, "quote day-kline")
+    expect(result.partial).toBe(true)
+    expect(result.truncatedSecurities).toBeUndefined()
+  })
 })
 
 describe("estimateTradingDays", () => {
-  it("scales calendar days to trading days and falls back to a year without a range", () => {
+  it("counts weekdays exactly (an upper bound on trading days) and falls back to a year without a range", () => {
     expect(estimateTradingDays("2026-01-01", "2026-12-31")).toBe(261)
-    expect(estimateTradingDays("2026-08-10", "2026-08-14")).toBe(4)
-    expect(estimateTradingDays(undefined, "2026-08-14")).toBe(250)
-    expect(estimateTradingDays("2026-08-14", "2026-08-10")).toBe(250)
+    expect(estimateTradingDays("2026-08-10", "2026-08-14")).toBe(5) // Mon–Fri
+    expect(estimateTradingDays("2026-08-08", "2026-08-09")).toBe(0) // Sat–Sun
+    expect(estimateTradingDays(undefined, "2026-08-14")).toBe(262)
+    expect(estimateTradingDays("2026-08-14", "2026-08-10")).toBe(262)
+  })
+
+  it("batches two securities over a Mon–Fri week when the limit only fits 9 rows", () => {
+    // 2 × 5 = 10 > 9: the calendar-scaled estimate (4 days) said one request would do,
+    // and that request came back capped at 9 rows.
+    expect(2 * estimateTradingDays("2026-08-10", "2026-08-14") > 9).toBe(true)
   })
 })

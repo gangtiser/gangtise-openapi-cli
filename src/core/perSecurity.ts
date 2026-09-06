@@ -1,20 +1,27 @@
 import { ApiError, markStructural } from "./errors.js"
+import { columnarSchemaValid } from "./normalize.js"
 import { PAGE_CONCURRENCY, runWithConcurrency } from "./transport.js"
 
 interface PartClient {
   call(endpointKey: string, body?: unknown): Promise<unknown>
 }
 
-/** Days per security the server would answer for a date range, for sizing a request
- * against the per-request row cap. Calendar days scaled to trading days; a missing
- * range means the server's default one-year window. */
+/** Upper bound on the trading days per security in a date range, for sizing a request
+ * against the per-request row cap: the exact weekday count (holidays only remove days,
+ * so this never under-estimates — an under-estimate sends one request where two were
+ * needed and the answer comes back capped). A missing or unusable range means the
+ * server's default one-year window: 262 weekdays. */
 export function estimateTradingDays(startDate: string | undefined, endDate: string | undefined): number {
-  if (!startDate || !endDate) return 250
+  if (!startDate || !endDate) return 262
   const start = Date.parse(`${startDate}T00:00:00Z`)
   const end = Date.parse(`${endDate}T00:00:00Z`)
-  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return 250
-  const calendarDays = Math.floor((end - start) / 86_400_000) + 1
-  return Math.ceil(calendarDays * 5 / 7)
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return 262
+  let days = 0
+  for (let t = start; t <= end; t += 86_400_000) {
+    const weekday = new Date(t).getUTCDay()
+    if (weekday !== 0 && weekday !== 6) days++
+  }
+  return days
 }
 
 /**
@@ -31,8 +38,14 @@ export function estimateTradingDays(startDate: string | undefined, endDate: stri
  * exit code exists to surface — so errors propagate too (a wrong code fails the command
  * with 120001, as the single-request path does).
  *
+ * A part with no rows is a legitimate answer (nothing traded in the window) and says
+ * nothing about the column layout, so it is neither compared against the header nor
+ * allowed to set it; a part with array rows must carry its own valid fieldList or it is a
+ * structural error in that part, whatever order the parts arrived in.
+ *
  * A part that fills its row cap is recorded in `truncatedSecurities` and the merged result
- * is marked partial (printData → exit 3).
+ * is marked partial (printData → exit 3); a part that already carries `partial` keeps the
+ * merge partial too.
  */
 export async function callPerSecurity(
   client: PartClient,
@@ -44,23 +57,38 @@ export async function callPerSecurity(
 ): Promise<Record<string, unknown>> {
   const results = await runWithConcurrency(securities, PAGE_CONCURRENCY, (code) => client.call(endpointKey, makeBody(code)))
   let fieldList: unknown[] | undefined
+  let headerSecurity: string | undefined
+  /** An empty part's fieldList: used as the output header only when NO part had rows, so a
+   * requested-but-missing column is still reported by flagMissingFields. */
+  let emptyFields: unknown[] | undefined
   const merged: unknown[] = []
   const truncated: string[] = []
+  let partial = false
   for (let i = 0; i < results.length; i++) {
     const rec = results[i] as Record<string, unknown> | null
     if (!(rec && typeof rec === "object" && Array.isArray(rec.list))) {
       throw markStructural(new ApiError(`${label}: ${securities[i]} returned no list payload — the response layout may have changed`, undefined, undefined, rec))
     }
-    const fields = Array.isArray(rec.fieldList) ? rec.fieldList : undefined
-    if (fields && !fieldList) fieldList = fields
+    if (rec.partial === true) partial = true
+    if (rec.list.length === 0) {
+      if (!emptyFields && Array.isArray(rec.fieldList)) emptyFields = rec.fieldList
+      continue
+    }
+    const fields = Array.isArray(rec.fieldList) && rec.fieldList.length > 0 ? rec.fieldList : undefined
+    if (rec.list.some(Array.isArray) && !columnarSchemaValid(fields, rec.list)) {
+      throw markStructural(new ApiError(`${label}: ${securities[i]} returned columnar rows without a usable fieldList (missing, duplicated or mis-sized) — they cannot be read by position`, undefined, undefined, rec))
+    }
+    if (fields && !fieldList) { fieldList = fields; headerSecurity = securities[i] }
     if ((fields ?? fieldList) && !sameColumns(fieldList, fields)) {
-      throw markStructural(new ApiError(`${label}: ${securities[i]} answered with columns ${JSON.stringify(fields)} while ${securities[0]} answered ${JSON.stringify(fieldList)} — the parts cannot be merged`, undefined, undefined, rec))
+      throw markStructural(new ApiError(`${label}: ${securities[i]} answered with columns ${JSON.stringify(fields)} while ${headerSecurity} answered ${JSON.stringify(fieldList)} — the parts cannot be merged`, undefined, undefined, rec))
     }
     if (rec.list.length >= cap) truncated.push(securities[i])
     for (const row of rec.list) merged.push(row)
   }
   const out: Record<string, unknown> = { total: merged.length, list: merged }
   if (fieldList) out.fieldList = fieldList
+  else if (merged.length === 0 && emptyFields) out.fieldList = emptyFields
+  if (partial) out.partial = true
   if (truncated.length > 0) {
     out.partial = true
     out.truncatedSecurities = truncated

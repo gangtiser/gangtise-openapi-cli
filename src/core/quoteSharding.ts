@@ -1,4 +1,5 @@
 import { isStructuralError } from "./errors.js"
+import { columnarSchemaValid } from "./normalize.js"
 import { isVerbose, PAGE_CONCURRENCY, runWithConcurrency } from "./transport.js"
 
 export interface KlineBody {
@@ -61,12 +62,6 @@ function columnRemap(header: unknown[], shard: unknown[]): number[] | null | und
 /** A shard's columnar rows can only be read through its own fieldList: it must exist,
  * carry unique names, and every array row must be exactly as wide as it. Object rows
  * carry their own keys and are not judged here. */
-function shardSchemaValid(fields: unknown[] | undefined, list: unknown[]): boolean {
-  if (!fields) return false
-  if (new Set(fields.map(String)).size !== fields.length) return false
-  return list.every((row) => !Array.isArray(row) || row.length === fields.length)
-}
-
 export function isFullMarket(body: KlineBody, fullMarketValue: string): boolean {
   const list = body.securityList
   if (!Array.isArray(list) || list.length !== 1) return false
@@ -252,7 +247,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     // path lets zipFieldRow reject such a row; the merge must not be where it slips
     // through — padded, truncated or read under a guessed header. Drop it as a failed
     // shard (dates kept for a re-pull) and say so.
-    if (columnar && !shardSchemaValid(shardFields, rec.list)) {
+    if (columnar && !columnarSchemaValid(shardFields, rec.list)) {
       failedShards.push(shards[i])
       process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} returned columnar rows that do not match its own fieldList (missing, duplicated or mis-sized); its rows were dropped (see failedShards)\n`)
       continue

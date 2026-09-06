@@ -31,6 +31,15 @@ export function zipFieldRow(fields: unknown[], row: unknown[], source?: unknown)
   }, {})
 }
 
+/** 列式响应能否按位置读：`fieldList` 存在、列名不重复、每个数组行的宽度都等于它。
+ * 不满足的响应没有可信的列名，按位置拍平就是静默错列——分片合并与逐只合并都用这条
+ * 判据把这种片当作结构异常处理，而不是补齐、截断或借用别的片的列名。 */
+export function columnarSchemaValid(fields: unknown[] | undefined, list: unknown[]): boolean {
+  if (!fields) return false
+  if (new Set(fields.map(String)).size !== fields.length) return false
+  return list.every((row) => !Array.isArray(row) || row.length === fields.length)
+}
+
 /** 请求的 `--field` 与响应 `fieldList` 的差集。realtime / day-kline / minute-kline / fund-flow
  * 对不存在（或已下线）的字段名是名和值一起丢、HTTP 200——结果就是少一列、退出 0，脚本按列名
  * 取值拿到 undefined 而不是报错（实测 2026-09-05：realtime 传 `turnoverRate` 只回其余列）。
