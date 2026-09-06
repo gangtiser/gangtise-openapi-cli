@@ -1,12 +1,12 @@
 import { ApiError, markStructural } from "./errors.js"
 import { columnarSchemaValid } from "./normalize.js"
-import { attachRowSink, type JsonlRowSink } from "./rowSink.js"
+import { attachRowSink, type ExportSink } from "./rowSink.js"
 import { PAGE_CONCURRENCY, runInOrder } from "./transport.js"
 
 interface PartClient {
   call(endpointKey: string, body?: unknown): Promise<unknown>
   /** Present on GangtiseClient: the sink of a large jsonl export, if the command opened one. */
-  claimRowSink?(): JsonlRowSink | undefined
+  claimRowSink?(): ExportSink | undefined
 }
 
 /** Upper bound on the trading days per security in a date range, for sizing a request
@@ -59,7 +59,7 @@ export async function callPerSecurity(
   cap: number,
   label: string,
 ): Promise<Record<string, unknown>> {
-  // A large jsonl export streams rows out part by part (JsonlRowSink); parts are merged
+  // A large jsonl export streams rows out part by part (ExportSink); parts are merged
   // in input order as they complete (runInOrder).
   const sink = client.claimRowSink?.()
   let fieldList: unknown[] | undefined

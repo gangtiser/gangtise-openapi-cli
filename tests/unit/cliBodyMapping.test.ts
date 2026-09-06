@@ -145,8 +145,25 @@ beforeAll(async () => {
         const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
         const fieldList = requested ? KNOWN.filter((f) => requested.includes(f)) : ["securityCode", "tradeTime", "close"]
         const code = (body as { securityCode?: string } | undefined)?.securityCode ?? "600519.SH"
-        const list = [1, 2, 3].map((n) => fieldList.map((f) => (f === "securityCode" ? code : f === "tradeTime" ? `2026-06-01 09:3${n - 1}:00` : n)))
-        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList, list } }))
+        // BAD.XX fails at once (the server's 120001 for an unknown code); SLOW*.SH answers
+        // 1000 rows after a delay — together they drive the "a part failed while another
+        // is still in flight" lifecycle of a streamed multi-security export.
+        if (code === "BAD.XX") {
+          res.end(JSON.stringify({ code: "120001", msg: "非有效A股", status: false }))
+          return
+        }
+        const count = code.startsWith("SLOW") ? 1000 : 3
+        const list = Array.from({ length: count }, (_, i) => fieldList.map((f) => (f === "securityCode" ? code : f === "tradeTime" ? `2026-06-01 09:${String(30 + Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}` : i + 1)))
+        const payload = JSON.stringify({ code: "000000", msg: "ok", data: { total: count, fieldList, list } })
+        if (code.startsWith("SLOW")) setTimeout(() => res.end(payload), 400)
+        else res.end(payload)
+        return
+      }
+      if ((req.url ?? "").includes("/foreign-opinion/getList") && (body as { industryList?: unknown } | undefined)?.industryList) {
+        // A paginated endpoint answering a successful envelope with data:null (the real
+        // shape for industryList on this endpoint): the client's unexpected-first-page
+        // branch — exit 3 with no partial marker to hang on the result.
+        res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-fo-null", data: null }))
         return
       }
       if ((req.url ?? "").includes("/daily") && ((body as { securityList?: string[] } | undefined)?.securityList ?? []).includes("NULLDATA.XX")) {
@@ -1781,6 +1798,62 @@ describe("large jsonl export streams to disk with a metadata sidecar (real CLI a
     expect(code).toBe(3)
     expect((await fs.readFile(out, "utf8")).split("\n").filter(Boolean)).toHaveLength(1000)
     expect(await readMeta(out)).toMatchObject({ rows: 1000, complete: false, exitCode: 3, result: { total: 3000, partial: true } })
+  }, 30_000)
+
+  it("streams a 1000-row csv export with the column header first and no temp files left", async () => {
+    const out = path.join(dir, "cal.csv")
+    const { code } = await cli(["insight", "performance-calendar", "list", "--security", "EXACT1000.XX", "--format", "csv", "--output", out])
+    expect(code).toBe(0)
+    const lines = (await fs.readFile(out, "utf8")).split("\n").filter(Boolean)
+    expect(lines).toHaveLength(1001)
+    expect(lines[0]).toBe("\ufeffperformanceReportId,title")
+    expect(lines[1000]).toBe("999,t")
+    await expect(fs.access(`${out}.rows.part`)).rejects.toThrow()
+    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    const meta = await readMeta(out)
+    expect(meta).toMatchObject({ format: "csv", rows: 1000, complete: true })
+    expect("columns" in meta).toBe(false) // object rows: no server fieldList to report
+  }, 30_000)
+
+  it("a part failing while another is still in flight leaves no .part behind once the command has exited", async () => {
+    const out = path.join(dir, "late.jsonl")
+    const { code } = await cli([
+      "quote", "minute-kline", "--security", "SLOW1000.SH", "--security", "BAD.XX",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 15:00:00", "--format", "jsonl", "--output", out,
+    ])
+    expect(code).toBe(1)
+    // The slow part answered after the failure: it must have been dropped, not written.
+    await expect(fs.access(out)).rejects.toThrow()
+    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    await expect(fs.access(`${out}.meta.json`)).rejects.toThrow()
+  }, 30_000)
+
+  it("a first page of unexpected shape (data:null on a paginated endpoint) exits 3 and the sidecar says so", async () => {
+    const out = path.join(dir, "null-page.jsonl")
+    const { code, stderr } = await cli(["raw", "call", "insight.foreign-opinion.list", "--body", '{"industryList":["1040100000"],"size":10}', "--format", "jsonl", "--output", out])
+    expect(code).toBe(3)
+    expect(stderr).toContain("unexpected shape")
+    expect(await readMeta(out)).toMatchObject({ complete: false, exitCode: 3, rows: 0 })
+  }, 30_000)
+
+  it("raw call exports through the same streaming path as the dedicated command", async () => {
+    const out = path.join(dir, "raw.jsonl")
+    const { code } = await cli(["raw", "call", "insight.performance-calendar.list", "--body", '{"securityList":["EXACT1000.XX"],"size":1000}', "--format", "jsonl", "--output", out])
+    expect(code).toBe(0)
+    expect((await fs.readFile(out, "utf8")).split("\n").filter(Boolean)).toHaveLength(1000)
+    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    expect(await readMeta(out)).toMatchObject({ rows: 1000, complete: true })
+  }, 30_000)
+
+  it("never writes credentials from a raw login body or its token into the sidecar", async () => {
+    const out = path.join(dir, "login.jsonl")
+    const { code } = await cli(["raw", "call", "auth.login", "--body", '{"accessKey":"SYNTHETIC_KEY_VALUE","secretKey":"SYNTHETIC_SECRET_VALUE"}', "--format", "jsonl", "--output", out])
+    expect(code).toBe(0)
+    const metaText = await fs.readFile(`${out}.meta.json`, "utf8")
+    expect(metaText).not.toContain("SYNTHETIC_KEY_VALUE")
+    expect(metaText).not.toContain("SYNTHETIC_SECRET_VALUE")
+    expect(metaText).toContain("[redacted]")
+    expect(metaText).toContain("auth.login")
   }, 30_000)
 
   it("writes the sidecar for a small csv export too, and none for a json export", async () => {

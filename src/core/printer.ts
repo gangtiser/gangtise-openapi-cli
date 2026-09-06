@@ -1,8 +1,9 @@
+import fs from "node:fs/promises"
 import path from "node:path"
 
 import type { OutputFormat } from "./config.js"
 import { normalizeRows } from "./normalize.js"
-import { pickList, renderOutput, saveOutputIfNeeded, streamOutputToFile } from "./output.js"
+import { countOutputRows, pickList, renderOutput, saveOutputIfNeeded, streamOutputToFile } from "./output.js"
 import { getRowSink } from "./rowSink.js"
 import { extractTitles, type TitleCacheConfig, writeTitleCache } from "./titleCache.js"
 import { CLI_VERSION } from "../version.js"
@@ -30,31 +31,82 @@ function localIso(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
 }
 
+/** Keys whose values never belong in a sidecar: the credentials on a `raw call auth.login`
+ * body, the token such a call returns. Matched on the key name, not the option name — the
+ * secret can sit inside a JSON argument. */
+const SECRET_KEY = /^(access|secret|api|private)?key$|secret|token|password|credential/i
+
+/** Replace secret-looking values anywhere in a JSON-shaped value. A string that parses as a
+ * JSON object (a `--body` argument) is redacted inside and re-serialised. */
+function redactSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSecrets)
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {}
+    for (const [key, inner] of Object.entries(value)) out[key] = SECRET_KEY.test(key) ? "[redacted]" : redactSecrets(inner)
+    return out
+  }
+  if (typeof value === "string" && value.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      if (parsed && typeof parsed === "object") return JSON.stringify(redactSecrets(parsed))
+    } catch {
+      // not JSON — leave as is
+    }
+  }
+  return value
+}
+
+interface StagedMeta {
+  commit(): Promise<void>
+  discard(): Promise<void>
+}
+
 /**
- * `<output>.meta.json` beside a csv / jsonl export: what was asked, when, how many rows
- * came back, the columns, and every completeness marker the result carried (`result`
- * holds all of the result's top-level keys except the rows). Those two formats hold rows
- * only, so once the file leaves this machine nothing else says whether it was partial;
- * a json export carries the markers inline and gets no sidecar.
+ * `<output>.meta.json` beside a csv / jsonl export: what was asked, when, how many data rows
+ * the file holds, the columns, whether the export is complete (the exit code's verdict) and
+ * every marker the result carried (`result` holds all of the result's top-level keys except
+ * the rows). Those two formats hold rows only, so once the file leaves this machine nothing
+ * else says whether it was partial; a json export carries the markers inline and gets none.
+ *
+ * Staged, not written: the sidecar goes to `.meta.json.part` BEFORE the data file is
+ * published and is renamed into place only after — so a failure on either side never leaves
+ * new data beside an earlier export's sidecar vouching for it. If even that final rename
+ * fails, the stale sidecar is removed rather than left to describe the wrong file.
  */
-async function writeExportMeta(output: string, format: OutputFormat, rows: number, columns: unknown[] | undefined, normalized: unknown): Promise<void> {
+async function stageExportMeta(output: string, format: OutputFormat, rows: number, columns: unknown[] | undefined, normalized: unknown, complete: boolean): Promise<StagedMeta> {
   const result = normalized && typeof normalized === "object" && !Array.isArray(normalized) ? { ...(normalized as Record<string, unknown>) } : {}
   delete result.list
-  const partial = result.partial === true
   const doc = {
     file: path.basename(output),
     format,
     rows,
-    complete: !partial,
-    exitCode: partial ? 3 : 0,
-    command: process.argv.slice(2),
+    complete,
+    exitCode: complete ? 0 : 3,
+    command: redactSecrets(process.argv.slice(2)),
     cliVersion: CLI_VERSION,
     fetchedAt: localIso(new Date()),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     columns,
-    result,
+    result: redactSecrets(result),
   }
-  await saveOutputIfNeeded(`${JSON.stringify(doc, null, 2)}\n`, `${output}.meta.json`)
+  const metaPath = `${output}.meta.json`
+  const partPath = `${metaPath}.part`
+  await fs.mkdir(path.dirname(output), { recursive: true })
+  await fs.writeFile(partPath, `${JSON.stringify(doc, null, 2)}\n`, "utf8")
+  return {
+    async commit() {
+      try {
+        await fs.rename(partPath, metaPath)
+      } catch (error) {
+        await fs.unlink(partPath).catch(() => {})
+        await fs.unlink(metaPath).catch(() => {})
+        throw error
+      }
+    },
+    async discard() {
+      await fs.unlink(partPath).catch(() => {})
+    },
+  }
 }
 
 export async function printData(data: unknown, format: OutputFormat, output?: string, cache?: TitleCacheConfig): Promise<void> {
@@ -70,7 +122,7 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
   const normalized = normalizeRows(data)
 
   const items = pickList(normalized)
-  const rows = streamed ? streamed.rows : (items?.length ?? 0)
+  const showing = streamed ? streamed.rows : (items?.length ?? 0)
 
   if (cache) {
     const titles = { ...(streamed?.titles ?? {}), ...(items ? extractTitles(items, cache) : {}) }
@@ -82,7 +134,7 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
   if (normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
     const meta = normalized as Record<string, unknown>
     if (typeof meta.total === "number" && format !== "json") {
-      process.stderr.write(`Total: ${meta.total}, showing: ${rows}\n`)
+      process.stderr.write(`Total: ${meta.total}, showing: ${showing}\n`)
     }
     // Incomplete results exit with code 3: the table/csv/jsonl renderers only
     // emit the rows, so without a distinct exit code a script or AI consumer
@@ -93,21 +145,33 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
       process.exitCode = 3
     }
   }
+  // The sidecar's verdict must be the one the exit code gives: some incompleteness is
+  // signalled by exit 3 alone (a first page of unexpected shape), with no `partial` marker.
+  const complete = process.exitCode !== 3
 
   if (output) {
-    if (streamed) {
-      // Rows are already on disk in order; close and move the file into place.
-      await streamed.finish()
-    } else if (!(await streamOutputToFile(normalized, format, output))) {
-      // streamOutputToFile declined (non-stream format, or an all-scalar csv list) → we
-      // fall back to renderOutput, which builds the whole result as one string.
-      warnIfLargeInMemory(items, format)
-      const content = renderOutput(normalized, format)
-      // CSV files get a BOM so Excel double-click decodes Chinese as UTF-8 (stdout
-      // stays BOM-free for pipes).
-      await saveOutputIfNeeded(format === "csv" ? `\ufeff${content}` : content, output)
+    // Data rows the file will hold, under the renderer's own shaping rules.
+    const staged = format === "csv" || format === "jsonl"
+      ? await stageExportMeta(output, format, streamed ? streamed.dataRows : countOutputRows(normalized, format), columns, normalized, complete)
+      : null
+    try {
+      if (streamed) {
+        // Rows are already on disk in order; close and move the file into place.
+        await streamed.finish()
+      } else if (!(await streamOutputToFile(normalized, format, output))) {
+        // streamOutputToFile declined (non-stream format, or an all-scalar csv list) → we
+        // fall back to renderOutput, which builds the whole result as one string.
+        warnIfLargeInMemory(items, format)
+        const content = renderOutput(normalized, format)
+        // CSV files get a BOM so Excel double-click decodes Chinese as UTF-8 (stdout
+        // stays BOM-free for pipes).
+        await saveOutputIfNeeded(format === "csv" ? `\ufeff${content}` : content, output)
+      }
+    } catch (error) {
+      await staged?.discard()
+      throw error
     }
-    if (format === "csv" || format === "jsonl") await writeExportMeta(output, format, rows, columns, normalized)
+    await staged?.commit()
     process.stdout.write(`${output}\n`)
     return
   }

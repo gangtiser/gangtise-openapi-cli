@@ -347,6 +347,27 @@ describe("runInOrder", () => {
     expect(started.length).toBeLessThan(6)
   })
 
+  it("a producer failure stops the fan-out — nothing is consumed or started afterwards — and rejects only once in-flight work settled", async () => {
+    const events: string[] = []
+    let releaseSlow: () => void = () => {}
+    const slow = new Promise<void>((resolve) => { releaseSlow = resolve })
+    const run = runInOrder([0, 1, 2, 3], 2, async (i) => {
+      events.push(`fetch ${i}`)
+      if (i === 0) { await slow; return i }
+      if (i === 1) { await new Promise((r) => setTimeout(r, 5)); throw new Error("boom") }
+      return i
+    }, (i) => { events.push(`consume ${i}`) })
+    let settled = false
+    run.then(() => { settled = true }, () => { settled = true })
+    await new Promise((r) => setTimeout(r, 30))
+    // item 1 has failed, but item 0's worker is still held: the promise must not settle yet
+    expect(settled).toBe(false)
+    releaseSlow()
+    await expect(run).rejects.toThrow("boom")
+    // the late result of item 0 was dropped, and items 2 / 3 were never started
+    expect(events).toEqual(["fetch 0", "fetch 1"])
+  })
+
   it("propagates a producer failure like runWithConcurrency", async () => {
     await expect(runInOrder([1, 2], 2, async (i) => { if (i === 2) throw new Error("boom"); return i }, () => {})).rejects.toThrow("boom")
   })

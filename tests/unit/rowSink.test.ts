@@ -4,7 +4,9 @@ import path from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { attachRowSink, getRowSink, JsonlRowSink, rowCount } from "../../src/core/rowSink.js"
+import { streamOutputToFile } from "../../src/core/output.js"
+import { attachRowSink, getRowSink, ExportSink, rowCount } from "../../src/core/rowSink.js"
+import { MAX_TITLES_PER_ENDPOINT } from "../../src/core/titleCache.js"
 
 const dir = path.join(os.tmpdir(), `gangtise-rowsink-test-${process.pid}`)
 
@@ -14,9 +16,9 @@ afterEach(async () => {
 
 const readLines = async (file: string) => (await fs.readFile(file, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as unknown)
 
-describe("JsonlRowSink", () => {
+describe("ExportSink", () => {
   it("buffers a small result and hands it back raw without touching the disk", async () => {
-    const sink = new JsonlRowSink(path.join(dir, "small.jsonl"))
+    const sink = new ExportSink(path.join(dir, "small.jsonl"))
     await sink.push([[1, "a"]])
     await sink.push([[2, "b"]])
     expect(sink.opened).toBe(false)
@@ -29,7 +31,7 @@ describe("JsonlRowSink", () => {
 
   it("opens the file at the threshold, zips columnar rows against the header, keeps order and renames on finish", async () => {
     const target = path.join(dir, "big.jsonl")
-    const sink = new JsonlRowSink(target)
+    const sink = new ExportSink(target)
     sink.setFieldList(["id", "v"])
     for (let i = 0; i < 1200; i += 100) {
       await sink.push(Array.from({ length: 100 }, (_, j) => [i + j, "x"]))
@@ -49,7 +51,7 @@ describe("JsonlRowSink", () => {
 
   it("writes object rows as they are, even when a header is set", async () => {
     const target = path.join(dir, "objects.jsonl")
-    const sink = new JsonlRowSink(target)
+    const sink = new ExportSink(target)
     sink.setFieldList(["id"])
     await sink.push(Array.from({ length: 1000 }, (_, i) => ({ id: i, extra: true })))
     await sink.finish()
@@ -58,7 +60,7 @@ describe("JsonlRowSink", () => {
 
   it("abort removes the partial file; finish afterwards is a no-op and the target never appears", async () => {
     const target = path.join(dir, "aborted.jsonl")
-    const sink = new JsonlRowSink(target)
+    const sink = new ExportSink(target)
     await sink.push(Array.from({ length: 1000 }, (_, i) => ({ i })))
     expect(sink.opened).toBe(true)
     await sink.abort()
@@ -66,12 +68,12 @@ describe("JsonlRowSink", () => {
     await sink.finish()
     await expect(fs.access(target)).rejects.toThrow()
     // Nothing opened → nothing to remove: abort must be safe to call on the way out.
-    await new JsonlRowSink(path.join(dir, "never.jsonl")).abort()
+    await new ExportSink(path.join(dir, "never.jsonl")).abort()
   })
 
   it("collects download titles from the rows it writes, since the rows are gone afterwards", async () => {
     const target = path.join(dir, "titles.jsonl")
-    const sink = new JsonlRowSink(target, { endpointKey: "insight.research.list", idField: "reportId" })
+    const sink = new ExportSink(target, "jsonl", { endpointKey: "insight.research.list", idField: "reportId" })
     sink.setFieldList(["reportId", "title"])
     await sink.push(Array.from({ length: 1000 }, (_, i) => [`r${i}`, `T${i}`]))
     await sink.finish()
@@ -80,7 +82,7 @@ describe("JsonlRowSink", () => {
   })
 
   it("rowCount reads a sink-backed result and a plain list alike", async () => {
-    const sink = new JsonlRowSink(path.join(dir, "count.jsonl"))
+    const sink = new ExportSink(path.join(dir, "count.jsonl"))
     await sink.push([{ a: 1 }, { a: 2 }, { a: 3 }])
     const result = attachRowSink({ total: 3, list: [] }, sink)
     expect(getRowSink(result)).toBe(sink)
@@ -91,5 +93,70 @@ describe("JsonlRowSink", () => {
     expect(Object.keys(result)).toEqual(["total", "list"])
     expect(JSON.stringify(result)).toBe('{"total":3,"list":[]}')
     expect(getRowSink({ ...result })).toBeUndefined()
+  })
+
+  it("csv: streams rows to a temp file and assembles header + rows on finish, byte-identical to the in-memory csv path", async () => {
+    // Column union in first-appearance order, later columns padded on earlier rows, BOM up front.
+    const rows = Array.from({ length: 1000 }, (_, i) => (i < 500 ? { a: i, b: `x,${i}` } : { a: i, c: true }))
+    const target = path.join(dir, "big.csv")
+    const sink = new ExportSink(target, "csv")
+    await sink.push(rows)
+    expect(sink.opened).toBe(true)
+    await expect(fs.access(target)).rejects.toThrow()
+    await sink.finish()
+    const streamed = await fs.readFile(target, "utf8")
+    const reference = path.join(dir, "reference.csv")
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", reference)).toBe(true)
+    expect(streamed).toBe(await fs.readFile(reference, "utf8"))
+    expect(streamed.startsWith("\ufeffa,b,c\n")).toBe(true)
+    expect(streamed.split("\n")[501]).toBe("500,,true")
+    await expect(fs.access(`${target}.part`)).rejects.toThrow()
+    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
+  })
+
+  it("csv: zips columnar rows against the header and drops stray scalar rows like rowsFromList", async () => {
+    const target = path.join(dir, "columnar.csv")
+    const sink = new ExportSink(target, "csv")
+    sink.setFieldList(["id", "name"])
+    await sink.push([...Array.from({ length: 999 }, (_, i) => [i, `n${i}`]), null, "stray"])
+    await sink.finish()
+    const lines = (await fs.readFile(target, "utf8")).split("\n").filter(Boolean)
+    expect(lines).toHaveLength(1000) // header + 999 object rows; null / "stray" dropped
+    expect(lines[0]).toBe("\ufeffid,name")
+    expect(lines[999]).toBe("998,n998")
+    expect(sink.rows).toBe(1001)
+    expect(sink.dataRows).toBe(999)
+  })
+
+  it("csv: an all-scalar list renders as index,value pairs", async () => {
+    const target = path.join(dir, "scalars.csv")
+    const sink = new ExportSink(target, "csv")
+    await sink.push(Array.from({ length: 1000 }, (_, i) => `code${i}`))
+    await sink.finish()
+    const lines = (await fs.readFile(target, "utf8")).split("\n").filter(Boolean)
+    expect(lines[0]).toBe("\ufeffindex,value")
+    expect(lines[1]).toBe("0,code0")
+    expect(lines[1000]).toBe("999,code999")
+    expect(sink.dataRows).toBe(1000)
+  })
+
+  it("csv: abort removes both the rows file and the partial csv", async () => {
+    const target = path.join(dir, "aborted.csv")
+    const sink = new ExportSink(target, "csv")
+    await sink.push(Array.from({ length: 1000 }, (_, i) => ({ i })))
+    await sink.abort()
+    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
+    await expect(fs.access(`${target}.part`)).rejects.toThrow()
+    await expect(fs.access(target)).rejects.toThrow()
+  })
+
+  it("caps the collected titles at the cache's per-endpoint limit", async () => {
+    const target = path.join(dir, "many-titles.jsonl")
+    const sink = new ExportSink(target, "jsonl", { endpointKey: "insight.research.list", idField: "reportId" })
+    sink.setFieldList(["reportId", "title"])
+    await sink.push(Array.from({ length: MAX_TITLES_PER_ENDPOINT + 500 }, (_, i) => [`r${i}`, `T${i}`]))
+    await sink.finish()
+    expect(Object.keys(sink.titles)).toHaveLength(MAX_TITLES_PER_ENDPOINT)
+    expect(sink.rows).toBe(MAX_TITLES_PER_ENDPOINT + 500)
   })
 })

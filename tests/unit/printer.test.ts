@@ -14,7 +14,7 @@ vi.mock("../../src/core/titleCache.js", async () => {
 })
 
 const { printData } = await import("../../src/core/printer.js")
-const { JsonlRowSink, attachRowSink } = await import("../../src/core/rowSink.js")
+const { ExportSink, attachRowSink } = await import("../../src/core/rowSink.js")
 
 describe("printData", () => {
   // ReturnType<typeof vi.spyOn> resolves to the generic default instantiation,
@@ -200,6 +200,76 @@ describe("printData export metadata sidecar and streamed results", () => {
     expect(process.exitCode).toBe(3)
   })
 
+  it("reports an export incomplete when exit 3 was set without a partial marker (a first page of unexpected shape)", async () => {
+    const out = path.join(dir, "shape.jsonl")
+    process.exitCode = 3
+    await printData({ total: "12", list: [{ a: 1 }] }, "jsonl", out)
+    expect(await readMeta(out)).toMatchObject({ complete: false, exitCode: 3, rows: 1 })
+    expect((await readMeta(out)).result.partial).toBeUndefined()
+  })
+
+  it("stages the sidecar before publishing: when it cannot be written, the previous export and its sidecar stay untouched", async () => {
+    const out = path.join(dir, "staged.jsonl")
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(out, "OLD-COMPLETE-DATA\n")
+    await fs.writeFile(`${out}.meta.json`, '{"complete":true,"marker":"old"}')
+    await fs.mkdir(`${out}.meta.json.part`) // the staging write now fails with EISDIR
+    const sink = new ExportSink(out)
+    await sink.push(Array.from({ length: 1000 }, (_, i) => ({ i })))
+    await expect(printData(attachRowSink({ total: 1000, list: [], partial: true }, sink), "jsonl", out)).rejects.toThrow()
+    await sink.abort()
+    expect(await fs.readFile(out, "utf8")).toBe("OLD-COMPLETE-DATA\n")
+    expect(JSON.parse(await fs.readFile(`${out}.meta.json`, "utf8"))).toEqual({ complete: true, marker: "old" })
+    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    // the in-memory path behaves the same
+    await expect(printData({ total: 1, list: [{ a: 1 }], partial: true }, "jsonl", out)).rejects.toThrow()
+    expect(await fs.readFile(out, "utf8")).toBe("OLD-COMPLETE-DATA\n")
+  })
+
+  it("removes a stale sidecar rather than leave it beside new data when the final rename fails", async () => {
+    const out = path.join(dir, "stale.jsonl")
+    await fs.mkdir(`${out}.meta.json`, { recursive: true }) // rename onto a directory fails
+    await expect(printData({ total: 1, list: [{ a: 1 }] }, "jsonl", out)).rejects.toThrow()
+    expect(await fs.readFile(out, "utf8")).toBe('{"a":1}')
+    await expect(fs.access(`${out}.meta.json.part`)).rejects.toThrow()
+  })
+
+  it("redacts credentials inside a JSON argument and tokens in the result", async () => {
+    const out = path.join(dir, "login.jsonl")
+    const saved = process.argv
+    process.argv = [saved[0], saved[1], "raw", "call", "auth.login", "--body", '{"accessKey":"SYNTHETIC_KEY_VALUE","secretKey":"SYNTHETIC_SECRET_VALUE"}', "--format", "jsonl", "--output", out]
+    try {
+      await printData({ accessToken: "SYNTHETIC_TOKEN_VALUE", expiresIn: 3600 }, "jsonl", out)
+    } finally {
+      process.argv = saved
+    }
+    const text = await fs.readFile(`${out}.meta.json`, "utf8")
+    for (const secret of ["SYNTHETIC_KEY_VALUE", "SYNTHETIC_SECRET_VALUE", "SYNTHETIC_TOKEN_VALUE"]) expect(text).not.toContain(secret)
+    const meta = await readMeta(out)
+    expect(JSON.parse((meta.command as string[])[4])).toEqual({ accessKey: "[redacted]", secretKey: "[redacted]" })
+    expect(meta.result).toEqual({ accessToken: "[redacted]", expiresIn: 3600 })
+    // the data file itself is untouched — redaction is a sidecar concern
+    expect(await fs.readFile(out, "utf8")).toContain("SYNTHETIC_TOKEN_VALUE")
+  })
+
+  it("counts the data rows the file holds, under the renderer's shaping rules", async () => {
+    const single = path.join(dir, "single.jsonl")
+    await printData({ summary: "one record" }, "jsonl", single)
+    expect(await readMeta(single)).toMatchObject({ rows: 1 })
+    const nullCsv = path.join(dir, "null-row.csv")
+    await printData({ total: 2, list: [{ id: 1 }, null] }, "csv", nullCsv)
+    expect(await readMeta(nullCsv)).toMatchObject({ rows: 1 }) // csv drops the null row
+    const nullJsonl = path.join(dir, "null-row.jsonl")
+    await printData({ total: 2, list: [{ id: 1 }, null] }, "jsonl", nullJsonl)
+    expect(await readMeta(nullJsonl)).toMatchObject({ rows: 2 }) // jsonl writes every item
+    const empty = path.join(dir, "empty.jsonl")
+    await printData(null, "jsonl", empty)
+    expect(await readMeta(empty)).toMatchObject({ rows: 0 })
+    const scalars = path.join(dir, "scalars.csv")
+    await printData({ total: 3, list: ["a", "b", "c"] }, "csv", scalars)
+    expect(await readMeta(scalars)).toMatchObject({ rows: 3 }) // index/value pairs
+  })
+
   it("marks a clean jsonl export complete and writes no sidecar for json, table or markdown files", async () => {
     const jsonl = path.join(dir, "ok.jsonl")
     await printData({ total: 1, list: [{ a: 1 }] }, "jsonl", jsonl)
@@ -213,7 +283,7 @@ describe("printData export metadata sidecar and streamed results", () => {
 
   it("finishes a streamed result: file renamed into place, Total line and sidecar count the streamed rows, exit 3 on partial", async () => {
     const out = path.join(dir, "streamed.jsonl")
-    const sink = new JsonlRowSink(out)
+    const sink = new ExportSink(out)
     sink.setFieldList(["id"])
     await sink.push(Array.from({ length: 1000 }, (_, i) => [i]))
     expect(sink.opened).toBe(true)
@@ -233,7 +303,7 @@ describe("printData export metadata sidecar and streamed results", () => {
     const plain = path.join(dir, "plain.jsonl")
     await printData({ total: 2, fieldList: ["id"], list: [[1], [2]] }, "jsonl", plain)
     const buffered = path.join(dir, "buffered.jsonl")
-    const sink = new JsonlRowSink(buffered)
+    const sink = new ExportSink(buffered)
     await sink.push([[1], [2]])
     await printData(attachRowSink({ total: 2, fieldList: ["id"], list: [] }, sink), "jsonl", buffered)
     expect(await fs.readFile(buffered, "utf8")).toBe(await fs.readFile(plain, "utf8"))
@@ -244,7 +314,7 @@ describe("printData export metadata sidecar and streamed results", () => {
   it("merges the titles the sink saw into the download-name cache", async () => {
     const out = path.join(dir, "titles.jsonl")
     const cache = { endpointKey: "insight.research.list", idField: "reportId" }
-    const sink = new JsonlRowSink(out, cache)
+    const sink = new ExportSink(out, "jsonl", cache)
     sink.setFieldList(["reportId", "title"])
     await sink.push(Array.from({ length: 1000 }, (_, i) => [`r${i}`, `T${i}`]))
     await printData(attachRowSink({ total: 1000, fieldList: ["reportId", "title"], list: [] }, sink), "jsonl", out, cache)

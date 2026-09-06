@@ -16,19 +16,19 @@ import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./co
 import { flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
-import { JsonlRowSink, rowCount } from "./core/rowSink.js"
+import { ExportSink, rowCount } from "./core/rowSink.js"
 import type { GangtiseClient } from "./core/client.js"
 import type { TitleCacheConfig } from "./core/titleCache.js"
 
-/** Output options of a query command, read up front so a large jsonl export to a file
- * can stream rows out as they arrive (JsonlRowSink) instead of collecting them first. */
+/** Output options of a query command, read up front so a large jsonl / csv export to a
+ * file can stream rows out as they arrive (ExportSink) instead of collecting them first. */
 interface StreamOptions { format?: string; output?: string; cache?: TitleCacheConfig }
 
 // --- Lazy-loaded modules (deferred to action handlers) ---
 async function createClient(stream?: StreamOptions) {
   const { GangtiseClient } = await import("./core/client.js")
-  // Only a jsonl export to a file streams; every other format collects in memory as before.
-  const sink = stream?.output && stream.format === "jsonl" ? new JsonlRowSink(stream.output, stream.cache) : undefined
+  // Only a jsonl / csv export to a file streams; every other format collects in memory as before.
+  const sink = stream?.output && (stream.format === "jsonl" || stream.format === "csv") ? new ExportSink(stream.output, stream.format, stream.cache) : undefined
   return new GangtiseClient(loadConfig(), sink)
 }
 
@@ -1139,7 +1139,7 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
     throw new ConfigError(`Unknown endpoint key: ${endpointKey}`)
   }
   const format = parseOutputFormat(options.format)
-  const client = await createClient()
+  const client = await createClient({ format, output: options.output })
   let body: unknown
   if (options.body) {
     try {
@@ -1166,8 +1166,11 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
   if (Object.keys(options.query as Record<string, string>).length > 0) {
     throw new ValidationError(`--query is not supported for JSON endpoints (use --body '{...}'); ${endpointKey} is kind=json`)
   }
-  const data = await client.call(endpointKey, body)
-  await printData(data, format, options.output)
+  try {
+    await printData(await client.call(endpointKey, body), format, options.output)
+  } finally {
+    await client.rowSink?.abort()
+  }
 })).addCommand(new Command("list").description("List all registered endpoint keys (for use with 'raw call')").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => printData(listEndpoints(), parseOutputFormat(options.format), options.output)))
 
 async function checkForUpdate(timeoutMs = 2000): Promise<void> {

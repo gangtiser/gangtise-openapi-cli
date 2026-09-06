@@ -38,7 +38,7 @@ function displayWidth(value: string): number {
   return width
 }
 
-function formatScalar(value: unknown): string {
+export function formatScalar(value: unknown): string {
   if (value === null || value === undefined) {
     return ""
   }
@@ -154,6 +154,17 @@ function renderCsv(rows: Array<Record<string, unknown>>): string {
   return [header, ...body].join("\n")
 }
 
+/** Data rows a jsonl / csv render of `value` contains, under the same shaping rules the
+ * renderers use (jsonl: every list item; csv: object rows only, or index/value pairs for
+ * an all-scalar list; a lone object is one row; null is none). */
+export function countOutputRows(value: unknown, format: "jsonl" | "csv"): number {
+  if (format === "jsonl") {
+    const items = pickList(value)
+    return (items ?? toRows(value)).length
+  }
+  return toRows(value).length
+}
+
 export function renderOutput(value: unknown, format: OutputFormat): string {
   // toRows is computed lazily per branch: json never needs it, and jsonl only
   // falls back to it when the value isn't already a {list}/array.
@@ -252,7 +263,7 @@ export function pickList(value: unknown): unknown[] | null {
   return null
 }
 
-function csvEscape(value: string): string {
+export function csvEscape(value: string): string {
   let out = value
   // Formula-injection guard, but don't mangle legitimate numbers: a leading
   // -/+ only needs escaping when the cell isn't a finite number (e.g. "-1+cmd"),

@@ -106,8 +106,10 @@ export async function runWithConcurrency<T, R>(
  * lowest unconsumed index is always held by a worker still fetching it, never by one
  * waiting (a worker waits only after its own result is in `pending`).
  *
- * Once `consume` fails, no further items are started and the failure is rethrown after the
- * in-flight work settles; an `fn` failure propagates as it does from runWithConcurrency.
+ * A failure of either `fn` or `consume` stops the fan-out: no further items are started,
+ * waiters are woken, results still arriving are dropped, and the first error is rethrown
+ * only after every started worker and the consume chain have settled — so by the time the
+ * caller sees the rejection nothing is still fetching or writing in the background.
  */
 export async function runInOrder<T, R>(
   items: T[],
@@ -139,19 +141,24 @@ export async function runInOrder<T, R>(
       wake()
     })
   }
-  try {
-    await runWithConcurrency(items, width, async (item, index) => {
-      if (failure) return
-      const result = await fn(item, index)
-      pending.set(index, result)
-      drain()
-      while (!failure && pending.size >= width) {
-        await new Promise<void>((resolve) => waiters.push(resolve))
-      }
-    })
-  } finally {
-    await chain
-  }
+  await runWithConcurrency(items, width, async (item, index) => {
+    if (failure) return
+    let result: R
+    try {
+      result = await fn(item, index)
+    } catch (error) {
+      failure ??= { error }
+      wake()
+      return
+    }
+    if (failure) return
+    pending.set(index, result)
+    drain()
+    while (!failure && pending.size >= width) {
+      await new Promise<void>((resolve) => waiters.push(resolve))
+    }
+  })
+  await chain
   const failed = failure as { error: unknown } | null
   if (failed) throw failed.error
 }

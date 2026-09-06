@@ -62,7 +62,7 @@ description: |-
 - opaque ID → 先 `references/lookup-ids.md`
 - 模糊时间词 → 查"时间词映射"
 - 无时间范围且用户没要求全量 → 主动加 `--size 200` 兜底（不必问）；注意 CLI 省略 `--size` 会拉全量
-- 预估结果 >200 行 → 别全量 `--format json` 引进上下文，改 `--format jsonl --output <file>` 落盘（行边取边写、内存不随行数增长，stdout 只回显文件路径），再 `wc -l` + `head` 采样呈现。落盘的 `csv` / `jsonl` 旁边会有 `<file>.meta.json`：`complete` / `rows` / `result.partial` 与缺失项标记都在里面，转交文件时一并给、核验完整性先看它；超大导出用 `jsonl`（`csv` 取数阶段仍在内存）
+- 预估结果 >200 行 → 别全量 `--format json` 引进上下文，改 `--format jsonl --output <file>` 落盘（行边取边写、内存不随行数增长，stdout 只回显文件路径），再 `wc -l` + `head` 采样呈现。落盘的 `csv` / `jsonl` 旁边会有 `<file>.meta.json`：`complete` / `rows` / `result.partial` 与缺失项标记都在里面，转交文件时一并给、核验完整性先看它（`complete: false` = 那次导出退出码 3）
 - 路由到 AI 同步生成命令 → 7 个 agent 类（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`）CLI 已内置 120s 超时下限，无需前缀；`stock-summary` / `hot-topic` 仍建议前置 `GANGTISE_TIMEOUT_MS=120000`。**贵档端点超时/5xx 不自动重试**（重放=重复扣分）——超时报错后内容可能已在服务端生成并扣费，同参数再调仍会**再扣一次**（无缓存豁免），所以一次调用给足超时比失败重跑省钱。`earnings-review` / `viewpoint-debate` 是异步（`--wait` 或 `*-check` 轮询），不吃这个超时
 - "AI速记/智能摘要/会议纪要"→`summary`、"原始文件/原文件"→`original`、"语音识别/转写文本/ASR"→`asr` — 用户已明示时直接映射 content-type，不必问
 
@@ -214,7 +214,7 @@ vault.my-conference.download
 - **证券基本面 / 指标先按任务形态路由，不是搜到 EDE 就一律走 EDE**：
   - 单证券先优先对应 `fundamental` 专用命令（财务、估值、盈利预测、股东、主营或完整三大报表，多数免费 / 低价）。`valuation-analysis` / `earning-forecast` 仅支持 A 股，港 / 美股的**估值历史分位**与**盈利预测**无可用口径。但**估值指标本身别照抄旧结论**：`finc_pe_ttm` 港股、`qte_mkt_cptl`/`shr_tot` 港美股都有数。⚠️ **凡「仅 A 股」「无数据」这类否定结论都只是某时点抽查**，数据覆盖在持续扩展；负面结论过期不会报错、只会让你白白拒掉一个能跑的查询。**一律以当次 `scopeList` + 抽查一行为准**
   - 多证券批量取一组**已实现**财务 / 估值指标 → 优先 `indicator search` 后用 EDE 一次拉取，替代逐只循环；单日或同一报告期横向比较用 `cross-section`，区间走势用 `time-series`（后者不能多指标 × 多证券同时）。**批量按 code 回填加 `--key-by code`**（列头用 `indicatorCode`，防同名指标碰撞）。⚠️ **两个轴的顺序规则不同**：`indicatorList` = 请求顺序，但 **`securityCodeList` 是按代码升序重排的**——**行绝不能按请求下标对位**，一律按 `security` 字段取值
-  - ⚠️ **估值指标的历史序列：两个接口的财报口径切换时点不同**——`indicator time-series`（EDE）按**正式财报披露日**切，`fundamental valuation-analysis` 按**业绩快报**口径切、通常更早，同一天取到的估值指标可能不一样。做估值分位 / 回测时**两个接口都拉一遍交叉核**（个别标的在 `valuation-analysis` 侧可能长期未更新）；时点对齐用三大报表的 `earliestAnncDate`（首次公告日），不要用 `announcementDate`。详见 `indicator.md`
+  - ⚠️ **估值指标的历史序列：两个接口的财报口径切换时点不同**——`indicator time-series`（EDE）按**正式财报披露日**切，`fundamental valuation-analysis` 按**业绩快报**口径切、通常更早，同一天取到的估值指标可能不一样。历史期所用的财报版本也不同（`valuation-analysis` 保留当时披露的原始数据，EDE 按含重述后的最新数据回算，重述过的标的会持续分叉）。做估值分位 / 回测先定要哪个版本，**两个接口都拉一遍交叉核**；时点对齐用三大报表的 `earliestAnncDate`（首次公告日），不要用 `announcementDate`（它是返回版本的公告日）。详见 `indicator.md`
   - 始终排除 EDE：A股盈利预测 / 一致预期（含预测 EPS）→ `fundamental earning-forecast`；A股估值历史分位 → `fundamental valuation-analysis`；开高低收 / 成交量等行情与 K 线 → `quote`；单证券完整报表 → 对应三大报表命令。**例外：总市值只有 EDE 有**——`quote realtime` / `day-kline` 都不返回市值，走 `indicator cross-section --indicator qte_mkt_cptl`（默认单位「元」，用 `--scale` 缩放）。EDE 搜到的基本 / 稀释 EPS 是已实现值，**不能冒充预测 EPS**；港 / 美股缺少上述专用能力时应如实说明不支持，不能用别的语义代替
   - EDE 取数前必须用 `search --format json` 同时核对：`indicatorName` + `description` 语义准确、`scopeList` 覆盖全部目标市场 / 证券类型、`parameterList` 必填参数与枚举可满足；任一不符都视为无法证明覆盖并回退专用接口。`scopeList` 按指标各不相同，不能因 EDE 服务支持 A / 港 / 美股就假定某个指标三市场都覆盖。`search` 免费，取数按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`
 - 行业 / 宏观指标（空调销量、社融等，无证券维度）走 `alternative edb-*`（EDB），不要与证券级 EDE 混用

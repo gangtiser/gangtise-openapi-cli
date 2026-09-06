@@ -1,6 +1,6 @@
 import { isStructuralError } from "./errors.js"
 import { columnarSchemaValid } from "./normalize.js"
-import { attachRowSink, type JsonlRowSink } from "./rowSink.js"
+import { attachRowSink, type ExportSink } from "./rowSink.js"
 import { isVerbose, PAGE_CONCURRENCY, runInOrder } from "./transport.js"
 
 export interface KlineBody {
@@ -27,7 +27,7 @@ interface ShardConfig {
 interface KlineClient {
   call(endpointKey: string, body?: unknown): Promise<unknown>
   /** Present on GangtiseClient: the sink of a large jsonl export, if the command opened one. */
-  claimRowSink?(): JsonlRowSink | undefined
+  claimRowSink?(): ExportSink | undefined
 }
 
 const DAY_MS = 86_400_000
@@ -209,7 +209,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     }
   }
 
-  // A large jsonl export streams rows out shard by shard (JsonlRowSink) instead of holding
+  // A large jsonl export streams rows out shard by shard (ExportSink) instead of holding
   // the merged list; shards are merged in date order as they complete (runInOrder), so
   // the file order equals the in-memory merge order.
   const sink = client.claimRowSink?.()

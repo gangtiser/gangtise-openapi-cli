@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ApiError, markStructural } from "../../src/core/errors.js"
 import { flagMissingFields } from "../../src/core/normalize.js"
 import { callKlineWithSharding } from "../../src/core/quoteSharding.js"
-import { getRowSink, JsonlRowSink } from "../../src/core/rowSink.js"
+import { getRowSink, ExportSink } from "../../src/core/rowSink.js"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -654,7 +654,7 @@ describe("callKlineWithSharding with a row sink (large jsonl export)", () => {
       const rows = Array.from({ length: 400 }, (_, i) => reversed ? [i, body.startDate, `S${i}`] : [`S${i}`, body.startDate, i])
       return { total: 400, fieldList: reversed ? ["close", "tradeDate", "securityCode"] : ["securityCode", "tradeDate", "close"], list: rows }
     })
-    const sink = new JsonlRowSink(path.join(dir, "kline.jsonl"))
+    const sink = new ExportSink(path.join(dir, "kline.jsonl"))
     const result = await callKlineWithSharding({ call, claimRowSink: () => sink }, "quote.day-kline", {
       securityList: ["all"], startDate: "2026-04-06", endDate: "2026-04-08",
     }, { shardDays: 1 }) as { total: number; list: unknown[]; fieldList: string[]; partial?: boolean }
@@ -678,7 +678,7 @@ describe("callKlineWithSharding with a row sink (large jsonl export)", () => {
       if (body.startDate === "2026-04-07") throw markStructural(new ApiError("bad shape"))
       return { total: 600, fieldList: ["securityCode", "tradeDate"], list: Array.from({ length: 600 }, (_, i) => [`S${i}`, body.startDate]) }
     })
-    const sink = new JsonlRowSink(path.join(dir, "partial.jsonl"))
+    const sink = new ExportSink(path.join(dir, "partial.jsonl"))
     const result = await callKlineWithSharding({ call, claimRowSink: () => sink }, "quote.day-kline", {
       securityList: ["all"], startDate: "2026-04-06", endDate: "2026-04-08",
     }, { shardDays: 1 }) as { total: number; partial?: boolean; failedShards?: unknown[] }

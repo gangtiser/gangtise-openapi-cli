@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ApiError, isStructuralError } from "../../src/core/errors.js"
 import { callPerSecurity, estimateTradingDays } from "../../src/core/perSecurity.js"
-import { getRowSink, JsonlRowSink } from "../../src/core/rowSink.js"
+import { getRowSink, ExportSink } from "../../src/core/rowSink.js"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -161,7 +161,7 @@ describe("callPerSecurity with a row sink (large jsonl export)", () => {
       if (b.securityCode === "600519.SH") await new Promise((r) => setTimeout(r, 20))
       return { total: 600, fieldList: ["securityCode", "close"], list: Array.from({ length: 600 }, (_, i) => [b.securityCode, i]) }
     })
-    const sink = new JsonlRowSink(path.join(dir, "parts.jsonl"))
+    const sink = new ExportSink(path.join(dir, "parts.jsonl"))
     const result = await callPerSecurity({ call, claimRowSink: () => sink }, "quote.day-kline", ["600519.SH", "000858.SZ"], body, 6000, "quote day-kline")
     expect(result.total).toBe(1200)
     expect(result.list).toEqual([])

@@ -11,7 +11,7 @@ import { ApiError, attachEnvelopeTraceId, markStructural, ValidationError } from
 import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
 import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runInOrder, withRetry } from "./transport.js"
-import { attachRowSink, type JsonlRowSink } from "./rowSink.js"
+import { attachRowSink, type ExportSink } from "./rowSink.js"
 import type { DownloadResult } from "./download.js"
 
 interface Envelope<T> {
@@ -43,12 +43,12 @@ export class GangtiseClient {
 
   /** The sink a large jsonl export streams into, if the command opened one. The first
    * fetch-all / sharded / per-security producer claims it; a later call in the same
-   * command collects in memory as usual (see JsonlRowSink). */
+   * command collects in memory as usual (see ExportSink). */
   private rowSinkClaimed = false
 
-  constructor(private readonly config: CliConfig, readonly rowSink?: JsonlRowSink) {}
+  constructor(private readonly config: CliConfig, readonly rowSink?: ExportSink) {}
 
-  claimRowSink(): JsonlRowSink | undefined {
+  claimRowSink(): ExportSink | undefined {
     if (!this.rowSink || this.rowSinkClaimed) return undefined
     this.rowSinkClaimed = true
     return this.rowSink
@@ -275,7 +275,7 @@ export class GangtiseClient {
     const target = requestedSize === undefined ? available : Math.min(requestedSize, available)
 
     // Rows either accumulate in `collected` or, for a large jsonl export, go straight out
-    // through the sink in page order (JsonlRowSink); `count` is the row count either way.
+    // through the sink in page order (ExportSink); `count` is the row count either way.
     // With `--size N` at most N rows are kept even if the server over-returns.
     const sink = this.claimRowSink()
     if (sink && Array.isArray(firstPage.fieldList)) sink.setFieldList(firstPage.fieldList)

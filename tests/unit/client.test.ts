@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError, isStructuralError, ValidationError } from "../../src/core/errors.js"
 import { GangtiseClient } from "../../src/core/client.js"
 import { ENDPOINTS } from "../../src/core/endpoints.js"
-import { getRowSink, JsonlRowSink } from "../../src/core/rowSink.js"
+import { getRowSink, ExportSink } from "../../src/core/rowSink.js"
 import os from "node:os"
 
 const { requestMock } = vi.hoisted(() => ({
@@ -1672,7 +1672,7 @@ describe("GangtiseClient pagination with a row sink (large jsonl export)", () =>
 
   it("streams the pages to the file in page order, leaves the result's list empty and hangs the sink on it", async () => {
     slowSecondPageMock(1200)
-    const sink = new JsonlRowSink(path.join(dir, "all.jsonl"))
+    const sink = new ExportSink(path.join(dir, "all.jsonl"))
     const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
     const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
     expect(result.total).toBe(1200)
@@ -1690,7 +1690,7 @@ describe("GangtiseClient pagination with a row sink (large jsonl export)", () =>
 
   it("caps a --size export through the sink and keeps a small one buffered for the ordinary path", async () => {
     slowSecondPageMock(1200)
-    const sink = new JsonlRowSink(path.join(dir, "sized.jsonl"))
+    const sink = new ExportSink(path.join(dir, "sized.jsonl"))
     const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
     await client.call("insight.research.list", { from: 0, size: 1050 })
     expect(sink.rows).toBe(1050)
@@ -1698,7 +1698,7 @@ describe("GangtiseClient pagination with a row sink (large jsonl export)", () =>
 
     requestMock.mockReset()
     paginatedMock({ total: 118, itemFor: (id) => ({ id }) })
-    const small = new JsonlRowSink(path.join(dir, "small.jsonl"))
+    const small = new ExportSink(path.join(dir, "small.jsonl"))
     const client2 = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, small)
     const result = await client2.call("insight.research.list", { from: 0 }) as { list: unknown[] }
     expect(result.list).toEqual([])
@@ -1708,7 +1708,7 @@ describe("GangtiseClient pagination with a row sink (large jsonl export)", () =>
 
   it("only the first paginated call of a command takes the sink", async () => {
     paginatedMock({ total: 30, itemFor: (id) => ({ id }) })
-    const sink = new JsonlRowSink(path.join(dir, "first.jsonl"))
+    const sink = new ExportSink(path.join(dir, "first.jsonl"))
     const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
     const first = await client.call("insight.research.list", { from: 0 }) as { list: unknown[] }
     const second = await client.call("insight.research.list", { from: 0 }) as { list: unknown[] }
@@ -1727,7 +1727,7 @@ describe("GangtiseClient pagination with a row sink (large jsonl export)", () =>
       return Promise.resolve(jsonResponse({ total: 1200, list: Array.from({ length: count }, (_, i) => ({ id: from + 1 + i })) }))
     })
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
-    const sink = new JsonlRowSink(path.join(dir, "partial.jsonl"))
+    const sink = new ExportSink(path.join(dir, "partial.jsonl"))
     const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "t", tokenCachePath: "/tmp/x.json" }, sink)
     const result = await client.call("insight.research.list", { from: 0 }) as { partial?: boolean; failedPages?: unknown[] }
     errSpy.mockRestore()

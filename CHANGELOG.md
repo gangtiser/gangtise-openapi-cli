@@ -96,9 +96,13 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 **14. 大导出按批写出 + 导出元信息（K24）**
 
-`--format jsonl --output` 时，翻页（`requestPaginated`）、全市场分片（`callKlineWithSharding`）、逐只请求（`callPerSecurity`）三条取数路径把行按到达顺序逐批交给 `src/core/rowSink.ts` 的 `JsonlRowSink` 写盘，不再先攒成整份 `list`：新增 `transport.runInOrder`（结果按序号顺序消费，取数侧在待写结果达到并发宽度时等待，两侧都有界）；sink 先缓冲到 1000 行才开文件（`<file>.part` + rename，失败 unlink），不足 1000 行的结果原样交回普通渲染路径，文件字节与之前一致；结果对象 `list` 为空、用非枚举 symbol 挂着 sink，`printData` 据此收尾；`total` / `partial` / `failedPages` 等标记不变，`flagIfImplicitCapHit` 改用 `rowCount()` 读行数；命令内只有第一次翻页 / 分片 / 逐只调用拿到 sink；下载文件名缓存改由 sink 在写出时收集标题。只做 jsonl（自描述、无需先知列集）；csv 要列并集做表头，取数阶段仍在内存。判据：80 万行 × 12 列导出在 `--max-old-space-size=100` 下流式成功（RSS 148 MB），收集模式 OOM（无上限 RSS 704 MB）；40.7 万行全程 gc 后堆 11–15 MB 不增长。
+`--format jsonl` / `csv` 加 `--output` 时，翻页（`requestPaginated`）、全市场分片（`callKlineWithSharding`）、逐只请求（`callPerSecurity`）三条取数路径把行按到达顺序逐批交给 `src/core/rowSink.ts` 的 `ExportSink` 写盘，不再先攒成整份 `list`：新增 `transport.runInOrder`（结果按序号顺序消费；取数侧在待写结果达到并发宽度时等待；任一侧失败即停止领取、丢弃迟到结果，等在途工作结束后才抛错——调用方拿到异常时后台已无取数与写盘）；sink 先缓冲到 1000 行才开文件（`<file>.part` + rename，失败 unlink），不足 1000 行原样交回普通渲染路径，文件字节与之前一致（28 组基线对照）；csv 先把行写到 `<file>.rows.part` 累计列并集，收尾时逐行转成带表头的 csv（磁盘两遍、内存不变）；结果对象 `list` 为空、非枚举 symbol 挂 sink，`printData` 据此收尾；`total` / `partial` 等标记不变，`flagIfImplicitCapHit` 改用 `rowCount()`；命令内只有第一次翻页 / 分片 / 逐只调用拿到 sink，`raw call` 同样接入；下载文件名缓存由 sink 在写出时收集标题，上限与持久缓存一致（5000）。判据：80 万行 × 12 列在 `--max-old-space-size=100` 下流式成功（RSS 148 MB），收集模式 OOM（无上限 RSS 704 MB）。
 
-`csv` / `jsonl` 落盘时旁边写 `<file>.meta.json`：`file` / `format` / `rows` / `complete` / `exitCode` / `command`（argv）/ `cliVersion` / `fetchedAt`（含时区偏移）/ `timezone` / `columns`（`fieldList`）/ `result`（结果对象除 `list` 外的全部顶层键，所以任何新增标记自动进入）。`json` 自带标记不生成；没有关闭开关。单位信息 CLI 不掌握（待 K25 契约元数据），未写入。26 个新测试（sink、`runInOrder` 背压、三条取数路径各自的顺序 / 标记、printer 收尾与 sidecar、端到端 1000 行流式 + 隐式封顶 + csv/json）。
+`csv` / `jsonl` 落盘时旁边写 `<file>.meta.json`：`file` / `format` / `rows`（按渲染规则数出的数据行：jsonl 每行一条，csv 只数对象行）/ `complete`（与退出码一致，退出 3 即 `false`，不只看 `partial`）/ `exitCode` / `command`（argv；JSON 参数里的 key / secret / token 类字段与 `result` 里的同类字段写成 `[redacted]`）/ `cliVersion` / `fetchedAt`（含时区偏移）/ `timezone` / `columns`（`fieldList`）/ `result`（结果对象除 `list` 外的全部顶层键）。元信息先写 `.meta.json.part`、数据文件发布后再改名，任一步失败都不会出现「新数据配旧 sidecar」；`json` 自带标记不生成；没有关闭开关。单位信息 CLI 不掌握（待 K25），未写入。42 个新测试。
+
+**15. 测试入口每次干净构建（K22）**
+
+`tests/globalSetup.ts` 不再按「dist 比 src 新」跳过重建：保留旧 mtime 的还原（`cp -p`）、只改 `tsconfig.json`、删掉 dist 里的某个模块，此前都会让 spawn 型测试跑在过期产物上。现在每次 `vitest run` 先删 dist 再 tsc。
 
 **未做、记入 `bug/cli-backlog.md`**：标题缓存跨进程写丢（K23，有意暂不做）；`cli.ts` 按命令组拆分 + 端点契约元数据（K25）；统一请求预算 / 总超时 / 限流（K26）。
 
