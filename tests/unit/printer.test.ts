@@ -252,6 +252,64 @@ describe("printData export metadata sidecar and streamed results", () => {
     expect(await fs.readFile(out, "utf8")).toContain("SYNTHETIC_TOKEN_VALUE")
   })
 
+  it("redacts whichever way the argument was spelled: --body=<json>, leading whitespace, leading newline", async () => {
+    const body = '{"accessKey":"SYNTHETIC_KEY_VALUE","secretKey":"SYNTHETIC_SECRET_VALUE"}'
+    const spellings: string[][] = [["--body", `  ${body}`], ["--body", `\n${body}`], [`--body=${body}`]]
+    const saved = process.argv
+    try {
+      for (const [i, spelling] of spellings.entries()) {
+        const out = path.join(dir, `login-${i}.jsonl`)
+        process.argv = [saved[0], saved[1], "raw", "call", "auth.login", ...spelling, "--format", "jsonl", "--output", out]
+        await printData({ accessToken: "SYNTHETIC_TOKEN_VALUE" }, "jsonl", out)
+        const text = await fs.readFile(`${out}.meta.json`, "utf8")
+        expect(text, spelling.join(" ")).not.toContain("SYNTHETIC_KEY_VALUE")
+        expect(text, spelling.join(" ")).not.toContain("SYNTHETIC_SECRET_VALUE")
+        expect(text).toContain("[redacted]")
+      }
+    } finally {
+      process.argv = saved
+    }
+  })
+
+  it("cleans up a sidecar fragment when the staging write itself fails part-way", async () => {
+    const out = path.join(dir, "enospc.jsonl")
+    await fs.mkdir(dir, { recursive: true })
+    const real = fs.writeFile
+    const spy = vi.spyOn(fs, "writeFile").mockImplementationOnce(async (file, data) => {
+      await real(file, String(data).slice(0, 41), "utf8") // a fragment hits the disk, then the write fails
+      throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" })
+    })
+    try {
+      await expect(printData({ total: 1, list: [{ a: 1 }] }, "jsonl", out)).rejects.toThrow("ENOSPC")
+    } finally {
+      spy.mockRestore()
+    }
+    await expect(fs.access(`${out}.meta.json.part`)).rejects.toThrow()
+    await expect(fs.access(out)).rejects.toThrow() // data was never published either
+  })
+
+  it("counts a bare list the way the jsonl renderer writes it (null rows dropped when object rows exist)", async () => {
+    // A result with no metadata normalises to a bare array; the renderer sends that
+    // through toRows, so the file has one record and the sidecar must say one.
+    const bare = path.join(dir, "bare.jsonl")
+    await printData({ list: [{ id: 1 }, null] }, "jsonl", bare)
+    expect((await fs.readFile(bare, "utf8")).split("\n").filter(Boolean)).toHaveLength(1)
+    expect(await readMeta(bare)).toMatchObject({ rows: 1 })
+    const columnar = path.join(dir, "bare-columnar.jsonl")
+    await printData({ fieldList: ["id"], list: [[1], null] }, "jsonl", columnar)
+    expect((await fs.readFile(columnar, "utf8")).split("\n").filter(Boolean)).toHaveLength(1)
+    expect(await readMeta(columnar)).toMatchObject({ rows: 1 })
+    // …and a {total, list} result keeps its null rows in both places, on both sides of the threshold
+    for (const n of [999, 1000]) {
+      const withTotal = path.join(dir, `with-total-${n}.jsonl`)
+      const list: unknown[] = Array.from({ length: n - 1 }, (_, i) => ({ id: i }))
+      list.push(null)
+      await printData({ total: n, list }, "jsonl", withTotal)
+      expect((await fs.readFile(withTotal, "utf8")).split("\n").filter(Boolean)).toHaveLength(n)
+      expect(await readMeta(withTotal)).toMatchObject({ rows: n })
+    }
+  })
+
   it("counts the data rows the file holds, under the renderer's shaping rules", async () => {
     const single = path.join(dir, "single.jsonl")
     await printData({ summary: "one record" }, "jsonl", single)

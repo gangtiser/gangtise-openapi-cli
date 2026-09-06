@@ -1,7 +1,6 @@
 import { createReadStream, createWriteStream, type WriteStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
-import readline from "node:readline"
 
 import { zipFieldRow } from "./normalize.js"
 import { csvEscape, formatScalar, writeLine } from "./output.js"
@@ -165,27 +164,47 @@ export class ExportSink {
     }
   }
 
-  /** Second pass for csv: the buffered jsonl rows become the csv, header first. */
+  /** Second pass for csv: the buffered jsonl rows become the csv, header first. The writer
+   * becomes `this.stream` (the first-pass stream has ended), so a failure anywhere in this
+   * pass is cleaned up by abort() exactly like the first pass — destroyed and waited for
+   * before the partial file is removed — instead of a lazily-opened writer recreating
+   * `.part` after the caller has already been told the export failed. */
   private async assembleCsv(): Promise<void> {
     const out = createWriteStream(this.partPath, { encoding: "utf8" })
     out.on("error", () => {})
-    const objectMode = this.objectRows > 0
-    const columns = objectMode ? this.columns : ["index", "value"]
-    // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK.
-    await writeLine(out, "\ufeff" + columns.map(csvEscape).join(","))
-    const lines = readline.createInterface({ input: createReadStream(this.rowsPath, { encoding: "utf8" }), crlfDelay: Infinity })
-    let index = 0
-    for await (const line of lines) {
-      if (!line) continue
-      const item = JSON.parse(line) as unknown
-      if (objectMode) {
-        if (!isObjectRow(item)) continue
-        await writeLine(out, columns.map((column) => csvEscape(formatScalar(item[column]))).join(","))
-      } else {
-        await writeLine(out, `${csvEscape(String(index++))},${csvEscape(formatScalar(item))}`)
+    this.stream = out
+    const input = createReadStream(this.rowsPath, { encoding: "utf8" })
+    try {
+      const objectMode = this.objectRows > 0
+      const columns = objectMode ? this.columns : ["index", "value"]
+      // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK.
+      await writeLine(out, "\ufeff" + columns.map(csvEscape).join(","))
+      let index = 0
+      const emit = async (line: string): Promise<void> => {
+        if (!line) return
+        const item = JSON.parse(line) as unknown
+        if (objectMode) {
+          if (!isObjectRow(item)) return
+          await writeLine(out, columns.map((column) => csvEscape(formatScalar(item[column]))).join(","))
+        } else {
+          await writeLine(out, `${csvEscape(String(index++))},${csvEscape(formatScalar(item))}`)
+        }
       }
+      // Async iteration over the Readable rejects on a read error (readline would end the
+      // loop quietly and leave a truncated csv); JSON.stringify never emits a raw newline,
+      // so splitting on "\n" is exact.
+      let rest = ""
+      for await (const chunk of input) {
+        const lines = (rest + String(chunk)).split("\n")
+        rest = lines.pop() ?? ""
+        for (const line of lines) await emit(line)
+      }
+      await emit(rest)
+      await endStream(out)
+    } catch (error) {
+      input.destroy()
+      throw error
     }
-    await endStream(out)
     await fs.unlink(this.rowsPath).catch(() => {})
   }
 }

@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { renderOutput, saveOutputIfNeeded, streamOutputToFile } from "../../src/core/output.js"
+import { countOutputRows, renderOutput, saveOutputIfNeeded, streamOutputToFile } from "../../src/core/output.js"
 
 describe("streamOutputToFile error handling", () => {
   const dir = path.join(os.tmpdir(), `gangtise-output-test-${process.pid}`)
@@ -300,5 +300,26 @@ describe("renderOutput table display width", () => {
     // must be 2 wide. Counting the emoji as 1 (UTF-16/codepoint count) misaligns it.
     const [, divider] = renderOutput([{ x: "🚀" }], "table").split("\n")
     expect(divider).toBe("--")
+  })
+})
+
+
+describe("jsonl record selection is one rule across the streaming threshold", () => {
+  it("a bare array keeps object rows only, whether streamed (>= 1000) or rendered (< 1000)", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-jsonl-items-"))
+    try {
+      const rows = (n: number) => [...Array.from({ length: n - 1 }, (_, i) => ({ id: i })), null]
+      const small = renderOutput(rows(999), "jsonl").split("\n").filter(Boolean)
+      expect(small).toHaveLength(998)
+      const target = path.join(dir, "big.jsonl")
+      expect(await streamOutputToFile(rows(1000), "jsonl", target)).toBe(true)
+      expect((await fs.readFile(target, "utf8")).split("\n").filter(Boolean)).toHaveLength(999)
+      expect(countOutputRows(rows(1000), "jsonl")).toBe(999)
+      // a {list} result keeps every item on both paths
+      expect(renderOutput({ total: 2, list: [{ id: 1 }, null] }, "jsonl").split("\n")).toHaveLength(2)
+      expect(countOutputRows({ total: 2, list: [{ id: 1 }, null] }, "jsonl")).toBe(2)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

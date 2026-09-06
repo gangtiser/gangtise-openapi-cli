@@ -36,8 +36,10 @@ function localIso(d: Date): string {
  * secret can sit inside a JSON argument. */
 const SECRET_KEY = /^(access|secret|api|private)?key$|secret|token|password|credential/i
 
-/** Replace secret-looking values anywhere in a JSON-shaped value. A string that parses as a
- * JSON object (a `--body` argument) is redacted inside and re-serialised. */
+/** Replace secret-looking values anywhere in a JSON-shaped value. A string that parses as
+ * JSON (a `--body` argument) is redacted inside and re-serialised — in both argv spellings
+ * the CLI accepts, `--body <json>` and `--body=<json>`, and with the leading whitespace
+ * JSON allows; the secret must not depend on how the argument was typed. */
 function redactSecrets(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactSecrets)
   if (value && typeof value === "object") {
@@ -45,12 +47,19 @@ function redactSecrets(value: unknown): unknown {
     for (const [key, inner] of Object.entries(value)) out[key] = SECRET_KEY.test(key) ? "[redacted]" : redactSecrets(inner)
     return out
   }
-  if (typeof value === "string" && value.startsWith("{")) {
-    try {
-      const parsed: unknown = JSON.parse(value)
-      if (parsed && typeof parsed === "object") return JSON.stringify(redactSecrets(parsed))
-    } catch {
-      // not JSON — leave as is
+  if (typeof value === "string") {
+    // `--name=value`: keep the flag, redact the value.
+    const eq = value.startsWith("--") ? value.indexOf("=") : -1
+    const head = eq > 0 ? value.slice(0, eq + 1) : ""
+    const raw = eq > 0 ? value.slice(eq + 1) : value
+    const trimmed = raw.trimStart()
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed)
+        if (parsed && typeof parsed === "object") return head + JSON.stringify(redactSecrets(parsed))
+      } catch {
+        // not JSON — leave as is
+      }
     }
   }
   return value
@@ -92,7 +101,14 @@ async function stageExportMeta(output: string, format: OutputFormat, rows: numbe
   const metaPath = `${output}.meta.json`
   const partPath = `${metaPath}.part`
   await fs.mkdir(path.dirname(output), { recursive: true })
-  await fs.writeFile(partPath, `${JSON.stringify(doc, null, 2)}\n`, "utf8")
+  try {
+    await fs.writeFile(partPath, `${JSON.stringify(doc, null, 2)}\n`, "utf8")
+  } catch (error) {
+    // A write that failed part-way (disk full) leaves a fragment; the caller never gets a
+    // handle to discard it, so clean up here.
+    await fs.unlink(partPath).catch(() => {})
+    throw error
+  }
   return {
     async commit() {
       try {

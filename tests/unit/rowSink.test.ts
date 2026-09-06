@@ -150,6 +150,22 @@ describe("ExportSink", () => {
     await expect(fs.access(target)).rejects.toThrow()
   })
 
+  it("csv: a failure in the second pass is cleaned up by abort and nothing reappears afterwards", async () => {
+    const target = path.join(dir, "second-pass.csv")
+    const sink = new ExportSink(target, "csv")
+    await sink.push(Array.from({ length: 1000 }, (_, i) => ({ id: i })))
+    // The rows file opens lazily; wait for it to exist before making it unreadable.
+    for (let i = 0; i < 50; i++) { try { await fs.access(`${target}.rows.part`); break } catch { await new Promise((r) => setTimeout(r, 10)) } }
+    await fs.chmod(`${target}.rows.part`, 0o000) // the second pass cannot read its own rows
+    await expect(sink.finish()).rejects.toThrow()
+    await sink.abort()
+    // Give a lazily-opened writer every chance to recreate the file — it must not.
+    await new Promise((r) => setTimeout(r, 300))
+    await expect(fs.access(`${target}.part`)).rejects.toThrow()
+    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
+    await expect(fs.access(target)).rejects.toThrow()
+  })
+
   it("caps the collected titles at the cache's per-endpoint limit", async () => {
     const target = path.join(dir, "many-titles.jsonl")
     const sink = new ExportSink(target, "jsonl", { endpointKey: "insight.research.list", idField: "reportId" })

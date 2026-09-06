@@ -154,29 +154,30 @@ function renderCsv(rows: Array<Record<string, unknown>>): string {
   return [header, ...body].join("\n")
 }
 
-/** Data rows a jsonl / csv render of `value` contains, under the same shaping rules the
- * renderers use (jsonl: every list item; csv: object rows only, or index/value pairs for
- * an all-scalar list; a lone object is one row; null is none). */
+/** The records a jsonl render of `value` emits — ONE rule for the in-memory renderer, the
+ * streamed writer and the sidecar's row count: a `{list}` result writes every list item
+ * as it is (null rows included, as the API returned them); anything else goes through
+ * toRows (a bare array keeps its object rows only, a lone object is one record, null is
+ * none). Two paths reading this differently is how a file and its sidecar disagree. */
+export function jsonlItems(value: unknown): unknown[] {
+  const list = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).list : undefined
+  return Array.isArray(list) ? list : toRows(value)
+}
+
+/** Data rows a jsonl / csv render of `value` contains, under the renderers' own shaping
+ * rules (see jsonlItems / toRows). */
 export function countOutputRows(value: unknown, format: "jsonl" | "csv"): number {
-  if (format === "jsonl") {
-    const items = pickList(value)
-    return (items ?? toRows(value)).length
-  }
-  return toRows(value).length
+  return format === "jsonl" ? jsonlItems(value).length : toRows(value).length
 }
 
 export function renderOutput(value: unknown, format: OutputFormat): string {
   // toRows is computed lazily per branch: json never needs it, and jsonl only
-  // falls back to it when the value isn't already a {list}/array.
+  // falls back to it when the value isn't already a {list}.
   switch (format) {
     case "json":
       return JSON.stringify(value, null, 2)
-    case "jsonl": {
-      const items = value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as Record<string, unknown>).list)
-        ? (value as Record<string, unknown>).list as unknown[]
-        : null
-      return (items ?? toRows(value)).map((item) => JSON.stringify(item)).join("\n")
-    }
+    case "jsonl":
+      return jsonlItems(value).map((item) => JSON.stringify(item)).join("\n")
     case "csv":
       return renderCsv(toRows(value))
     case "markdown":
@@ -220,7 +221,9 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   stream.on("error", () => {})
   try {
     if (format === "jsonl") {
-      for (const item of list) {
+      // Same record selection as renderOutput, so crossing the 1000-row threshold never
+      // changes which rows a bare array yields.
+      for (const item of jsonlItems(value)) {
         await writeLine(stream, JSON.stringify(item))
       }
     } else {
