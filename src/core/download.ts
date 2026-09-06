@@ -34,20 +34,19 @@ function truncateFilename(name: string, maxBytes = 200): string {
  * falling back to the original path once the suffixes run out: returning `p`
  * there would silently overwrite the very first file. */
 /**
- * A not-yet-taken sibling of `p` (`p`, `p-1`, `p-2`, …), CLAIMED: its `.part` file is
- * created exclusively (O_EXCL) on the way out. Checking existence alone is a race — two
- * processes resolving the same auto name together both got `p`, shared one `.part`, and
- * one then failed with ENOENT on rename while the other published the wrong bytes. The
- * claimed `.part` is what the writer truncates and renames over the target, so nothing
- * changes downstream; a stale `.part` from a crashed run merely skips that candidate.
- * Release with `releaseClaim` if the write never happens.
+ * A not-yet-taken sibling of `p` (`p`, `p-1`, `p-2`, …), CLAIMED: the name itself is
+ * created exclusively (O_EXCL) as an empty placeholder on the way out. Anything weaker
+ * races — an existence check followed by a claim on the `.part` let a slow caller see the
+ * name free, a fast caller finish and rename its `.part` into the name, and the slow
+ * caller then re-create the vanished `.part` and rename over the finished file. With the
+ * final name itself taken, no second caller can obtain it; the writer's `.part` + rename
+ * replaces our own placeholder. Release with `releaseClaim` if the write never happens
+ * (it only removes a still-empty placeholder, never a published file).
  */
 export async function uniquePath(p: string): Promise<string> {
-  const exists = (f: string) => fs.access(f).then(() => true, () => false)
   const claim = async (f: string): Promise<boolean> => {
-    if (await exists(f)) return false
     try {
-      const handle = await fs.open(`${f}.part`, "wx")
+      const handle = await fs.open(f, "wx")
       await handle.close()
       return true
     } catch (error) {
@@ -66,9 +65,14 @@ export async function uniquePath(p: string): Promise<string> {
   throw new DownloadError(`Refusing to overwrite: 100 files already share the name "${p}" — pass --output or clean up the directory`)
 }
 
-/** Drop the `.part` a uniquePath claim created, when the write it was reserved for never happened. */
+/** Drop the empty placeholder a uniquePath claim created, when the write it was reserved
+ * for never happened. A file with content is a published download and is left alone. */
 export async function releaseClaim(p: string): Promise<void> {
-  await fs.unlink(`${p}.part`).catch(() => {})
+  try {
+    if ((await fs.stat(p)).size === 0) await fs.unlink(p)
+  } catch {
+    // already gone, or not ours to touch
+  }
 }
 
 export interface DownloadResult {
@@ -284,14 +288,24 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
     // / or : can't write outside the intended path (same rule as buildFilename).
     const autoName = (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (safeFallback + extFromContentType(file.contentType))
     const outputPath = output ?? await uniquePath(truncateFilename(autoName))
-    await saveOutputIfNeeded(file.data, outputPath)
+    try {
+      await saveOutputIfNeeded(file.data, outputPath)
+    } catch (error) {
+      if (!output) await releaseClaim(outputPath)
+      throw error
+    }
     process.stdout.write(`${outputPath}\n`)
     return
   }
 
   if (typeof file.text === "string") {
     const outputPath = output ?? await uniquePath(truncateFilename(`${safeFallback}.txt`))
-    await saveOutputIfNeeded(file.text, outputPath)
+    try {
+      await saveOutputIfNeeded(file.text, outputPath)
+    } catch (error) {
+      if (!output) await releaseClaim(outputPath)
+      throw error
+    }
     process.stdout.write(`${outputPath}\n`)
     return
   }

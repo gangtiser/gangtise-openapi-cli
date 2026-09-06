@@ -186,6 +186,19 @@ describe("ExportSink", () => {
     await expect(fs.access(target)).rejects.toThrow()
   })
 
+  it("applies the same header rules as the in-memory path once a result streams: duplicate names and missing fieldList are refused", async () => {
+    const rows = Array.from({ length: 1000 }, (_, i) => [i, 999])
+    const dup = new ExportSink(path.join(dir, "dup.jsonl"))
+    dup.setFieldList(["close", "close"])
+    await expect(dup.push(rows)).rejects.toThrow(/重复列名（close）/)
+    await dup.abort()
+    const bare = new ExportSink(path.join(dir, "bare.csv"), "csv")
+    await expect(bare.push(rows)).rejects.toThrow(/没有 fieldList/)
+    await bare.abort()
+    await expect(fs.access(path.join(dir, "dup.jsonl.part"))).rejects.toThrow()
+    await expect(fs.access(path.join(dir, "bare.csv.rows.part"))).rejects.toThrow()
+  })
+
   it("caps the collected titles at the cache's per-endpoint limit", async () => {
     const target = path.join(dir, "many-titles.jsonl")
     const sink = new ExportSink(target, "jsonl", { endpointKey: "insight.research.list", idField: "reportId" })

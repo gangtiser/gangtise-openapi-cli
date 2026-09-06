@@ -110,8 +110,8 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 **17. 第二个 Codex 会话复核的 4 处**
 
-- **并发下载同名文件互相写坏（P1）**：`uniquePath` 只查存在不占位，两个进程会共用一个 `.part`（一个 rename 报 ENOENT、另一个发布错误字节）。现在用 `O_EXCL` 独占创建 `<名>.part` 来占位，占到谁就是谁；写入方仍是截断该 `.part` 再 rename；保存未发生时 `releaseClaim` 释放
-- **重复列名静默覆盖（P2）**：`normalizeRows` 对带数组行的响应先查 `fieldList` 重名，重名即报结构性错误（此前 `close:10` / `close:999` 只剩后者、退出 0）；数组行没有 `fieldList` 同样报错，不再原样输出
+- **并发下载同名文件互相写坏（P1）**：`uniquePath` 只查存在不占位，两个进程会共用一个 `.part`（一个 rename 报 ENOENT、另一个发布错误字节）；占 `.part` 也不够——慢的一方在快的一方 rename 之后仍能重建已消失的 `.part` 再覆盖。现在用 `O_EXCL` 独占创建**最终文件名本身**作为空占位，占到谁就是谁；写入方的 `.part` + rename 替换的是自己的占位；保存未发生时 `releaseClaim` 只删仍为空的占位
+- **重复列名静默覆盖（P2）**：`normalizeRows` 与流式导出（`ExportSink`）共用 `assertColumnarHeader`：带数组行的响应 `fieldList` 重名即报结构性错误（此前 `close:10` / `close:999` 只剩后者、退出 0），没有 `fieldList` 同样报错；1000 行阈值两侧接受的东西一致
 - **后续分页 / 分片的 `partial` 丢失（P2）**：合并结果只带首页 / 首片的元数据，现在任一后续页或分片自带 `partial: true` 都让合并结果保持 `partial` 并告警
 - **`raw call auth.login` 先要求鉴权（P2）**：登录端点的凭证在 body 里，不再先索取 token；无环境凭证也能调用
 

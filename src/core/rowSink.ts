@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream, type WriteStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
 
-import { zipFieldRow } from "./normalize.js"
+import { assertColumnarHeader, zipFieldRow } from "./normalize.js"
 import { csvEscape, formatScalar, writeLine } from "./output.js"
 import { extractTitles, MAX_TITLES_PER_ENDPOINT, type TitleCacheConfig } from "./titleCache.js"
 
@@ -43,6 +43,7 @@ export class ExportSink {
   private buffer: unknown[] = []
   private stream: WriteStream | null = null
   private fields: unknown[] | undefined
+  private headerChecked = false
   private finished = false
   /** csv: column union in first-appearance order, and how many object rows contributed. */
   private readonly columns: string[] = []
@@ -143,7 +144,16 @@ export class ExportSink {
   private async write(rows: unknown[]): Promise<void> {
     const stream = this.stream as WriteStream
     for (const row of rows) {
-      const item = Array.isArray(row) && this.fields ? zipFieldRow(this.fields, row) : row
+      let item = row
+      if (Array.isArray(row)) {
+        // Same header rules as normalizeRows, so a result that crosses the streaming
+        // threshold is not accepted where a smaller one would be refused.
+        if (!this.headerChecked) {
+          assertColumnarHeader(this.fields)
+          this.headerChecked = true
+        }
+        item = zipFieldRow(this.fields as unknown[], row)
+      }
       if (this.format === "csv" && isObjectRow(item)) {
         this.objectRows++
         for (const key of Object.keys(item)) {

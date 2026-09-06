@@ -388,15 +388,21 @@ describe("saveDownloadResult", () => {
       const claimed = await Promise.all([uniquePath(base), uniquePath(base), uniquePath(base)])
       expect(new Set(claimed).size).toBe(3)
       expect(claimed.sort()).toEqual([base, path.join(dir, "report-1.pdf"), path.join(dir, "report-2.pdf")].sort())
-      // Each claim is a .part that the writer truncates and renames over the target.
-      for (const p of claimed) await expect(fs.access(`${p}.part`)).resolves.toBeUndefined()
+      // Each claim is the final name itself, held as an empty placeholder: a later caller
+      // cannot take it even after the writer's .part is gone (the race an existence check
+      // plus a .part claim still allowed).
+      for (const p of claimed) expect((await fs.stat(p)).size).toBe(0)
       await saveOutputIfNeeded(new Uint8Array([1, 2, 3]), claimed[0])
       expect(await fs.readFile(claimed[0])).toEqual(Buffer.from([1, 2, 3]))
       await expect(fs.access(`${claimed[0]}.part`)).rejects.toThrow()
-      // An unused claim can be released; a released name is claimable again.
+      expect(await uniquePath(base)).toBe(path.join(dir, "report-3.pdf")) // the published name stays taken
+      // An unused claim can be released; a released name is claimable again. A published
+      // file is never released.
       await releaseClaim(claimed[1])
-      await expect(fs.access(`${claimed[1]}.part`)).rejects.toThrow()
+      await expect(fs.access(claimed[1])).rejects.toThrow()
       expect(await uniquePath(base)).toBe(claimed[1])
+      await releaseClaim(claimed[0])
+      expect(await fs.readFile(claimed[0])).toEqual(Buffer.from([1, 2, 3]))
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }
