@@ -37,6 +37,16 @@ export interface EndpointDefinition {
    * past 2^53 silently rounds, and a rounded id can never fetch the (already
    * billed) task it belongs to. */
   bigIntFields?: readonly string[]
+  /** "list": every successful answer is `{…, list: [...]}` — an empty range is
+   * `{total: 0, list: []}` (probed 2026-09-05 on all four) — so a payload without a
+   * `list` array (`data: null`, a bare object) is a broken response, not an empty one.
+   * Checked in `requestJson`, where the envelope and its traceId are still in hand; a
+   * `null` cannot carry the traceId symbol, so a check further down would report the
+   * failure trace-less, and the flatteners would otherwise print `null` at exit 0.
+   * All seven quote endpoints carry it: the three menu-retired per-market ones answer
+   * an unknown code and an empty range with `{total: 0, list: []}` too (probed
+   * 2026-09-05 on all three), so a legal empty answer always has its `list`. */
+  expects?: "list"
 }
 
 /** Effective request timeout: the endpoint's floor, or the config timeout if higher
@@ -334,42 +344,49 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-quote/kline/daily",
     kind: "json",
     description: "Query A-share historical daily kline (SH/SZ/BJ)",
+    expects: "list",
   },
   "quote.day-kline-hk": {
     method: "POST",
     path: "/application/open-quote/kline-hk/daily",
     kind: "json",
     description: "Query HK stock historical daily kline (HK)",
+    expects: "list",
   },
   "quote.day-kline-us": {
     method: "POST",
     path: "/application/open-quote/kline-us/daily",
     kind: "json",
     description: "Query US stock historical daily kline (NYSE/NASDAQ/AMEX)",
+    expects: "list",
   },
   "quote.index-day-kline": {
     method: "POST",
     path: "/application/open-quote/index/kline/daily",
     kind: "json",
     description: "Query SH/SZ/BJ index daily kline",
+    expects: "list",
   },
   "quote.minute-kline": {
     method: "POST",
     path: "/application/open-quote/kline/minute",
     kind: "json",
     description: "Query A-share minute kline (SH/SZ/BJ)",
+    expects: "list",
   },
   "quote.realtime": {
     method: "POST",
     path: "/application/open-quote/quote/realtime",
     kind: "json",
     description: "Query realtime quote snapshot (A-share / HK / US)",
+    expects: "list",
   },
   "quote.fund-flow": {
     method: "POST",
     path: "/application/open-quote/fund-flow/daily",
     kind: "json",
     description: "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)",
+    expects: "list",
   },
 
   // ─── fundamental ───

@@ -25,6 +25,22 @@ export function attachEnvelopeTraceId<T>(payload: T, traceId: unknown): T {
   return payload
 }
 
+/** Marks an ApiError raised for a RESPONSE SHAPE the endpoint cannot legitimately
+ * produce (a `data: null` where `{list}` is contractual). A caller that fans a query
+ * out — the kline sharder — must treat it as one bad shard, not as the systemic failure
+ * (rate limit, no permission, retries exhausted) that stops the remaining shards from
+ * being sent at all. Non-enumerable so it never reaches JSON output. */
+const STRUCTURAL = Symbol("gangtise.structural")
+
+export function markStructural<E extends object>(error: E): E {
+  Object.defineProperty(error, STRUCTURAL, { value: true, enumerable: false, configurable: true })
+  return error
+}
+
+export function isStructuralError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as Record<symbol, unknown>)[STRUCTURAL] === true)
+}
+
 /** Keyed by the code as a string — `unwrapEnvelope` runs every envelope code
  * through `String()` first, which matters because the 2026-07-17 error-code
  * overhaul emits the new codes as JSON *numbers* while legacy codes stay strings.

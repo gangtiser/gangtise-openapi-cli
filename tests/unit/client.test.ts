@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ApiError, ValidationError } from "../../src/core/errors.js"
+import { ApiError, isStructuralError, ValidationError } from "../../src/core/errors.js"
 import { GangtiseClient } from "../../src/core/client.js"
 import { ENDPOINTS } from "../../src/core/endpoints.js"
 
@@ -1563,5 +1563,89 @@ describe("GangtiseClient 429 Retry-After", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe("GangtiseClient total-cap probe on the first-page-complete path", () => {
+  it("probes past a capped total even when the first page already covers the request", async () => {
+    // A fetch-all starting inside the last page (from=9950 against total=10000) used to
+    // return from the first-page branch without the probe, so a server-capped `total`
+    // passed as complete on exactly the path a sliced re-pull takes.
+    requestMock.mockReset()
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const { from = 0, size = 50 } = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        // The server claims 10000 but keeps answering past it — the Elasticsearch
+        // track_total_hits shape the opinion endpoints exhibit.
+        const rows = Array.from({ length: size }, (_, i) => ({ id: from + i + 1 }))
+        return Promise.resolve(jsonResponse({ total: 10000, list: rows }))
+      })
+
+      const client = createClient()
+      const result = await client.call("insight.opinion.list", { from: 9950 }) as { list: unknown[]; partial?: boolean; totalCapped?: boolean }
+
+      expect(result.list).toHaveLength(50)
+      expect(probedPastEnd(10000)).toBe(true)
+      expect(result.partial).toBe(true)
+      expect(result.totalCapped).toBe(true)
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("server-side cap"))
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("does not probe when --size bounds the request on that same path", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const { from = 0, size = 50 } = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      return Promise.resolve(jsonResponse({ total: 10000, list: Array.from({ length: size }, (_, i) => ({ id: from + i + 1 })) }))
+    })
+    const client = createClient()
+    const result = await client.call("insight.opinion.list", { from: 9950, size: 20 }) as { list: unknown[]; partial?: boolean }
+    expect(result.list).toHaveLength(20)
+    expect(probedPastEnd(10000)).toBe(false)
+    expect(result.partial).toBeUndefined()
+  })
+})
+
+describe("GangtiseClient expects: list", () => {
+  it("fails a null payload on a list endpoint with the envelope traceId attached", async () => {
+    // `data: null` cannot carry the traceId symbol, so the check lives in the client
+    // where the envelope is still in hand — a command-level check reported it trace-less.
+    requestMock.mockReset()
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", traceId: "trace-null-1", data: null }))
+    const client = createClient()
+    let caught: unknown
+    try {
+      await client.call("quote.realtime", { securityList: ["600519.SH"] })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ApiError)
+    expect((caught as ApiError).message).toContain("returned no list payload (got null)")
+    expect((caught as ApiError).traceId).toBe("trace-null-1")
+    // Marked structural so the kline sharder treats it as one bad shard, not an abort.
+    expect(isStructuralError(caught)).toBe(true)
+  })
+
+  it("applies the same check to the three retired kline endpoints", async () => {
+    for (const key of ["quote.day-kline-hk", "quote.day-kline-us", "quote.index-day-kline"]) {
+      requestMock.mockReset()
+      requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", traceId: `t-${key}`, data: null }))
+      await expect(createClient().call(key, { securityList: ["X"] })).rejects.toThrow("returned no list payload")
+      requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
+      await expect(createClient().call(key, { securityList: ["X"] })).resolves.toEqual({ total: 0, list: [] })
+    }
+  })
+
+  it("accepts the legal empty answer {total: 0, list: []} and leaves unflagged endpoints alone", async () => {
+    requestMock.mockReset()
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
+    const client = createClient()
+    await expect(client.call("quote.day-kline", { securityList: ["600519.SH"] })).resolves.toEqual({ total: 0, list: [] })
+    // ai.one-pager legitimately answers null for a security with no generated content.
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: null }))
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).resolves.toBeNull()
   })
 })

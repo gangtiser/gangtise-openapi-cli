@@ -10,13 +10,12 @@ function traceSuffix(source: unknown): string {
 
 /** 按位置把列式响应的一行值拍平成对象。
  *
- * 上游对「fieldList 里有该接口不存在的字段名」有两套处理，实测 2026-07-24：
- * day-kline / minute-kline / fund-flow 把名和值一起丢、三大报表补 null——长度仍相等，安全；
- * 但 realtime / main-business / valuation-analysis 是**值只按有效字段返回、字段名却按请求
- * 原样回显**。长度一旦不等，按位置拍平就会把值贴到错误的字段上：realtime 传
- * ["securityCode","close","turnoverRate"]（realtime 根本没有 close）只回 2 个值，
- * 换手率 28.5573 被贴成 close，读起来就是「茅台收盘价 28.56」（真实价 1297.41）。
- * 不报错、数字看着还合理、却完全是另一个指标——静默错列必须变成显式失败。
+ * 上游对「fieldList 里有该接口不存在的字段名」有两套处理（实测 2026-07-24，realtime 一项
+ * 2026-09-05 复测已换边）：day-kline / minute-kline / fund-flow / realtime 把名和值一起丢、
+ * 三大报表补 null——长度仍相等，拍平安全，少列的那一半由 `flagMissingFields` 兜；但
+ * main-business / valuation-analysis 是**值只按有效字段返回、字段名却按请求原样回显**
+ * （main-business 请求 3 列回显 6 项、每行 3 值）。长度一旦不等，按位置拍平就会把值贴到
+ * 错误的字段上——不报错、数字看着还合理、却完全是另一个指标。静默错列必须变成显式失败。
  *
  * 文案不能一口咬定「字段名传错」：`alternative edb-data` 走同一个拍平却根本没有
  * `--field`（只有 `--indicator-id`），那里长度不等只可能是上游响应结构变了。 */
@@ -30,6 +29,23 @@ export function zipFieldRow(fields: unknown[], row: unknown[], source?: unknown)
     acc[String(field)] = row[index]
     return acc
   }, {})
+}
+
+/** 请求的 `--field` 与响应 `fieldList` 的差集。realtime / day-kline / minute-kline / fund-flow
+ * 对不存在（或已下线）的字段名是名和值一起丢、HTTP 200——结果就是少一列、退出 0，脚本按列名
+ * 取值拿到 undefined 而不是报错（实测 2026-09-05：realtime 传 `turnoverRate` 只回其余列）。
+ * CLI 知道请求了什么，缺列就标 `partial` + `missingFields`（printData → 退出码 3）并告警。
+ * 只判「请求了但没回」，服务端多回的列不管，所以不依赖任何字段白名单。 */
+export function flagMissingFields(data: unknown, requested: string[] | undefined, label: string): void {
+  if (!requested?.length || !data || typeof data !== "object" || Array.isArray(data)) return
+  const rec = data as Record<string, unknown>
+  if (!Array.isArray(rec.fieldList)) return
+  const returned = new Set(rec.fieldList.map(String))
+  const missing = requested.filter((field) => !returned.has(field))
+  if (missing.length === 0) return
+  rec.partial = true
+  rec.missingFields = missing
+  process.stderr.write(`[gangtise] warning: ${label} returned no column for ${missing.join(", ")} — the server drops a field name it does not recognise (or no longer serves) without an error. Check the name against references/fields.md; result marked partial (exit 3).\n`)
 }
 
 export function normalizeRows(value: unknown): unknown {

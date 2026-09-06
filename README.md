@@ -6,11 +6,11 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.38.0 — 2026-09-05**：① `quote realtime` / `day-kline` / `minute-kline` 支持**沪深 ETF**（`512800.SH`）与 **20 个全球指数**（`SPX.SPI` 标普500 / `N225.NKI` 日经225 / `HSI.HI` 恒生…，清单见 `gangtise-openapi/references/commands/quote.md`），代码直接传即可；全市场关键字 `aShares` 不含 ETF；全球指数 realtime 的 `volume` / `amount` / `amplitude` 与分钟 K 的 `volume` / `amount` 为 `null`，日 K 只有 `amount` 为 `null`；`tradeTime` 是交易所当地时间。② `quote realtime` 字段集：新增 `tradeStatus`（仅 A 股 / 港股个股有值），`turnoverRate` / `volumeRatio` 不再返回，美股 `amount` 由 `0` 改为 `null`。③ **新增缺列护栏**：`quote` 系带 `--field` 时，请求了但服务端没回的列（字段名写错或已下线，服务端不报错）现在标 `partial` + `missingFields`、退出码 3 并在 stderr 点名；`--field` 只回点名的列、不自动附带身份列（日 K 要自己写进 `securityCode` / `tradeDate`，分钟 K 是 `securityCode` / `tradeTime`，realtime 是 `securityCode`；`fund-flow` 会自动附带）。④ K 线全市场分片合并时按列名对齐各片（此前直接按位置拼接）；`quote` 单请求收到无 `list` 的载荷报错退出 1（此前打印 `null` 退出 0）；全量翻页从末页起步时同样做 `total` 封顶探测；`minute-kline` 的截断提示改为指向 `--start-time/--end-time`。⑤ `fundamental earning-forecast` 的 `roe` 单位改为百分比（`35.6` = 35.6%）。⑥ ETF 有复权因子：day-kline `adjustFactor` 与 EDE `qte_adj_factor` 都覆盖。
 - **v0.37.1 — 2026-08-31**：**文档修正，无代码变更**。① `indicator screener` 用静态属性选股的示例补进 README——`pty_*`（经营范围·注册地…）/ `scr_*`（上市板块·ISIN…）两族用 `--indicator-param "F1:"`（冒号后留空）声明该指标不吃查询日期后，可直接用于条件选股（v0.36.0 起支持），此前 README 示例仍写着要先用 `cross-section` 取回再本地筛。② **数据权限时间范围的说明按实测更正**：这个窗口按**账号**配、不按接口配——`indicator` 的 `cross-section` / `time-series` / `screener` 与 `quote day-kline` 在同一条边界上，**撞到 `110003` 换接口绕不过去**，正确做法是把日期移进权限范围，或联系客户经理开通更长历史；文档此前建议的「`screener` 撞界改用 `cross-section` 拉数再本地筛」已不适用。③ EDE 文本筛选示例换成有区分度的条件，避免示例条件把整个板块原样返回、看不出筛选是否生效。
 - **v0.37.0 — 2026-08-29**：🔴 **下载的「智能文件命名」改为默认只读缓存**。省略 `--output` 时仍优先用 `title-cache` 里的真实标题——先 `list` 再 `download` 的常规用法**不受影响，也不产生额外调用**；但**缓存未命中时不再自动回查 list 接口**，改为退回服务端返回的文件名或 `<type>-<id>.<ext>`。回查一次要拉 200 条记录（4 次请求），而这 12 个下载命令里有 9 个的 list 按 0.1 积分/条计费，约 20 积分——这笔开销只用于取一个更易读的文件名，所以改成显式的 `--resolve-title`。加了该参数时，取回的 200 条标题会一并写入缓存，同一批后续下载不再重复回查。⚠️ **依赖旧行为拿中文文件名的脚本**：升级后会得到 ID 文件名，补 `--resolve-title`，或按推荐用法先跑一次 `list`。**另有三项修正**：① 下载已成功、仅标题回查阶段遇到异常响应时，退出码会变成 3（脚本按 `!= 0` 判失败会误判为下载失败），现已隔离——下载完整就是 0；② `indicator cross-section` / `time-series` 的 `--indicator-param` 若写了 `--indicator` 里没有的指标编码（多为拼写错误），此前该参数不会作用到你要查的指标上且没有任何提示，现改为发请求前直接报错并指出是哪个编码（`screener` 一直是这个行为）；③ 下载请求的超时改为与其他请求同一套解析逻辑，行为对齐。
 - **v0.36.0 — 2026-08-18**：**日期写法放宽**——`YYYY-MM-DD`、`YYYY/MM/DD`、`YYYYMMDD` 三种「年在前」写法都收，统一归一成 `YYYY-MM-DD` 发出（datetime 只归一日期部分，Unix 时间戳原样透传）；「年在后」写法（`01-07-2026`）仍在本地拒绝——接口会按美式「月在前」解析它，欧洲习惯写法会静默拿到差半年的数据，详见「关于日期格式」。**`indicator screener` 支持无日期指标**：`--indicator-param "F1:"`（冒号后留空）声明该指标不要查询日期，`pty_*` / `scr_*` 静态属性两族与 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg` 现在可以直接用于条件选股（此前只能在 `cross-section` 取回后本地筛），写法与截面一致、可与真实参数共存。**全量拉取的 `total` 封顶探测恢复覆盖 `ai hot-topic`**（v0.35.0 曾跳过）。另：EDE 报错提示同步更新；补充计费说明（`ai hot-topic` 50/篇 的「篇」= 一整份报告；按篇/按条计费的接口查不到内容不扣分）。
 - **v0.35.0 — 2026-08-16**：新增 `--indicator-param "<code>:"`（冒号后留空）声明「这个指标不要查询日期」，用于 `parameterList` 里没有日期参数的指标——`pty_*`（经营范围/注册地/法定代表人…）、`scr_*`（上市市场/上市板块/ISIN…）两族，以及 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。这类指标此前在 `indicator cross-section` 上取不到数（`--date` 必填且会注入 `tradeDate`，而它们不收，整条请求被拒）；该写法可与真实参数共存（`"code:" + "code:fiscalYear=2025"`）。**EDE 日期参数报错提示重写**：拆成五种报文形态分别给建议，服务端同时点名「不该有的键」和「缺的键」时直说换哪个，只说了一半时不再瞎猜，多指标批量报错时不再用单数口吻指向其中一个指标。另：`--rank-type` 的说明按实测更正（差别大小取决于关键词，`--search-type` 不影响 `--rank-type 1` 取回哪些条目）；`ai hot-topic` 全量拉取跳过 `total` 封顶探测（**已于 v0.36.0 撤回**——该探测不额外计费）。
-- **v0.34.1 — 2026-08-15**：EDE 报告期类指标传错日期参数时，报错里直接给出该改的 CLI 写法（此前只有服务端那句「缺少必填参数 reportDate」，要自己推断该用 `--indicator-param`）；该提示对 `100001` / `100003` 两个错误码都生效，并注明少数指标两个日期都要、另有指标要 `fiscalYear`，一律以 `indicator search` 的 `parameterList` 为准。另修复下载文件名缓存在并发写入下可能丢条目的问题（单进程使用不受影响）。
 
 ### 历史里程碑
 
@@ -170,11 +170,11 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | | `concept-search` | 题材 ID 搜索（名称/拼音/分组名匹配） |
 | | `sector-search` | 板块 ID 搜索（返回层级路径） |
 | | `sector-constituents` | 板块成分股查询 |
-| **Quote** | `day-kline` | 历史日K线——A股/港股/美股个股 + 交易所/概念/行业指数，可混查 |
+| **Quote** | `day-kline` | 历史日K线——A股/港股/美股个股 + 沪深 ETF + 交易所/概念/行业指数 + 20 个全球指数，可混查 |
 | | `day-kline-hk` / `day-kline-us` | ⚠️ 已下线，能力并入 `day-kline`（接口仍可调，但不校验证券代码） |
 | | `index-day-kline` | ⚠️ 已下线，能力并入 `day-kline`；但仍是取「全部沪深京指数」（`--security all`）和拿指数名称（`securityName`）的唯一方式 |
-| | `minute-kline` | 分钟K线——沪深A股 + 各类指数（一次一只） |
-| | `realtime` | 个股实时行情快照（A股/港股/美股） |
+| | `minute-kline` | 分钟K线——沪深A股 / ETF + 各类指数含全球指数（一次一只） |
+| | `realtime` | 实时行情快照——A股/港股/美股个股 + 沪深 ETF + 各类指数含全球指数 |
 | | `fund-flow` | A股个股日资金流向（沪深京；小/中/大/特大单 + 主力净流入） |
 | **Fundamental** | `income-statement` / `balance-sheet` / `cash-flow` | A股三大财务报表（累计） |
 | | `income-statement-quarterly` / `cash-flow-quarterly` | A股利润表/现金流量表（单季度） |
@@ -322,7 +322,7 @@ vault.my-conference.download
 - 如果显式传了 `--size`，则按指定值翻页，直到达到 `size` 或数据取完
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
-- 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
+- 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`quote` 系带 `--field` 而服务端没回的列为 `missingFields`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
 - **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**2026-08-15 起这个分支基本收不到样本**——服务端现在对解析不了的代码直接报 `100003` 并点名是哪个（指标码拼错 →「指标 xxx 不存在」；证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O` →「xxx 不是有效证券或者板块ID」），**无论同批有没有正确的代码都会报**，CLI 相应退出 1。真实的无数据/无覆盖仍是占位单元格 + 退出码 0。占位值统一是 `null`。⚠️ **报告期类指标（`is_*`）的时序上大部分行都是占位**（只有报告期末那几行是真值），`null` 虽被 Excel / pandas / SQL 的聚合跳过，**但行数不变**，手工「总和 ÷ 行数」仍会差几十倍；详见 skill 的 `references/commands/indicator.md`。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集不能直接当成「无标的符合条件」——另有两种成因产生**逐字相同**的输出：**日期没落在报告期末**（报告期类指标此时整批 `null`），或**该指标不覆盖这批证券**（如拿 A 股专属指标查港美股）。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
 - **分页端点返回 `null` 也退出 3**：分页端点的正常响应是 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`，CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
 - 🔴 **`total` 被服务端封顶时会标 `totalCapped` 并退出 3**：分页端点的 `total` 若被服务端封顶（返回一个固定上限而非真实条数），省略 `--size` 的全量拉取会**正好取满那个上限就停、且不报任何异常**——导出的文件是截断的却看不出来。现在全量拉取结束后会**多探一行**（`from = total`）：探到数据就标 `partial` + `totalCapped` 并退出 3。判据不写死 10000，服务端改配置仍然有效；`total` 诚实时探针返回空、不产生计费。传了 `--size` 的有界请求不做此探测。
@@ -468,6 +468,8 @@ gangtise reference sector-constituents --sector-id 1000001005 --format json
 
 ```bash
 gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
+# --field 只回点名的列、不自动附带身份列（fund-flow 除外）：日 K 加 securityCode / tradeDate，分钟 K 加 securityCode / tradeTime，realtime 加 securityCode
+gangtise quote day-kline --security 600519.SH --security 000858.SZ --start-date 2026-03-01 --end-date 2026-03-31 --field securityCode --field tradeDate --field close
 # 查最近/最新 K 线建议显式传 --start-date/--end-date；只传 --limit 会截取查询窗口开头，不等于最近N条
 gangtise quote day-kline --format json
 # 全市场查询：关键字是 aShares / hkStocks / usStocks，必须单独传（旧的 --security all 已不再支持）
@@ -475,6 +477,8 @@ gangtise quote day-kline --security aShares --start-date 2026-04-01 --end-date 2
 # 港股 / 美股 / 指数都走同一个 day-kline，可混着传
 gangtise quote day-kline --security 00700.HK --security AAPL.O --start-date 2026-03-01 --end-date 2026-03-31
 gangtise quote day-kline --security 000001.SH --security 880134.GT --security 821031.SWI --start-date 2026-03-01 --end-date 2026-03-31
+# 沪深 ETF 与 20 个全球指数也走 day-kline（全球指数 amount 为 null；ETF 有 adjustFactor；aShares 关键字不含 ETF，要逐个传）
+gangtise quote day-kline --security 512800.SH --security SPX.SPI --security N225.NKI --start-date 2026-08-01 --end-date 2026-08-31
 # 港股全市场（自动按 2 天/片分片）
 gangtise quote day-kline --security hkStocks --start-date 2026-04-01 --end-date 2026-04-10 --format json
 # 美股全市场（自动按 1 天/片分片）
@@ -485,6 +489,8 @@ gangtise quote index-day-kline --security 000001.SH --security 399001.SZ --start
 gangtise quote minute-kline --security 600519.SH --start-time "2026-04-15 09:30:00" --end-time "2026-04-15 15:00:00" --field open --field close --field volume
 # 实时行情：三大市场混合查询
 gangtise quote realtime --security 600519.SH --security 00700.HK --security AAPL.O --field securityCode --field tradeTime --field latestPrice --field pctChange --field volume --format json
+# 实时行情：ETF 与全球指数（全球指数 volume/amount/amplitude 为 null，tradeTime 是交易所当地时间；美股 amount 为 null）
+gangtise quote realtime --security 512800.SH --security SPX.SPI --security HSI.HI --field securityCode --field tradeTime --field latestPrice --field pctChange --format json
 # 实时行情：全市场批量（建议配合 --field 精简字段）
 gangtise quote realtime --security aShares --field securityCode --field latestPrice --field pctChange --field volume --format json
 # A股个股日资金流向（沪深京；--security aShares 全市场；--limit 上限 10000，超限缩短日期区间分批）
@@ -511,8 +517,8 @@ gangtise fundamental main-business --security-code 600519.SH --breakdown region
 # 多报告期：--period 可传多个值
 gangtise fundamental main-business --security-code 600519.SH --breakdown product --period annual --period interim
 gangtise fundamental valuation-analysis --security-code 600519.SH --indicator peTtm
-# 盈利预测（一致预期）
-gangtise fundamental earning-forecast --security-code 600519.SH --consensus netIncome --consensus eps --consensus pe
+# 盈利预测（一致预期）；roe 单位是百分比（35.6 = 35.6%）
+gangtise fundamental earning-forecast --security-code 600519.SH --consensus netIncome --consensus eps --consensus pe --consensus roe
 # 利润表（单季度）
 gangtise fundamental income-statement-quarterly --security-code 600519.SH --fiscal-year 2025 --period q2 --field netProfit
 # 现金流量表（单季度）

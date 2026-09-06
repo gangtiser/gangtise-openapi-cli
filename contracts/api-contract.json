@@ -1,0 +1,251 @@
+{
+  "quote.realtime": {
+    "columns": [
+      "amount",
+      "amplitude",
+      "change",
+      "exchange",
+      "high",
+      "latestPrice",
+      "low",
+      "open",
+      "pctChange",
+      "preClose",
+      "securityCode",
+      "tradeDate",
+      "tradeStatus",
+      "tradeTime",
+      "volume"
+    ],
+    "nullFields": {
+      "000001.SH": [
+        "tradeStatus"
+      ],
+      "00700.HK": [],
+      "512800.SH": [
+        "tradeStatus"
+      ],
+      "600519.SH": [],
+      "801010.SWI": [
+        "tradeStatus"
+      ],
+      "880134.GT": [
+        "tradeStatus"
+      ],
+      "AAPL.O": [
+        "amount",
+        "tradeStatus"
+      ],
+      "SPX.SPI": [
+        "amount",
+        "amplitude",
+        "tradeStatus",
+        "volume"
+      ]
+    }
+  },
+  "quote.day-kline": {
+    "columns": [
+      "adjustFactor",
+      "amount",
+      "change",
+      "close",
+      "high",
+      "low",
+      "open",
+      "pctChange",
+      "preClose",
+      "securityCode",
+      "tradeDate",
+      "volume"
+    ],
+    "nullFields": {
+      "000001.SH": [
+        "adjustFactor"
+      ],
+      "00700.HK": [],
+      "512800.SH": [],
+      "600519.SH": [],
+      "801010.SWI": [
+        "adjustFactor"
+      ],
+      "880134.GT": [
+        "adjustFactor"
+      ],
+      "AAPL.O": [],
+      "SPX.SPI": [
+        "adjustFactor",
+        "amount"
+      ]
+    }
+  },
+  "quote.minute-kline": {
+    "000001.SH": {
+      "columns": [
+        "amount",
+        "change",
+        "close",
+        "high",
+        "low",
+        "open",
+        "pctChange",
+        "securityCode",
+        "tradeTime",
+        "volume"
+      ],
+      "nullFields": []
+    },
+    "512800.SH": {
+      "columns": [
+        "amount",
+        "change",
+        "close",
+        "high",
+        "low",
+        "open",
+        "pctChange",
+        "securityCode",
+        "tradeTime",
+        "volume"
+      ],
+      "nullFields": []
+    },
+    "600519.SH": {
+      "columns": [
+        "amount",
+        "change",
+        "close",
+        "high",
+        "low",
+        "open",
+        "pctChange",
+        "securityCode",
+        "tradeTime",
+        "volume"
+      ],
+      "nullFields": []
+    },
+    "SPX.SPI": {
+      "columns": [
+        "amount",
+        "change",
+        "close",
+        "high",
+        "low",
+        "open",
+        "pctChange",
+        "securityCode",
+        "tradeTime",
+        "volume"
+      ],
+      "nullFields": [
+        "amount",
+        "volume"
+      ]
+    }
+  },
+  "quote.fund-flow": {
+    "columns": [
+      "largeInflow",
+      "largeInflowRatio",
+      "largeNetInflow",
+      "largeOutflow",
+      "largeOutflowRatio",
+      "mainInflow",
+      "mainInflowRatio",
+      "mainNetInflow",
+      "mainOutflow",
+      "mainOutflowRatio",
+      "mediumInflow",
+      "mediumInflowRatio",
+      "mediumNetInflow",
+      "mediumOutflow",
+      "mediumOutflowRatio",
+      "securityCode",
+      "smallInflow",
+      "smallInflowRatio",
+      "smallNetInflow",
+      "smallOutflow",
+      "smallOutflowRatio",
+      "totalInflow",
+      "totalNetInflow",
+      "totalOutflow",
+      "tradeDate",
+      "xlargeInflow",
+      "xlargeInflowRatio",
+      "xlargeNetInflow",
+      "xlargeOutflow",
+      "xlargeOutflowRatio"
+    ]
+  },
+  "indicator.search": {
+    "finc_pe_ttm": {
+      "parameters": [
+        "tradeDate!"
+      ],
+      "scope": [
+        "A股/股票",
+        "港股/股票"
+      ]
+    },
+    "is_op_rev": {
+      "parameters": [
+        "currency",
+        "reportDate!",
+        "reportType",
+        "scale"
+      ],
+      "scope": [
+        "A股/股票",
+        "港股/股票"
+      ]
+    },
+    "qte_adj_factor": {
+      "parameters": [
+        "tradeDate!"
+      ],
+      "scope": [
+        "A股/股票",
+        "any/场内基金",
+        "港股/股票",
+        "美股/股票"
+      ]
+    },
+    "qte_close": {
+      "parameters": [
+        "adjustType",
+        "baseDate",
+        "currency",
+        "tradeDate!"
+      ],
+      "scope": [
+        "A股/股票",
+        "港股/股票",
+        "美股/股票"
+      ]
+    },
+    "qte_mkt_cptl": {
+      "parameters": [
+        "currency",
+        "scale",
+        "tradeDate!"
+      ],
+      "scope": [
+        "A股/股票",
+        "港股/股票",
+        "美股/股票"
+      ]
+    }
+  },
+  "reference.constant-category": {
+    "columns": [
+      "category",
+      "categoryName",
+      "maxLevel",
+      "structureType",
+      "usageScopes",
+      "version"
+    ],
+    "count": 8
+  }
+}

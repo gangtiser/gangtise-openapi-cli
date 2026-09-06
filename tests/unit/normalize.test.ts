@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { attachEnvelopeTraceId } from "../../src/core/errors.js"
-import { normalizeRows } from "../../src/core/normalize.js"
+import { flagMissingFields, normalizeRows } from "../../src/core/normalize.js"
 
 describe("normalizeRows", () => {
   it("preserves total metadata with plain list rows", () => {
@@ -146,5 +146,43 @@ describe("normalizeRows", () => {
     expect(normalizeRows(null)).toBeNull()
     expect(normalizeRows("hello")).toBe("hello")
     expect(normalizeRows(42)).toBe(42)
+  })
+})
+
+describe("flagMissingFields", () => {
+  const silence = () => vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+
+  it("marks partial + missingFields when a requested column is absent from fieldList", () => {
+    const errSpy = silence()
+    const data: Record<string, unknown> = { total: 1, fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1330]] }
+    flagMissingFields(data, ["securityCode", "latestPrice", "turnoverRate", "volumeRatio"], "quote realtime")
+    expect(data.partial).toBe(true)
+    expect(data.missingFields).toEqual(["turnoverRate", "volumeRatio"])
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("turnoverRate, volumeRatio")
+    errSpy.mockRestore()
+  })
+
+  it("leaves a response alone when every requested column came back (extra columns are fine)", () => {
+    const errSpy = silence()
+    const data: Record<string, unknown> = { fieldList: ["securityCode", "tradeDate", "close"], list: [] }
+    flagMissingFields(data, ["close"], "quote day-kline")
+    expect(data.partial).toBeUndefined()
+    expect(data.missingFields).toBeUndefined()
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it("is a no-op without a requested list or without a fieldList to compare against", () => {
+    const errSpy = silence()
+    const noFields: Record<string, unknown> = { fieldList: ["securityCode"], list: [] }
+    flagMissingFields(noFields, undefined, "quote realtime")
+    flagMissingFields(noFields, [], "quote realtime")
+    const objectRows: Record<string, unknown> = { list: [{ securityCode: "600519.SH" }] }
+    flagMissingFields(objectRows, ["close"], "quote fund-flow")
+    flagMissingFields(null, ["close"], "quote fund-flow")
+    expect(noFields.partial).toBeUndefined()
+    expect(objectRows.partial).toBeUndefined()
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 })

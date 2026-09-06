@@ -12,7 +12,7 @@ import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
 import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./core/fileParse.js"
-import { normalizeRows, zipFieldRow } from "./core/normalize.js"
+import { flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
 import type { GangtiseClient } from "./core/client.js"
@@ -64,13 +64,13 @@ const DEFAULT_QUOTE_LIMIT = 6000
  * sent on the request; `--limit` is validated to <= 10000 so `cap` can't exceed the
  * server ceiling and hide a truncation.
  */
-function flagIfLimitTruncated(data: unknown, cap: number, label: string): void {
+function flagIfLimitTruncated(data: unknown, cap: number, label: string, rangeFlags = "--start-date/--end-date"): void {
   if (!data || typeof data !== "object" || Array.isArray(data)) return
   const rec = data as Record<string, unknown>
   if (rec.partial === true) return
   if (Array.isArray(rec.list) && rec.list.length >= cap) {
     rec.partial = true
-    process.stderr.write(`[gangtise] warning: ${label} returned ${rec.list.length} rows = the ${cap}-row limit; results are likely truncated (this endpoint has no pagination). Narrow --start-date/--end-date or raise --limit (max 10000), fetching in date batches.\n`)
+    process.stderr.write(`[gangtise] warning: ${label} returned ${rec.list.length} rows = the ${cap}-row limit; results are likely truncated (this endpoint has no pagination). Narrow ${rangeFlags} or raise --limit (max 10000), fetching in date batches.\n`)
   }
 }
 
@@ -615,7 +615,10 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
         // A whole-market query is date-sharded: callKlineWithSharding lifts the limit to
         // the API max and owns completeness (partial / failedShards), so leave `limit`
         // unset and skip the single-request truncation guard.
+        // A null answer never reaches here: the endpoint's `expects: "list"` fails it
+        // inside the client, envelope traceId attached (endpoints.ts).
         const data = await callKlineWithSharding(client, endpointKey, body, { shardDays: markets[keyword], fullMarketValue: keyword })
+        flagMissingFields(data, body.fieldList, `quote ${name}`)
         await printData(data, format, options.output)
         return
       }
@@ -626,10 +629,11 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
       // is exactly the passthrough callKlineWithSharding would have done.)
       const data = await client.call(endpointKey, { ...body, limit })
       flagIfLimitTruncated(data, limit, name)
+      flagMissingFields(data, body.fieldList, `quote ${name}`)
       await printData(data, format, options.output)
       })
     })
-addKlineCommand("day-kline", "quote.day-kline", "Security code — A-share .SH/.SZ/.BJ, HK .HK, US .O/.N/.A, exchange index .SH/.SZ/.BJ, concept index .GT, industry index .CI/.SWI; or one market keyword: aShares / hkStocks / usStocks (auto-sharded by date, must be passed alone)", KLINE_MARKETS)
+addKlineCommand("day-kline", "quote.day-kline", "Security code — A-share .SH/.SZ/.BJ, ETF .SH/.SZ (e.g. 512800.SH), HK .HK, US .O/.N/.A, exchange index .SH/.SZ/.BJ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); or one market keyword: aShares / hkStocks / usStocks (auto-sharded by date, must be passed alone; keywords cover stocks only — ETFs and indices must be listed by code)", KLINE_MARKETS)
 addKlineCommand("day-kline-hk", "quote.day-kline-hk", "[deprecated: use 'day-kline'] Security code (HK stock: .HK, or 'all' for full market)", LEGACY_ALL_MARKET(2))
 addKlineCommand("day-kline-us", "quote.day-kline-us", "[deprecated: use 'day-kline'] Security code (US stock: e.g. AAPL.O, or 'all' for full market)", LEGACY_ALL_MARKET(1))
 // 15 days, not the historical 30: ~531 index rows per trading day x ~11 trading days in a
@@ -637,18 +641,25 @@ addKlineCommand("day-kline-us", "quote.day-kline-us", "[deprecated: use 'day-kli
 // at the 10K cap and lost ~11% of the range (it surfaced as exit 3 + truncatedShards, but
 // the split was never sized to avoid it in the first place).
 addKlineCommand("index-day-kline", "quote.index-day-kline", "[deprecated: use 'day-kline'] Index code (.SH/.SZ/.BJ, or 'all' for full market)", LEGACY_ALL_MARKET(15))
-quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI; no whole-market keyword").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), ETF .SH/.SZ (e.g. 512800.SH), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); no whole-market keyword").option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }) ?? DEFAULT_QUOTE_LIMIT
-  const data = await client.call("quote.minute-kline", { securityCode: options.security, startTime: options.startTime, endTime: options.endTime, limit, fieldList: maybeArray(options.field) })
-  flagIfLimitTruncated(data, limit, "minute-kline")
+  const fieldList = maybeArray<string>(options.field)
+  const data = await client.call("quote.minute-kline", { securityCode: options.security, startTime: options.startTime, endTime: options.endTime, limit, fieldList })
+  flagIfLimitTruncated(data, limit, "minute-kline", "--start-time/--end-time")
+  flagMissingFields(data, fieldList, "quote minute-kline")
   await printData(data, format, options.output)
 }))
-quote.command("realtime").description("Realtime quote snapshot (A-share / HK / US stocks and indices)").option("--security <code>", "Security code — stock .SH/.SZ/.BJ/.HK/.O/.N/.A, exchange index .SH/.SZ/.BJ, concept index .GT, industry index .CI/.SWI; or one market keyword: aShares / hkStocks / usStocks (must be passed alone; indices have no whole-market keyword)", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+quote.command("realtime").description("Realtime quote snapshot (A-share / HK / US stocks, ETFs, and indices incl. 20 global indices)").option("--security <code>", "Security code — stock .SH/.SZ/.BJ/.HK/.O/.N/.A, ETF .SH/.SZ (e.g. 512800.SH), exchange index .SH/.SZ/.BJ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); or one market keyword: aShares / hkStocks / usStocks (must be passed alone; keywords cover stocks only — ETFs and indices have no whole-market keyword)", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
   // Realtime takes the same market keywords as day-kline but never shards (one snapshot
   // per security), so it only needs the "alone, and a keyword this API knows" check.
   checkMarketKeywords(options.security, REALTIME_MARKETS, "quote realtime")
-  return emit(options, (client) => client.call("quote.realtime", { securityList: maybeArray(options.security), fieldList: maybeArray(options.field) }))
+  return emit(options, async (client) => {
+    const fieldList = maybeArray<string>(options.field)
+    const data = await client.call("quote.realtime", { securityList: maybeArray(options.security), fieldList })
+    flagMissingFields(data, fieldList, "quote realtime")
+    return data
+  })
 })
 quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").option("--security <code>", "Security code (e.g. 600519.SH / 920982.BJ), or 'aShares' for full A-share market — auto-sharded by day (repeat)", collectList, []).option("--start-date <date>", "Start date yyyy-MM-dd (default: endDate minus 1 year)", dateArg("--start-date")).option("--end-date <date>", "End date yyyy-MM-dd (default: latest trading day)", dateArg("--end-date")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000; single-security cap — aShares auto-shards by day)").option("--field <field>", "Field, e.g. mainNetInflow/largeInflow/xlargeOutflow (repeat); omit for all", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
   // fund-flow needs this guard MORE than the kline commands, not less: mixing the keyword
@@ -677,12 +688,14 @@ quote.command("fund-flow").description("A-share daily fund flow (SH/SZ/BJ)").opt
       throw new ValidationError("quote fund-flow --security aShares requires both --start-date and --end-date (the full market is fetched via per-day shards)")
     }
     const data = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: 1, fullMarketValue: "aShares" })
+    flagMissingFields(data, body.fieldList, "quote fund-flow")
     await printData(data, format, options.output)
     return
   }
   const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
   const data = await client.call("quote.fund-flow", { ...body, limit })
   flagIfLimitTruncated(data, limit, "fund-flow")
+  flagMissingFields(data, body.fieldList, "quote fund-flow")
   await printData(data, format, options.output)
   })
 })

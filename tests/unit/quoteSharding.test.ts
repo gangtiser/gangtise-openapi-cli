@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { ApiError, markStructural } from "../../src/core/errors.js"
+import { flagMissingFields } from "../../src/core/normalize.js"
 import { callKlineWithSharding } from "../../src/core/quoteSharding.js"
 
 describe("callKlineWithSharding", () => {
@@ -369,5 +371,268 @@ describe("callKlineWithSharding", () => {
 
     expect(call).not.toHaveBeenCalled()
     expect(result.list).toEqual([])
+  })
+})
+
+describe("callKlineWithSharding column alignment", () => {
+  it("re-maps a shard whose fieldList is ordered differently onto the first shard's columns", async () => {
+    // Merged rows are zipped against ONE fieldList (the first shard's). A shard that
+    // orders its columns differently used to be concatenated raw, so close landed
+    // under volume and volume under close — silently, with no partial marker.
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-03") return { fieldList: ["volume", "close"], list: [[200, 20]] }
+      return { fieldList: ["close", "volume"], list: [[10, 100]] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-06",
+    }, { shardDays: 2 }) as { fieldList: unknown[]; list: unknown[][]; partial?: boolean }
+
+    expect(result.fieldList).toEqual(["close", "volume"])
+    expect(result.list).toEqual([[10, 100], [20, 200], [10, 100]])
+    expect(result.partial).toBeUndefined()
+  })
+
+  it("drops a shard missing a header column as failed rather than merging it under the wrong names", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-03") return { fieldList: ["close"], list: [[20]] }
+      return { fieldList: ["close", "volume"], list: [[10, 100]] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-06",
+    }, { shardDays: 2 }) as { list: unknown[][]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
+
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-04" }])
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("cannot be aligned")
+    errSpy.mockRestore()
+  })
+})
+
+describe("callKlineWithSharding shard schema validation", () => {
+  // Three 2-day shards over 04-01..04-06; the middle one (04-03) is the odd one out.
+  const range = { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-06" }
+  const good = { fieldList: ["close", "volume"], list: [[10, 100]] }
+  type Merged = { fieldList?: unknown[]; list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
+  const middle = { startDate: "2026-04-03", endDate: "2026-04-04" }
+  const withMiddle = (odd: unknown) => vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => (body.startDate === "2026-04-03" ? odd : good))
+
+  it("drops a shard whose array rows are narrower than its own fieldList instead of padding them", async () => {
+    // Re-mapping used to force every row to the header width, so a short row was padded
+    // with undefined and sailed past zipFieldRow's width guard — the guard the
+    // single-request path still has.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const result = await callKlineWithSharding({ call: withMiddle({ fieldList: ["volume", "close"], list: [[200]] }) }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([middle])
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("do not match its own fieldList")
+    errSpy.mockRestore()
+  })
+
+  it("drops a shard whose array rows are wider than its own fieldList instead of truncating them", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const result = await callKlineWithSharding({ call: withMiddle({ fieldList: ["volume", "close"], list: [[200, 20, 999]] }) }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.failedShards).toEqual([middle])
+    errSpy.mockRestore()
+  })
+
+  it("drops a shard whose fieldList repeats a column name rather than picking one of the two", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const result = await callKlineWithSharding({ call: withMiddle({ fieldList: ["volume", "close", "close"], list: [[200, 20, 999]] }) }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.failedShards).toEqual([middle])
+    errSpy.mockRestore()
+  })
+
+  it("drops a shard with array rows but no fieldList rather than reading them under the header", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const result = await callKlineWithSharding({ call: withMiddle({ list: [[200, 20]] }) }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.failedShards).toEqual([middle])
+    errSpy.mockRestore()
+  })
+
+  it("lets an empty first shard neither define the header nor blank the rows that follow", async () => {
+    // A holiday window answers `{total: 0, fieldList: [], list: []}`; as the first shard
+    // it used to become the merged header, and every later row was re-mapped onto [].
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => (body.startDate === "2026-04-01" ? { total: 0, fieldList: [], list: [] } : good))
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.fieldList).toEqual(["close", "volume"])
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.partial).toBeUndefined()
+    expect(result.failedShards).toBeUndefined()
+  })
+
+  it("does not count an empty later shard as failed for lacking columns", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const result = await callKlineWithSharding({ call: withMiddle({ total: 0, fieldList: [], list: [] }) }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.partial).toBeUndefined()
+    expect(result.failedShards).toBeUndefined()
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+})
+
+describe("callKlineWithSharding header provenance and empty-shard contradictions", () => {
+  const range = { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-06" }
+  type Merged = { fieldList?: unknown[]; list: unknown[]; total?: number; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
+  const middle = { startDate: "2026-04-03", endDate: "2026-04-04" }
+  const byStart = (map: Record<string, unknown>, fallback: unknown) => vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => map[body.startDate] ?? fallback)
+
+  it("never lets an object-row shard's unvalidated fieldList become the header for later array rows", async () => {
+    // First shard: object rows plus a malformed fieldList that constrains nothing of its
+    // own. Second shard: well-formed array rows. The header must come from the second.
+    const call = byStart({ "2026-04-01": { fieldList: ["close", "close"], list: [{ close: 10, volume: 100 }] } }, { fieldList: ["close", "volume"], list: [[20, 200]] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.fieldList).toEqual(["close", "volume"])
+    expect(result.list).toEqual([{ close: 10, volume: 100 }, [20, 200], [20, 200]])
+    expect(result.partial).toBeUndefined()
+  })
+
+  it("treats an empty shard that claims total > 0 as failed instead of a holiday", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = byStart({ "2026-04-03": { total: 1, fieldList: [], list: [] } }, { fieldList: ["close", "volume"], list: [[10, 100]] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([middle])
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("reported total=1 but delivered no rows")
+    errSpy.mockRestore()
+  })
+
+  it("keeps an empty shard with total 0 (or no total) as a plain holiday", async () => {
+    const call = byStart({ "2026-04-03": { total: 0, fieldList: [], list: [] }, "2026-04-05": { list: [] } }, { fieldList: ["close", "volume"], list: [[10, 100]] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100]])
+    expect(result.partial).toBeUndefined()
+  })
+
+  it("derives the object-row result's fieldList from the rows' keys, not from an empty first shard", async () => {
+    // Object rows carry their own keys; a stray `fieldList: []` from the empty first shard
+    // would make flagMissingFields report every requested column as missing — and no
+    // fieldList at all would make it report nothing, even for a column that is missing.
+    const call = byStart({ "2026-04-01": { total: 0, fieldList: [], list: [] } }, { list: [{ close: 20, volume: 200 }] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([{ close: 20, volume: 200 }, { close: 20, volume: 200 }])
+    expect(result.fieldList).toEqual(["close", "volume"])
+    expect(result.total).toBe(2)
+  })
+
+  it("keeps the missing-column signal on an object-row merge whose shards carried a valid fieldList", async () => {
+    // Two ordinary object-row shards, each with `fieldList: ["close"]`; the caller asked
+    // for close AND bogus. The merged result must still let flagMissingFields see that
+    // only close came back.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = byStart({}, { total: 1, fieldList: ["close"], list: [{ close: 10 }] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged & { missingFields?: string[] }
+    expect(result.fieldList).toEqual(["close"])
+    flagMissingFields(result, ["close", "bogus"], "quote day-kline")
+    expect(result.partial).toBe(true)
+    expect(result.missingFields).toEqual(["bogus"])
+    errSpy.mockRestore()
+  })
+
+  it("on an all-empty result keeps the server's explicit column set (even empty) and drops only absent metadata", async () => {
+    const full = byStart({}, { total: 0, fieldList: ["close", "volume"], list: [] })
+    const kept = await callKlineWithSharding({ call: full }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(kept.fieldList).toEqual(["close", "volume"])
+    expect(kept.list).toEqual([])
+    // An explicit empty column set is still an answer: a requested column did not come back.
+    const bare = byStart({}, { total: 0, fieldList: [], list: [] })
+    const explicitEmpty = await callKlineWithSharding({ call: bare }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(explicitEmpty.fieldList).toEqual([])
+    const none = byStart({}, { total: 0, list: [] })
+    const noMeta = await callKlineWithSharding({ call: none }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(noMeta.fieldList).toBeUndefined()
+    expect(noMeta.list).toEqual([])
+  })
+
+  it("never takes an all-empty result's fieldList from a shard already judged failed", async () => {
+    // Failed first shard (claims a row, delivers none, fieldList []) + a legitimate empty
+    // second shard that names its columns. The columns the server returned are the
+    // survivor's; the failure stays a failedShards entry, not a "close is missing" verdict.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    for (const bad of [
+      { total: 1, fieldList: [], list: [] },
+      { total: 0, fieldList: [], list: [], partial: true },
+      { total: 1, fieldList: [], list: [[10]] },
+    ]) {
+      const call = byStart({ "2026-04-01": bad }, { total: 0, fieldList: ["close"], list: [] })
+      const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged & { missingFields?: string[] }
+      expect(result.fieldList, JSON.stringify(bad)).toEqual(["close"])
+      expect(result.failedShards, JSON.stringify(bad)).toEqual([{ startDate: "2026-04-01", endDate: "2026-04-02" }])
+      flagMissingFields(result, ["close"], "quote day-kline")
+      expect(result.missingFields, JSON.stringify(bad)).toBeUndefined()
+      expect(result.partial).toBe(true)
+    }
+    // Same with the failed shard LAST: order must not change the verdict.
+    const call = byStart({ "2026-04-05": { total: 1, fieldList: [], list: [] } }, { total: 0, fieldList: ["close"], list: [] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.fieldList).toEqual(["close"])
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-05", endDate: "2026-04-06" }])
+    errSpy.mockRestore()
+  })
+
+  it("carries no fieldList when the only survivors are failed shards plus one with no metadata", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = byStart({ "2026-04-01": { total: 1, fieldList: [], list: [] } }, { total: 0, list: [] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.fieldList).toBeUndefined()
+    expect(result.partial).toBe(true)
+    expect(result.list).toEqual([])
+    errSpy.mockRestore()
+  })
+
+  it("unions object-row keys across ALL rows, whichever row a column first appears in", async () => {
+    // volume only exists on the later shard's rows: the union must still contain it, in
+    // either order, so flagMissingFields does not report a column that did come back.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    for (const [first, later] of [[{ close: 10 }, { close: 20, volume: 200 }], [{ close: 20, volume: 200 }, { close: 10 }]]) {
+      const call = byStart({ "2026-04-01": { fieldList: Object.keys(first), list: [first] } }, { fieldList: Object.keys(later), list: [later] })
+      const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged & { missingFields?: string[] }
+      expect(result.fieldList?.slice().sort()).toEqual(["close", "volume"])
+      flagMissingFields(result, ["close", "volume", "bogus"], "quote day-kline")
+      expect(result.missingFields).toEqual(["bogus"])
+    }
+    errSpy.mockRestore()
+  })
+
+  it("treats an empty shard carrying an explicit partial marker as failed even with total 0", async () => {
+    // total=0 on purpose: the positive-total branch must not be what catches this one.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = byStart({ "2026-04-03": { total: 0, fieldList: [], list: [], partial: true } }, { fieldList: ["close", "volume"], list: [[10, 100]] })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([middle])
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("carried a partial marker but delivered no rows")
+    errSpy.mockRestore()
+  })
+
+  it("keeps dispatching the remaining shards when one shard fails structurally (data: null)", async () => {
+    // The client rejects a null payload for `expects: "list"` endpoints with a structural
+    // ApiError. That is one bad response, not a rate limit: the other shards must still go
+    // out, and the result is partial with that shard in failedShards.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-01") throw markStructural(new ApiError("quote.day-kline returned no list payload (got null)"))
+      return { fieldList: ["close", "volume"], list: [[10, 100]] }
+    })
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2, concurrency: 1 }) as Merged
+    expect(call).toHaveBeenCalledTimes(3)
+    expect(result.list).toEqual([[10, 100], [10, 100]])
+    expect(result.partial).toBe(true)
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-01", endDate: "2026-04-02" }])
+    errSpy.mockRestore()
   })
 })

@@ -1,12 +1,12 @@
 # CLI 可选字段速查
 
-> 按命令分组，`--field` 参数可重复传入。不传 `--field` 时返回全部字段。
+> 按命令分组，`--field` 参数可重复传入。不传 `--field` 时返回全部字段。`quote` 系传了 `--field` 就只回点名的列、不自动附带身份列（`fund-flow` 除外，它自动带 `securityCode` / `tradeDate`）：日 K 要一起写进 `securityCode` / `tradeDate`，分钟 K 是 `securityCode` / `tradeTime`，实时行情是 `securityCode`。
 
 ---
 
 ## Quote 行情
 
-> ⚠️ **`volume` 的单位是「股」**。四个端点同一口径——`day-kline` / `realtime` / `minute-kline` / `index-day-kline`，A股 / 港股 / 美股一致，历史数据同口径。
+> ⚠️ **`volume` 的单位是「股」**（ETF 为「份」）。四个端点同一口径——`day-kline` / `realtime` / `minute-kline` / `index-day-kline`，A股 / 港股 / 美股一致，历史数据同口径。
 >
 > 🔴 **存量脚本里若对 `volume` 做过 `× 100` 还原股数，要撤掉**——现在会差 100 倍，而数字看着仍然「像个成交量」，不会报错。
 >
@@ -15,7 +15,8 @@
 > ⚠️ **这个自检有两类必然失败，不要据此判定数据有问题**：
 >
 > 1. **指数不适用**。指数的 OHLC 是**点位**，而 `amount` / `volume` 是成分股合计，两者量纲不同——比值算出来是成分股均价（上证 / 深成 ≈ 20 元），永远落不进四千点的区间，**数据本身是对的**。
-> 2. 🔴 **美股的 `quote realtime`**。它的 `amount` **恒为 `0`**（见下方 realtime 字段表），自检值必然算出 0。**要美股的实时成交额，只能用别的口径**（收盘后用 `day-kline`，或 EDE `qte_amt`）。
+> 2. 🔴 **美股的 `quote realtime`**。它的 `amount` 是 **`null`**（接口不提供该字段，见下方 realtime 字段表），自检算不出来。**要美股的实时成交额，只能用别的口径**（收盘后用 `day-kline`，或 EDE `qte_amt`）。
+> 3. **全球指数**（`SPX.SPI` 等 20 个）：realtime 与分钟 K 的 `volume` / `amount` 都是 `null`，日 K 只有 `amount` 是 `null`。
 >
 > 🔴 **分钟线加总对日线时，先看收盘那根**：正常情况下 **Σ分钟 `volume` = 日线 `volume`、Σ分钟 `amount` = 日线 `amount`**，两者都**精确相等**（正常交易日 241 根，逐根加总与日线一致）。
 >
@@ -23,9 +24,9 @@
 >
 > **最省事的对账法：直接拿 `quote day-kline` 的 `amount` 比**——差额若恰好等于某一根，就是那一根在翻。（`14:58` / `14:59` 恒为 0 是**正常的**：14:57 后进入收盘集合竞价，只申报不撮合，成交在 15:00 一次性发生。）
 
-### 日K线 `quote day-kline`（A股 / 港股 / 美股 / 各类指数；旧的 `day-kline-hk` / `day-kline-us` 已下线，字段相同）
+### 日K线 `quote day-kline`（A股 / 港股 / 美股 / ETF / 各类指数含全球指数；旧的 `day-kline-hk` / `day-kline-us` 已下线，字段相同）
 
-各市场字段相同（货币单位随市场：A股=元、港股=港元、美股=美元；**指数为点位、无货币单位，且 `adjustFactor` 恒为 `null`**）：
+各市场字段相同（货币单位随市场：A股=元、港股=港元、美股=美元、ETF=元且 `volume` 为「份」；**指数为点位、无货币单位，且 `adjustFactor` 恒为 `null`**——ETF 有 `adjustFactor`；**全球指数 `amount` 恒为 `null`**，`volume` 正常）：
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|
@@ -36,24 +37,22 @@
 | `pctChange` | 涨跌幅(%) | `volume` | 成交量(股) |
 | `amount` | 成交总额 | `adjustFactor` | 复权因子 |
 
-### 实时行情（`quote realtime`，A股/港股/美股）
+### 实时行情（`quote realtime`，A股/港股/美股/ETF/各类指数含全球指数）
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|
-| `securityCode` | 证券代码 | `exchange` | 交易所代码（SH/SZ/BJ/HK/NYSE/NASDAQ/AMEX） |
-| `tradeDate` | 交易日期 | `tradeTime` | 最新行情时间 HH:mm:ss |
-| `latestPrice` | 最新价 | `preClose` | 昨收价 |
+| `securityCode` | 证券代码 | `exchange` | 交易所 / 指数类型代码（SH/SZ/BJ/HK/NYSE/NASDAQ/AMEX/GT/CI/SWI；全球指数为数据源码，如 SPI/N/O/NKI/HI/FRA） |
+| `tradeDate` | 交易日期 | `tradeTime` | 最新行情时间 HH:mm:ss（**美股与全球指数为交易所当地时间**） |
+| `tradeStatus` | 交易状态（中文：未开市/连续竞价/收盘/停牌…）——**仅 A 股 / 港股个股有值**，其余 `null` | `latestPrice` | 最新价 |
 | `open` | 开盘价 | `high` | 最高价 |
-| `low` | 最低价 | `change` | 涨跌额 |
-| `pctChange` | 涨跌幅(%) | `volume` | 成交量(股，当日累计) |
-| `amount` | 成交总额(当日累计)🔴 **美股恒 0** | `amplitude` | 振幅(%) |
-| `turnoverRate` | 换手率(%)🔴 **美股恒 0** | `volumeRatio` | 量比 🔴 **美股恒 0** |
+| `low` | 最低价 | `preClose` | 昨收价 |
+| `change` | 涨跌额 | `pctChange` | 涨跌幅(%) |
+| `volume` | 成交量(股，ETF 为份，当日累计)——全球指数 `null` | `amount` | 成交总额(当日累计)——**美股与全球指数 `null`** |
+| `amplitude` | 振幅(%)——全球指数 `null` | | |
 
-> 🔴 **美股的 `amount` / `turnoverRate` / `volumeRatio` 这三个字段恒为 `0`，A股 / 港股正常。** 全市场拉取核对过（2026-08-24）：美股有成交的记录里这三个字段全部为 `0`，同一时刻的港股与 A 股则没有一行是 `0`。
->
-> ⚠️ **`0` 不是「没有成交」**——同一行的 `volume` 是有值的（如 `DTSS.O` `volume=174` 而 `amount=0`）。**取美股实时成交额会静默拿到 `0`、退出码 0、无告警**，直接写进结论就是错数。要美股成交额：收盘后用 `quote day-kline`，或用 EDE `indicator cross-section --indicator qte_amt`。
+> ⚠️ **美股的 `amount` 是 `null`**（接口不提供该字段）。要美股成交额：收盘后用 `quote day-kline`，或用 EDE `indicator cross-section --indicator qte_amt`。全球指数的 `volume` / `amount` / `amplitude` 三个都是 `null`。
 
-**以上 16 个就是全部**（实测 2026-07-24）：**无 `close`**（用 `latestPrice`）、**无市值**（走 `indicator cross-section --indicator qte_mkt_cptl`）。realtime 传了不存在的字段名不会被忽略——上游只丢值、字段名照回显，CLI 检测到长度不匹配会直接报错（v0.28.3 起）。
+**以上 15 个就是全部**：**无 `close`**（用 `latestPrice`）、**无市值**（走 `indicator cross-section --indicator qte_mkt_cptl`）、**无 `turnoverRate` / `volumeRatio`**（传了会连字段名一起被静默丢掉，不报错、结果里就是没这两列；换手率走 EDE `qte_turn`，A 股）。realtime 对不存在的字段名是名和值一起丢：CLI 比对请求与返回的列名，**缺列标 `partial` + `missingFields`、退出码 3**（字段名写错或已下线）。
 
 ### 指数日K线（沪深京 `quote index-day-kline`）
 

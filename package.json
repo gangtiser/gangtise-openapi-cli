@@ -1,6 +1,6 @@
 {
   "name": "gangtise-openapi-cli",
-  "version": "0.37.1",
+  "version": "0.38.0",
   "description": "CLI for Gangtise OpenAPI",
   "license": "MIT",
   "repository": {
@@ -29,7 +29,8 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "prepare": "node scripts/prepare.cjs && npm run build"
+    "prepare": "node scripts/prepare.cjs && npm run build",
+    "contract": "node scripts/contract-probe.mjs"
   },
   "engines": {
     "node": ">=20.18.1"

@@ -7,7 +7,7 @@ import { FormData, request } from "undici"
 
 import type { CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
-import { ApiError, attachEnvelopeTraceId, ValidationError } from "./errors.js"
+import { ApiError, attachEnvelopeTraceId, markStructural, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
 import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runWithConcurrency, withRetry } from "./transport.js"
@@ -282,11 +282,18 @@ export class GangtiseClient {
     }
 
     if (collected.length >= target) {
-      return {
+      const out: Record<string, unknown> = {
         ...firstPage,
         total,
         list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
       }
+      // Same probe the fan-out path runs below: a fetch-all that starts inside the last
+      // page (from=9950 against total=10000) is just as exposed to a capped `total`, and
+      // used to return here without ever checking. `total > firstPageSize` keeps the
+      // request count unchanged for a result that genuinely fits in one page from offset
+      // 0 — only a late `from` can land here with a total larger than a page.
+      if (requestedSize === undefined && total > firstPageSize) await this.flagIfTotalCapped(endpoint, initialBody, total, out)
+      return out
     }
 
     // Build remaining page requests. The cap lives inside the loop: a corrupt
@@ -367,55 +374,14 @@ export class GangtiseClient {
 
     const short = collected.length < target
 
-    // `total` is not always the real row count. Three opinion endpoints report a fixed
-    // 10000 while `from=30000` still returns real rows with monotonically older publish
-    // times (the shape of Elasticsearch's default track_total_hits). A fetch-all then
-    // stops exactly at the cap with collected === total, so every completeness check
-    // below passes and the truncated export looks complete — the worst failure mode we
-    // have, because `opinion` bills 30 credits per row.
-    //
-    // Probe one row past the claimed end rather than hardcoding any number: the server
-    // can change the cap, and evidence survives that where a constant would not. Only on
-    // a genuine fetch-all that otherwise looked complete — when `total` is honest the
-    // probe comes back empty, and an endpoint that prices per item charges nothing for
-    // an empty answer, so the probe is free exactly when it finds nothing wrong.
-    //
-    // Deliberately NOT gated on `retry: "no-replay"`. That flag is about REPLAY safety
-    // — "never resend a request the server may already have executed" (endpoints.ts) —
-    // and the probe is a new request, never a resend, so the flag has nothing to say
-    // about it. An earlier build did gate on it, having read it as a per-call-billing
-    // marker. The single endpoint that gate excluded, `ai.hot-topic`, is priced per
-    // returned item (50 per 篇, where one 篇 is a whole report), and the platform does
-    // not charge a per-item endpoint for a query that finds nothing — so the gate saved
-    // no credits and cost that endpoint its only truncation check.
-    //
-    // Do NOT generalize that into "every paginated endpoint is per-item billed": the
-    // client cannot measure billing at all (there is no quota/usage API), at least one
-    // paginated endpoint has no published unit price, and several are free. What the
-    // probe relies on is narrower — on the endpoints where a capped `total` has been
-    // observed, an empty answer is not billed.
-    let totalCapped = false
-    if (requestedSize === undefined && total > 0 && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
-      try {
-        const probe = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
-        if (this.isPaginatedListResponse(probe) && probe.list.length > 0) totalCapped = true
-      } catch {
-        // A failed probe must never fail an otherwise-complete export: we simply do not
-        // learn whether the total was capped, which is the pre-existing behaviour.
-      }
-    }
-    if (totalCapped) {
-      process.stderr.write(`[gangtise] warning: ${endpoint.key} reported total=${total} but rows exist past that offset — 'total' is a server-side cap, not the real count. This export is TRUNCATED at ${collected.length} rows. Narrow the query (date range / filters) and fetch in slices.\n`)
-    }
-
     const out: Record<string, unknown> = {
       ...firstPage,
       total,
       list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
     }
-    if (totalCapped) {
-      out.partial = true
-      out.totalCapped = true
+    // Only on a genuine fetch-all that otherwise looked complete — see flagIfTotalCapped.
+    if (requestedSize === undefined && total > 0 && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
+      await this.flagIfTotalCapped(endpoint, initialBody, total, out)
     }
     // Unified completeness backstop. Whatever the cause — a failed/shape-broken page,
     // a short later page (server page cap < maxPageSize), the MAX_PAGES cap, or `total`
@@ -439,6 +405,53 @@ export class GangtiseClient {
       process.stderr.write(`[gangtise] warning: server returned ${collected.length} of ${total} rows (a later page came back short); results may be incomplete\n`)
     }
     return out
+  }
+
+  /**
+   * `total` is not always the real row count. Three opinion endpoints report a fixed
+   * 10000 while `from=30000` still returns real rows with monotonically older publish
+   * times (the shape of Elasticsearch's default track_total_hits). A fetch-all then
+   * stops exactly at the cap with collected === total, so every completeness check
+   * passes and the truncated export looks complete — the worst failure mode we have,
+   * because `opinion` bills 30 credits per row.
+   *
+   * Probe one row past the claimed end rather than hardcoding any number: the server
+   * can change the cap, and evidence survives that where a constant would not. Callers
+   * run it only on a genuine fetch-all that otherwise looked complete — when `total` is
+   * honest the probe comes back empty, and an endpoint that prices per item charges
+   * nothing for an empty answer, so the probe is free exactly when it finds nothing
+   * wrong. Both exits of requestPaginated share it: the fan-out path and the
+   * first-page-already-complete path (a fetch-all starting inside the last page).
+   *
+   * Deliberately NOT gated on `retry: "no-replay"`. That flag is about REPLAY safety
+   * — "never resend a request the server may already have executed" (endpoints.ts) —
+   * and the probe is a new request, never a resend, so the flag has nothing to say
+   * about it. An earlier build did gate on it, having read it as a per-call-billing
+   * marker. The single endpoint that gate excluded, `ai.hot-topic`, is priced per
+   * returned item (50 per 篇, where one 篇 is a whole report), and the platform does
+   * not charge a per-item endpoint for a query that finds nothing — so the gate saved
+   * no credits and cost that endpoint its only truncation check.
+   *
+   * Do NOT generalize that into "every paginated endpoint is per-item billed": the
+   * client cannot measure billing at all (there is no quota/usage API), at least one
+   * paginated endpoint has no published unit price, and several are free. What the
+   * probe relies on is narrower — on the endpoints where a capped `total` has been
+   * observed, an empty answer is not billed.
+   */
+  private async flagIfTotalCapped(endpoint: EndpointDefinition, initialBody: Record<string, unknown>, total: number, out: Record<string, unknown>): Promise<void> {
+    let totalCapped = false
+    try {
+      const probe = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
+      if (this.isPaginatedListResponse(probe) && probe.list.length > 0) totalCapped = true
+    } catch {
+      // A failed probe must never fail an otherwise-complete export: we simply do not
+      // learn whether the total was capped, which is the pre-existing behaviour.
+    }
+    if (!totalCapped) return
+    const collectedLength = Array.isArray(out.list) ? out.list.length : 0
+    process.stderr.write(`[gangtise] warning: ${endpoint.key} reported total=${total} but rows exist past that offset — 'total' is a server-side cap, not the real count. This export is TRUNCATED at ${collectedLength} rows. Narrow the query (date range / filters) and fetch in slices.\n`)
+    out.partial = true
+    out.totalCapped = true
   }
 
   async login() {
@@ -530,7 +543,16 @@ export class GangtiseClient {
         if (response.statusCode >= 400) {
           this.throwHttpError(parsed, response.statusCode, retryAfterMs)
         }
-        return this.unwrapEnvelope(parsed, response.statusCode, retryAfterMs)
+        const payload = this.unwrapEnvelope(parsed, response.statusCode, retryAfterMs)
+        // Shape check here rather than in the command: a `data: null` cannot carry the
+        // envelope's traceId (attachEnvelopeTraceId needs an object), so the envelope
+        // itself is what the error must hold for the failure to stay traceable.
+        // Marked structural: local to this one response, so a fan-out (kline sharding)
+        // records the shard as failed and keeps sending the others.
+        if (endpoint.expects === "list" && !(payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).list))) {
+          throw markStructural(new ApiError(`${endpoint.key} returned no list payload (got ${payload === null ? "null" : Array.isArray(payload) ? "an array" : typeof payload}) — the response layout may have changed`, undefined, response.statusCode, parsed))
+        }
+        return payload
       } catch (error) {
         await this.refreshAuthIfRecoverable(error, useAuth, authState, usedAuthorization)
         throw error

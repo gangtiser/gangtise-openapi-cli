@@ -106,11 +106,64 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/quote/realtime")) {
-        // 如实复刻上游对无效字段名的处理（实测 2026-07-24）：值只按**有效**字段返回、
-        // 字段名却按**请求**原样回显。realtime 没有 close，传三个字段只回两个值——
-        // 按位置拍平会把换手率 28.5573 贴成 close（茅台真实价 1297.41）。CLI 必须拒绝
-        // 输出而不是给出这份看着合理、实则是另一个指标的数据。
-        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 1, fieldList: ["securityCode", "close", "turnoverRate"], list: [["600519.SH", 28.5573]] } }))
+        const requested = (body as { securityList?: string[]; fieldList?: string[] } | undefined)
+        if (requested?.fieldList?.includes("close")) {
+          // 2026-07-24 形态，留给错列护栏：值只按**有效**字段返回、字段名却按**请求**原样
+          // 回显。realtime 没有 close，传三个字段只回两个值——按位置拍平会把换手率 28.5573
+          // 贴成 close（茅台真实价 1297.41）。上游 2026-09-05 起已改成名和值一起丢（见下），
+          // 但 main-business 仍是这个形态，护栏必须继续守住。
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 1, fieldList: ["securityCode", "close", "turnoverRate"], list: [["600519.SH", 28.5573]] } }))
+          return
+        }
+        // 当前契约（实测 2026-09-05）：15 列，不认识的字段名连名带值一起丢、不报错；
+        // tradeStatus 仅 A 股 / 港股个股有值；美股 amount 为 null；全球指数 volume /
+        // amount / amplitude 三个都是 null。
+        const KNOWN = ["securityCode", "exchange", "tradeDate", "tradeTime", "tradeStatus", "open", "high", "low", "latestPrice", "preClose", "change", "pctChange", "volume", "amount", "amplitude"]
+        const fieldList = requested?.fieldList ? KNOWN.filter((f) => requested.fieldList!.includes(f)) : KNOWN
+        const isGlobalIndex = (code: string) => code.endsWith(".SPI") || code.endsWith(".NKI") || code.endsWith(".HI")
+        const isStock = (code: string) => /\.(SH|SZ|BJ|HK)$/.test(code) && !code.startsWith("5") && !code.startsWith("15")
+        const cell = (code: string, field: string): unknown => {
+          if (field === "securityCode") return code
+          if (field === "exchange") return code.split(".")[1]
+          if (field === "tradeDate") return "2026-09-04"
+          if (field === "tradeTime") return "15:00:00"
+          if (field === "tradeStatus") return isStock(code) ? "收盘" : null
+          if (["volume", "amount", "amplitude"].includes(field) && isGlobalIndex(code)) return null
+          if (field === "amount" && code.endsWith(".O")) return null
+          return field === "volume" ? 1000 : 1.5
+        }
+        const list = (requested?.securityList ?? ["600519.SH"]).map((code) => fieldList.map((f) => cell(code, f)))
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: list.length, fieldList, list } }))
+        return
+      }
+      if ((req.url ?? "").includes("/kline/minute")) {
+        // Like the kline stub: ONLY the requested columns come back (minute rows carry
+        // tradeTime, not tradeDate — probed 2026-09-05), unknown names are dropped without
+        // an error, and three fixed rows let a truncation test drive rows-vs-limit.
+        const KNOWN = ["securityCode", "tradeTime", "open", "high", "low", "close", "change", "pctChange", "volume", "amount"]
+        const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
+        const fieldList = requested ? KNOWN.filter((f) => requested.includes(f)) : ["securityCode", "tradeTime", "close"]
+        const list = [1, 2, 3].map((n) => fieldList.map((f) => (f === "securityCode" ? "600519.SH" : f === "tradeTime" ? `2026-06-01 09:3${n - 1}:00` : n)))
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList, list } }))
+        return
+      }
+      if ((req.url ?? "").includes("/daily") && ((body as { securityList?: string[] } | undefined)?.securityList ?? []).includes("NULLDATA.XX")) {
+        // A successful envelope carrying `data: null` — not a valid answer for any quote
+        // endpoint (an empty range is `{total: 0, list: []}`), so it must not print as one.
+        // The traceId rides on the envelope only: the error must still surface it.
+        res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-null-1", data: null }))
+        return
+      }
+      if ((req.url ?? "").includes("/fund-flow/daily")) {
+        // fund-flow always prepends securityCode / tradeDate, then the requested fields it
+        // recognises; an unknown name is dropped without an error (probed 2026-09-05).
+        // Three fixed rows so a truncation test can drive rows-vs-limit with --limit 3.
+        const KNOWN = ["mainNetInflow", "largeInflow", "xlargeInflow", "mainInflow", "smallNetInflow"]
+        const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
+        const extra = requested ? requested.filter((f) => KNOWN.includes(f)) : ["mainNetInflow"]
+        const fieldList = ["securityCode", "tradeDate", ...extra]
+        const list = [["600519.SH", 1], ["000001.SZ", 2], ["000002.SZ", 3]].map(([code, n]) => [code, "2026-06-03", ...extra.map(() => n)])
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList, list } }))
         return
       }
       if ((req.url ?? "").includes("/EDB/getData")) {
@@ -125,11 +178,16 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/daily")) {
-        // Fixed 3-row columnar payload for the limit-capped quote endpoints (fund-flow,
-        // kline) so a truncation test can drive rows-vs-limit: --limit 3 hits the cap
-        // (partial), --limit 5000/6000 stays under it. Body-mapping tests (no --limit or
-        // a large one) get 3 < cap → exit 0, so their assertions are unaffected.
-        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList: ["securityCode", "tradeDate", "mainNetInflow"], list: [["600519.SH", "2026-06-03", 1], ["000001.SZ", "2026-06-03", 2], ["000002.SZ", "2026-06-03", 3]] } }))
+        // The kline endpoints (unified and retired). Unlike fund-flow, ONLY the requested
+        // columns come back — no implicit securityCode / tradeDate (probed 2026-09-05:
+        // `--field close` answers `[close]` alone) — and an unknown name is dropped without
+        // an error. Three fixed rows so a truncation test can drive rows-vs-limit; body-
+        // mapping tests (no --limit or a large one) get 3 < cap → exit 0.
+        const KNOWN = ["securityCode", "tradeDate", "open", "high", "low", "close", "preClose", "change", "pctChange", "volume", "amount", "adjustFactor"]
+        const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
+        const fieldList = requested ? KNOWN.filter((f) => requested.includes(f)) : ["securityCode", "tradeDate", "close"]
+        const list = [["600519.SH", 1], ["000001.SZ", 2], ["000002.SZ", 3]].map(([code, n]) => fieldList.map((f) => (f === "securityCode" ? code : f === "tradeDate" ? "2026-06-03" : n)))
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList, list } }))
         return
       }
       if ((req.url ?? "").includes("/report-image/download/file")) {
@@ -1314,6 +1372,158 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stderr).toContain("响应字段数与 fieldList 不匹配")
     expect(stdout).not.toContain("28.5573")
     expect(stdout.trim()).toBe("")
+  }, 30_000)
+
+  it("quote realtime flags a requested column the server silently dropped (exit 3 + missingFields)", async () => {
+    // 2026-09-05 起 realtime 对不认识 / 已下线的字段名是名和值一起丢、HTTP 200——长度仍相等，
+    // 错列护栏管不到它。缺列必须从「退出 0、少一列」变成「partial + missingFields + 退出 3」。
+    const { code, stdout, stderr } = await cli([
+      "quote", "realtime", "--security", "600519.SH",
+      "--field", "securityCode", "--field", "latestPrice", "--field", "turnoverRate",
+      "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect(stderr).toContain("turnoverRate")
+    const parsed = JSON.parse(stdout) as { partial?: boolean; missingFields?: string[]; list: Record<string, unknown>[] }
+    expect(parsed.partial).toBe(true)
+    expect(parsed.missingFields).toEqual(["turnoverRate"])
+    expect(parsed.list[0]).toEqual({ securityCode: "600519.SH", latestPrice: 1.5 })
+  }, 30_000)
+
+  it("quote realtime passes the current 15-column contract through (tradeStatus, null pattern) at exit 0", async () => {
+    // Pins the shape the docs describe: tradeStatus only on A/HK stocks, US amount null,
+    // global-index volume / amount / amplitude null — and that none of it trips a guard.
+    const { code, stdout } = await cli([
+      "quote", "realtime", "--security", "600519.SH", "--security", "AAPL.O", "--security", "512800.SH", "--security", "SPX.SPI",
+      "--format", "json",
+    ])
+    expect(code).toBe(0)
+    const rows = (JSON.parse(stdout) as { list: Record<string, unknown>[] }).list
+    const by = Object.fromEntries(rows.map((r) => [r.securityCode as string, r]))
+    expect(Object.keys(by["600519.SH"])).toHaveLength(15)
+    expect(by["600519.SH"]).toMatchObject({ tradeStatus: "收盘", amount: 1.5 })
+    expect(by["AAPL.O"]).toMatchObject({ tradeStatus: null, amount: null, volume: 1000 })
+    expect(by["512800.SH"]).toMatchObject({ tradeStatus: null, amount: 1.5 })
+    expect(by["SPX.SPI"]).toMatchObject({ tradeStatus: null, volume: null, amount: null, amplitude: null, latestPrice: 1.5 })
+    expect(Object.keys(by["600519.SH"])).not.toContain("turnoverRate")
+  }, 30_000)
+
+  it("quote day-kline (single security) rejects a null payload instead of printing null at exit 0", async () => {
+    // The sharded path already treats a shard without `list` as failed; the single-request
+    // path used to hand `null` straight to the printer.
+    const { code, stdout, stderr } = await cli([
+      "quote", "day-kline", "--security", "NULLDATA.XX",
+      "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--format", "json",
+    ])
+    expect(code).toBe(1)
+    expect(stderr).toContain("returned no list payload")
+    expect(stderr).toContain("trace trace-null-1")
+    expect(stdout.trim()).toBe("")
+  }, 30_000)
+
+  // One wiring test per quote command and per exit (single request / sharded merge): the
+  // helper's unit tests and the realtime E2E above prove nothing about the other three
+  // call sites — removing the minute-kline hook alone left the whole suite green.
+  it("quote day-kline (single security) flags a dropped --field column, and returns only the requested columns", async () => {
+    const { code, stdout } = await cli([
+      "quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-date", "2026-06-01", "--end-date", "2026-06-05",
+      "--field", "close", "--field", "turnoverRate", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    const parsed = JSON.parse(stdout) as { missingFields?: string[]; list: Record<string, unknown>[] }
+    expect(parsed.missingFields).toEqual(["turnoverRate"])
+    // No implicit identity columns on kline: the caller has to ask for securityCode.
+    expect(parsed.list[0]).toEqual({ close: 1 })
+  }, 30_000)
+
+  it("quote day-kline (sharded aShares) flags a dropped --field column on the merged result", async () => {
+    const { code, stdout } = await cli([
+      "quote", "day-kline", "--security", "aShares",
+      "--start-date", "2026-08-10", "--end-date", "2026-08-14",
+      "--field", "securityCode", "--field", "close", "--field", "bogus", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    const parsed = JSON.parse(stdout) as { missingFields?: string[]; list: unknown[] }
+    expect(parsed.missingFields).toEqual(["bogus"])
+    expect(parsed.list).toHaveLength(15) // 5 shards × 3 rows
+  }, 30_000)
+
+  it("quote minute-kline identity columns are securityCode + tradeTime (tradeDate is not a minute column)", async () => {
+    // Pins the docs' example: the minute row's time column is tradeTime; asking for
+    // tradeDate here is a missing column, not an implicit one.
+    const ok = await cli([
+      "quote", "minute-kline", "--security", "600519.SH",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 09:32:00",
+      "--field", "securityCode", "--field", "tradeTime", "--field", "close", "--format", "json",
+    ])
+    expect(ok.code).toBe(0)
+    expect((JSON.parse(ok.stdout) as { list: Record<string, unknown>[] }).list[0]).toEqual({ securityCode: "600519.SH", tradeTime: "2026-06-01 09:30:00", close: 1 })
+    const wrong = await cli([
+      "quote", "minute-kline", "--security", "600519.SH",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 09:32:00",
+      "--field", "securityCode", "--field", "tradeDate", "--field", "close", "--format", "json",
+    ])
+    expect(wrong.code).toBe(3)
+    expect((JSON.parse(wrong.stdout) as { missingFields?: string[] }).missingFields).toEqual(["tradeDate"])
+  }, 30_000)
+
+  it("the three retired kline commands reject a null payload the same way, trace included", async () => {
+    for (const command of ["day-kline-hk", "day-kline-us", "index-day-kline"]) {
+      const { code, stdout, stderr } = await cli([
+        "quote", command, "--security", "NULLDATA.XX",
+        "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--format", "json",
+      ])
+      expect(code, command).toBe(1)
+      expect(stderr, command).toContain("returned no list payload")
+      expect(stderr, command).toContain("trace trace-null-1")
+      expect(stdout.trim(), command).toBe("")
+    }
+  }, 60_000)
+
+  it("quote minute-kline flags a dropped --field column", async () => {
+    const { code, stdout } = await cli([
+      "quote", "minute-kline", "--security", "600519.SH",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 09:32:00",
+      "--field", "close", "--field", "bogus", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect((JSON.parse(stdout) as { missingFields?: string[] }).missingFields).toEqual(["bogus"])
+  }, 30_000)
+
+  it("quote fund-flow (single security) flags a dropped --field column while keeping its implicit identity columns", async () => {
+    const { code, stdout } = await cli([
+      "quote", "fund-flow", "--security", "600519.SH",
+      "--start-date", "2026-06-03", "--end-date", "2026-06-03",
+      "--field", "mainNetInflow", "--field", "bogus", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    const parsed = JSON.parse(stdout) as { missingFields?: string[]; list: Record<string, unknown>[] }
+    expect(parsed.missingFields).toEqual(["bogus"])
+    expect(parsed.list[0]).toEqual({ securityCode: "600519.SH", tradeDate: "2026-06-03", mainNetInflow: 1 })
+  }, 30_000)
+
+  it("quote fund-flow (sharded aShares) flags a dropped --field column on the merged result", async () => {
+    const { code, stdout } = await cli([
+      "quote", "fund-flow", "--security", "aShares",
+      "--start-date", "2026-06-29", "--end-date", "2026-07-01",
+      "--field", "mainNetInflow", "--field", "bogus", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect((JSON.parse(stdout) as { missingFields?: string[] }).missingFields).toEqual(["bogus"])
+  }, 30_000)
+
+  it("quote minute-kline names its own range flags in the truncation warning", async () => {
+    // The shared warning used to say --start-date/--end-date for every limit-capped quote
+    // command; minute-kline's range flags are --start-time/--end-time.
+    const { code, out } = await cli([
+      "quote", "minute-kline", "--security", "600519.SH",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 09:32:00",
+      "--limit", "3", "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect(out).toContain("--start-time/--end-time")
+    expect(out).not.toContain("--start-date/--end-date")
   }, 30_000)
 
   it("alternative edb-data flattens an equal-length columnar response", async () => {

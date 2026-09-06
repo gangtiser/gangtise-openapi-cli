@@ -152,6 +152,8 @@
      --format json
 5. 返回最新时刻快照；非交易时间返回最近一个交易日的收盘快照
    注意：日 K 线（day-kline）不返回盘中数据，问"现在/此刻"必须走 realtime
+   沪深 ETF（512800.SH）与 20 个全球指数（SPX.SPI 标普500 / N225.NKI 日经225 / HSI.HI 恒生…）同样走 realtime，
+   代码清单见 references/commands/quote.md；全球指数 volume/amount/amplitude 为 null，tradeTime 是交易所当地时间
 ```
 
 ## 例 11：美股日 K 线（历史）
@@ -159,10 +161,10 @@
 **用户**："苹果过去一个月的日 K 线"
 
 ```
-1. 路由 → quote day-kline-us（仅历史；盘中数据走 realtime）
+1. 路由 → quote day-kline（仅历史；盘中数据走 realtime。day-kline-us 已下线，不校验代码）
 2. 苹果 AAPL.O；"过去一个月" → 今日往前 30 天
 3. Pre-flight：认证 OK；当日数据约 07:00（北京时间）入库
-4. gangtise quote day-kline-us --security AAPL.O \
+4. gangtise quote day-kline --security AAPL.O \
      --start-date 2026-04-22 --end-date 2026-05-22 \
      --field tradeDate --field open --field close --field volume --field pctChange --format json
 5. 按 tradeDate 排序展示

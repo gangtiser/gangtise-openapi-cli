@@ -1,3 +1,4 @@
+import { isStructuralError } from "./errors.js"
 import { isVerbose, PAGE_CONCURRENCY, runWithConcurrency } from "./transport.js"
 
 export interface KlineBody {
@@ -40,6 +41,30 @@ function parseDate(value: string): Date | null {
 
 function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10)
+}
+
+/** Index map from the merged header's columns into a shard's own fieldList: `null` when
+ * the two already agree (nothing to do), an index array when the shard merely orders its
+ * columns differently, `undefined` when a header column is absent from the shard. */
+function columnRemap(header: unknown[], shard: unknown[]): number[] | null | undefined {
+  if (header.length === shard.length && header.every((field, i) => field === shard[i])) return null
+  const index = new Map(shard.map((field, i) => [String(field), i]))
+  const map: number[] = []
+  for (const field of header) {
+    const i = index.get(String(field))
+    if (i === undefined) return undefined
+    map.push(i)
+  }
+  return map
+}
+
+/** A shard's columnar rows can only be read through its own fieldList: it must exist,
+ * carry unique names, and every array row must be exactly as wide as it. Object rows
+ * carry their own keys and are not judged here. */
+function shardSchemaValid(fields: unknown[] | undefined, list: unknown[]): boolean {
+  if (!fields) return false
+  if (new Set(fields.map(String)).size !== fields.length) return false
+  return list.every((row) => !Array.isArray(row) || row.length === fields.length)
 }
 
 export function isFullMarket(body: KlineBody, fullMarketValue: string): boolean {
@@ -178,14 +203,21 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
       return res
     } catch (error) {
       if (!firstError) firstError = error
-      aborted = true
+      // A structural error (the client rejected THIS response's shape) is local to one
+      // shard; only a systemic failure stops the rest from being sent.
+      if (!isStructuralError(error)) aborted = true
       failedShards.push(shard)
       return null
     }
   })
 
   let fieldList: unknown[] | undefined
+  /** Meta (total, partial, …) is copied from the first shard that contributed rows;
+   * `fallback` serves an all-empty result and is taken only from a shard that passed as a
+   * legitimate empty window — never from one already judged failed, whose fieldList
+   * (empty or rejected) would otherwise become the "columns the server returned". */
   let header: Record<string, unknown> | null = null
+  let fallback: Record<string, unknown> | null = null
   const merged: unknown[] = []
   // Record WHICH windows maxed out, not just how many: a script/agent consumer
   // needs the concrete date ranges to re-pull narrower windows (mirrors failedShards).
@@ -194,12 +226,56 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     const r = results[i]
     if (!(r && typeof r === "object")) continue
     const rec = r as Record<string, unknown>
-    if (!header) header = rec
-    if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
     if (isTruncated(rec)) truncatedShards.push(shards[i])
+    if (!Array.isArray(rec.list)) continue
+    if (rec.list.length === 0) {
+      // A shard that claims rows it did not deliver (total > 0, or an explicit partial
+      // marker) is a contradiction, not a holiday: keep the completeness signal.
+      if ((typeof rec.total === "number" && rec.total > 0) || rec.partial === true) {
+        failedShards.push(shards[i])
+        const claim = typeof rec.total === "number" && rec.total > 0 ? `reported total=${rec.total}` : "carried a partial marker"
+        process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} ${claim} but delivered no rows; treated as failed (see failedShards)\n`)
+        continue
+      }
+      // A genuinely empty window (a weekend / holiday): it says nothing about the column
+      // layout, so it neither supplies the merged header — an empty fieldList would
+      // swallow every later column — nor counts as failed for lacking one. It is the only
+      // kind of shard an all-empty result may take its metadata from.
+      if (!fallback) fallback = rec
+      continue
+    }
+    const shardFields = Array.isArray(rec.fieldList) && rec.fieldList.length > 0 ? rec.fieldList : undefined
+    const columnar = rec.list.some(Array.isArray)
+    // Columnar rows are only interpretable through their own shard's fieldList, and only
+    // when that list is well-formed: present, unique names, every array row exactly as
+    // wide as it. Anything else is a structural anomaly in THIS shard. The single-request
+    // path lets zipFieldRow reject such a row; the merge must not be where it slips
+    // through — padded, truncated or read under a guessed header. Drop it as a failed
+    // shard (dates kept for a re-pull) and say so.
+    if (columnar && !shardSchemaValid(shardFields, rec.list)) {
+      failedShards.push(shards[i])
+      process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} returned columnar rows that do not match its own fieldList (missing, duplicated or mis-sized); its rows were dropped (see failedShards)\n`)
+      continue
+    }
+    // Only a schema that was validated against columnar rows may become the merged
+    // header. An object-row shard's fieldList (if it carries one) constrains nothing of
+    // its own, was never checked, and must not constrain the array shards that follow.
+    if (!fieldList && columnar && shardFields) fieldList = shardFields
+    if (!header) header = rec
+    // The merged result carries ONE fieldList (the first data shard's) and columnar rows
+    // are zipped against it by position. A shard whose fieldList differs in order would be
+    // read under the wrong column names — close landing in volume — with nothing else in
+    // the payload to notice. Re-map such a shard's rows onto the header order; a shard
+    // missing a header column cannot be aligned and is treated like a failed shard too.
+    const remap = columnar && fieldList && shardFields ? columnRemap(fieldList, shardFields) : null
+    if (remap === undefined) {
+      failedShards.push(shards[i])
+      process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} returned columns that cannot be aligned with the first shard's fieldList; its rows were dropped (see failedShards)\n`)
+      continue
+    }
     // Append one-by-one rather than push(...list): a future higher row cap could
     // make a single shard's list large enough to overflow the stack via spread.
-    if (Array.isArray(rec.list)) for (const item of rec.list as unknown[]) merged.push(item)
+    for (const item of rec.list as unknown[]) merged.push(remap && Array.isArray(item) ? remap.map((k) => item[k]) : item)
   }
 
   // Every shard failed → surface the error loudly (non-zero exit) rather than
@@ -208,11 +284,34 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     throw firstError ?? new Error(`All ${shards.length} kline shards failed`)
   }
 
-  if (!header) return { list: [] }
+  // Defensive default only. With JSON payloads every shard is a contributor (header), a
+  // legitimate empty window (fallback) or failed — and all-failed threw above — so one of
+  // the two is always set here; `{}` just keeps the markers below total if that ever changes.
+  const base: Record<string, unknown> = header ?? fallback ?? {}
   // `total` on a shard is that shard's own row count; overwrite it with the merged count
   // so the JSON `total` and the `Total:` stderr line reflect the whole combined result.
-  const out: Record<string, unknown> = { ...header, total: merged.length, list: merged }
-  if (fieldList) out.fieldList = fieldList
+  const out: Record<string, unknown> = { ...base, total: merged.length, list: merged }
+  // Two different jobs share the output's fieldList: zipping array rows by position (only
+  // a header validated against columnar rows may do that), and telling flagMissingFields
+  // which columns came back (which needs an honest answer for EVERY shape). So:
+  //   validated columnar header            → that header
+  //   object rows, no validated header     → the union of the rows' own keys — the
+  //                                          returned columns ARE the keys; a base shard's
+  //                                          unvalidated list is never trusted for this
+  //   nothing merged, base has a fieldList → the server's explicit column set, even empty:
+  //                                          "no requested column came back" is then true
+  //   nothing merged, no metadata at all   → no fieldList (nothing to compare against)
+  if (fieldList) {
+    out.fieldList = fieldList
+  } else if (merged.length > 0) {
+    const keys = new Set<string>()
+    for (const row of merged) if (row && typeof row === "object" && !Array.isArray(row)) for (const key of Object.keys(row)) keys.add(key)
+    out.fieldList = [...keys]
+  } else if (Array.isArray(base.fieldList)) {
+    out.fieldList = base.fieldList
+  } else {
+    delete out.fieldList
+  }
   if (failedShards.length > 0) {
     out.partial = true
     out.failedShards = failedShards
