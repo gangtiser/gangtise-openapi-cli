@@ -79,7 +79,7 @@ export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.c
 
 - [Claude Code](https://claude.ai/claude-code) — `~/.claude/skills/`
 - [Codex](https://github.com/openai/codex) — `~/.codex/skills/`
-- [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/skills/`
+- [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/workspace/skills/`
 - [Hermes](https://github.com/nicepkg/hermes) — `~/.hermes/skills/`
 
 Skill 目录结构：
@@ -96,7 +96,9 @@ gangtise-openapi/
     │   ├── insight.md                #   投研内容命令（研报 / 观点 / 纪要 / 公告 / 外资）
     │   ├── quote.md                  #   行情命令（A股/港股/指数 K 线）
     │   ├── reference-and-lookup.md   #   GTS Code 搜索与枚举速查
+    │   ├── tool.md                   #   PDF 解析（file-parse）
     │   └── vault.md                  #   云盘/录音/会议/群消息/股票池
+    ├── errors.md                     # 错误码全表、不报错的坑、退出码 3 的判读、Troubleshooting
     ├── examples.md                   # 典型场景的端到端示例
     ├── fields.md                     # K线/财务字段中英文对照速查表
     ├── lookup-ids.md                 # 常用 ID 速查表（行业/券商/机构/公告分类等）
@@ -115,7 +117,7 @@ cp -r "$SKILL_SRC" ~/.claude/skills/gangtise-openapi
 cp -r "$SKILL_SRC" ~/.codex/skills/gangtise-openapi
 
 # OpenClaw
-cp -r "$SKILL_SRC" ~/.openclaw/skills/gangtise-openapi
+cp -r "$SKILL_SRC" ~/.openclaw/workspace/skills/gangtise-openapi
 
 # Hermes
 cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
@@ -324,8 +326,8 @@ vault.my-conference.download
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
 - 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`；`quote` 系带 `--field` 而服务端没回的列为 `missingFields`；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
-- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。**这个分支基本收不到样本**——服务端对解析不了的代码直接报 `100003` 并点名是哪个（指标码拼错 →「指标 xxx 不存在」；证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O` →「xxx 不是有效证券或者板块ID」），**无论同批有没有正确的代码都会报**，CLI 相应退出 1。真实的无数据/无覆盖仍是占位单元格 + 退出码 0。占位值统一是 `null`。⚠️ **报告期类指标（`is_*`）的时序上大部分行都是占位**（只有报告期末那几行是真值），`null` 虽被 Excel / pandas / SQL 的聚合跳过，**但行数不变**，手工「总和 ÷ 行数」仍会差几十倍；详见 skill 的 `references/commands/indicator.md`。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集不能直接当成「无标的符合条件」——另有两种成因产生**逐字相同**的输出：**日期没落在报告期末**（报告期类指标此时整批 `null`），或**该指标不覆盖这批证券**（如拿 A 股专属指标查港美股）。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
-- **分页端点返回 `null` 也退出 3**：分页端点的正常响应是 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`，CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
+- **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。这个分支很少触发——服务端对解析不了的代码直接报 `100003` 并点名是哪个（指标码拼错 →「指标 xxx 不存在」；证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O` →「xxx 不是有效证券或者板块ID」），**无论同批有没有正确的代码都会报**，CLI 相应退出 1。真实的无数据/无覆盖仍是占位单元格 + 退出码 0。占位值统一是 `null`。⚠️ **报告期类指标（`is_*`）的时序上大部分行都是占位**（只有报告期末那几行是真值），`null` 虽被 Excel / pandas / SQL 的聚合跳过，**但行数不变**，手工「总和 ÷ 行数」仍会差几十倍；详见 skill 的 `references/commands/indicator.md`。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集不能直接当成「无标的符合条件」——另有两种成因产生**逐字相同**的输出：**日期没落在报告期末**（报告期类指标此时整批 `null`），或**该指标不覆盖这批证券**（如拿 A 股专属指标查港美股）。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`1` 硬失败
+- **分页端点返回 `null` 也退出 3**：分页端点的正常响应是 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`，CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节（旁边的 `.meta.json` 标 `complete: false`）——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
 - 🔴 **`total` 被服务端封顶时会标 `totalCapped` 并退出 3**：分页端点的 `total` 若被服务端封顶（返回一个固定上限而非真实条数），省略 `--size` 的全量拉取会**正好取满那个上限就停、且不报任何异常**——导出的文件是截断的却看不出来。全量拉取结束后会**多探一行**（`from = total`）：探到数据就标 `partial` + `totalCapped` 并退出 3。判据不写死 10000，服务端改配置仍然有效；`total` 诚实时探针返回空、不产生计费。传了 `--size` 的有界请求不做此探测。
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 
@@ -472,8 +474,8 @@ gangtise reference sector-constituents --sector-id 1000001005 --format json
 gangtise quote day-kline --security 600519.SH --start-date 2026-03-01 --end-date 2026-03-31
 # --field 只回点名的列、不自动附带身份列（fund-flow 除外）：日 K 加 securityCode / tradeDate，分钟 K 加 securityCode / tradeTime，realtime 加 securityCode
 gangtise quote day-kline --security 600519.SH --security 000858.SZ --start-date 2026-03-01 --end-date 2026-03-31 --field securityCode --field tradeDate --field close
-# 查最近/最新 K 线建议显式传 --start-date/--end-date；只传 --limit 会截取查询窗口开头，不等于最近N条
-gangtise quote day-kline --format json
+# 查最近/最新 K 线要显式传 --start-date/--end-date；只传 --limit 会截取查询窗口开头，不等于最近 N 条
+gangtise quote day-kline --security 600519.SH --start-date 2026-08-01 --end-date 2026-08-31 --format json
 # 全市场查询：关键字是 aShares / hkStocks / usStocks，必须单独传（不认 --security all）
 gangtise quote day-kline --security aShares --start-date 2026-04-01 --end-date 2026-04-01 --limit 100 --format json
 # 港股 / 美股 / 指数都走同一个 day-kline，可混着传
@@ -552,7 +554,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 gangtise ai knowledge-batch --query 新能源汽车 --resource-type 10 --resource-type 11 --top 10
 gangtise ai security-clue --start-time "2026-04-01 00:00:00" --end-time "2026-04-09 23:59:59" --query-mode byIndustry --gts-code 821035.SWI --source researchReport --source announcement
 gangtise ai one-pager --security-code 600519.SH
-# 个股看点（精炼投研总结，仅 A 股/港股）：只收具体代码，单次最多 6000 个；不支持全市场关键字
+# 个股看点（精炼投研总结，仅 A 股/港股）：只收具体代码，单次最多 5000 个（更大的批次拆开分次调）；不支持全市场关键字
 gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json
 gangtise ai investment-logic --security-code 600519.SH
 gangtise ai peer-comparison --security-code 600519.SH
@@ -725,7 +727,7 @@ gangtise raw list --format json   # key / method / path / description
 gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 ```
 
-说明：对已标记为自动翻页的 endpoint，`raw call` 也会复用同一套 client 翻页逻辑；这里的 `size` 仍表示最终希望返回的记录数。
+说明：对已标记为自动翻页的 endpoint，`raw call` 也会复用同一套 client 翻页逻辑，这里的 `size` 仍表示最终希望返回的记录数；`--format jsonl` / `csv` 加 `--output` 时同样逐批写盘并生成 `.meta.json`。`raw call auth.login` 的凭证放在 `--body` 里，不需要环境里先有 AK/SK 或 token。
 
 ## 输出格式
 
@@ -820,8 +822,9 @@ npm version patch --no-git-tag-version
 npm run prepare
 VERSION=$(node -p "require('./package.json').version")
 git commit -am "chore: release v$VERSION"
-git tag -a "v$VERSION" -m "v$VERSION"   # 必须 annotated：--follow-tags 不推 lightweight tag
-git push --follow-tags
+git tag -a "v$VERSION" -m "v$VERSION"   # 必须 annotated
+git push origin main "v$VERSION"         # 显式带 tag 名，不用 --follow-tags（它不推 lightweight tag，漏掉 -a 时分支推上去而 tag 留在本地、CI 不触发）
+git ls-remote --tags origin "v$VERSION"  # 确认 tag 真的在远端
 ```
 
 推送 `v*` tag 后，`.github/workflows/publish.yml` 会在 GitHub-hosted runner 上使用 OIDC 发布到 `https://registry.npmjs.org/`。也可以从 GitHub Actions 页面手动运行该 workflow。
