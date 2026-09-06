@@ -6,10 +6,29 @@
       "title": "未知公司名 → 先查代码再查研报",
       "prompt": "查蔚蓝生物最新的研报",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "reference securities-search[^\\n]*蔚蓝生物" },
-        { "dim": "命令", "where": "commands", "must": "insight research list" },
-        { "dim": "完整性", "where": "commands", "before": ["securities-search", "insight research list"] },
-        { "dim": "参数", "where": "commands", "must": "--rank-type 2|--start-time" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "reference securities-search[^\\n]*蔚蓝生物"
+        },
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "insight research list"
+        },
+        {
+          "dim": "完整性",
+          "where": "commands",
+          "before": [
+            "securities-search",
+            "insight research list"
+          ]
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--rank-type 2|--start-time"
+        }
       ]
     },
     {
@@ -17,11 +36,31 @@
       "title": "A+H 同一公司，日 K 一次混查",
       "prompt": "比亚迪 A 股和港股最近的日 K 线",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "quote day-kline" },
-        { "dim": "命令", "where": "commands", "mustNot": "day-kline-hk" },
-        { "dim": "证券", "where": "commands", "must": "002594\\.SZ" },
-        { "dim": "证券", "where": "commands", "must": "01211\\.HK" },
-        { "dim": "参数", "where": "commands", "must": "--start-date" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "quote day-kline"
+        },
+        {
+          "dim": "命令",
+          "where": "commands",
+          "mustNot": "day-kline-hk"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "002594\\.SZ"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "01211\\.HK"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date"
+        }
       ]
     },
     {
@@ -29,9 +68,21 @@
       "title": "ETF 走 day-kline",
       "prompt": "银行ETF（512800）最近一个月的日K",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "quote day-kline" },
-        { "dim": "证券", "where": "commands", "must": "512800\\.SH" },
-        { "dim": "参数", "where": "commands", "must": "--start-date" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "quote day-kline"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "512800\\.SH"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date"
+        }
       ]
     },
     {
@@ -39,10 +90,26 @@
       "title": "全球指数实时点位走 realtime，代码不猜",
       "prompt": "标普500和日经225现在多少点",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "quote realtime" },
-        { "dim": "命令", "where": "commands", "mustNot": "day-kline" },
-        { "dim": "证券", "where": "commands", "must": "SPX\\.SPI" },
-        { "dim": "证券", "where": "commands", "must": "N225\\.NKI" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "quote realtime"
+        },
+        {
+          "dim": "命令",
+          "where": "commands",
+          "mustNot": "day-kline"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "SPX\\.SPI"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "N225\\.NKI"
+        }
       ]
     },
     {
@@ -50,10 +117,26 @@
       "title": "全市场关键字 + 大结果落盘",
       "prompt": "拉 2026-09-04 全部 A 股的日K，落盘",
       "checks": [
-        { "dim": "参数", "where": "commands", "must": "--security aShares" },
-        { "dim": "参数", "where": "commands", "mustNot": "--security all\\b" },
-        { "dim": "完整性", "where": "commands", "must": "--output" },
-        { "dim": "参数", "where": "commands", "must": "--start-date 2026-09-04" }
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--security aShares"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "--security all\\b"
+        },
+        {
+          "dim": "完整性",
+          "where": "commands",
+          "must": "--output"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date 2026-09-04"
+        }
       ]
     },
     {
@@ -61,12 +144,36 @@
       "title": "EDE 报告期指标：先 search，截面用 code:reportDate",
       "prompt": "茅台和五粮液 2025 年的营业收入，用 EDE 拉",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "indicator search" },
-        { "dim": "命令", "where": "commands", "must": "indicator cross-section" },
-        { "dim": "参数", "where": "commands", "must": "reportDate=2025-12-31|--date 2025-12-31" },
-        { "dim": "参数", "where": "commands", "mustNot": "cross-section[^\\n]*\"F1:" },
-        { "dim": "证券", "where": "commands", "must": "600519\\.SH" },
-        { "dim": "证券", "where": "commands", "must": "000858\\.SZ|securities-search[^\\n]*五粮液" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "indicator search"
+        },
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "indicator cross-section"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "indicator-param[^\\n]*:reportDate=2025-12-31"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "cross-section[^\\n]*\"F1:"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "600519\\.SH"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "000858\\.SZ|securities-search[^\\n]*五粮液"
+        }
       ]
     },
     {
@@ -74,9 +181,21 @@
       "title": "日频估值不用季末日期",
       "prompt": "茅台最新的 PB",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "valuation-analysis[^\\n]*pbMrq|finc_pb_mrq" },
-        { "dim": "参数", "where": "commands", "mustNot": "finc_pb_mrq[^\\n]*--date 20\\d\\d-(03-31|06-30|09-30|12-31)" },
-        { "dim": "证券", "where": "commands", "must": "600519\\.SH" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "valuation-analysis[^\\n]*pbMrq|finc_pb_mrq"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "finc_pb_mrq[^\\n]*--date 20\\d\\d-(03-31|06-30|09-30|12-31)"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "600519\\.SH"
+        }
       ]
     },
     {
@@ -84,8 +203,16 @@
       "title": "realtime 没有换手率，要改口径而不是硬传字段",
       "prompt": "用实时行情接口拿茅台的换手率",
       "checks": [
-        { "dim": "参数", "where": "commands", "mustNot": "realtime[^\\n]*turnoverRate" },
-        { "dim": "完整性", "where": "all", "must": "qte_turn|换手率[^。\\n]*(没有|不返回|不在|不提供)|(没有|不返回|不在|不提供)[^。\\n]*换手率" }
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "realtime[^\\n]*turnoverRate"
+        },
+        {
+          "dim": "完整性",
+          "where": "all",
+          "must": "qte_turn|换手率[^。\\n]*(没有|不返回|不在|不提供)|(没有|不返回|不在|不提供)[^。\\n]*换手率"
+        }
       ]
     },
     {
@@ -93,12 +220,36 @@
       "title": "多证券 --field 要带身份列，最近 N 条不用 --limit",
       "prompt": "茅台和五粮液最近 10 个交易日的收盘价，只要收盘价",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "quote day-kline" },
-        { "dim": "参数", "where": "commands", "must": "--field[^\\n]*securityCode" },
-        { "dim": "参数", "where": "commands", "must": "--field[^\\n]*tradeDate" },
-        { "dim": "参数", "where": "commands", "must": "--field[^\\n]*\\bclose\\b" },
-        { "dim": "参数", "where": "commands", "mustNot": "--limit 10\\b" },
-        { "dim": "参数", "where": "commands", "must": "--start-date" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "quote day-kline"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--field[^\\n]*securityCode"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--field[^\\n]*tradeDate"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--field[^\\n]*\\bclose\\b"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "--limit 10\\b"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date"
+        }
       ]
     },
     {
@@ -106,21 +257,63 @@
       "title": "分钟 K 多只，身份列是 tradeTime",
       "prompt": "茅台和宁德时代 2026-09-04 上午 9:30 到 10:00 的分钟线",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "quote minute-kline" },
-        { "dim": "证券", "where": "commands", "must": "600519\\.SH" },
-        { "dim": "证券", "where": "commands", "must": "300750\\.SZ" },
-        { "dim": "参数", "where": "commands", "must": "--start-time" },
-        { "dim": "参数", "where": "commands", "mustNot": "minute-kline[^\\n]*--field tradeDate" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "quote minute-kline"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "600519\\.SH"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "300750\\.SZ"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-time"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "minute-kline[^\\n]*--field tradeDate"
+        }
       ]
     },
     {
       "id": "S11",
-      "title": "退出码 3 不能当成功，要按 failedShards 补拉",
+      "title": "退出码 3 不能当成功，要按 failedShards 补拉全部缺失区间",
       "prompt": "我跑了 `gangtise quote day-kline --security aShares --start-date 2026-08-01 --end-date 2026-08-31 --format jsonl --output a.jsonl`，退出码 3，stderr 说 3/22 shards failed，输出里 partial:true、failedShards 列了 2026-08-11、2026-08-12、2026-08-13 三个区间。这个结果能直接用吗？下一步怎么办",
       "checks": [
-        { "dim": "完整性", "where": "notes", "must": "不完整|缺|部分|截断" },
-        { "dim": "完整性", "where": "all", "must": "补拉|重拉|重新拉|重跑|再拉|failedShards" },
-        { "dim": "参数", "where": "commands", "must": "--start-date 2026-08-1[123]" }
+        {
+          "dim": "完整性",
+          "where": "notes",
+          "must": "不完整|缺|部分|截断"
+        },
+        {
+          "dim": "完整性",
+          "where": "all",
+          "must": "补拉|重拉|重新拉|重跑|再拉|failedShards"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date 2026-08-(0\\d|1[0-1])[^\\n]*--end-date 2026-08-(1[1-9]|2\\d|3[01])|--end-date 2026-08-(1[1-9]|2\\d|3[01])[^\\n]*--start-date 2026-08-(0\\d|1[0-1])"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date 2026-08-(0\\d|1[0-2])[^\\n]*--end-date 2026-08-(1[2-9]|2\\d|3[01])|--end-date 2026-08-(1[2-9]|2\\d|3[01])[^\\n]*--start-date 2026-08-(0\\d|1[0-2])"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date 2026-08-(0\\d|1[0-3])[^\\n]*--end-date 2026-08-(1[3-9]|2\\d|3[01])|--end-date 2026-08-(1[3-9]|2\\d|3[01])[^\\n]*--start-date 2026-08-(0\\d|1[0-3])"
+        }
       ]
     },
     {
@@ -128,9 +321,21 @@
       "title": "screener 空集 + 报告期指标 + 非报告期末日期 = 日期用错",
       "prompt": "我用 indicator screener 筛 is_op_rev > 1e9，--date 2026-05-15，结果是空集，是不是没有公司满足条件？",
       "checks": [
-        { "dim": "参数", "where": "all", "must": "报告期末|03-31|06-30|09-30|12-31" },
-        { "dim": "参数", "where": "all", "must": "reportDate" },
-        { "dim": "完整性", "where": "notes", "must": "日期|报告期" }
+        {
+          "dim": "参数",
+          "where": "all",
+          "must": "报告期末|03-31|06-30|09-30|12-31"
+        },
+        {
+          "dim": "参数",
+          "where": "all",
+          "must": "reportDate"
+        },
+        {
+          "dim": "完整性",
+          "where": "notes",
+          "must": "日期|报告期"
+        }
       ]
     },
     {
@@ -138,9 +343,21 @@
       "title": "高积分 + 不支持全市场关键字：先算钱、先拿清单",
       "prompt": "把全部 A 股的个股看点都拉下来",
       "checks": [
-        { "dim": "完整性", "where": "notes", "must": "积分|确认" },
-        { "dim": "参数", "where": "commands", "mustNot": "stock-summary[^\\n]*aShares" },
-        { "dim": "命令", "where": "all", "must": "stock-summary" }
+        {
+          "dim": "完整性",
+          "where": "notes",
+          "must": "积分|确认"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "stock-summary[^\\n]*aShares"
+        },
+        {
+          "dim": "命令",
+          "where": "all",
+          "must": "stock-summary"
+        }
       ]
     },
     {
@@ -148,10 +365,26 @@
       "title": "盈利预测 ROE 走 earning-forecast，单位百分比",
       "prompt": "茅台 2025E 的 ROE 一致预期",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "fundamental earning-forecast" },
-        { "dim": "参数", "where": "commands", "must": "--consensus roe" },
-        { "dim": "单位", "where": "all", "must": "百分比|%" },
-        { "dim": "命令", "where": "commands", "mustNot": "indicator" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "fundamental earning-forecast"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--consensus roe"
+        },
+        {
+          "dim": "单位",
+          "where": "all",
+          "must": "百分比|%"
+        },
+        {
+          "dim": "命令",
+          "where": "commands",
+          "mustNot": "indicator"
+        }
       ]
     },
     {
@@ -159,9 +392,21 @@
       "title": "年在后的日期要归一成年在前",
       "prompt": "查茅台 01/07/2026 到 31/07/2026 的日K",
       "checks": [
-        { "dim": "参数", "where": "commands", "must": "--start-date 2026-07-01" },
-        { "dim": "参数", "where": "commands", "must": "--end-date 2026-07-31" },
-        { "dim": "参数", "where": "commands", "mustNot": "01/07/2026" }
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--start-date 2026-07-01"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "--end-date 2026-07-31"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "01/07/2026"
+        }
       ]
     },
     {
@@ -169,10 +414,26 @@
       "title": "A 股公告用 --start-time 不是 --start-date",
       "prompt": "查茅台 2026 年 8 月的 A 股公告",
       "checks": [
-        { "dim": "命令", "where": "commands", "must": "insight announcement list" },
-        { "dim": "参数", "where": "commands", "must": "announcement list[^\\n]*--start-time" },
-        { "dim": "参数", "where": "commands", "mustNot": "announcement list[^\\n]*--start-date" },
-        { "dim": "证券", "where": "commands", "must": "600519\\.SH" }
+        {
+          "dim": "命令",
+          "where": "commands",
+          "must": "insight announcement list"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "must": "announcement list[^\\n]*--start-time"
+        },
+        {
+          "dim": "参数",
+          "where": "commands",
+          "mustNot": "announcement list[^\\n]*--start-date"
+        },
+        {
+          "dim": "证券",
+          "where": "commands",
+          "must": "600519\\.SH"
+        }
       ]
     }
   ]

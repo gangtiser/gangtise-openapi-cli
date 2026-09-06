@@ -10,9 +10,16 @@
 //   npm run skill-eval -- --only S02,S09    # a subset
 //   npm run skill-eval -- --model gpt-6-astra --effort high --concurrency 2
 //   npm run skill-eval -- --skill-dir ~/.codex/skills/gangtise-openapi
+//   npm run skill-eval -- --rescore evals/results/<ts>.json   # re-score saved answers with the current checks, no model run
 //
 // Results go to evals/results/<timestamp>.json (raw answers kept for审计) and a summary
 // table to stdout. Exit 0 whenever the harness ran; the score is the deliverable.
+//
+// A scenario whose run did not complete cleanly — codex exited non-zero, the answer did
+// not parse, or (live) the agent ran a CLI other than this checkout's — is INVALID: every
+// one of its checks counts as failed, whatever the answer text would have matched. A
+// regex cannot tell "the agent got it right" from "the agent got it right against the
+// wrong binary", so validity is decided before scoring, never folded into it.
 import { spawn } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
@@ -36,6 +43,7 @@ const TIMEOUT_MS = Number(opt("timeout", "420000"))
 // the prompt says so, so the skill's "confirm high-credit operations" rule is satisfied
 // up front and the agent is expected to proceed.
 const LIVE = args.includes("--live")
+const RESCORE = opt("rescore", "")
 const LOCAL_CLI = path.join(ROOT, "dist/src/cli.js")
 const LOCAL_VERSION = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")).version
 
@@ -88,20 +96,37 @@ function runCodex(prompt, outFile, cwd, bin) {
       "-C", cwd, "--output-schema", SCHEMA, "-o", outFile, prompt,
     ]
     const started = Date.now()
-    const child = spawn("codex", argv, { stdio: ["ignore", "pipe", "pipe"], env })
+    // Own process group, so a timeout kills the whole tree: codex's own children (the
+    // agent's shell commands) inherit the stdio pipes, and killing only the parent leaves
+    // them holding the pipe — 'close' then waits on them indefinitely. Resolve on 'exit'
+    // and drop the pipes ourselves for the same reason.
+    const child = spawn("codex", argv, { stdio: ["ignore", "pipe", "pipe"], env, detached: true })
     let stderr = ""
+    let timedOut = false
     child.stderr.on("data", (d) => { stderr += d })
     child.stdout.on("data", () => {})
-    const timer = setTimeout(() => child.kill("SIGKILL"), TIMEOUT_MS)
-    child.on("close", (code) => {
+    const killTree = () => { try { process.kill(-child.pid, "SIGKILL") } catch { child.kill("SIGKILL") } }
+    const timer = setTimeout(() => { timedOut = true; killTree() }, TIMEOUT_MS)
+    child.on("exit", (code, signal) => {
       clearTimeout(timer)
-      resolve({ code, stderr: stderr.slice(-2000), ms: Date.now() - started })
+      child.stdout.destroy(); child.stderr.destroy()
+      const exit = code ?? (signal ? 128 : 1)
+      resolve({ code: timedOut ? 124 : exit, stderr: (timedOut ? `[skill-eval] timed out after ${TIMEOUT_MS}ms\n` : "") + stderr.slice(-2000), ms: Date.now() - started })
     })
   })
 }
 
+/** Shell quoting is not a parameter: `--security "aShares"` and `--security aShares` hand
+ * the CLI the same argv. Drop quotes around whitespace-free tokens before matching so a
+ * check written unquoted cannot fail a correctly quoted command (values containing
+ * spaces, like a datetime, keep their quotes — the checks never depend on those). */
+function normalizeCommand(line) {
+  return line.replace(/"([^"\s]*)"/g, "$1").replace(/'([^'\s]*)'/g, "$1")
+}
+
 function evaluate(scenario, answer) {
-  const commands = (answer?.commands ?? []).join("\n")
+  const lines = (answer?.commands ?? []).map((l) => normalizeCommand(String(l)))
+  const commands = lines.join("\n")
   const notes = answer?.notes ?? ""
   const all = `${commands}\n${notes}`
   const text = { commands, notes, all }
@@ -111,13 +136,27 @@ function evaluate(scenario, answer) {
     if (check.must) pass = new RegExp(check.must, "i").test(hay)
     else if (check.mustNot) pass = !new RegExp(check.mustNot, "i").test(hay)
     else if (check.before) {
-      const lines = (answer?.commands ?? [])
       const idx = (re) => lines.findIndex((l) => new RegExp(re, "i").test(l))
       const a = idx(check.before[0]); const b = idx(check.before[1])
       pass = a !== -1 && b !== -1 && a < b
     } else pass = false
     return { ...check, pass }
   })
+}
+
+/** Why a run cannot count, or null. Checked before scoring (see the header comment). */
+function invalidReason(run) {
+  if (run.exitCode !== 0) return `codex exit ${run.exitCode}`
+  if (run.parseError) return "answer did not parse"
+  if (run.cliMismatch) return `ran cli=${run.cliVersion ?? "unreported"}, not ${LOCAL_VERSION}`
+  return null
+}
+
+/** Score one run (fresh or saved): invalid runs fail every check. */
+function score(scenario, run) {
+  const invalid = invalidReason(run)
+  const checks = evaluate(scenario, run.answer).map((c) => (invalid ? { ...c, pass: false } : c))
+  return { ...run, checks, invalid }
 }
 
 async function runOne(scenario) {
@@ -128,12 +167,11 @@ async function runOne(scenario) {
     const run = await runCodex(buildPrompt(scenario.prompt, wrapper), outFile, cwd, bin)
     let answer = null; let parseError
     try { answer = JSON.parse(readFileSync(outFile, "utf8")) } catch (e) { parseError = e instanceof Error ? e.message : String(e) }
-    const checks = evaluate(scenario, answer)
     // Live only: which CLI did the agent actually run? A mismatch voids the scenario's
-    // evidence about this checkout, whatever the checks say.
+    // evidence about this checkout, whatever the checks say (see invalidReason).
     const cliVersion = LIVE ? (/cli=\s*v?(\d+\.\d+\.\d+)/.exec(answer?.notes ?? "")?.[1] ?? null) : undefined
     const cliMismatch = LIVE ? cliVersion !== LOCAL_VERSION : false
-    return { id: scenario.id, title: scenario.title, prompt: scenario.prompt, answer, parseError, exitCode: run.code, ms: run.ms, stderr: run.stderr, checks, cliVersion, cliMismatch }
+    return score(scenario, { id: scenario.id, title: scenario.title, prompt: scenario.prompt, answer, parseError, exitCode: run.code, ms: run.ms, stderr: run.stderr, cliVersion, cliMismatch })
   } finally {
     rmSync(cwd, { recursive: true, force: true })
   }
@@ -147,8 +185,29 @@ async function pool(items, width, fn) {
   return out
 }
 
-process.stderr.write(`skill-eval: ${scenarios.length} scenarios, model=${MODEL} effort=${EFFORT} concurrency=${CONCURRENCY} mode=${LIVE ? "live" : "dry-run"}\n`)
-const results = await pool(scenarios, CONCURRENCY, runOne)
+let results
+let mode = LIVE ? "live" : "dry-run"
+let rescoredFrom
+if (RESCORE) {
+  // Saved answers, current checks: the way to re-baseline after tightening a scenario
+  // without paying for another model run. Validity comes from the saved run record.
+  const saved = JSON.parse(readFileSync(path.resolve(ROOT, RESCORE), "utf8"))
+  mode = saved.mode
+  rescoredFrom = path.relative(ROOT, path.resolve(ROOT, RESCORE))
+  const byId = new Map(saved.results.map((r) => [r.id, r]))
+  // Re-derive the CLI check from the saved notes rather than trusting a saved flag: an
+  // older live file without the `cli=` self-check proves nothing about any checkout.
+  const cliOf = (r) => (mode === "live" ? (/cli=\s*v?(\d+\.\d+\.\d+)/.exec(r.answer?.notes ?? "")?.[1] ?? null) : undefined)
+  results = scenarios.filter((s) => byId.has(s.id)).map((s) => {
+    const r = byId.get(s.id)
+    const cliVersion = cliOf(r)
+    return score(s, { ...r, title: s.title, prompt: s.prompt, cliVersion, cliMismatch: mode === "live" ? cliVersion !== LOCAL_VERSION : false })
+  })
+  process.stderr.write(`skill-eval: re-scoring ${results.length} saved answers from ${rescoredFrom} (${mode})\n`)
+} else {
+  process.stderr.write(`skill-eval: ${scenarios.length} scenarios, model=${MODEL} effort=${EFFORT} concurrency=${CONCURRENCY} mode=${mode}\n`)
+  results = await pool(scenarios, CONCURRENCY, runOne)
+}
 
 const dims = ["命令", "参数", "证券", "单位", "完整性"]
 const tally = Object.fromEntries(dims.map((d) => [d, { pass: 0, total: 0 }]))
@@ -161,18 +220,19 @@ lines.push("| 场景 | 通过 | 未过的检查 |")
 lines.push("| :-- | :-- | :-- |")
 for (const r of results) {
   const failed = r.checks.filter((c) => !c.pass).map((c) => `${c.dim}:${c.must ?? c.mustNot ?? c.before?.join("→")}`)
-  lines.push(`| ${r.id} ${r.title} | ${r.checks.filter((c) => c.pass).length}/${r.checks.length}${r.parseError ? " ⚠️无法解析回复" : ""}${r.cliMismatch ? ` ⚠️跑的不是本仓 CLI（cli=${r.cliVersion ?? "未报告"}）` : ""} | ${failed.join("；") || "—"} |`)
+  lines.push(`| ${r.id} ${r.title} | ${r.checks.filter((c) => c.pass).length}/${r.checks.length}${r.invalid ? ` ⚠️无效：${r.invalid}` : ""} | ${failed.join("；") || "—"} |`)
 }
 lines.push("")
 lines.push("| 维度 | 通过率 |")
 lines.push("| :-- | :-- |")
 for (const d of dims) if (tally[d].total) lines.push(`| ${d} | ${tally[d].pass}/${tally[d].total} |`)
-lines.push(`| **合计** | **${totalPass}/${totalChecks}（${(100 * totalPass / totalChecks).toFixed(0)}%）** |`)
+const invalidCount = results.filter((r) => r.invalid).length
+lines.push(`| **合计** | **${totalPass}/${totalChecks}（${(100 * totalPass / totalChecks).toFixed(0)}%）**${invalidCount ? ` — ${invalidCount} 个场景无效，其检查全部计为未过` : ""} |`)
 const table = lines.join("\n")
 process.stdout.write(`${table}\n`)
 
 mkdirSync(path.join(ROOT, "evals/results"), { recursive: true })
 const stamp = new Date().toISOString().replace(/[:.]/g, "-")
 const file = path.join(ROOT, "evals/results", `${stamp}.json`)
-writeFileSync(file, `${JSON.stringify({ model: MODEL, effort: EFFORT, mode: LIVE ? "live" : "dry-run", skillDir: SKILL_DIR, ranAt: stamp, summary: { totalPass, totalChecks, tally }, results }, null, 2)}\n`)
+writeFileSync(file, `${JSON.stringify({ model: MODEL, effort: EFFORT, mode, skillDir: SKILL_DIR, ranAt: stamp, rescoredFrom, summary: { totalPass, totalChecks, invalid: invalidCount, tally }, results }, null, 2)}\n`)
 process.stderr.write(`results: ${path.relative(ROOT, file)}\n`)
