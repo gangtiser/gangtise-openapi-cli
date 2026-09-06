@@ -13,7 +13,7 @@ import { releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "./co
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
 import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./core/fileParse.js"
-import { flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
+import { assertColumnarHeader, flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
 import { ExportSink, rowCount } from "./core/rowSink.js"
@@ -116,8 +116,9 @@ async function runDownload(
   const result = await client.call(endpointKey, options.body, query)
   const resolved = options.resolveOutputPath ? await options.resolveOutputPath(result) : undefined
   // Title-derived names are auto-generated too — dedupe them like the fallback names.
-  // uniquePath claims the name by creating its .part; if the save never happens the
-  // claim must not linger as an orphan .part.
+  // uniquePath claims the name by creating the final file itself as an empty
+  // placeholder; if the save never happens, releaseClaim removes that (still empty)
+  // placeholder so it does not linger looking like a finished download.
   const target = resolved ? await uniquePath(resolved) : undefined
   try {
     await saveDownloadResult(result, options.fallbackName, target)
@@ -972,6 +973,10 @@ alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (rep
   let data: unknown = raw
   if (raw && Array.isArray(raw.fieldList) && Array.isArray(raw.dataList)) {
     const fields = raw.fieldList as string[]
+    // This flattening happens before normalizeRows ever sees the rows, so the header
+    // rules (unique names) have to be applied here too — or a duplicated indicator
+    // column would silently keep only its last value.
+    assertColumnarHeader(fields, raw)
     const list = raw.dataList.map((row) => zipFieldRow(fields, row, raw))
     data = { list, total: list.length }
   }

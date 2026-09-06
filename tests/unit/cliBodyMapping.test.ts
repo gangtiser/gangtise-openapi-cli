@@ -189,11 +189,17 @@ beforeAll(async () => {
         // edb-data 走同一个 zipFieldRow，但它是 {fieldList, dataList} 且没有 --field。
         // 实测上游会把无效 indicatorId 从名和值里一起剔掉（等长、安全），所以长度不等
         // 只可能是响应结构变了——仍须拦住，不能拍出错列。
-        const mismatched = ((body as { indicatorIdList?: string[] })?.indicatorIdList ?? []).includes("MISMATCH")
+        const ids = (body as { indicatorIdList?: string[] })?.indicatorIdList ?? []
+        const mismatched = ids.includes("MISMATCH")
+        // DUPLICATE: an equal-width response whose fieldList names one indicator twice —
+        // flattened by position, the second value would silently replace the first.
+        const duplicated = ids.includes("DUPLICATE")
         // 带上信封 traceId：结构异常的报障指引承诺给出这个 id，必须真的传到报错文案里。
         res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-edb-1", data: mismatched
           ? { fieldList: ["date", "S00000093", "S99999999"], dataList: [["20260131", "826.1"]] }
-          : { fieldList: ["date", "S00000093"], dataList: [["20260131", "826.1"], ["20260228", "580.6"]] } }))
+          : duplicated
+            ? { fieldList: ["date", "S00000093", "S00000093"], dataList: [["20260131", "826.1", "580.6"]] }
+            : { fieldList: ["date", "S00000093"], dataList: [["20260131", "826.1"], ["20260228", "580.6"]] } }))
         return
       }
       if ((req.url ?? "").includes("/daily")) {
@@ -1641,6 +1647,29 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       ],
     })
   }, 30_000)
+
+  it("alternative edb-data rejects a fieldList that names one indicator twice, on every format, publishing nothing", async () => {
+    // The edb flattening runs before normalizeRows, so it has to apply the header rule
+    // itself; otherwise 826.1 vanishes and the export (and its sidecar) look complete.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-edb-dup-"))
+    try {
+      for (const format of ["json", "jsonl", "csv"]) {
+        const out = path.join(dir, `dup.${format}`)
+        const { code, stdout, stderr } = await cli([
+          "alternative", "edb-data", "--indicator-id", "DUPLICATE",
+          "--start-date", "2026-01-01", "--end-date", "2026-02-28", "--format", format, "--output", out,
+        ])
+        expect(code, format).toBe(1)
+        expect(stderr).toContain("重复列名（S00000093）")
+        expect(stderr).toContain("trace-edb-1")
+        expect(stdout).toBe("")
+        await expect(fs.access(out)).rejects.toThrow()
+        await expect(fs.access(`${out}.meta.json`)).rejects.toThrow()
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   it("alternative edb-data rejects a mismatched dataList row (same guard, no --field to blame)", async () => {
     const { code, stdout, stderr } = await cli([

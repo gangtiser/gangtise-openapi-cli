@@ -267,13 +267,11 @@ export function parseTimestamp13(value: string | undefined, optionName: string):
  * the response flagging it. Accept a finite epoch or a well-formed `YYYY-MM-DD
  * [ HH:mm[:ss]]` and return the ORIGINAL string unchanged.
  *
- * Validated with `datetimeFieldsValid`, NOT `toTimestamp13`: the latter's local Date
- * round-trip would reject a DST-gap string (e.g. `2026-03-08 02:30:00` under
- * America/New_York) that the server accepts — the CLI forwards this string and the
- * server resolves it in its own zone, so the client's timezone must not decide
- * validity. Distinct from `parseTimestamp13`, which DOES convert (A-share
- * announcement / knowledge-batch want epoch millis, where an unrepresentable local
- * instant genuinely cannot convert).
+ * Validated with `datetimeFieldsValid`: field arithmetic only, no Date construction —
+ * the CLI forwards this string and the server resolves it in its own zone, so nothing
+ * about the client machine may decide validity. Distinct from `parseTimestamp13`,
+ * which DOES convert (A-share announcement / knowledge-batch want epoch millis) and
+ * anchors the wall-clock input to Beijing time.
  *
  * Epochs pass through untouched; a datetime has only its DATE part rewritten to
  * `YYYY-MM-DD` (so `2026/07/01 09:30` goes out as `2026-07-01 09:30`). The time
