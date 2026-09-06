@@ -55,6 +55,8 @@ gangtise ai peer-comparison  --security-code <code>
 gangtise ai stock-summary --security <code> [--security <code2> ...]
 ```
 
+- 🔴 **单次最多 5000 只**：`securityList` 超过约 5040 只时整批返回 `{total:0, list:[]}`、HTTP 200、退出 0、无告警（5041 只正常、5042 只返空）。全市场看点分批提交（每批 ≤ 5000 只）；多只请求拿到 0 行先怀疑批次过大，不要读成「都没看点」
+
 - `--security`（**必选**，可重复）：**只收具体证券代码**，单次最多 6000 个
 - 🔴 **不支持全市场批量**：`aShares` / `hkStocks` 这类市场关键词不被接受，CLI 会本地报错（服务端对它们返 `120001`，读起来像代码写错，容易误判）。需要覆盖一批标的就先用 `reference securities-search` 或自有清单取到代码，再分批传入
 - **仅支持 A 股和港股**

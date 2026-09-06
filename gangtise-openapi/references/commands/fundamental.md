@@ -17,7 +17,7 @@ gangtise fundamental <income-statement|balance-sheet|cash-flow> --security-code 
 - `--fiscal-year` 可重复：`--fiscal-year 2023 --fiscal-year 2024`
 - `--start-date`/`--end-date` 有值时覆盖 `--fiscal-year`
 - **固定返回字段**（无需 `--field` 指定）：`securityCode` `companyName` `category` `announcementDate` **`earliestAnncDate`** `endDate` `fiscalYear` `period` `reportType` `companyType` `currency` `unit`
-- 🔴 **做时点对齐（「这份财报在某日是否已公开」）用 `earliestAnncDate`（首次公告日），不要用 `announcementDate`**：`announcementDate` 在部分证券上会把同一财年各期都填成同一个日期，据此判断「某期数据在某日是否已公开」会得出相反的结论；`earliestAnncDate` 是该报告期自身的首次公告日。盘后披露的报告计次日，即**永不早于**真实披露时点，用来做 point-in-time 是安全的方向。要交叉核实披露日可查 `insight announcement list`
+- 🔴 **做时点对齐（「这份财报在某日是否已公开」）用 `earliestAnncDate`（首次公告日），不要用 `announcementDate`**：`announcementDate` 是**返回数值所属公告**的日期——被重述过的报告期显示的是重述公告日（同一财年几期可能都是同一天），据此判断「某期数据在某日是否已公开」会得出相反的结论；`earliestAnncDate` 是该报告期自身的首次公告日。盘后披露的报告计次日，即**永不早于**真实披露时点，用来做 point-in-time 是安全的方向。要交叉核实披露日可查 `insight announcement list`
 - `companyType` / `currency` 在三张累计口径表上均正确（`companyType=一般企业`/`银行`/`保险公司`/`证券公司`，`currency=人民币`）。⚠️ **仅 A 股 `*-quarterly` 单季表例外**：`companyType` 返回未映射的数字码（如 `102119999`），`currency` 正确——单季表读公司类型时按需自行映射，科目数字本身不受影响
 
 **常用字段速查：**
@@ -40,7 +40,7 @@ gangtise fundamental <income-statement-hk|balance-sheet-hk|cash-flow-hk> --secur
 - 其余参数与 A 股三大报表相同
 - **固定返回字段**：与 A 股相同，其中利润表/现金流增加 `startDate` 字段
 - 报表类型说明：
-  - `consolidated` 合并报表（首次发布原始值，默认）
+  - `consolidated` 合并报表（默认）。⚠️ 被重述过的报告期实测返回的是**重述后**数值（与 `consolidatedRestated` 相同、`announcementDate` 为重述公告日），不是首次发布值；要「当时披露的原始数」只能以 `earliestAnncDate` 为时点自行核对公告
   - `consolidatedRestated` 合并报表（调整）：最新报告中对上年同期的修订
   - `standalone` / `standaloneRestated` 母公司报表（及调整）
 

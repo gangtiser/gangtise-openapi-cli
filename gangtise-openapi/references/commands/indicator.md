@@ -390,16 +390,16 @@ gangtise indicator cross-section --indicator scr_indu_citic --indicator scr_indu
 
 > 🔴 **对照前先避开这个陷阱：两个接口在非交易日的行为不一样。** EDE `finc_pe_ttm` 在非交易日返回 `null`；`fundamental valuation-analysis` 在非交易日顺延上一交易日的值。拿非交易日做对照，会看到「EDE 全是 null、对照组搭不起来」，很容易误判成 EDE 没有这些数据——**其实只是它不给非交易日补值，而 `valuation-analysis` 补**。做交叉核对时**日期一律落在交易日上**；已经撞上的，换一个交易日重跑再下结论。
 
-| 接口 | 财报口径切换时点 |
-| :--- | :--- |
-| `indicator time-series`（EDE） | **正式财报披露日** |
-| `fundamental valuation-analysis` | **业绩快报**口径，通常更早 |
+| 接口 | 财报口径切换时点 | 历史期用的财报版本 |
+| :--- | :--- | :--- |
+| `indicator time-series`（EDE） | **正式财报披露日** | 按**最新（含重述后）**的财务数据回算 |
+| `fundamental valuation-analysis` | **业绩快报**口径，通常更早 | 保留**当时披露**的原始数据 |
 
-两者都是点时口径，只是切换时机不同，同一天取到的估值指标可能不一样。**做估值分位 / 回测时两个接口都拉一遍交叉核**，尤其业绩大幅变动的标的——个别标的在 `valuation-analysis` 侧可能长期未更新、估值明显偏低。
+两者都是点时序列，但切换时机和历史期所用的财报版本都可能不同：发生过财报重述的标的，两条序列会从被重述的第一期起持续分叉，直到重述覆盖的期数过完。**做估值分位 / 回测先想清楚要哪个版本**——要「当时能看到的」用 `valuation-analysis`，要「按现在的口径回看」用 EDE；**两个都拉一遍交叉核**能定位分叉来源。
 
-判别方法（**已核对的是 `finc_pe_ttm` / `peTtm`**）：用**总市值 ÷ PE 反推隐含净利润**，再对照利润表的滚动 TTM（= 上年全年 − 上年同期累计 + 本年累计），就能判出哪一侧用的是陈值。`finc_pb_mrq` 等非 TTM 口径的指标同样会在报告期节点变化，但分母是净资产（MRQ）不是 TTM，切换规则未单独核对——分叉时按同法反推净资产对照资产负债表。
+判别方法（**已核对的是 `finc_pe_ttm` / `peTtm`**）：用**总市值 ÷ PE 反推隐含净利润**，再分别对照利润表原披露与重述后的滚动 TTM（= 上年全年 − 上年同期累计 + 本年累计），能精确复现哪一版就是哪一版。`finc_pb_mrq` 等非 TTM 口径的指标同样会在报告期节点变化，但分母是净资产（MRQ）不是 TTM，切换规则未单独核对——分叉时按同法反推净资产对照资产负债表。
 
-⚠️ **不要用 `fundamental income-statement` 的 `announcementDate` 做时点对齐**——它在部分证券上各期取值相同。**改用同一响应里的 `earliestAnncDate`（首次公告日）**；要交叉核实披露日就查 `insight announcement list`。
+⚠️ **时点对齐用三大报表的 `earliestAnncDate`（首次公告日），不要用 `announcementDate`**——后者是返回数值所属公告的日期，被重述过的报告期显示的是重述公告日。`--report-type consolidated` 对重述过的期返回的也是重述后数值（与 `consolidatedRestated` 相同），要「当时披露的原始数」需以 `earliestAnncDate` 为时点自行核对公告；交叉核实披露日查 `insight announcement list`。
 
 ## 通用说明
 

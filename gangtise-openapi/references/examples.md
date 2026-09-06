@@ -252,8 +252,9 @@
    b) 估值 PE + PB 同为日频，用同一个最新交易日即可（finc_pb_mrq 在任意交易日都有数；
       用季末日期会拿到几个月前的陈值）。
       ⚠️ 要估值指标的历史序列做分位/回测，两个接口都拉一遍交叉核：EDE 按正式财报
-      披露日切换财报口径，fundamental valuation-analysis 按业绩快报切，同一天取到
-      的值可能不同（PE TTM 已核对；PB 是 MRQ 口径，切换规则未单独核对）。详见 indicator.md：
+      披露日切换财报口径且历史期用含重述后的最新数据回算，fundamental valuation-analysis
+      按业绩快报切、保留当时披露的原始数据，同一天取到的值可能不同（PE TTM 已核对；
+      PB 是 MRQ 口径，切换规则未单独核对）。详见 indicator.md：
      gangtise indicator cross-section --indicator finc_pe_ttm --indicator finc_pb_mrq \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
        --date 2026-07-31 --key-by code --format json
