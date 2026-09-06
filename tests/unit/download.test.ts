@@ -5,7 +5,8 @@ import { Readable } from "node:stream"
 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
-import { extFromContentType, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
+import { extFromContentType, releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
+import { saveOutputIfNeeded } from "../../src/core/output.js"
 import { DownloadError } from "../../src/core/errors.js"
 import { readTitleCache, writeTitleCache } from "../../src/core/titleCache.js"
 
@@ -376,6 +377,28 @@ describe("saveDownloadResult", () => {
       expect(Buffer.byteLength(written, "utf8")).toBeLessThanOrEqual(210)
     } finally {
       process.chdir(cwd)
+    }
+  })
+
+  it("uniquePath claims the name atomically, so concurrent callers never share a file", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-claim-"))
+    try {
+      const base = path.join(dir, "report.pdf")
+      // Existence checks alone let every caller see "free" and return the same path.
+      const claimed = await Promise.all([uniquePath(base), uniquePath(base), uniquePath(base)])
+      expect(new Set(claimed).size).toBe(3)
+      expect(claimed.sort()).toEqual([base, path.join(dir, "report-1.pdf"), path.join(dir, "report-2.pdf")].sort())
+      // Each claim is a .part that the writer truncates and renames over the target.
+      for (const p of claimed) await expect(fs.access(`${p}.part`)).resolves.toBeUndefined()
+      await saveOutputIfNeeded(new Uint8Array([1, 2, 3]), claimed[0])
+      expect(await fs.readFile(claimed[0])).toEqual(Buffer.from([1, 2, 3]))
+      await expect(fs.access(`${claimed[0]}.part`)).rejects.toThrow()
+      // An unused claim can be released; a released name is claimable again.
+      await releaseClaim(claimed[1])
+      await expect(fs.access(`${claimed[1]}.part`)).rejects.toThrow()
+      expect(await uniquePath(base)).toBe(claimed[1])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
     }
   })
 

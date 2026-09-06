@@ -341,6 +341,7 @@ export class GangtiseClient {
 
     let unexpectedShape = false
     let totalDrift = false
+    let laterPartial = false
     // Fail-soft fan-out: a hard page failure (rate-limit 903301, no-perm, retries
     // exhausted) must NOT discard the pages already fetched. Catch per page, record
     // it, and stop starting new requests so we don't keep burning quota into a rate
@@ -370,6 +371,7 @@ export class GangtiseClient {
           return [] as unknown[]
         }
         if (page.total !== total) totalDrift = true
+        if (page.partial === true) laterPartial = true
         return page.list
       } catch (error) {
         if (!firstError) firstError = error
@@ -409,6 +411,12 @@ export class GangtiseClient {
     // as complete. The cap and drift branches above already warned on stderr; failedPages
     // warns below.
     if (short || totalDrift || failedPages.length > 0) out.partial = true
+    // A page that itself carries a partial marker (only the first page's metadata is
+    // spread into the result) must keep the merged result incomplete.
+    if (laterPartial) {
+      out.partial = true
+      process.stderr.write(`[gangtise] warning: a later page reported itself partial; the merged result is marked partial\n`)
+    }
     if (failedPages.length > 0) {
       out.failedPages = failedPages.map((p) => ({ from: p.from, size: p.size }))
       const detail = firstError instanceof Error ? `: ${firstError.message}` : ""
@@ -795,6 +803,9 @@ export class GangtiseClient {
       return this.requestPaginated(endpoint, body)
     }
 
-    return this.requestJson(endpoint, body)
+    // auth.login is how a token is obtained: its credentials travel in the body, so it
+    // must not first demand a token (a `raw call auth.login` with no env credentials
+    // used to fail before any request went out).
+    return this.requestJson(endpoint, body, endpoint.key !== 'auth.login')
   }
 }

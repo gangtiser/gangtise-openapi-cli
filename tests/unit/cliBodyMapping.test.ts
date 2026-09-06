@@ -377,20 +377,23 @@ beforeEach(() => {
 })
 
 // stdout / stderr 分开返回：错列拦截既要断言报错进了 stderr，也要断言 stdout 一行数据都没吐。
-async function cli(args: string[]): Promise<{ code: number; out: string; stdout: string; stderr: string }> {
+async function cli(args: string[], envOverride: Record<string, string | undefined> = {}): Promise<{ code: number; out: string; stdout: string; stderr: string }> {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    GANGTISE_BASE_URL: baseUrl,
+    // A pre-injected token skips login; the isolated cache path guards against
+    // any accidental read/write of the developer's real ~/.config token.
+    GANGTISE_TOKEN: "test-token",
+    GANGTISE_TOKEN_CACHE_PATH: path.join(os.tmpdir(), `gangtise-body-map-${process.pid}`, "token.json"),
+    GANGTISE_ACCESS_KEY: "",
+    GANGTISE_SECRET_KEY: "",
+    ...envOverride,
+  }
+  for (const [key, value] of Object.entries(envOverride)) if (value === undefined) delete env[key]
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
       timeout: 25_000,
-      env: {
-        ...process.env,
-        GANGTISE_BASE_URL: baseUrl,
-        // A pre-injected token skips login; the isolated cache path guards against
-        // any accidental read/write of the developer's real ~/.config token.
-        GANGTISE_TOKEN: "test-token",
-        GANGTISE_TOKEN_CACHE_PATH: path.join(os.tmpdir(), `gangtise-body-map-${process.pid}`, "token.json"),
-        GANGTISE_ACCESS_KEY: "",
-        GANGTISE_SECRET_KEY: "",
-      },
+      env,
     })
     return { code: 0, out: stdout + stderr, stdout, stderr }
   } catch (error) {
@@ -1859,6 +1862,16 @@ describe("large jsonl export streams to disk with a metadata sidecar (real CLI a
     expect((await fs.readFile(out, "utf8")).split("\n").filter(Boolean)).toHaveLength(1000)
     await expect(fs.access(`${out}.part`)).rejects.toThrow()
     expect(await readMeta(out)).toMatchObject({ rows: 1000, complete: true })
+  }, 30_000)
+
+  it("raw call auth.login works with no token and no credentials in the environment", async () => {
+    const { code, stderr } = await cli(["raw", "call", "auth.login", "--body", '{"accessKey":"SYNTHETIC_KEY","secretKey":"SYNTHETIC_SECRET"}', "--format", "json"],
+      { GANGTISE_TOKEN: undefined, GANGTISE_ACCESS_KEY: undefined, GANGTISE_SECRET_KEY: undefined })
+    expect(stderr).not.toContain("缺少环境变量")
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].path).toBe("/application/auth/oauth/open/loginV2")
+    expect(captured[0].body).toEqual({ accessKey: "SYNTHETIC_KEY", secretKey: "SYNTHETIC_SECRET" })
   }, 30_000)
 
   it("never writes credentials from a raw login body or its token into the sidecar", async () => {

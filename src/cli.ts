@@ -9,7 +9,7 @@ import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenT
 import { callPerSecurity, estimateTradingDays } from "./core/perSecurity.js"
 import { callKlineWithSharding, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
-import { resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
+import { releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
 import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./core/fileParse.js"
@@ -116,7 +116,15 @@ async function runDownload(
   const result = await client.call(endpointKey, options.body, query)
   const resolved = options.resolveOutputPath ? await options.resolveOutputPath(result) : undefined
   // Title-derived names are auto-generated too — dedupe them like the fallback names.
-  await saveDownloadResult(result, options.fallbackName, resolved ? await uniquePath(resolved) : undefined)
+  // uniquePath claims the name by creating its .part; if the save never happens the
+  // claim must not linger as an orphan .part.
+  const target = resolved ? await uniquePath(resolved) : undefined
+  try {
+    await saveDownloadResult(result, options.fallbackName, target)
+  } catch (error) {
+    if (target) await releaseClaim(target)
+    throw error
+  }
 }
 
 /**

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises"
-import { extname } from "node:path"
+import { dirname, extname } from "node:path"
 
 import { DownloadError } from "./errors.js"
 import { saveOutputIfNeeded } from "./output.js"
@@ -33,16 +33,42 @@ function truncateFilename(name: string, maxBytes = 200): string {
  * explicit --output path keeps plain overwrite semantics. Throws instead of
  * falling back to the original path once the suffixes run out: returning `p`
  * there would silently overwrite the very first file. */
+/**
+ * A not-yet-taken sibling of `p` (`p`, `p-1`, `p-2`, …), CLAIMED: its `.part` file is
+ * created exclusively (O_EXCL) on the way out. Checking existence alone is a race — two
+ * processes resolving the same auto name together both got `p`, shared one `.part`, and
+ * one then failed with ENOENT on rename while the other published the wrong bytes. The
+ * claimed `.part` is what the writer truncates and renames over the target, so nothing
+ * changes downstream; a stale `.part` from a crashed run merely skips that candidate.
+ * Release with `releaseClaim` if the write never happens.
+ */
 export async function uniquePath(p: string): Promise<string> {
   const exists = (f: string) => fs.access(f).then(() => true, () => false)
-  if (!(await exists(p))) return p
+  const claim = async (f: string): Promise<boolean> => {
+    if (await exists(f)) return false
+    try {
+      const handle = await fs.open(`${f}.part`, "wx")
+      await handle.close()
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false
+      throw error
+    }
+  }
+  await fs.mkdir(dirname(p) || ".", { recursive: true })
+  if (await claim(p)) return p
   const ext = extname(p)
   const stem = p.slice(0, p.length - ext.length)
   for (let i = 1; i <= 99; i++) {
     const candidate = `${stem}-${i}${ext}`
-    if (!(await exists(candidate))) return candidate
+    if (await claim(candidate)) return candidate
   }
   throw new DownloadError(`Refusing to overwrite: 100 files already share the name "${p}" — pass --output or clean up the directory`)
+}
+
+/** Drop the `.part` a uniquePath claim created, when the write it was reserved for never happened. */
+export async function releaseClaim(p: string): Promise<void> {
+  await fs.unlink(`${p}.part`).catch(() => {})
 }
 
 export interface DownloadResult {

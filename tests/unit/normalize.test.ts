@@ -90,6 +90,17 @@ describe("normalizeRows", () => {
     expect(() => normalizeRows(raw)).toThrowError(/trace trace-123/)
   })
 
+  it("refuses a fieldList with duplicate names instead of letting the last column win", () => {
+    // close:10 and close:999 under one name would silently become close:999, exit 0.
+    expect(() => normalizeRows({ fieldList: ["close", "close"], list: [[10, 999]] })).toThrowError(/重复列名（close）/)
+  })
+
+  it("refuses array rows that come without a fieldList", () => {
+    expect(() => normalizeRows({ total: 1, list: [[10, 999]] })).toThrowError(/没有 fieldList/)
+    // object rows without a fieldList are fine — they carry their own keys
+    expect(normalizeRows({ total: 1, list: [{ close: 10 }] })).toEqual({ total: 1, list: [{ close: 10 }] })
+  })
+
   it("leaves non-array rows in a fieldList response untouched", () => {
     const raw = { total: 1, fieldList: ["a"], list: [{ already: "object" }] }
     expect(normalizeRows(raw)).toEqual({ total: 1, list: [{ already: "object" }] })

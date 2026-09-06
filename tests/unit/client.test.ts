@@ -1736,3 +1736,38 @@ describe("GangtiseClient pagination with a row sink (large jsonl export)", () =>
     expect(sink.count).toBe(1200 - 50 * (result.failedPages?.length ?? 0))
   }, 20_000)
 })
+
+describe("GangtiseClient partial marker on a later page", () => {
+  beforeEach(() => { requestMock.mockReset() })
+  it("keeps the merged result partial when a page after the first reports itself partial", async () => {
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      const count = Math.max(0, Math.min(body.size ?? 20, 120 - from))
+      const data: Record<string, unknown> = { total: 120, list: Array.from({ length: count }, (_, i) => ({ id: from + 1 + i })) }
+      if (from === 50) data.partial = true
+      return Promise.resolve(jsonResponse(data))
+    })
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const client = createClient()
+    const result = await client.call("insight.research.list", { from: 0 }) as { partial?: boolean; list: unknown[] }
+    errSpy.mockRestore()
+    expect(result.list).toHaveLength(120)
+    expect(result.partial).toBe(true)
+  })
+})
+
+describe("GangtiseClient auth.login", () => {
+  beforeEach(() => { requestMock.mockReset() })
+  it("sends the login request without demanding a token first — the credentials are the body", async () => {
+    requestMock.mockResolvedValue(jsonResponse({ accessToken: "SYNTHETIC_TOKEN", expiresIn: 3600 }))
+    // No token, no access/secret key: every other endpoint would fail before sending.
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, tokenCachePath: "/tmp/gangtise-none.json" })
+    const result = await client.call("auth.login", { accessKey: "SYNTHETIC_KEY", secretKey: "SYNTHETIC_SECRET" }) as { accessToken: string }
+    expect(result.accessToken).toBe("SYNTHETIC_TOKEN")
+    expect(requestMock).toHaveBeenCalledTimes(1)
+    const opts = requestMock.mock.calls[0][1] as { headers?: Record<string, string>; body?: string }
+    expect(opts.headers?.Authorization).toBeUndefined()
+    expect(JSON.parse(opts.body ?? "{}")).toEqual({ accessKey: "SYNTHETIC_KEY", secretKey: "SYNTHETIC_SECRET" })
+  })
+})

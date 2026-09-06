@@ -70,6 +70,16 @@ export function normalizeRows(value: unknown): unknown {
 
   if (Array.isArray(record.fieldList) && Array.isArray(record.list)) {
     const fields = record.fieldList as unknown[]
+    if (record.list.some(Array.isArray)) {
+      // Two columns with one name would silently collapse to the last value under it —
+      // close:10 and close:999 become close:999, exit 0. Refuse, like zipFieldRow does
+      // for a width mismatch: the shard and per-security merges already apply this rule.
+      const names = fields.map(String)
+      const dupes = [...new Set(names.filter((name, i) => names.indexOf(name) !== i))]
+      if (dupes.length > 0) {
+        throw new ValidationError(`响应 fieldList 有重复列名（${dupes.join(", ")}）——按位置拍平时后一列会覆盖前一列，已拒绝输出。这是上游响应结构异常，请报障${traceSuffix(record)}。`)
+      }
+    }
     const normalizedList = record.list.map((row) => (Array.isArray(row) ? zipFieldRow(fields, row, record) : row))
     const { fieldList, list, ...meta } = record
     const hasMeta = Object.keys(meta).length > 0
@@ -77,6 +87,11 @@ export function normalizeRows(value: unknown): unknown {
   }
 
   if (Array.isArray(record.list)) {
+    if (record.list.some(Array.isArray)) {
+      // Array rows can only be read through a fieldList; without one there is no column
+      // meaning to attach, and printing bare arrays as a "success" hides that.
+      throw new ValidationError(`响应包含数组形式的行但没有 fieldList，无法确定各列的含义，已拒绝输出。这是上游响应结构异常，请报障${traceSuffix(record)}。`)
+    }
     const { list, ...meta } = record
     const hasMeta = Object.keys(meta).length > 0
     return hasMeta ? { ...meta, list } : list

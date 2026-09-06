@@ -227,6 +227,9 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // Record WHICH windows maxed out, not just how many: a script/agent consumer
   // needs the concrete date ranges to re-pull narrower windows (mirrors failedShards).
   const truncatedShards: Array<{ startDate: string; endDate: string }> = []
+  /** Shards that delivered rows but flagged themselves partial: only the header shard's
+   * metadata reaches the merged result, so the marker has to be carried across here. */
+  const partialShards: Array<{ startDate: string; endDate: string }> = []
   const keep = async (rows: unknown[]): Promise<void> => {
     count += rows.length
     if (!fieldList) for (const row of rows) if (row && typeof row === "object" && !Array.isArray(row)) for (const key of Object.keys(row)) objectKeys.add(key)
@@ -275,6 +278,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
       sink?.setFieldList(fieldList)
     }
     if (!header) header = rec
+    if (rec.partial === true) partialShards.push(shards[i])
     // The merged result carries ONE fieldList (the first data shard's) and columnar rows
     // are zipped against it by position. A shard whose fieldList differs in order would be
     // read under the wrong column names — close landing in volume — with nothing else in
@@ -328,6 +332,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     out.partial = true
     out.failedShards = failedShards
     process.stderr.write(`[gangtise] warning: ${failedShards.length}/${shards.length} shards failed; results are partial (see failedShards)\n`)
+  }
+  if (partialShards.length > 0) {
+    out.partial = true
+    process.stderr.write(`[gangtise] warning: ${partialShards.length}/${shards.length} shard(s) reported themselves partial; the merged result is marked partial\n`)
   }
   if (truncatedShards.length > 0) {
     out.partial = true

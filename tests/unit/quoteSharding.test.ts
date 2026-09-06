@@ -690,3 +690,18 @@ describe("callKlineWithSharding with a row sink (large jsonl export)", () => {
     await sink.abort()
   })
 })
+
+describe("callKlineWithSharding partial marker on a later shard", () => {
+  it("keeps the merged result partial when a shard after the header shard reports itself partial", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => ({
+      total: 1, fieldList: ["securityCode", "tradeDate"], list: [["S1", body.startDate]], ...(body.startDate === "2026-04-07" ? { partial: true } : {}),
+    }))
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"], startDate: "2026-04-06", endDate: "2026-04-08",
+    }, { shardDays: 1 }) as { partial?: boolean; total: number }
+    errSpy.mockRestore()
+    expect(result.total).toBe(3)
+    expect(result.partial).toBe(true)
+  })
+})

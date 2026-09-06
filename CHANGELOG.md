@@ -108,7 +108,14 @@ realtime 桩改为当前形态（15 列、不认识的字段名连名带值一�
 
 `toTimestamp13` 把 `YYYY-MM-DD[ HH:mm[:ss]]` 锚到 `+08:00` 再转毫秒，不再按运行机器的时区：这两个端点的窗口语义是北京时间，此前在 UTC 沙箱 / CI 里跑同一句「查 8 月 1 日的公告」会整体偏 8 小时且退出 0。date-only 与 datetime 两种写法一致；10 / 13 位时间戳仍原样透传；年 0050 按字面保留（不再被 `new Date(50, …)` 重映射为 1950，也不再拒绝）；固定偏移下没有 DST 缺口，`02:30` 这类本机不存在的墙钟时刻照常转换。测试在 UTC / 纽约 / 上海 / 豪勋爵岛四个 TZ 下断言同一毫秒值。
 
-**17. 测试入口每次干净构建（K22）**
+**17. 第二个 Codex 会话复核的 4 处**
+
+- **并发下载同名文件互相写坏（P1）**：`uniquePath` 只查存在不占位，两个进程会共用一个 `.part`（一个 rename 报 ENOENT、另一个发布错误字节）。现在用 `O_EXCL` 独占创建 `<名>.part` 来占位，占到谁就是谁；写入方仍是截断该 `.part` 再 rename；保存未发生时 `releaseClaim` 释放
+- **重复列名静默覆盖（P2）**：`normalizeRows` 对带数组行的响应先查 `fieldList` 重名，重名即报结构性错误（此前 `close:10` / `close:999` 只剩后者、退出 0）；数组行没有 `fieldList` 同样报错，不再原样输出
+- **后续分页 / 分片的 `partial` 丢失（P2）**：合并结果只带首页 / 首片的元数据，现在任一后续页或分片自带 `partial: true` 都让合并结果保持 `partial` 并告警
+- **`raw call auth.login` 先要求鉴权（P2）**：登录端点的凭证在 body 里，不再先索取 token；无环境凭证也能调用
+
+**18. 测试入口每次干净构建（K22）**
 
 `tests/globalSetup.ts` 不再按「dist 比 src 新」跳过重建：保留旧 mtime 的还原（`cp -p`）、只改 `tsconfig.json`、删掉 dist 里的某个模块，此前都会让 spawn 型测试跑在过期产物上。现在每次 `vitest run` 先删 dist 再 tsc。
 
