@@ -45,7 +45,7 @@ gangtise reference institution-search --keyword <text> [--category <name>] [--to
 
 - 用途：查机构 ID，拿到的 `institutionId` 用于各接口的 `--institution`（牵头机构）/ `--broker`（券商 / 观点机构）入参。**每条结果自带 `usageScopes[{apiName, paramName}]`，服务端直接标明该 ID 用于哪个接口的哪个参数**——拿不准某 ID 该喂给谁时以此为准
 - `--keyword`（**必选**）：机构名称 / 简称（如 `招商证券`、`华泰`、`摩根`）
-- `--category`：机构分类，缩小范围（可重复；不传查所有分类）。5 个分类与既有命令参数的对应（均实测有效）：
+- `--category`：机构分类，缩小范围（可重复；不传查所有分类）。5 个分类与既有命令参数的对应：
 
   | category | CLI 命令 · 参数 | 用途 |
   |----------|----------------|------|
@@ -55,7 +55,7 @@ gangtise reference institution-search --keyword <text> [--category <name>] [--to
   | `foreignOpinionInstitution` | `insight foreign-opinion list --broker` | 外资机构观点 |
   | `leadInstitution` | `--institution`（`summary` / `roadshow` / `site-visit` / `strategy` / `vault my-conference` list） | 纪要 / 路演 / 调研 / 线下策略会 / 我的会议的牵头机构 |
 
-  注：API 文档 `categoryList` 只列了前 4 类，但 `foreignOpinionInstitution` 同样是有效过滤值（实测确认，服务端接受且返回该类）
+  注：API 文档 `categoryList` 只列了前 4 类，但 `foreignOpinionInstitution` 同样是有效过滤值（服务端接受且返回该类）
 - `--top`：默认 10，**上限 10**；结果按 `matchScore`（`0~1`）降序
 - 免费调用
 - 返回字段：`institutionId` / `institutionName` / `category` / `usageScopes[{apiName, paramName}]`（该机构适用的接口及参数）/ `matchScore`
@@ -104,12 +104,12 @@ gangtise reference constant-category [--format json]
 | `usShareAnnouncementCategory` | 美股公告分类（`103980xxx` 段） | tree（2 级） | `insight announcement-us --category` |
 | `regionCategory` | 区域分类 | flat | `insight foreign-report --region` |
 
-> **行业 / 研究方向过滤——选哪套 category（⭐ 权威口径，其他文件引用此处、勿重复枚举命令清单以免漂移；全部为逐端点实测，2026-08-08）：**
+> **行业 / 研究方向过滤——选哪套 category（⭐ 权威口径，其他文件引用此处、勿重复枚举命令清单以免漂移；逐端点核对）：**
 >
 > 先记住三套码的归属，**别把行业码算到 `gangtiseIndustry` 头上**：`citicIndustry` = 30 条行业码 `1008001xx`；`swIndustry` = 31 条行业码 `104xx0000`；`gangtiseIndustry` = **只有 6 条方向码** `122000xxx`（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`），里面**没有任何行业**，去它那里找「食品饮料」永远找不到。
 >
 > - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / official-account 正确过滤。`swIndustry`（`104xx0000`）在这 4 个上**也生效，但不是等效**——两套码的行业成分不同，4 个里有 2 个结果集对不上（research / foreign-report 完全一致；**opinion 与 official-account 传两套码取回的条数相差约 2%–5%**）。所以**统一用中信码**，同一批查询里别把两套码混着传。方向码 `122000xxx` 在 `--industry` 上一律返 0。⚠️ 一个例外：`insight foreign-opinion` / `independent-opinion` 的 `--industry` **只认申万码 `104xx0000`**，传中信码报 `100005 枚举值非法`（详见 `insight.md`）。`vault wechat-message-list` 反过来**只认中信码**，传申万码报 `100005`（详见 `vault.md`）。
-> - **`--research-area`（researchAreaList）→ 用 `citicIndustry` 行业码 `1008001xx`，方向再叠 `gangtiseIndustry` 的 `122000xxx`**。⚠️ **申万码 `104xx0000` 只有 `summary` / `pamirs-summary` 认**，其余端点返 0（与传乱码表现一致，不报错）。逐端点实测（同一行业分别传三套码，✅ = 正常过滤，❌ = 返 0）：
+> - **`--research-area`（researchAreaList）→ 用 `citicIndustry` 行业码 `1008001xx`，方向再叠 `gangtiseIndustry` 的 `122000xxx`**。⚠️ **申万码 `104xx0000` 只有 `summary` / `pamirs-summary` 认**，其余端点返 0（与传乱码表现一致，不报错）。逐端点对照（同一行业分别传三套码，✅ = 正常过滤，❌ = 返 0）：
 >
 > | 端点 | 中信 `1008001xx` | 申万 `104xx0000` | 方向 `122000xxx` |
 > | :--- | :---: | :---: | :---: |
@@ -207,7 +207,7 @@ gangtise lookup broker-org list           # 券商机构全量（--broker 用；
 gangtise lookup meeting-org list          # 会议/牵头机构全量（--institution 用；130 条静态表）
 ```
 
-行业 / 区域 / 公告分类 / 研究方向 / 题材 ID / 申万行业代码已改用 API：`reference constant-list` / `reference concept-search` / `reference sector-constituents`（v0.16.0 起移除对应 lookup 子命令）。
+行业 / 区域 / 公告分类 / 研究方向 / 题材 ID / 申万行业代码已改用 API：`reference constant-list` / `reference concept-search` / `reference sector-constituents`（对应 lookup 子命令已移除）。
 
 ### 常见行业别名映射
 

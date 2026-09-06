@@ -74,7 +74,7 @@
 **用户**："比亚迪 A 股和港股最近的日 K 线"
 
 ```
-1. 路由 → quote day-kline（2026-08-14 起一个命令覆盖 A/港/美股，跨市场可一次查完）
+1. 路由 → quote day-kline（一个命令覆盖 A/港/美股，跨市场可一次查完）
 2. 比亚迪 A 股 002594.SZ，港股 01211.HK
    "最近" → K 线默认今日往前 45 天（保证含最近 10 个交易日）
 3. Pre-flight：认证 OK
@@ -228,7 +228,7 @@
 
 **用户**："把茅台、五粮液、宁德时代 2025 年营收和已实现 EPS，与最新 PE/PB 做成一张表"
 
-> 示例日期为**截至 2026-08-02 的实测快照**：`2026-07-31`=当时最新交易日。PE 与 PB 现在同为日频（`finc_pb_mrq` 2026-08-02 复测任意交易日都有数），实跑时替换为当下的最新交易日即可。
+> 示例里的 `2026-07-31` 是写作时的最新交易日，实跑时替换为当下的最新交易日即可；PE 与 PB 同为日频。
 
 ```
 1. 路由 → indicator：多证券批量取一组已实现财务 / 估值指标；不是逐只 fundamental，也不是 EDB。
@@ -249,11 +249,11 @@
        --indicator is_op_rev --indicator is_eps_bas \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
        --date 2025-12-31 --key-by code --format json
-   b) 估值 PE + PB 同为日频，用同一个最新交易日即可（2026-08-02 复测 finc_pb_mrq
-      在任意交易日都有数；用季末日期会拿到几个月前的陈值）。
+   b) 估值 PE + PB 同为日频，用同一个最新交易日即可（finc_pb_mrq 在任意交易日都有数；
+      用季末日期会拿到几个月前的陈值）。
       ⚠️ 要估值指标的历史序列做分位/回测，两个接口都拉一遍交叉核：EDE 按正式财报
       披露日切换财报口径，fundamental valuation-analysis 按业绩快报切，同一天取到
-      的值可能不同（已验证 PE TTM；PB 是 MRQ 口径，规则未单独验证）。详见 indicator.md：
+      的值可能不同（PE TTM 已核对；PB 是 MRQ 口径，切换规则未单独核对）。详见 indicator.md：
      gangtise indicator cross-section --indicator finc_pe_ttm --indicator finc_pb_mrq \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
        --date 2026-07-31 --key-by code --format json
@@ -272,7 +272,7 @@
 2. 检索（全文 + 按相关度）：
      gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 1 \
        --size 20 --format json
-   - --search-type 2 = 全文（标题搜索是 1，命中少很多：PCB 标题 36 / 全文 113）
+   - --search-type 2 = 全文（标题搜索是 1，命中少很多）
    - --rank-type 1 在有 keyword 时按相关度挑条目；要最新就用 2。差别多大取决于关键词本身，
      --search-type 不影响 rank-type 1 挑哪些条目（这里加 2 是为了扩大命中面，不是为了排序）
    - 筛选项比 summary 少：没有 --source / --institution / --participant-role
@@ -300,7 +300,7 @@
    → 主力 = 大单 + 特大单；字段族 {small|medium|large|xlarge}{Inflow|Outflow|NetInflow|InflowRatio}
    单只无翻页：撞 --limit（默认 6000/上限 10000）会标 partial + 退出码 3 → 缩小日期区间
 3. 全市场：--security aShares
-   ⚠️ aShares 必须显式传 --start-date/--end-date（缺日期本地报错；否则单请求被服务端 430012 拒）
+   ⚠️ aShares 必须显式传 --start-date/--end-date（缺日期本地报错）
    单日约 5500 行，CLI 按日自动分片并发合并、无需手动分批（宽区间落盘再采样）：
    gangtise quote fund-flow --security aShares \
      --start-date 2026-07-06 --end-date 2026-07-06 --format jsonl --output aShares_flow.jsonl

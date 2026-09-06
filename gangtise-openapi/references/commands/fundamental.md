@@ -2,7 +2,7 @@
 
 通用：所有命令都需 `--security-code`（如 `600519.SH`，注意是 `--security-code` 不是 `--security`）。`--field` 可重复，可用字段见 `references/fields.md`；A / 港 / 美股三大报表命令都在省略 `--field` 时返回完整报表，指定后只保留基础字段与所选科目。
 
-**`--field` 字段名必须核对**（v0.28.3 起传错直接报错）：三大报表遇到不存在的字段名会补 `null`（安全），但 `main-business` / `valuation-analysis` 是**只丢值、字段名照请求回显**，按位置拍平会把值贴到错误的字段上（同 `quote realtime`，详见 `references/commands/quote.md`）。CLI 现在长度不匹配就直接失败（退出码 1），不输出错位数据。不确定字段名就别传 `--field`。
+**`--field` 字段名必须核对**：三大报表遇到不存在的字段名会补 `null`（安全），但 `main-business` / `valuation-analysis` 是**只丢值、字段名照请求回显**，按位置拍平会把值贴到错误的字段上（同 `quote realtime`，详见 `references/commands/quote.md`）。CLI 长度不匹配就直接失败（退出码 1），不输出错位数据。不确定字段名就别传 `--field`。
 
 ---
 
@@ -87,11 +87,11 @@ gangtise fundamental main-business --security-code <code> [--breakdown <type>] [
 gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <date>] [--end-date <date>] [--limit <n>] [--field <name>] [--skip-null]
 ```
 
-- **市场与路由**：本命令实测仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股单证券估值序列与估值历史分位始终优先本命令；多证券批量取一组已实现估值点值，且 `indicator search` 三项校验都通过时，才优先 EDE `cross-section` / `time-series`。港 / 美股估值历史分位当前 CLI 不支持，不能用普通 EDE 点值冒充
+- **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股单证券估值序列与估值历史分位始终优先本命令；多证券批量取一组已实现估值点值，且 `indicator search` 三项校验都通过时，才优先 EDE `cross-section` / `time-series`。港 / 美股估值历史分位当前 CLI 不支持，不能用普通 EDE 点值冒充
 - `--indicator`（**必选**）：`peTtm` 滚动PE | `pbMrq` PB | `peg` PEG | `psTtm` 滚动PS | `pcfTtm` 滚动PCF | `em` 企业倍数
 - `--limit` 默认 2000，省略 `--start-date` 时自动查近一年
 - `--skip-null`：丢弃 `value`/`percentileRank` 为 null 的行（最新交易日可能未入库）
-- **返回字段只有 7 个**（实测 2026-07-24）：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`。**没有 `securityCode`**——误传会拿到一列重复的 `tradeDate`（长度相等，CLI 拦不住），传其他不存在的字段名则直接报错。**建议不传 `--field`**，证券代码本来就是你自己传进去的
+- **返回字段只有 7 个**：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`。**没有 `securityCode`**——误传会拿到一列重复的 `tradeDate`（长度相等，CLI 拦不住），传其他不存在的字段名则直接报错。**建议不传 `--field`**，证券代码本来就是你自己传进去的
 
 ## A股盈利预测 `fundamental earning-forecast`
 
@@ -99,7 +99,7 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 gangtise fundamental earning-forecast --security-code <code> [--start-date <date>] [--end-date <date>] [--consensus <name>]
 ```
 
-- **市场与路由**：本命令实测仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股盈利预测 / 一致预期始终走本命令，不走 EDE；EDE 搜索目前没有一致预期语义，搜到的基本 / 稀释 EPS 是已实现值，不能冒充预测 EPS。港 / 美股盈利预测当前 CLI 不支持
+- **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股盈利预测 / 一致预期始终走本命令，不走 EDE；EDE 搜索目前没有一致预期语义，搜到的基本 / 稀释 EPS 是已实现值，不能冒充预测 EPS。港 / 美股盈利预测当前 CLI 不支持
 - `--start-date` / `--end-date`：默认近一年
 - `--consensus` 可重复：`netIncome` 归母净利润 | `netIncomeYoy` 同比增速 | `eps` 每股收益 | `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG | `roe` 净资产收益率 | `ps` 市销率
 - **`roe` 的单位是百分比（%）**：`35.6` 即 35.6%，**不要再做 ÷100 之类的单位换算**——换算后的数字看着仍像个 ROE，不会报错

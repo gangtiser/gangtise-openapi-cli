@@ -13,7 +13,7 @@
 | 最相关的内容（可以是旧的） | `--rank-type 1` + `--keyword` |
 | 最新的内容（按时间铺） | `--rank-type 2` |
 
-🔴 **两档差别有多大取决于关键词，别拿一个关键词去判断这个参数有没有用**。同一天、同一命令实测（前 50 条比条目 ID）：
+🔴 **两档差别有多大取决于关键词，别拿一个关键词去判断这个参数有没有用**。同一命令、比较前 50 条的条目 ID：
 
 | 关键词 | `research` 两档交集 | `summary` 两档交集 |
 | :--- | ---: | ---: |
@@ -53,7 +53,7 @@ gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief
 
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
 - `--source`：`realTime` 实时 | `openSource` 开放来源
-- `--industry`：用 `citicIndustry` 码 `1008001xx`；申万码 `104xx0000` 也生效，但**两套码的行业成分不同、取回的结果集不一致**（同一行业实测相差约 5%），同一批查询别混用。`--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**申万码在本端点返 0**。详见 `reference-and-lookup.md`
+- `--industry`：用 `citicIndustry` 码 `1008001xx`；申万码 `104xx0000` 也生效，但**两套码的行业成分不同、取回的结果集不一致**（同一行业约相差 5%），同一批查询别混用。`--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**申万码在本端点返 0**。详见 `reference-and-lookup.md`
 
 ## 纪要 `insight summary list/download`
 
@@ -64,7 +64,7 @@ gangtise insight summary download --summary-id <id> [--file-type <n>] [--output 
 
 - `--search-type`：`1` 标题搜索（默认，速度快）| `2` 全文搜索
 - `--source`：`1` 实时 | `2` 开放来源
-- `--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`。summary 是少数**申万码 `104xx0000` 也生效**的端点，但两套行业码取到的集合略有出入（同一行业实测相差约 2%），同一批查询里别混用
+- `--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`。summary 是少数**申万码 `104xx0000` 也生效**的端点，但两套行业码取到的集合略有出入（同一行业约相差 2%），同一批查询里别混用
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
 - `--participant-role`：`management` 管理层 | `expert` 专家
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`
@@ -79,7 +79,7 @@ gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--
 
 帕米尔（Pamirs）是平台内一个特殊牵头机构的**专家纪要库**，走独立端点，不是 `summary list` 的一个筛选项。⚠️ **需单独购买专家纪要数据库**：未开通时 `list` 直接报 `999004`（不是返回空列表），**整库拿不到**。**不限制历史数据范围**（不受 3 个月窗口约束）。
 
-> 未开通该库时任何查询都直接报 `999004`，不必怀疑参数写错。下面各参数的行为描述来自已开通账号的实测。
+> 未开通该库时任何查询都直接报 `999004`，不必怀疑参数写错。
 
 - **筛选项比 `summary` 少**：没有 `--source` / `--institution` / `--participant-role`。不认识的 body 字段会被丢弃且不报错，所以别照搬 `summary` 的参数，那样只会拿到没过滤的全量
 - `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索。同一关键词全文搜索的命中数明显多于标题搜索
@@ -88,7 +88,7 @@ gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
 - `--research-area`：**行业码两套都生效**——citic `1008001xx` 和申万 `104xx0000`。申万码这点与多数 insight list 不同（那些只有 summary 认申万码）。⚠️ 反过来，**方向码 `122000xxx` 在本端点返 0**，别在这里传方向
 - `--file-type`（download 可选）：`1` 原始文件（默认）| `2` HTML；**只有这两种**
-- 单页上限：spec 写 50，实际传更大的 `size` 也会照数返回。**CLI 仍按 50 翻页**——保守值在上限某天开始执行时不会被静默截断。省略 `--size` 自动翻页拉全量。翻页完整性实测干净：连续三页无重复无缺口、可重放、`total` 不漂移
+- 单页上限：spec 写 50，实际传更大的 `size` 也会照数返回。**CLI 仍按 50 翻页**——保守值在上限某天开始执行时不会被静默截断。省略 `--size` 自动翻页拉全量。翻页连续、无重复无缺口、`total` 不漂移
 - 返回字段：`summaryId` / `title` / `brief`（摘要）/ `summaryTime`（纪要注明的生成时间）/ `publishTime`（发布时间）/ `categoryList` / `securityList[]{securityCode, securityName}` / `researchAreaList[]{researchAreaId, researchAreaName}` / `conceptList[]{conceptId, conceptName}` / `marketList`
 - ⚠️ **`conceptList` / `categoryList` / `marketList` 三个标签字段稀疏，且是否有值随记录和查法而变**：
   - **不带筛选时经常整条为空**，用 `--category` 或 `--market` 过滤时回填率明显更高（这两个字段是绑定的：用任一过滤，两个都会有值）。有值时给的是该记录的**全部**值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，不是"回显过滤值"）
@@ -118,7 +118,7 @@ gangtise insight forum list      [--research-area <id>] [--location <id>]
 ```
 
 - 共用：`--keyword` `--start-time` `--end-time` `--from` `--size` `--location`
-- `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。实测（2026-06-15）服务端过滤已生效，按省份正确命中
+- `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。按省份正确命中
 - 路演 `--category`：`earningsCall` | `strategyMeeting` | `companyAnalysis` | `industryAnalysis` | `fundRoadshow`
 - 调研 `--category`：`single` 单场 | `series` 系列
 - 调研 `--object`（仅调研）：`company` | `industry`
@@ -140,11 +140,11 @@ gangtise insight performance-calendar download --performance-report-id <id> [--o
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`（可重复）
 - `--market` / `--category` 拼错 CLI 本地直接报错（不是静默返全量）——这两个参数的枚举值不必猜
 - `--security`：证券代码，如 `000001.SZ`（可重复）
-- 自动翻页（`{total,list}`，单页上限 50）。**不加任何筛选时 total 十万量级**（实测 2026-07-25 为 126683，含未来已排期的财报日程）——CLI 因此要求至少一个约束：`--start-date` + `--end-date`、或 `--security`、或显式 `--size`，裸跑直接报 `ValidationError`（不发请求、不扣分）
+- 自动翻页（`{total,list}`，单页上限 50）。**不加任何筛选时 total 十万量级**（含未来已排期的财报日程）——CLI 因此要求至少一个约束：`--start-date` + `--end-date`、或 `--security`、或显式 `--size`，裸跑直接报 `ValidationError`（不发请求、不扣分）
 - 只给 `--security`（不给日期/`--size`）时，CLI 额外套一个 **1000 行隐式上限**：单只证券的整段日历只有几十条，正常查询感知不到；万一服务端哪天不再按 `securityList` 过滤，结果会在 1000 行截断并标 `partial`（stderr 警告 + 退出码 3），而不是闷头翻完全表。判据是 `total`：只有「取满 1000 行且 total 显示还有更多」才告警——恰好 1000 行且 total=1000 是完整结果，退出码仍是 0。看到告警说明筛选**可能**没生效，改用日期范围重查
 - 返回字段：`performanceReportId`（下载用）/ `securityCodeList[]`（A+H 同时上市会有多个代码）/ `securityName` / `category` / `publishDate` / `title` / `hasAttachment`
-- 实测 `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`（文档写 `yyyy-MM-dd`），取日期请截前 10 位
-- download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用 title-cache 里的真实标题命名，**未命中不再自动回查**（v0.37.0 起），退回服务端文件名或 `<type>-<id>`。要回查加 `--resolve-title`——拉 200 条、按 0.1/条 约 20 积分，取回的标题会写回缓存供同批复用
+- `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`（文档写 `yyyy-MM-dd`），取日期请截前 10 位
+- download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用 title-cache 里的真实标题命名，**未命中不自动回查**，退回服务端文件名或 `<type>-<id>`。要回查加 `--resolve-title`——拉 200 条、按 0.1/条 约 20 积分，取回的标题会写回缓存供同批复用
 - **积分**：list 0.1/条；download A 股 10/篇、港美股 20/篇
 
 ## 研报 `insight research list/download`
@@ -207,7 +207,7 @@ gangtise insight announcement-us download --announcement-id <id> [--file-type <n
 - `--category`：美股公告分类 ID，用 `reference constant-list --category usShareAnnouncementCategory` 查（美股独立的 `103980xxx` 段，7 个一级分类：财务报告 / 证券发行 / 重大事项 / 交易提示 / 股本股东 / 股东大会 / 一般公告）
 - `--file-type`（download）：`1` 原始PDF（默认）| `2` Markdown
 - **积分**：list 0.1/条；download 20/篇
-- 实测 `--security TSLA.O` 返回的 `sourceName` 为「美国证券交易委员会」
+- `--security TSLA.O` 的 `sourceName` 为「美国证券交易委员会」
 
 ## 外资机构观点 `insight foreign-opinion list`
 

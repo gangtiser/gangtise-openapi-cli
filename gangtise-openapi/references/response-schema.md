@@ -2,9 +2,9 @@
 
 CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"` 解包，stdout 直接是 `data`。无 envelope 的响应原样透传。
 
-> 例外：`indicator`（EDE）四个接口（`search` / `cross-section` / `time-series` / `screener`）成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`）。内层字段名 2026-08-01 起为 `securityCodeList` / `securityNameList` / `indicatorList[{code,name,dataType}]`（screener 另带 `field`），`values` 是 2D 矩阵：**截面与 screener 为 `[证券][指标]`**（该版转置过，此前是 `[指标][证券]`）、时序仍为 `[序列][日期]`。
+> 例外：`indicator`（EDE）四个接口（`search` / `cross-section` / `time-series` / `screener`）成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`）。内层字段名为 `securityCodeList` / `securityNameList` / `indicatorList[{code,name,dataType}]`（screener 另带 `field`），`values` 是 2D 矩阵：**截面与 screener 为 `[证券][指标]`**、时序为 `[序列][日期]`。
 >
-> **缺数据 vs 代码写错**（2026-08-15 实测）：无数据 / 无覆盖一律保留行列并给占位单元格——**占位值统一为 `null`**；⚠️ 报告期类指标（`is_*`）的时序只有报告期末那几行是真值，其余全是 `null`，详见 `commands/indicator.md`。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；`partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3 的差集检测仍保留作兜底，但当前服务端行为下基本收不到样本。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
+> **缺数据 vs 代码写错**：无数据 / 无覆盖一律保留行列并给占位单元格——**占位值统一为 `null`**；⚠️ 报告期类指标（`is_*`）的时序只有报告期末那几行是真值，其余全是 `null`，详见 `commands/indicator.md`。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；`partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3 的差集检测仍保留作兜底，但当前服务端行为下基本收不到样本。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
 
 ## 通用模式（5 类）
 
@@ -42,7 +42,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight official-account list | `{list, total}` | `list[].articleId` / `list[].accountName` / `list[].title` / `list[].publishTime` / `list[].articleCategory` / `list[].summary` / `list[].industryList[].industryName` / `list[].conceptList[].conceptName` / `list[].securityList[].securityCode` |
 | insight official-account download | 文件路径（stdout） | — |
 | insight qa list | `{list, total}` | `list[].source`（conference/interactive/survey）/ `list[].publishTime` / `list[].question` / `list[].answer` / `list[].member` / `list[].securityCode` / `list[].questionCategory[]` / `list[].answerImportant`（1/0） |
-| insight performance-calendar list | `{list, total}` | `list[].performanceReportId`（下载用）/ `list[].securityCodeList[]`（A+H 可能多个）/ `list[].securityName` / `list[].category`（performanceForecast/performanceExpress/performanceAnnouncement）/ `list[].publishDate`（实测带 ` 00:00:00` 后缀）/ `list[].title` / `list[].hasAttachment`（`false` 则无法下载） |
+| insight performance-calendar list | `{list, total}` | `list[].performanceReportId`（下载用）/ `list[].securityCodeList[]`（A+H 可能多个）/ `list[].securityName` / `list[].category`（performanceForecast/performanceExpress/performanceAnnouncement）/ `list[].publishDate`（带 ` 00:00:00` 后缀）/ `list[].title` / `list[].hasAttachment`（`false` 则无法下载） |
 | insight performance-calendar download | 文件路径（stdout，PDF） | — |
 | tool file-parse | `{taskId, status:"pending", hint}`（提交）；`--wait` 或 `file-parse-check` 就绪后 = 文件路径（stdout，ZIP） | ZIP 内 `file.md` + `images/`；未就绪时 check 输出 `{taskId, status:"pending"}`（退出码 0） |
 | insight report-image list | `[{...}]`（扁平数组，无 `total`） | `[].chunkId`（下载用 `--chunk-id`）/ `[].title` / `[].sourceId` / `[].broker` / `[].category` / `[].page` / `[].totalPages` / `[].imageCaption[]` / `[].imageFootnote[]` / `[].pageContent`（该页 OCR/描述） |
@@ -56,13 +56,13 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
 | reference sector-search | `{returnedCount, list}` | `list[].sectorId` / `list[].sectorName` / `list[].hierarchy`（层级路径） / `list[].matchScore` |
 | reference sector-constituents | `{total, list}` | `list[].gtsCode` / `list[].gtsName`；total=0 说明 sectorId 不对（先 sector-search 确认） |
-| quote day-kline（及已下线的 day-kline-hk / day-kline-us / index-day-kline） | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume` / `amount`（全球指数为 `null`）/ `adjustFactor`（指数为 `null`，ETF 有值）；`index-day-kline` 另含 `securityName`（指数名称，v0.15.0 起） |
+| quote day-kline（及已下线的 day-kline-hk / day-kline-us / index-day-kline） | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume` / `amount`（全球指数为 `null`）/ `adjustFactor`（指数为 `null`，ETF 有值）；`index-day-kline` 另含 `securityName`（指数名称） |
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `tradeStatus` / `open` / `high` / `low` / `latestPrice` / `preClose` / `change` / `pctChange` / `volume` / `amount` / `amplitude`（共 15 个，**无 `close`、无市值、无 `turnoverRate` / `volumeRatio`**；美股 `amount`、全球指数 `volume` / `amount` / `amplitude` 为 `null`） |
 | quote fund-flow | `{fieldList, list, total}` 列式 → 规范化后 `{list: [{...}], total}` 宽表 | `securityCode` / `tradeDate` + 请求的字段（`mainNetInflow` / `largeInflow` / `xlargeOutflow` / …） |
 | fundamental income-statement / balance-sheet / cash-flow（含 quarterly / -hk / -us） | `{total, list: [{...}]}` | `fiscalYear` / `period` / `endDate` / `companyName` / `companyType` / `currency` / `unit` + 各 `--field` 字段；港股/美股另含 `timeCovered`（不规则跨度）。⚠️ A 股 `*-quarterly` 单季表的 `companyType` 返回未映射的数字码（如 `102119999`），`currency` 正常；累计口径的三张表两列均正确。科目数字不受影响 |
-| fundamental main-business | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | 前 3 列恒定：`periodName` / `periodEndDate` / `categoryName`（分项名，随 `--breakdown` 变）+ `opRevenue` / `opRevenueYoy` / `opRevenueRatio` / `opCost` / `opCostYoy` / `opCostRatio` / `grossProfit` / `grossProfitYoy` / `grossProfitRatio` / `grossMargin` / `grossMarginYoy` / `grossMarginRatio`（共 15 个，实测 2026-07-24）。`--field` 只能从后 12 个里选 |
-| fundamental valuation-analysis（仅 A 股） | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | `tradeDate` / `value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`（共 7 个，实测 2026-07-24）；**无 `securityCode`**——误传会拿到一列重复的 `tradeDate` |
+| fundamental main-business | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | 前 3 列恒定：`periodName` / `periodEndDate` / `categoryName`（分项名，随 `--breakdown` 变）+ `opRevenue` / `opRevenueYoy` / `opRevenueRatio` / `opCost` / `opCostYoy` / `opCostRatio` / `grossProfit` / `grossProfitYoy` / `grossProfitRatio` / `grossMargin` / `grossMarginYoy` / `grossMarginRatio`（共 15 个）。`--field` 只能从后 12 个里选 |
+| fundamental valuation-analysis（仅 A 股） | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | `tradeDate` / `value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`（共 7 个）；**无 `securityCode`**——误传会拿到一列重复的 `tradeDate` |
 | fundamental earning-forecast（仅 A 股） | `{securityCode, securityName, updateList: [...]}` | `updateList[].date` / `updateList[].fieldList[].forecastYear` + 各 consensus 指标 |
 | fundamental top-holders | `{holderType, list: [{...}]}` | `reportPeriod` / `rank` / `shareholderName` / `holdingNum` / `holdingPct` / `chgNum` / `chgPct` |
 | ai knowledge-batch | `{list: [{...}]}` | `list[].resourceType` / `list[].sourceId` / `list[].title` / `list[].summary` |
@@ -80,14 +80,14 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault record-download | 文件路径（stdout） | — |
 | vault my-conference-list | `{list, total}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
 | vault my-conference-download | 文件路径（stdout） | — |
-| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**字段名是 `content` / `url`**，不是 `msgContent` / `contentUrl`（实测 2026-07-25） |
+| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**字段名是 `content` / `url`**，不是 `msgContent` / `contentUrl` |
 | vault wechat-chatroom-list | `{list, total}` | `list[].chatroomName` / `list[].chatroomId` |
 | alternative edb-search | `{list: [...]}` 指标列表 | `indicatorId` / `indicatorName` / `dataSource` / `frequency` / `unit` |
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |
 | alternative concept-securities | `{conceptId, conceptName, securityCount, securityDetail}`（单对象，分组） | `securityCount` / `securityDetail[].groupName` / `securityDetail[].securityList[].securityCode` / `.securityName` / `.isKey` / `.inclusionReason`；无成分股时 `securityDetail` 为 `null` |
 | indicator search | `[{indicatorCode, indicatorName, ...}]`（列表） | `indicatorCode` / `indicatorName` / `description` / `scopeList[].market` / `scopeList[].securityType` / `scopeList[].usageRestriction`（接口限制，`null`=无限制） / `parameterList[].paramKey`（**参数名以此为准**） / `.enumList[].value` / `score` |
-| indicator cross-section | CLI 拍平为宽表 `{list, total}` | `list[].security` / `list[].name` + 每个指标名一列；**单日多指标 × 多证券**，每行一只证券。**v0.30.0 起没有 `date` 列**（查询日期改挂在每个指标的参数上，各列可为不同日期）；原始响应的 `values` 为 `[证券][指标]`（2026-08-01 转置） |
+| indicator cross-section | CLI 拍平为宽表 `{list, total}` | `list[].security` / `list[].name` + 每个指标名一列；**单日多指标 × 多证券**，每行一只证券。**没有 `date` 列**（查询日期挂在每个指标的参数上，各列可为不同日期）；原始响应的 `values` 为 `[证券][指标]` |
 | indicator time-series | CLI 拍平为宽表 `{list, total}` | `list[].date` + 序列列：单证券时列=各指标、多证券时列=各证券；每行一个日期。原始响应 `values` 仍为 `[序列][日期]` |
 | indicator screener | CLI 拍平为宽表 `{list, total}` | 同 `cross-section`：`list[].security` / `list[].name` + 每个指标名一列，每行一只**命中**的证券；无命中返回空表。原始响应的 `indicatorList[]` 多一个 `field`（F1/F2…），CLI 用它给同 code 的重复列去重 |
 | lookup broker-org / meeting-org list | `[...]` | `[].id` / `[].name` |

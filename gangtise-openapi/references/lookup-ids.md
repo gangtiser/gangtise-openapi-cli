@@ -30,7 +30,7 @@
 
 ## 申万行业（--industry 参数）
 
-完整列表用 `reference constant-list --category swIndustry`（31 条）。⚠️ 申万码（`104xx0000`）只在**部分** insight list 上可作 `--industry` 使用，且**与中信码不等效**——两套码行业成分不同，实测 opinion 与 official-account 上取回的结果集就对不上（同一行业相差约 2%–5%），别混用；用于 `--research-area` 时**只有 `summary` / `pamirs-summary` 认，其余端点返 0**（不报错，与传乱码表现一致）。`vault wechat-message-list` 的 `--industry` **只认中信码**，传申万码报 `100005`——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**（含逐端点实测矩阵），勿在此重复枚举。拿不准就统一用上方中信码。
+完整列表用 `reference constant-list --category swIndustry`（31 条）。⚠️ 申万码（`104xx0000`）只在**部分** insight list 上可作 `--industry` 使用，且**与中信码不等效**——两套码行业成分不同，opinion 与 official-account 上取回的结果集就对不上（同一行业约相差 2%–5%），别混用；用于 `--research-area` 时**只有 `summary` / `pamirs-summary` 认，其余端点返 0**（不报错，与传乱码表现一致）。`vault wechat-message-list` 的 `--industry` **只认中信码**，传申万码报 `100005`——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**（含逐端点对照矩阵），勿在此重复枚举。拿不准就统一用上方中信码。
 
 | ID | 行业 | ID | 行业 | ID | 行业 |
 |----|------|----|------|----|------|
@@ -113,7 +113,7 @@
 
 ⚠️ **`gangtiseIndustry` 里只有下面这 6 条方向码，不含任何行业码**——`constant-list --category gangtiseIndustry` 返回的就是 6 条，去它那里找「食品饮料」找不到，行业码要查 `citicIndustry`。
 
-**6 个研究方向（citicIndustry 没有，已实测正确过滤）：**
+**6 个研究方向（citicIndustry 没有）：**
 
 | ID | 方向 | ID | 方向 |
 |----|------|----|------|
@@ -121,7 +121,7 @@
 | 122000003 | 固收 | 122000004 | 金工 |
 | 122000005 | 海外 | 122000007 | 其他 |
 
-行业维度的 ID 直接用上方「中信行业分类」表（`1008001xx`），这是唯一在全部 7 个端点上都生效的一套。⚠️ **申万码 `104xx0000` 用于 `--research-area` 只有 `summary` / `pamirs-summary` 认**，opinion / roadshow / site-visit / forum / my-conference 一律返 0（与传乱码表现一致，不报错）。反过来方向码 `122000xxx` 在 `pamirs-summary` 上返 0。完整实测矩阵见 `commands/reference-and-lookup.md`。
+行业维度的 ID 直接用上方「中信行业分类」表（`1008001xx`），这是唯一在全部 7 个端点上都生效的一套。⚠️ **申万码 `104xx0000` 用于 `--research-area` 只有 `summary` / `pamirs-summary` 认**，opinion / roadshow / site-visit / forum / my-conference 一律返 0（与传乱码表现一致，不报错）。反过来方向码 `122000xxx` 在 `pamirs-summary` 上返 0。完整对照矩阵见 `commands/reference-and-lookup.md`。
 
 ---
 

@@ -2,7 +2,7 @@
 
 注意：`ai one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `viewpoint-debate-check` / `earnings-review-check` 返回 `{content: "markdown文本"}`；这类命令仍然加 `--format json`，但呈现给用户时直接取 `content` 字段，不要展示 JSON 包装层。
 
-**⏱ 超时与重复扣分**：7 个 agent 类（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`）CLI 已内置 120s 超时下限，**无需前缀**；`stock-summary` / `hot-topic` 首次生成也常 >30s，仍建议前置 `GANGTISE_TIMEOUT_MS=120000`。自 v0.26.0 起**贵档端点超时/5xx 不再自动重试**（重放=重复扣分）——超时报错后内容可能已在服务端生成并扣费，同参数再调会**再扣一次**（`one-pager` 等生成类实测按次计费、无缓存命中豁免），所以一次调用给足超时比失败重跑省钱；拿到的生成内容自行留存复用，别为"刷新"重调。`earnings-review` / `viewpoint-debate` 是异步——用 `--wait`（工具超时 ≥360s）或 `*-check` 轮询，不吃这个超时。
+**⏱ 超时与重复扣分**：7 个 agent 类（`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` / `management-discuss-*`）CLI 已内置 120s 超时下限，**无需前缀**；`stock-summary` / `hot-topic` 首次生成也常 >30s，仍建议前置 `GANGTISE_TIMEOUT_MS=120000`。**贵档端点超时/5xx 不自动重试**（重放=重复扣分）——超时报错后内容可能已在服务端生成并扣费，同参数再调会**再扣一次**（`one-pager` 等生成类按次计费、无缓存命中豁免），所以一次调用给足超时比失败重跑省钱；拿到的生成内容自行留存复用，别为"刷新"重调。`earnings-review` / `viewpoint-debate` 是异步——用 `--wait`（工具超时 ≥360s）或 `*-check` 轮询，不吃这个超时。
 
 ---
 
@@ -56,7 +56,7 @@ gangtise ai stock-summary --security <code> [--security <code2> ...]
 ```
 
 - `--security`（**必选**，可重复）：**只收具体证券代码**，单次最多 6000 个
-- 🔴 **2026-08-14 起不再支持全市场批量**：`aShares` / `hkStocks` 这类市场关键词已被移除，CLI 会本地报错（服务端对它们返 `120001`，读起来像代码写错，容易误判）。需要覆盖一批标的就先用 `reference securities-search` 或自有清单取到代码，再分批传入
+- 🔴 **不支持全市场批量**：`aShares` / `hkStocks` 这类市场关键词不被接受，CLI 会本地报错（服务端对它们返 `120001`，读起来像代码写错，容易误判）。需要覆盖一批标的就先用 `reference securities-search` 或自有清单取到代码，再分批传入
 - **仅支持 A 股和港股**
 - **积分**：`3`/条；个股若无看点总结则不在返回列表中，也不扣分
 - 返回字段：`securityCode` / `securityName` / `summary`（精炼投研总结）/ `date`（更新日期 `yyyy-MM-dd`）

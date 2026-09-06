@@ -6,7 +6,7 @@
 
 **关键规则**：查"最近"K线必须显式 `--start-date`/`--end-date` 拉范围，再从 `tradeDate` 取尾部最近 N 条；不要只用 `--limit N`（会截取查询窗口开头）。
 
-🔴 **全市场关键字换了（2026-08-14）**：`quote day-kline` 的 `--security all` **已不再支持**，改为三个市场关键字之一——`aShares` / `hkStocks` / `usStocks`，且**必须单独传**（不能与证券代码或另一个关键字混填）。传 `all` 或混填 CLI 会直接报错并提示正确写法。三个已下线的旧命令（`day-kline-hk` / `day-kline-us` / `index-day-kline`）仍认 `all`。
+🔴 **全市场关键字**：`quote day-kline` 不认 `--security all`，只认三个市场关键字之一——`aShares` / `hkStocks` / `usStocks`，且**必须单独传**（不能与证券代码或另一个关键字混填）。传 `all` 或混填 CLI 会直接报错并提示正确写法。三个已下线的旧命令（`day-kline-hk` / `day-kline-us` / `index-day-kline`）仍认 `all`。
 
 **自动分片**：全市场关键字跨日期范围时 CLI 自动按日切片并并发执行，合并结果返回，无需手动分批。分片粒度按各市场单个交易日的行数规模定，保证单请求不撞 10000 行的 API 上限：
 
@@ -20,7 +20,7 @@
 
 分片路径会自动把 `limit` 抬到 10000（API 上限），避免默认 6000 行截断；按日分片自动跳过周六日。
 
-**日K线历史性**（v0.14.0 起 API 文档明确）：所有日K线接口仅返回**历史数据**，不提供实时行情。盘中实时数据请改用 `quote realtime`。当日数据入库时间：A 股约 15:30、港股约 16:30、美股约 07:00（北京时间）。
+**日K线历史性**：所有日K线接口仅返回**历史数据**，不提供实时行情。盘中实时数据请改用 `quote realtime`。当日数据入库时间：A 股约 15:30、港股约 16:30、美股约 07:00（北京时间）。
 
 ---
 
@@ -69,7 +69,7 @@ gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 
 ## ⚠️ 已下线的三个旧命令（仍可调用）
 
-`quote day-kline-hk` / `quote day-kline-us` / `quote index-day-kline` 的能力已并入上面的 `day-kline`，官方于 2026-08-14 把它们从菜单下线，接口仍可调用。**新代码一律用 `day-kline`**，理由不止是少记三个命令：
+`quote day-kline-hk` / `quote day-kline-us` / `quote index-day-kline` 的能力已并入上面的 `day-kline`，已从菜单下线，接口仍可调用。**新代码一律用 `day-kline`**，理由不止是少记三个命令：
 
 - 旧命令**不校验证券代码**——传错代码返回空结果（`{"total":0,"list":[]}`）而不是报错，与「该票该区间真无数据」无法区分；`day-kline` 会报 `120001`
 - 参数与字段和 `day-kline` 完全一致（`--security` / `--start-date` / `--end-date` / `--limit` / `--field`），迁移只是换命令名
@@ -91,7 +91,7 @@ gangtise quote realtime [--security <code>] [--field <name>]
 - 非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照
 - **全量字段（15 个）**：`securityCode` `exchange` `tradeDate` `tradeTime` `tradeStatus` `open` `high` `low` `latestPrice` `preClose` `change` `pctChange` `volume` `amount` `amplitude`
 - ⚠️ **`turnoverRate` / `volumeRatio` 不是 realtime 的字段**：传了会连字段名一起被静默丢掉，不报错、结果里就是没这两列。换手率走 EDE `indicator cross-section --indicator qte_turn`（A 股）；量比在 EDE 里没有对应指标
-- **没有 `close`**——收盘价语义用 `latestPrice`（非交易时间即为收盘价），或改用 `quote day-kline` 的 `close`；**也没有市值**，总市值走 `indicator cross-section --indicator qte_mkt_cptl`（2026-08-03 起 A/港/美股均有数）
+- **没有 `close`**——收盘价语义用 `latestPrice`（非交易时间即为收盘价），或改用 `quote day-kline` 的 `close`；**也没有市值**，总市值走 `indicator cross-section --indicator qte_mkt_cptl`（A/港/美股均有数）
 - 字段速查：见 `references/fields.md` 中的"实时行情"小节
 
 ## A股资金流向 `quote fund-flow`
@@ -121,8 +121,8 @@ gangtise quote index-day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [
 - 沪深京指数：如 `000001.SH` 上证综指、`399001.SZ` 深成指；`--security all` 全市场指数（**仍是 `all`，不是 `aShares` 那套**）
 - `--limit` 默认 6000，上限 10000
 - 常用字段：`securityCode` `securityName` `tradeDate` `open` `high` `low` `close` `preClose` `change` `pctChange` `volume` `amount`
-- `securityName` 为指数名称（如 `上证指数`），v0.15.0 起返回
-- **还值得用它的两个场景**（都是 `day-kline` 做不到的，实测 2026-08-13）：
+- `securityName` 为指数名称（如 `上证指数`）
+- **还值得用它的两个场景**（都是 `day-kline` 做不到的）：
   1. **一次拿全部沪深京指数**（`--security all`）——`day-kline` 的指数必须逐个传代码
   2. **要指数名称**——`index-day-kline` 返回 `securityName`（如「上证指数」），`day-kline` **没有这个字段**，查指数只拿得到代码
 - 反过来 `day-kline` 独有 `adjustFactor`（复权因子），但指数本来就没有复权，该字段查指数时恒为 `null`
@@ -133,7 +133,7 @@ gangtise quote index-day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [
 gangtise quote minute-kline --security <code> [--start-time <datetime>] [--end-time <datetime>] [--limit <n>] [--field <name>]
 ```
 
-- 支持**沪深** A 股个股（`.SH` / `.SZ`，不含北交所）、沪深 ETF（`512800.SH`）、交易所指数（`.SH` / `.SZ`）、概念指数（`.GT`）、行业指数（`.CI` / `.SWI`）、20 个全球指数（`SPX.SPI` / `N225.NKI` / `HSI.HI`…，清单见日 K 一节）；**必须传 `--security`**（否则返回 `100003`，msg 为「securityCode不可为空」；2026-07-20 实测）
+- 支持**沪深** A 股个股（`.SH` / `.SZ`，不含北交所）、沪深 ETF（`512800.SH`）、交易所指数（`.SH` / `.SZ`）、概念指数（`.GT`）、行业指数（`.CI` / `.SWI`）、20 个全球指数（`SPX.SPI` / `N225.NKI` / `HSI.HI`…，清单见日 K 一节）；**必须传 `--security`**（否则返回 `100003`「securityCode不可为空」）
 - **一次只能查一只**（参数是 `securityCode` 单值，不是列表），要多只就循环调用
 - `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全）
 - `--limit` 默认 6000，上限 10000
