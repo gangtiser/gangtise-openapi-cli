@@ -16,7 +16,7 @@ gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--reso
 - `--top` 默认 10，最大 20
 - `--resource-type`：`10` 券商研报 | `11` 外资研报 | `20` 内部报告 | `40` 首席观点 | `50` 公司公告 | `51` 港股公告 | `60` 会议平台纪要 | `70` 调研纪要公告 | `80` 网络资源纪要 | `90` 产业公众号
 - `--knowledge-name`：`system_knowledge_doc` 系统知识库 | `tenant_knowledge_doc` 机构知识库
-- `--start-time` / `--end-time`：13/10 位时间戳或 `YYYY-MM-DD[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔；CLI 统一转 13 位毫秒，10 位秒自动 ×1000），按时间范围过滤
+- `--start-time` / `--end-time`：13/10 位时间戳或 `YYYY-MM-DD[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔；CLI 统一转 13 位毫秒，日期与时刻按**北京时间**解释、与机器时区无关，10 位秒自动 ×1000），按时间范围过滤
 
 ## 知识资源下载 `ai knowledge-resource-download`
 

@@ -252,11 +252,31 @@ describe("toTimestamp13", () => {
     expect(toTimestamp13("not-a-date")).toBeUndefined()
   })
 
-  it("parses date-only input as local midnight, same as the datetime form", () => {
-    // "2025-04-01" used to parse as UTC midnight while "2025-04-01 00:00:00" parsed
-    // as local time — an 8h window shift for CST users. Both forms must agree.
+  it("parses date-only input as Beijing midnight, same as the datetime form", () => {
+    // "2025-04-01" once parsed as UTC midnight while "2025-04-01 00:00:00" parsed as
+    // local time — an 8h window shift for CST users. Both forms must agree, and both
+    // mean Beijing time: that is what the two epoch-taking endpoints filter on.
     expect(toTimestamp13("2025-04-01")).toBe(toTimestamp13("2025-04-01 00:00:00"))
-    expect(toTimestamp13("2025-04-01")).toBe(new Date(2025, 3, 1).getTime())
+    expect(toTimestamp13("2025-04-01")).toBe(Date.UTC(2025, 3, 1) - 8 * 3_600_000)
+  })
+
+  it("gives the same instant whatever the machine's timezone is (a UTC sandbox, a US laptop, Shanghai)", () => {
+    // The A-share announcement and knowledge-batch windows are Beijing-time semantics;
+    // an agent running in a UTC sandbox must not get a day shifted by eight hours.
+    const saved = process.env.TZ
+    const expected = Date.UTC(2026, 7, 1, 9, 30, 0) - 8 * 3_600_000 // 2026-08-01 09:30 +08:00 = 01:30 UTC
+    try {
+      for (const tz of ["UTC", "America/New_York", "Asia/Shanghai", "Australia/Lord_Howe"]) {
+        process.env.TZ = tz
+        expect(toTimestamp13("2026-08-01 09:30:00"), tz).toBe(expected)
+        expect(toTimestamp13("2026-08-01"), tz).toBe(Date.UTC(2026, 7, 1) - 8 * 3_600_000)
+        // A wall-clock time a DST zone skips is still a real Beijing instant.
+        expect(toTimestamp13("2026-03-08 02:30:00"), tz).toBe(Date.UTC(2026, 2, 8, 2, 30, 0) - 8 * 3_600_000)
+      }
+    } finally {
+      if (saved === undefined) delete process.env.TZ
+      else process.env.TZ = saved
+    }
   })
 
   it("rejects out-of-range date-only input instead of rolling it over", () => {
@@ -284,9 +304,10 @@ describe("toTimestamp13", () => {
   })
 
   it("still accepts the documented datetime forms", () => {
-    expect(toTimestamp13("2026-07-01 10:30:00")).toBe(new Date(2026, 6, 1, 10, 30, 0).getTime())
-    expect(toTimestamp13("2026-07-01T10:30:00")).toBe(new Date(2026, 6, 1, 10, 30, 0).getTime())
-    expect(toTimestamp13("2026-07-01 10:30")).toBe(new Date(2026, 6, 1, 10, 30, 0).getTime())
+    const beijing = Date.UTC(2026, 6, 1, 10, 30, 0) - 8 * 3_600_000
+    expect(toTimestamp13("2026-07-01 10:30:00")).toBe(beijing)
+    expect(toTimestamp13("2026-07-01T10:30:00")).toBe(beijing)
+    expect(toTimestamp13("2026-07-01 10:30")).toBe(beijing)
   })
 
   it("rejects an out-of-range time instead of rolling it into the next hour/day", () => {
@@ -295,10 +316,10 @@ describe("toTimestamp13", () => {
     expect(toTimestamp13("2026-07-01 10:30:99")).toBeUndefined()
   })
 
-  it("rejects an early year the Date constructor would remap (new Date(50,…) → 1950)", () => {
-    // getFullYear round-trip: without it, 0050-06-15 becomes 1950-06-15 and passes.
-    expect(toTimestamp13("0050-06-15")).toBeUndefined()
-    expect(toTimestamp13("0050-06-15 10:30:00")).toBeUndefined()
+  it("keeps an early year as written instead of the Date constructor's remap (new Date(50,…) → 1950)", () => {
+    // Built from an ISO string, so year 0050 stays year 50 — never silently 1950.
+    expect(new Date(toTimestamp13("0050-06-15")!).getUTCFullYear()).toBe(50)
+    expect(new Date(toTimestamp13("0050-06-15 10:30:00")!).getUTCFullYear()).toBe(50)
   })
 
   it("rejects non-finite and fractional numeric input", () => {

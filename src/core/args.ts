@@ -228,26 +228,25 @@ function epochMillis(value: string): number | undefined {
   return undefined
 }
 
+/** Beijing time (UTC+8) as an offset suffix. The two endpoints that take epoch millis
+ * (A-share announcement, knowledge-batch) define their windows in Beijing time, like
+ * every date the API reads; anchoring the wall-clock input there — not to the machine's
+ * zone — makes "2026-08-01" the same instant on a UTC sandbox and a CST laptop. */
+const BEIJING_OFFSET = "+08:00"
+
 export function toTimestamp13(value: string | undefined): number | undefined {
   if (value === undefined) return undefined
   const ts = epochMillis(value)
   if (ts !== undefined) return ts
   if (!datetimeFieldsValid(value)) return undefined
-  // `new Date("yyyy-MM-dd")` parses as UTC midnight while `new Date("yyyy-MM-dd
-  // HH:mm:ss")` parses as local time — for CST users the two forms would differ by 8
-  // hours. Build from local components so both mean the same wall-clock day.
   const parts = LOCAL_DATETIME.exec(value)!
-  const [, y, , mo, d, hh = "0", mi = "0", ss = "0"] = parts
-  const year = Number(y)
-  const dt = new Date(year, Number(mo) - 1, Number(d), Number(hh), Number(mi), Number(ss))
-  // Full round-trip on every field: rejects the two inputs that cannot convert
-  // faithfully — the two-digit-year remap (new Date(50,…) → 1950) and a DST gap (a
-  // wall-clock time the local zone skips: 02:30 on a US spring-forward morning, or
-  // 02:15 in Lord Howe's 30-minute gap, which only a minute-level check catches).
-  const faithful = dt.getFullYear() === year && dt.getMonth() === Number(mo) - 1
-    && dt.getDate() === Number(d) && dt.getHours() === Number(hh)
-    && dt.getMinutes() === Number(mi) && dt.getSeconds() === Number(ss)
-  return faithful ? dt.getTime() : undefined
+  const [, y, , mo, d, hh = "00", mi = "00", ss = "00"] = parts
+  // Built from an ISO string with an explicit offset, not Date.UTC(y, …) − 8h: the
+  // numeric constructor remaps years 0–99 (50 → 1950), the string form does not. The
+  // fields were already validated (real calendar day, valid clock time) so nothing can
+  // roll over here, and with a fixed offset there is no DST gap to reject.
+  const instant = new Date(`${y}-${mo}-${d}T${hh}:${mi}:${ss}${BEIJING_OFFSET}`).getTime()
+  return Number.isNaN(instant) ? undefined : instant
 }
 
 export function parseTimestamp13(value: string | undefined, optionName: string): number | undefined {
@@ -297,8 +296,9 @@ export function datetimeArg(optionName: string): (value: string) => string {
 
 /** Machine-local calendar date as `yyyy-MM-dd`, for CLI "default: today" options.
  * `new Date().toISOString().slice(0,10)` renders the UTC day — for CST users a
- * pre-08:00 "today" resolves to yesterday. Anchoring to local components matches
- * toTimestamp13's local-midnight convention. */
+ * pre-08:00 "today" resolves to yesterday, so the machine's own calendar day is used.
+ * (toTimestamp13 is different: it converts an explicit input, and anchors it to
+ * Beijing time regardless of the machine.) */
 export function localDateString(d: Date): string {
   const month = String(d.getMonth() + 1).padStart(2, "0")
   const day = String(d.getDate()).padStart(2, "0")
