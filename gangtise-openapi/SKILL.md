@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.38.0"
+version: "0.39.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -162,7 +162,7 @@ vault.my-conference.download
 | 跨类型语义搜索（研报+纪要+...） | `ai knowledge-batch`（多个 `--resource-type`） |
 | 知识库原文下载（搜到后取全文） | `ai knowledge-resource-download`（前置：`knowledge-batch` 拿 `resourceType`+`sourceId`；`250001`/旧 `433007`=组合不匹配） |
 | 一页通 / 投资逻辑 / 同业对比 / 调研提纲 | `ai one-pager / investment-logic / peer-comparison / research-outline` |
-| 个股看点 / 投研总结 / 公司速览 | `ai stock-summary`（`--security` **只收具体代码**，单次最多 5000 个、超过 CLI 本地拦截并提示分批；仅 A 股/港股，不支持 `aShares`/`hkStocks` 全市场批量） |
+| 个股看点 / 投研总结 / 公司速览 | `ai stock-summary`（`--security` **只收具体代码**，单次最多 6000 个、超过时 CLI 报错并提示分批；仅 A 股/港股，不支持 `aShares`/`hkStocks` 全市场批量） |
 | 业绩点评（异步） | `ai earnings-review` |
 | 观点 PK / 多空辩论（异步） | `ai viewpoint-debate` |
 | 投研线索 | `ai security-clue`（前置：`reference securities-search` 拿 `gts-code`） |
@@ -296,7 +296,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 
 ## 异常处理
 
-**退出码**：`0` 完整成功（含合法空结果）／ `3` 有数据但不完整（`partial: true`；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题——csv/jsonl 落盘时看旁边 `<file>.meta.json` 的 `complete` 与 `result`。定位字段：页失败 `failedPages`、分片失败 `failedShards`、分片撞行数上限 `truncatedShards`、`total` 撞服务端上限 `totalCapped`、`--field` 请求了但没回的列 `missingFields`、逐只请求里撞行数上限的证券 `truncatedSecurities`、EDE 整轴没回 `omittedIndicators` / `omittedSecurities`）／ `1` 硬失败。**拿到 3 就必须告知用户缺了哪段，不能当成功静默继续。** 报错行带 `[trace <id>]`，**报障给 Gangtise 时务必带上**。
+**退出码**：`0` 完整成功（含合法空结果）／ `3` 有数据但不完整（`partial: true`；stderr 有 warning，`--format json` 才看得见标记，table/csv/jsonl 只有数据行、看不出问题——csv/jsonl 落盘时看旁边 `<file>.meta.json` 的 `complete` 与 `result`；该文件还带 `bytes` / `sha256`，用 `shasum -a 256 <file>` 核一下就能确认这份元信息描述的是旁边这份数据。定位字段：页失败 `failedPages`、分片失败 `failedShards`、分片撞行数上限 `truncatedShards`、只有部分分片返回而合并时放不下的列 `droppedColumns`（缩小日期区间单独拉）、`total` 撞服务端上限 `totalCapped`、`--field` 请求了但没回的列 `missingFields`、逐只请求里撞行数上限的证券 `truncatedSecurities`、EDE 整轴没回 `omittedIndicators` / `omittedSecurities`）／ `4` 数据本身写全了，但 `--output` 那个文件在收尾期间被另一次写向同一路径的导出替换（并发跑同一路径才会出现，给它们各自的 `--output` 即可；与 `3` 同时发生时退出 `3`）／ `1` 硬失败。**拿到 3 就必须告知用户缺了哪段，不能当成功静默继续。** 报错行带 `[trace <id>]`，**报障给 Gangtise 时务必带上**。
 
 最高频的几个码（全表、「不报错的坑」、`screener` 缺列判据与困境自救见 `references/errors.md`）：
 

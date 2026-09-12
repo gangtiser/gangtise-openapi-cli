@@ -18,9 +18,11 @@ interface AsyncContentClient {
   call(endpointKey: string, body?: unknown, query?: Record<string, string | number>): Promise<unknown>
 }
 
-// Probed 2026-07-20 against a real viewpoint-debate job: the async endpoints are
-// still entirely on the legacy codes — 410110 "正在生成中" and 410111 "生成失败",
-// both string-typed, both HTTP 400, neither carrying the new `errorType` field.
+// The async endpoints are still entirely on the legacy codes. 410110 "正在生成中"
+// re-probed 2026-09-12 against a real viewpoint-debate job: string-typed, HTTP 400,
+// no `errorType` field, traceId present. 410111 "生成失败" last probed 2026-07-20,
+// same shape — forcing a terminal failure needs input the generator refuses, so it is
+// not re-probed every round.
 // The 2026-07-17 spec renumbers them to 140001 RESULT_GENERATING (409) and
 // 140002 PROCESSING_FAILED (500); those are listed ahead of the switchover
 // because the failure mode is expensive and silent — a `--wait` that does not

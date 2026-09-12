@@ -275,8 +275,9 @@ addDownloadCommand(summary, { endpointKey: "insight.summary.download", idOption:
 // Every enum is whitelisted locally. The server drops an unrecognised VALUE the
 // same way it drops an unrecognised FIELD — silently, returning the unfiltered
 // set with exit 0. Worse, a bad `--search-type` takes `--keyword` down with it:
-// `--keyword 茅台 --search-type 99` answers 2963 (the whole library) instead of 2,
-// so the caller reads a full-library dump as a keyword hit. Same class of defect
+// `--keyword 茅台 --search-type 99` answers the whole library instead of the
+// handful that match, so the caller reads a full-library dump as a keyword hit.
+// Same class of defect
 // that put whitelists on securities-search / institution-search / official-account.
 const PAMIRS_CATEGORIES = ["companyAnalysis", "industryAnalysis"] as const
 const PAMIRS_MARKETS = ["aShares", "hkStocks", "usChinaConcept", "usStocks"] as const
@@ -389,7 +390,7 @@ performanceCalendar.command("list").description("Earnings calendar (业绩预告
     // message is the more useful one when both checks would fire.
     const marketList = parseChoiceList(options.market, "--market", PERFORMANCE_MARKETS)
     const categoryList = parseChoiceList(options.category, "--category", PERFORMANCE_CATEGORIES)
-    // Unfiltered, this endpoint holds >120k rows (probed 2026-07-25: 126683, it
+    // Unfiltered, this endpoint holds well over 100k rows (probed 2026-07-25; it
     // also carries FUTURE scheduled events) and an omitted --size means "fetch
     // everything" — 50k rows at the 1000-page cap, ~5000 credits at 0.1/row.
     // Require a bound: a full date range, an explicit --size, or a security filter.
@@ -542,12 +543,19 @@ program.addCommand(insight)
 
 const quote = new Command("quote").description("Quote APIs")
 
-/** Whole-market keywords an endpoint accepts, mapped to days per shard. Sizes keep a
- * single request under the 10K-row API cap. Measured rows per trading day (2026-08-13
- * and 08-14, both stable): A-share 5543, US 5919/5921, HK 2810/2808, sh/sz/bj indices
- * 531 — so A and US take one day, HK two (~5.6K), indices fifteen (~8K over ~11 trading
- * days). Indices are NOT "far fewer per window": 531 x ~22 trading days is ~11.7K, which
- * is why the historical 30-day size silently truncated every shard.
+/** Whole-market keywords an endpoint accepts, mapped to days per shard. A shard holds
+ * (rows per trading day x shardDays) and must stay under the 10K-row API cap. A-shares
+ * and US each list several thousand securities per day, so they take one day per shard;
+ * HK is roughly half that and takes two; the SH/SZ/BJ index universe is only in the
+ * hundreds, so fifteen calendar days still lands well inside the cap.
+ *
+ * Indices are NOT "far fewer per window": a few hundred rows across ~22 trading days
+ * clears 10K, which is why the historical 30-day size silently truncated every shard.
+ *
+ * These universes grow with listings, and the counts are not pinned here on purpose —
+ * they drift. What to watch is the product: when a market's rows per trading day
+ * approach 10K / shardDays, cut shardDays. The measured per-market counts, each with
+ * the date it was taken, are in the `bug/` ledger.
  *
  * The unified `day-kline` dropped the old `all` keyword on 2026-08-14 in favour of the
  * three market keywords, which must each be sent alone. The menu-retired per-market
@@ -767,7 +775,15 @@ addFinancialReport("cash-flow-us", "fundamental.cash-flow-us", "Period: q1/h1/q3
 fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).option("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).option("--period <type>", "Period: interim/annual", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, breakdown: options.breakdown, periodList: maybeArray(options.period), fieldList: maybeArray(options.field) })))
 fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).option("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--skip-null", "Drop rows where value or percentileRank is null").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
-  let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList: maybeArray(options.field) })
+  const requested = maybeArray(options.field)
+  // --skip-null judges `value` and `percentileRank`, so both must come back even when
+  // --field asked for neither: a column that was not requested reads as `undefined` here,
+  // the filter counts that as null, and EVERY row is dropped — an empty result with exit 0
+  // that looks like "no data for this security". Fetch the columns the filter needs on top
+  // of --field, then drop them again before output so --field still decides the columns.
+  const filterFields = options.skipNull && requested ? ["value", "percentileRank"].filter((field) => !requested.includes(field)) : []
+  const fieldList = requested && filterFields.length > 0 ? [...requested, ...filterFields] : requested
+  let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList })
   if (options.skipNull) {
     const normalized = normalizeRows(data)
     if (normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
@@ -777,6 +793,11 @@ fundamental.command("valuation-analysis").requiredOption("--security-code <code>
           if (!row || typeof row !== "object") return false
           const r = row as Record<string, unknown>
           return r.value != null && r.percentileRank != null
+        }).map((row) => {
+          if (filterFields.length === 0) return row
+          const r = { ...(row as Record<string, unknown>) }
+          for (const field of filterFields) delete r[field]
+          return r
         })
         data = { ...rec, list: filtered, total: filtered.length }
       }
@@ -890,20 +911,23 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
   }
 }))
 ai.command("viewpoint-debate-check").requiredOption("--data-id <id>", "dataId from viewpoint-debate").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => withClient((client) => checkAsyncContent(client, "ai.viewpoint-debate.get-content", options.dataId, parseOutputFormat(options.format), options.output)))
-/** Local ceiling on codes per `ai stock-summary` call. The API documents 6000, but a
- * request of about 5042 codes or more comes back as `{total: 0, list: []}` with HTTP 200
- * and no error (28 probes on 2026-09-06: 5041 fine, 5042 empty; `bug/server-open.md`
- * P1-12) — an export that reads as "no security has highlights". Refusing above 5000
- * turns that silent empty result into an explicit error with the fix in it. Lift back
- * to the documented limit once the server errors on, or serves, larger batches. */
-const STOCK_SUMMARY_MAX_SECURITIES = 5000
+/** Local ceiling on codes per `ai stock-summary` call: the documented limit of 6000.
+ * A live whole-market A-share batch — the largest set that exists, well past the size
+ * where this endpoint used to answer with an empty list — came back complete, with
+ * every omitted code confirmed to have no highlights on its own. So the guard sits at
+ * the documented limit rather than below it. The stretch from a full A-share batch up
+ * to 6000 rests on that documented limit, not on a probe: exceeding the A-share count
+ * takes a cross-market batch. If a request inside the documented limit ever answers
+ * with an empty list, lower this again. Probes behind both the old ceiling and this
+ * reversal: `bug/server-open.md` P1-12. */
+const STOCK_SUMMARY_MAX_SECURITIES = 6000
 
-ai.command("stock-summary").description("Stock highlights: refined research summary per security (A-share / HK)").option("--security <code>", `Security code (e.g. 600519.SH / 00700.HK), up to ${STOCK_SUMMARY_MAX_SECURITIES} per call (larger batches are answered with an empty list by the server); market keywords are NOT supported by this endpoint`, collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
+ai.command("stock-summary").description("Stock highlights: refined research summary per security (A-share / HK)").option("--security <code>", `Security code (e.g. 600519.SH / 00700.HK), up to ${STOCK_SUMMARY_MAX_SECURITIES} per call; market keywords are NOT supported by this endpoint`, collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => {
   // Guard against an empty --security: omitting it would send securityList:undefined,
   // which the backend may treat as all-market (3 credits/row × thousands of rows).
   if (!options.security.length) throw new ValidationError(`--security is required: pass one or more security codes (A-share / HK), up to ${STOCK_SUMMARY_MAX_SECURITIES} per call`)
   if (options.security.length > STOCK_SUMMARY_MAX_SECURITIES) {
-    throw new ValidationError(`ai stock-summary: ${options.security.length} securities in one call — the server answers batches above about 5040 with an empty list (HTTP 200, no error), so the CLI stops at ${STOCK_SUMMARY_MAX_SECURITIES}. Split the codes into batches of at most ${STOCK_SUMMARY_MAX_SECURITIES} and run one call per batch.`)
+    throw new ValidationError(`ai stock-summary: ${options.security.length} securities in one call — the endpoint takes at most ${STOCK_SUMMARY_MAX_SECURITIES}. Split the codes into batches of at most ${STOCK_SUMMARY_MAX_SECURITIES} and run one call per batch.`)
   }
   // The endpoint dropped whole-market batches on 2026-08-14 and now answers a market
   // keyword with 120001 "invalid security code" — which reads as a typo in the code.
@@ -991,9 +1015,9 @@ program.addCommand(alternative)
  * What this catches changed on the server. EDE used to drop any axis it had no
  * DATA for — an indicator empty for every security vanished from
  * `indicatorList`, a security empty for every indicator vanished from
- * `securityCodeList`. Re-probed 2026-08-08: a coverage gap is now padded with
- * `null` and keeps its row and column (`mgn_bal` × 00700.HK, `finc_pb_mrq` ×
- * 09992.HK — both null, both present, even as the only cell in the request).
+ * `securityCodeList`. Re-probed 2026-09-12: a coverage gap is now padded with
+ * `null` and keeps its row and column (`mgn_bal` × 00700.HK — null, present,
+ * even as the only cell in the request).
  *
  * A code the server cannot RESOLVE still vanishes: an unknown indicator code, or
  * a security code with the wrong suffix (`AAPL.US`, whose real form is

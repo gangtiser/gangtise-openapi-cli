@@ -8,6 +8,8 @@ import { promisify } from "node:util"
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { stagingSiblings } from "../fixtures/staging.js"
+
 // End-to-end option→body mapping tests: run the real CLI via tsx against a local
 // HTTP stub that records each request. This is the layer cli.test.ts (help/validation
 // only) never reaches — a mis-wired flag (e.g. --broker feeding industryList) returns
@@ -360,6 +362,18 @@ beforeAll(async () => {
           indicatorList: [{ field: "F1", code: "qte_mkt_cptl", name: "总市值", dataType: "double" }],
           values: [[16883.6021]],
         } } }))
+        return
+      }
+      if ((req.url ?? "").includes("/valuation-analysis")) {
+        // Columnar, and --field narrows what comes back: a column the caller did not ask
+        // for is simply absent. That is what makes the two columns --skip-null judges a
+        // FETCH-time concern, not a display one.
+        const KNOWN = ["tradeDate", "value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]
+        const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
+        const fieldList = requested ? KNOWN.filter((f) => requested.includes(f)) : KNOWN
+        const rows: unknown[][] = [["2026-09-01", 21.5, 0.42, 20, 20, 30, 10], ["2026-09-02", 22.5, 0.45, 20, 20, 30, 10]]
+        const list = rows.map((row) => fieldList.map((f) => row[KNOWN.indexOf(f)]))
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: list.length, fieldList, list } }))
         return
       }
       res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
@@ -1025,20 +1039,18 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     })
   }, 30_000)
 
-  it("ai stock-summary refuses more than 5000 codes locally and sends exactly 5000", async () => {
-    // The server answers ~5042+ codes with an empty list and no error; the CLI must say so
-    // instead of exporting "no highlights". 5000 itself still goes out as one request.
+  it("ai stock-summary refuses more than 6000 codes locally and sends exactly 6000", async () => {
+    // 6000 is the documented per-call limit; the whole batch still goes out as one request.
     const codes = (n: number) => Array.from({ length: n }, (_, i) => `${String(600000 + i).padStart(6, "0")}.SH`)
     const flags = (n: number) => codes(n).flatMap((c) => ["--security", c])
-    const tooMany = await cli(["ai", "stock-summary", ...flags(5001), "--format", "json"])
+    const tooMany = await cli(["ai", "stock-summary", ...flags(6001), "--format", "json"])
     expect(tooMany.code).toBe(1)
-    expect(tooMany.stderr).toContain("5000")
-    expect(tooMany.stderr).toContain("empty list")
+    expect(tooMany.stderr).toContain("6000")
     expect(captured).toHaveLength(0)
-    const ok = await cli(["ai", "stock-summary", ...flags(5000), "--format", "json"])
+    const ok = await cli(["ai", "stock-summary", ...flags(6000), "--format", "json"])
     expect(ok.code).toBe(0)
     expect(captured).toHaveLength(1)
-    expect((captured[0].body as { securityList: string[] }).securityList).toHaveLength(5000)
+    expect((captured[0].body as { securityList: string[] }).securityList).toHaveLength(6000)
   }, 60_000)
 
   it("ai stock-summary maps --security to securityList", async () => {
@@ -1820,6 +1832,28 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(code).toBe(0)
     expect(JSON.parse(stdout)).toEqual(expect.objectContaining({ taskId: "PENDING", status: "pending" }))
   }, 30_000)
+
+  it("valuation-analysis --skip-null fetches the columns it filters on even when --field asks for fewer", async () => {
+    // --skip-null drops rows whose value or percentileRank is null. Narrowing --field used
+    // to narrow the REQUEST too, so percentileRank never came back, read as undefined, and
+    // the filter dropped every row — {total:0,list:[]} with exit 0, which reads as "this
+    // security has no valuation history".
+    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "tradeDate", "--field", "value", "--skip-null", "--format", "json"])
+    expect(code).toBe(0)
+    const sent = captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { fieldList?: string[] }
+    expect(sent.fieldList).toEqual(["tradeDate", "value", "percentileRank"])
+    const data = JSON.parse(stdout) as { total: number; list: Array<Record<string, unknown>> }
+    expect(data.total).toBe(2)
+    // Fetched for the filter only: --field still decides which columns the caller gets.
+    expect(Object.keys(data.list[0])).toEqual(["tradeDate", "value"])
+  }, 30_000)
+
+  it("valuation-analysis without --skip-null sends --field unchanged", async () => {
+    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "tradeDate", "--field", "value", "--format", "json"])
+    expect(code).toBe(0)
+    expect((captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { fieldList?: string[] }).fieldList).toEqual(["tradeDate", "value"])
+    expect((JSON.parse(stdout) as { total: number }).total).toBe(2)
+  }, 30_000)
 })
 
 describe("large jsonl export streams to disk with a metadata sidecar (real CLI against the local stub)", () => {
@@ -1835,7 +1869,7 @@ describe("large jsonl export streams to disk with a metadata sidecar (real CLI a
     expect(stdout.trim()).toBe(out)
     const ids = (await fs.readFile(out, "utf8")).split("\n").filter(Boolean).map((l) => (JSON.parse(l) as { performanceReportId: string }).performanceReportId)
     expect(ids).toEqual(Array.from({ length: 1000 }, (_, i) => String(i)))
-    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
     const meta = await readMeta(out)
     expect(meta).toMatchObject({ file: "cal.jsonl", format: "jsonl", rows: 1000, complete: true, exitCode: 0, result: { total: 1000 } })
     expect(meta.command).toEqual(args)
@@ -1857,8 +1891,7 @@ describe("large jsonl export streams to disk with a metadata sidecar (real CLI a
     expect(lines).toHaveLength(1001)
     expect(lines[0]).toBe("\ufeffperformanceReportId,title")
     expect(lines[1000]).toBe("999,t")
-    await expect(fs.access(`${out}.rows.part`)).rejects.toThrow()
-    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
     const meta = await readMeta(out)
     expect(meta).toMatchObject({ format: "csv", rows: 1000, complete: true })
     expect("columns" in meta).toBe(false) // object rows: no server fieldList to report
@@ -1873,7 +1906,7 @@ describe("large jsonl export streams to disk with a metadata sidecar (real CLI a
     expect(code).toBe(1)
     // The slow part answered after the failure: it must have been dropped, not written.
     await expect(fs.access(out)).rejects.toThrow()
-    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
     await expect(fs.access(`${out}.meta.json`)).rejects.toThrow()
   }, 30_000)
 
@@ -1890,7 +1923,7 @@ describe("large jsonl export streams to disk with a metadata sidecar (real CLI a
     const { code } = await cli(["raw", "call", "insight.performance-calendar.list", "--body", '{"securityList":["EXACT1000.XX"],"size":1000}', "--format", "jsonl", "--output", out])
     expect(code).toBe(0)
     expect((await fs.readFile(out, "utf8")).split("\n").filter(Boolean)).toHaveLength(1000)
-    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
     expect(await readMeta(out)).toMatchObject({ rows: 1000, complete: true })
   }, 30_000)
 

@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import { dirname, extname } from "node:path"
 
 import { DownloadError } from "./errors.js"
-import { saveOutputIfNeeded } from "./output.js"
+import { saveOutputIfNeeded, stagingPath } from "./output.js"
 import { extractTitles, lookupTitleCache, readTitleCache, TITLE_LOOKUP_SIZE, writeTitleCache } from "./titleCache.js"
 
 /** Replace filesystem-unsafe characters (path separators, wildcards, and control
@@ -214,8 +214,10 @@ async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
       return "signed-url"
     }
   }
-  // .part + rename so a failed follow-download never destroys an existing file.
-  const partPath = `${outputPath}.part`
+  // Staging sibling + rename so a failed follow-download never destroys an existing file.
+  // Taken once, outside withRetry: every attempt reuses this one path, and the retry that
+  // succeeds renames the file the previous attempts were truncating.
+  const partPath = stagingPath(outputPath)
   await withRetry(async () => {
     const startedAt = Date.now()
     const requestOptions = {

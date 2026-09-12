@@ -3,7 +3,7 @@ import path from "node:path"
 
 import type { OutputFormat } from "./config.js"
 import { normalizeRows } from "./normalize.js"
-import { countOutputRows, pickList, renderOutput, saveOutputIfNeeded, streamOutputToFile } from "./output.js"
+import { countOutputRows, digestFile, type ExportDigest, pickList, renderOutput, saveOutputIfNeeded, stagingPath, streamOutputToFile } from "./output.js"
 import { getRowSink } from "./rowSink.js"
 import { extractTitles, type TitleCacheConfig, writeTitleCache } from "./titleCache.js"
 import { CLI_VERSION } from "../version.js"
@@ -11,6 +11,41 @@ import { CLI_VERSION } from "../version.js"
 /** Rows above which renderOutput's single in-memory string risks high memory / the V8
  * max-string-length cap. Well above normal result sizes, so it only fires on huge exports. */
 const LARGE_RESULT_ROWS = 50_000
+
+/** The export was written in full, but the file now at --output is someone else's.
+ *
+ * Deliberately NOT 3: exit 3 means "the rows are incomplete", and the sidecar's `complete`
+ * verdict — already written by then — would contradict it. Here the rows were complete; what
+ * went wrong is the destination. A caller that only checks `!== 0` treats both as "do not
+ * trust this", and one that distinguishes them gets the right diagnosis.
+ *
+ * Which makes 3 the one that wins when BOTH are true: 4 asserts the rows were complete, so
+ * overwriting a 3 with it would state the opposite of what happened, and drop the only
+ * signal that says which slice of the data is missing. */
+export const SUPERSEDED_EXIT = 4
+
+/**
+ * Did the file we just published survive? Another process exporting to the same explicit
+ * --output republishes the path between our rename and now; both runs then report success
+ * and one of them is silently describing a file it did not write.
+ *
+ * This cannot PREVENT the overwrite (that needs a cross-process lock, whose stale-lock
+ * handling would refuse legitimate exports — `bug/cli-backlog.md` K34 records why we don't).
+ * What it does is tell the run that lost, instead of letting it exit 0 and hand a caller a
+ * path holding someone else's data.
+ *
+ * A file that cannot be read back is not reported: it was published, and a transient stat/read
+ * failure is not evidence that someone replaced it.
+ */
+export async function warnIfSuperseded(output: string, digest: ExportDigest): Promise<void> {
+  const actual = await digestFile(output).catch(() => undefined)
+  if (!actual || actual.sha256 === digest.sha256) return
+  process.stderr.write(
+    `[gangtise] warning: ${output} was replaced by another export to the same path while this one was finishing — the file there is not this command's output `
+    + `(wrote sha256 ${digest.sha256.slice(0, 12)}…, found ${actual.sha256.slice(0, 12)}…). Give concurrent exports distinct --output paths.\n`,
+  )
+  if (process.exitCode !== 3) process.exitCode = SUPERSEDED_EXIT
+}
 
 /** Warn when we're about to renderOutput a huge result. Called only on the paths that
  * actually render — never after streamOutputToFile streamed — so it can't misfire on a
@@ -66,7 +101,7 @@ function redactSecrets(value: unknown): unknown {
 }
 
 interface StagedMeta {
-  commit(): Promise<void>
+  commit(digest: ExportDigest | undefined): Promise<void>
   discard(): Promise<void>
 }
 
@@ -77,10 +112,17 @@ interface StagedMeta {
  * the rows). Those two formats hold rows only, so once the file leaves this machine nothing
  * else says whether it was partial; a json export carries the markers inline and gets none.
  *
- * Staged, not written: the sidecar goes to `.meta.json.part` BEFORE the data file is
+ * Staged, not written: the sidecar goes to a staging sibling BEFORE the data file is
  * published and is renamed into place only after — so a failure on either side never leaves
  * new data beside an earlier export's sidecar vouching for it. If even that final rename
  * fails, the stale sidecar is removed rather than left to describe the wrong file.
+ *
+ * `bytes` / `sha256` describe the bytes this export wrote (see digestFile). They exist so
+ * a reader can CHECK that the sidecar belongs to the file beside it — `shasum -a 256 <file>`
+ * against `sha256` — rather than assume it. Two processes exporting to the same --output
+ * still publish independently, and the pair can end up crossed; the hash is what makes that
+ * visible. It does not make it impossible, and identical rows hash identically even when the
+ * two runs asked different questions — `bug/cli-backlog.md` K34 tracks what is left.
  */
 async function stageExportMeta(output: string, format: OutputFormat, rows: number, columns: unknown[] | undefined, normalized: unknown, complete: boolean): Promise<StagedMeta> {
   const result = normalized && typeof normalized === "object" && !Array.isArray(normalized) ? { ...(normalized as Record<string, unknown>) } : {}
@@ -98,8 +140,11 @@ async function stageExportMeta(output: string, format: OutputFormat, rows: numbe
     columns,
     result: redactSecrets(result),
   }
+  // Written twice on purpose: once here, before the data file is touched, so a sidecar that
+  // CANNOT be written aborts the export while the previous good file is still intact; then
+  // again in commit(), because the digest only exists once the data has been written.
   const metaPath = `${output}.meta.json`
-  const partPath = `${metaPath}.part`
+  const partPath = stagingPath(metaPath)
   await fs.mkdir(path.dirname(output), { recursive: true })
   try {
     await fs.writeFile(partPath, `${JSON.stringify(doc, null, 2)}\n`, "utf8")
@@ -110,8 +155,9 @@ async function stageExportMeta(output: string, format: OutputFormat, rows: numbe
     throw error
   }
   return {
-    async commit() {
+    async commit(digest: ExportDigest | undefined) {
       try {
+        if (digest) await fs.writeFile(partPath, `${JSON.stringify({ ...doc, ...digest }, null, 2)}\n`, "utf8")
         await fs.rename(partPath, metaPath)
       } catch (error) {
         await fs.unlink(partPath).catch(() => {})
@@ -170,24 +216,28 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
     const staged = format === "csv" || format === "jsonl"
       ? await stageExportMeta(output, format, streamed ? streamed.dataRows : countOutputRows(normalized, format), columns, normalized, complete)
       : null
+    let digest: ExportDigest | undefined
     try {
       if (streamed) {
         // Rows are already on disk in order; close and move the file into place.
         await streamed.finish()
-      } else if (!(await streamOutputToFile(normalized, format, output))) {
+        digest = streamed.digest
+      } else if (!(digest = (await streamOutputToFile(normalized, format, output)) ?? undefined)) {
         // streamOutputToFile declined (non-stream format, or an all-scalar csv list) → we
         // fall back to renderOutput, which builds the whole result as one string.
         warnIfLargeInMemory(items, format)
         const content = renderOutput(normalized, format)
         // CSV files get a BOM so Excel double-click decodes Chinese as UTF-8 (stdout
         // stays BOM-free for pipes).
-        await saveOutputIfNeeded(format === "csv" ? `\ufeff${content}` : content, output)
+        digest = await saveOutputIfNeeded(format === "csv" ? `\ufeff${content}` : content, output)
       }
     } catch (error) {
       await staged?.discard()
       throw error
     }
-    await staged?.commit()
+    await staged?.commit(digest)
+    // After the sidecar, so a mismatch is reported against a pair that is already on disk.
+    if (digest) await warnIfSuperseded(output, digest)
     process.stdout.write(`${output}\n`)
     return
   }

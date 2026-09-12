@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -13,7 +14,9 @@ vi.mock("../../src/core/titleCache.js", async () => {
   return { ...actual, writeTitleCache: writeMock }
 })
 
-const { printData } = await import("../../src/core/printer.js")
+const { stagingSiblings } = await import("../fixtures/staging.js")
+const { printData, warnIfSuperseded, SUPERSEDED_EXIT } = await import("../../src/core/printer.js")
+const { digestFile } = await import("../../src/core/output.js")
 const { ExportSink, attachRowSink } = await import("../../src/core/rowSink.js")
 
 describe("printData", () => {
@@ -209,21 +212,104 @@ describe("printData export metadata sidecar and streamed results", () => {
   })
 
   it("stages the sidecar before publishing: when it cannot be written, the previous export and its sidecar stay untouched", async () => {
-    const out = path.join(dir, "staged.jsonl")
-    await fs.mkdir(dir, { recursive: true })
+    const holder = path.join(dir, "staged")
+    const out = path.join(holder, "staged.jsonl")
+    await fs.mkdir(holder, { recursive: true })
     await fs.writeFile(out, "OLD-COMPLETE-DATA\n")
     await fs.writeFile(`${out}.meta.json`, '{"complete":true,"marker":"old"}')
-    await fs.mkdir(`${out}.meta.json.part`) // the staging write now fails with EISDIR
     const sink = new ExportSink(out)
     await sink.push(Array.from({ length: 1000 }, (_, i) => ({ i })))
+    // The sidecar's staging name belongs to the write, so it cannot be blocked by
+    // pre-creating it — take write permission off the directory instead, after the rows
+    // file is already open, and the staging write fails with EACCES.
+    await fs.chmod(holder, 0o500)
     await expect(printData(attachRowSink({ total: 1000, list: [], partial: true }, sink), "jsonl", out)).rejects.toThrow()
+    await fs.chmod(holder, 0o700)
     await sink.abort()
     expect(await fs.readFile(out, "utf8")).toBe("OLD-COMPLETE-DATA\n")
     expect(JSON.parse(await fs.readFile(`${out}.meta.json`, "utf8"))).toEqual({ complete: true, marker: "old" })
-    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
     // the in-memory path behaves the same
+    await fs.chmod(holder, 0o500)
     await expect(printData({ total: 1, list: [{ a: 1 }], partial: true }, "jsonl", out)).rejects.toThrow()
+    await fs.chmod(holder, 0o700)
     expect(await fs.readFile(out, "utf8")).toBe("OLD-COMPLETE-DATA\n")
+  })
+
+  it("the sidecar's sha256 describes the published bytes — a byte-equal but different file is still caught", async () => {
+    const out = path.join(dir, "digest.jsonl")
+    await printData({ total: 1, list: [{ price: 10 }] }, "jsonl", out)
+    const meta = await readMeta(out)
+    const published = await fs.readFile(out)
+    expect(meta.bytes).toBe(published.byteLength)
+    expect(meta.sha256).toBe(createHash("sha256").update(published).digest("hex"))
+    // `{"price":10}` and `{"price":20}` are the same length: a size comparison passes on
+    // the wrong file, which is exactly why the size alone is not the check. (The jsonl
+    // file carries no trailing newline, so the stand-in must not either.)
+    await fs.writeFile(out, '{"price":20}')
+    expect((await fs.stat(out)).size).toBe(meta.bytes)
+    expect(createHash("sha256").update(await fs.readFile(out)).digest("hex")).not.toBe(meta.sha256)
+  })
+
+  it("digests the streamed path too, over the bytes the sink actually published", async () => {
+    const out = path.join(dir, "streamed-digest.csv")
+    const sink = new ExportSink(out, "csv")
+    await sink.push(Array.from({ length: 1000 }, (_, i) => ({ id: i, note: "a,b" })))
+    await printData(attachRowSink({ total: 1000, list: [] }, sink), "csv", out)
+    const meta = await readMeta(out)
+    const published = await fs.readFile(out)
+    expect(meta.rows).toBe(1000)
+    expect(meta.bytes).toBe(published.byteLength) // includes the BOM the csv writer emits
+    expect(meta.sha256).toBe(createHash("sha256").update(published).digest("hex"))
+  })
+
+  it("says so when another export replaced the file after this one published it", async () => {
+    const out = path.join(dir, "superseded.jsonl")
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(out, '{"price":10}')
+    const ours = await digestFile(out)
+
+    // Still ours: no warning, exit code untouched.
+    await warnIfSuperseded(out, ours)
+    expect(process.exitCode).toBeUndefined()
+    expect(stderr()).toBe("")
+
+    // Another export to the same path published over it. Same length on purpose — a size
+    // check would pass here, which is why the comparison is the hash.
+    await fs.writeFile(out, '{"price":20}')
+    expect((await fs.stat(out)).size).toBe(ours.bytes)
+    await warnIfSuperseded(out, ours)
+    expect(process.exitCode).toBe(SUPERSEDED_EXIT)
+    expect(process.exitCode).not.toBe(3) // not "incomplete rows" — the rows were complete
+    expect(stderr()).toContain("is not this command's output")
+  })
+
+  it("keeps exit 3 when the export was short of rows AND the file was replaced", async () => {
+    // Both went wrong at once. 4 asserts the rows were complete, so it must not overwrite a
+    // 3 — that would state the opposite and drop the only signal saying which slice is gone.
+    // The stderr warning still names the replacement, so neither problem goes unreported.
+    const out = path.join(dir, "both.jsonl")
+    const realRename = fs.rename
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      await realRename(from, to)
+      if (to === out) await fs.writeFile(out, '{"other":"run"}\n') // another export publishes over ours
+    })
+    try {
+      await printData({ total: 5, list: [{ a: 1 }], partial: true, failedPages: [{ from: 1, size: 50 }] }, "jsonl", out)
+    } finally {
+      renameSpy.mockRestore()
+    }
+    expect(process.exitCode).toBe(3)
+    expect(stderr()).toContain("is not this command's output")
+    expect(await readMeta(out)).toMatchObject({ complete: false, exitCode: 3 })
+  })
+
+  it("does not flag an ordinary export as superseded", async () => {
+    const out = path.join(dir, "plain.jsonl")
+    await printData({ total: 1, list: [{ a: 1 }] }, "jsonl", out)
+    expect(process.exitCode).toBeUndefined()
+    expect(stderr()).not.toContain("superseded")
+    expect(stderr()).not.toContain("is not this command's output")
   })
 
   it("removes a stale sidecar rather than leave it beside new data when the final rename fails", async () => {
@@ -231,7 +317,7 @@ describe("printData export metadata sidecar and streamed results", () => {
     await fs.mkdir(`${out}.meta.json`, { recursive: true }) // rename onto a directory fails
     await expect(printData({ total: 1, list: [{ a: 1 }] }, "jsonl", out)).rejects.toThrow()
     expect(await fs.readFile(out, "utf8")).toBe('{"a":1}')
-    await expect(fs.access(`${out}.meta.json.part`)).rejects.toThrow()
+    expect(await stagingSiblings(`${out}.meta.json`)).toEqual([])
   })
 
   it("redacts credentials inside a JSON argument and tokens in the result", async () => {
@@ -284,7 +370,7 @@ describe("printData export metadata sidecar and streamed results", () => {
     } finally {
       spy.mockRestore()
     }
-    await expect(fs.access(`${out}.meta.json.part`)).rejects.toThrow()
+    expect(await stagingSiblings(`${out}.meta.json`)).toEqual([])
     await expect(fs.access(out)).rejects.toThrow() // data was never published either
   })
 
@@ -352,7 +438,7 @@ describe("printData export metadata sidecar and streamed results", () => {
     const lines = (await fs.readFile(out, "utf8")).split("\n").filter(Boolean)
     expect(lines).toHaveLength(1000)
     expect(JSON.parse(lines[999])).toEqual({ id: 999 })
-    await expect(fs.access(`${out}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
     expect(await readMeta(out)).toMatchObject({ rows: 1000, complete: false, exitCode: 3, columns: ["id"], result: { total: 1200, partial: true, failedPages: [{ from: 1000, size: 50 }] } })
     expect(stdout()).toBe(`${out}\n`)
   })

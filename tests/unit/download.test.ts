@@ -5,6 +5,7 @@ import { Readable } from "node:stream"
 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
+import { stagingSiblings } from "../fixtures/staging.js"
 import { extFromContentType, releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
 import { saveOutputIfNeeded } from "../../src/core/output.js"
 import { DownloadError } from "../../src/core/errors.js"
@@ -325,7 +326,7 @@ describe("saveDownloadResult", () => {
     const out = path.join(dir, "as-dir.pdf")
     await fs.mkdir(out, { recursive: true })
     await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toThrow()
-    await expect(fs.access(out + ".part")).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
   })
 
   it("redacts the signed-URL query string from verbose logs", async () => {
@@ -358,7 +359,7 @@ describe("saveDownloadResult", () => {
     requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: broken })
     await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback", out)).rejects.toThrow()
     expect(await fs.readFile(out, "utf8")).toBe("OLD") // re-download failure must not destroy the old file
-    await expect(fs.access(out + ".part")).rejects.toThrow() // no .part litter
+    expect(await stagingSiblings(out)).toEqual([]) // no staging litter
   })
 
   it("truncates long filenames by code point so an emoji never splits into a lone surrogate", async () => {
@@ -394,7 +395,7 @@ describe("saveDownloadResult", () => {
       for (const p of claimed) expect((await fs.stat(p)).size).toBe(0)
       await saveOutputIfNeeded(new Uint8Array([1, 2, 3]), claimed[0])
       expect(await fs.readFile(claimed[0])).toEqual(Buffer.from([1, 2, 3]))
-      await expect(fs.access(`${claimed[0]}.part`)).rejects.toThrow()
+      expect(await stagingSiblings(claimed[0])).toEqual([])
       expect(await uniquePath(base)).toBe(path.join(dir, "report-3.pdf")) // the published name stays taken
       // An unused claim can be released; a released name is claimable again. A published
       // file is never released.

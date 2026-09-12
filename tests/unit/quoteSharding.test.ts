@@ -397,6 +397,33 @@ describe("callKlineWithSharding column alignment", () => {
     expect(result.fieldList).toEqual(["close", "volume"])
     expect(result.list).toEqual([[10, 100], [20, 200], [10, 100]])
     expect(result.partial).toBeUndefined()
+    // Same column SET, different order — nothing was lost, so nothing is flagged.
+    expect((result as { droppedColumns?: string[] }).droppedColumns).toBeUndefined()
+  })
+
+  it("flags a column only a later shard returned instead of dropping it silently", async () => {
+    // The merged fieldList is the first data shard's — that contract stays — so a column
+    // only later shards carry has nowhere to go and IS lost. What must not happen is
+    // losing it behind total/exit 0 with nothing in the result saying so.
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-03") return { fieldList: ["close", "volume", "amount"], list: [[20, 200, 2000]] }
+      return { fieldList: ["close", "volume"], list: [[10, 100]] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-06",
+    }, { shardDays: 2 }) as { fieldList: unknown[]; list: unknown[][]; partial?: boolean; droppedColumns?: string[] }
+
+    // The shard's rows still merge under the header's columns — only `amount` is lost.
+    expect(result.fieldList).toEqual(["close", "volume"])
+    expect(result.list).toEqual([[10, 100], [20, 200], [10, 100]])
+    expect(result.partial).toBe(true)
+    expect(result.droppedColumns).toEqual(["amount"])
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("droppedColumns")
+    errSpy.mockRestore()
   })
 
   it("drops a shard missing a header column as failed rather than merging it under the wrong names", async () => {

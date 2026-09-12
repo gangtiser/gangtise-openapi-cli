@@ -3,7 +3,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 
 import { assertColumnarHeader, zipFieldRow } from "./normalize.js"
-import { csvEscape, formatScalar, writeLine } from "./output.js"
+import { csvEscape, digestFile, type ExportDigest, formatScalar, stagingPath, writeLine } from "./output.js"
 import { extractTitles, MAX_TITLES_PER_ENDPOINT, type TitleCacheConfig } from "./titleCache.js"
 
 /** Non-enumerable key under which a producer hangs the sink it streamed into on the result
@@ -27,7 +27,7 @@ export type SinkFormat = "jsonl" | "csv"
  * object, whose `list` is empty when a sink took the rows.
  *
  * jsonl is written directly: every line is self-describing. csv needs the union of the
- * columns in its header before any row, so rows first go to `<file>.rows.part` as jsonl
+ * columns in its header before any row, so rows first go to a `.rows.part` sibling as jsonl
  * while the column set accumulates; finish() then streams that file back line by line
  * into the csv (two passes over disk, still O(1) memory). Row shaping matches
  * rowsFromList: object rows under the union of their keys, scalar rows dropped when any
@@ -36,6 +36,10 @@ export type SinkFormat = "jsonl" | "csv"
 export class ExportSink {
   /** Rows written out. */
   rows = 0
+  /** Byte count + sha256 of the file this export published, set by finish(). Taken from
+   * the staging file before the rename, so it describes OUR bytes even when another
+   * process is publishing to the same target. */
+  digest: ExportDigest | undefined
   /** Titles seen in the rows written out, for the download-name cache (the rows are gone).
    * Capped at the cache's own per-endpoint limit so a huge export cannot grow it. */
   readonly titles: Record<string, string> = {}
@@ -49,8 +53,16 @@ export class ExportSink {
   private readonly columns: string[] = []
   private readonly columnSet = new Set<string>()
   private objectRows = 0
+  /** Fixed once per sink, not derived from outputPath on every access: both staging files
+   * must belong to THIS export (see stagingPath) and must still be the same two paths when
+   * abort() comes to remove them. */
+  private readonly partPath: string
+  private readonly rowsPath: string
 
-  constructor(readonly outputPath: string, readonly format: SinkFormat = "jsonl", private readonly cache?: TitleCacheConfig) {}
+  constructor(readonly outputPath: string, readonly format: SinkFormat = "jsonl", private readonly cache?: TitleCacheConfig) {
+    this.partPath = stagingPath(outputPath)
+    this.rowsPath = stagingPath(outputPath, "rows.part")
+  }
 
   get opened(): boolean {
     return this.stream !== null
@@ -66,14 +78,6 @@ export class ExportSink {
   get dataRows(): number {
     if (this.format === "jsonl") return this.rows
     return this.objectRows > 0 ? this.objectRows : this.rows
-  }
-
-  private get partPath(): string {
-    return `${this.outputPath}.part`
-  }
-
-  private get rowsPath(): string {
-    return `${this.outputPath}.rows.part`
   }
 
   /** Columns to zip array rows against; a columnar producer sets this once its header is
@@ -111,6 +115,7 @@ export class ExportSink {
     try {
       await endStream(stream)
       if (this.format === "csv") await this.assembleCsv()
+      this.digest = await digestFile(this.partPath)
       await fs.rename(this.partPath, this.outputPath)
       this.finished = true
     } catch (error) {

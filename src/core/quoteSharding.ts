@@ -47,11 +47,16 @@ function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** Index map from the merged header's columns into a shard's own fieldList: `null` when
- * the two already agree (nothing to do), an index array when the shard merely orders its
- * columns differently, `undefined` when a header column is absent from the shard. */
-function columnRemap(header: unknown[], shard: unknown[]): number[] | null | undefined {
-  if (header.length === shard.length && header.every((field, i) => field === shard[i])) return null
+/** How a shard's own fieldList lines up with the merged header. `undefined` when a header
+ * column is absent from the shard — that shard cannot be aligned at all. Otherwise `map` is
+ * `null` when the two already agree (nothing to do) or an index array when the shard merely
+ * orders its columns differently, and `extra` names the shard's columns the header has no
+ * slot for. Membership has to be checked in BOTH directions: testing only "is every header
+ * column in the shard" accepts a wider shard and then drops its surplus columns by omission. */
+function columnRemap(header: unknown[], shard: unknown[]): { map: number[] | null; extra: string[] } | undefined {
+  const headerNames = new Set(header.map(String))
+  const extra = shard.map(String).filter((field) => !headerNames.has(field))
+  if (header.length === shard.length && header.every((field, i) => field === shard[i])) return { map: null, extra }
   const index = new Map(shard.map((field, i) => [String(field), i]))
   const map: number[] = []
   for (const field of header) {
@@ -59,7 +64,7 @@ function columnRemap(header: unknown[], shard: unknown[]): number[] | null | und
     if (i === undefined) return undefined
     map.push(i)
   }
-  return map
+  return { map, extra }
 }
 
 /** A shard's columnar rows can only be read through its own fieldList: it must exist,
@@ -230,6 +235,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   /** Shards that delivered rows but flagged themselves partial: only the header shard's
    * metadata reaches the merged result, so the marker has to be carried across here. */
   const partialShards: Array<{ startDate: string; endDate: string }> = []
+  /** Columns a later shard returned that the merged header has no slot for. The merged
+   * fieldList is the first data shard's — that is the existing contract — so those values
+   * cannot be carried; recording the names is what keeps the loss from being silent. */
+  const droppedColumns = new Set<string>()
   const keep = async (rows: unknown[]): Promise<void> => {
     count += rows.length
     if (!fieldList) for (const row of rows) if (row && typeof row === "object" && !Array.isArray(row)) for (const key of Object.keys(row)) objectKeys.add(key)
@@ -290,8 +299,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
       process.stderr.write(`[gangtise] warning: shard ${shards[i].startDate}..${shards[i].endDate} returned columns that cannot be aligned with the first shard's fieldList; its rows were dropped (see failedShards)\n`)
       return
     }
+    for (const field of remap?.extra ?? []) droppedColumns.add(field)
     const rows = rec.list as unknown[]
-    await keep(remap ? rows.map((item) => (Array.isArray(item) ? remap.map((k) => item[k]) : item)) : rows)
+    const map = remap?.map
+    await keep(map ? rows.map((item) => (Array.isArray(item) ? map.map((k) => item[k]) : item)) : rows)
   }
   await runInOrder(shards, config.concurrency ?? PAGE_CONCURRENCY, fetchShard, mergeShard)
 
@@ -336,6 +347,11 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   if (partialShards.length > 0) {
     out.partial = true
     process.stderr.write(`[gangtise] warning: ${partialShards.length}/${shards.length} shard(s) reported themselves partial; the merged result is marked partial\n`)
+  }
+  if (droppedColumns.size > 0) {
+    out.partial = true
+    out.droppedColumns = [...droppedColumns]
+    process.stderr.write(`[gangtise] warning: ${droppedColumns.size} column(s) came back only in later shards and could not be carried (see droppedColumns); the merged fieldList is the first data shard's — re-pull a narrower range to get them.\n`)
   }
   if (truncatedShards.length > 0) {
     out.partial = true

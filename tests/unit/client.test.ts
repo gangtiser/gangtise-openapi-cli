@@ -5,6 +5,7 @@ import { gzipSync } from "node:zlib"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { stagingSiblings } from "../fixtures/staging.js"
 import { ApiError, isStructuralError, ValidationError } from "../../src/core/errors.js"
 import { GangtiseClient } from "../../src/core/client.js"
 import { ENDPOINTS } from "../../src/core/endpoints.js"
@@ -1359,7 +1360,7 @@ describe("GangtiseClient streaming download", () => {
     expect(result.savedPath).toBe(streamTo)
     expect(result.filename).toBe("report.pdf")
     expect(await fs.readFile(streamTo, "utf8")).toBe("hello world")
-    await expect(fs.access(streamTo + ".part")).rejects.toThrow() // no .part litter
+    expect(await stagingSiblings(streamTo)).toEqual([]) // no staging litter
   })
 
   it("preserves an existing file at the destination when a re-download fails mid-stream", async () => {
@@ -1380,7 +1381,7 @@ describe("GangtiseClient streaming download", () => {
     const client = createClient()
     await expect(client.call("insight.research.download", undefined, { reportId: "1" }, { streamTo })).rejects.toThrow("stream boom")
     expect(await fs.readFile(streamTo, "utf8")).toBe("OLD")
-    await expect(fs.access(streamTo + ".part")).rejects.toThrow()
+    expect(await stagingSiblings(streamTo)).toEqual([])
   })
 
   it("removes the partial file when the stream fails mid-download", async () => {

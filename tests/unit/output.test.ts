@@ -4,6 +4,7 @@ import path from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { stagingSiblings } from "../fixtures/staging.js"
 import { countOutputRows, renderOutput, saveOutputIfNeeded, streamOutputToFile } from "../../src/core/output.js"
 
 describe("streamOutputToFile error handling", () => {
@@ -33,15 +34,15 @@ describe("streamOutputToFile error handling", () => {
     rows[500].boom = 10n // JSON.stringify throws on BigInt mid-stream
     await expect(streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).rejects.toThrow()
     expect(await fs.readFile(target, "utf8")).toBe("OLD\n")
-    await expect(fs.access(target + ".part")).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
   })
 
   it("leaves no .part file behind after a successful streamed write", async () => {
     const target = path.join(dir, "clean.jsonl")
     const rows = Array.from({ length: 1000 }, (_, i) => ({ id: i }))
-    expect(await streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).toBe(true)
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).toMatchObject({ bytes: expect.any(Number), sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect((await fs.readFile(target, "utf8")).trimEnd().split("\n")).toHaveLength(1000)
-    await expect(fs.access(target + ".part")).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
   })
 
   it("saveOutputIfNeeded preserves the old file when the fresh write cannot be created", async () => {
@@ -65,7 +66,7 @@ describe("streamOutputToFile error handling", () => {
     await fs.writeFile(target, "OLD")
     await saveOutputIfNeeded("NEW", target)
     expect(await fs.readFile(target, "utf8")).toBe("NEW")
-    await expect(fs.access(target + ".part")).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
   })
 
   it("caps a runaway cell's display width so one huge field can't pad the whole column", () => {
@@ -96,7 +97,7 @@ describe("streamOutputToFile error handling", () => {
   it("streams ≥1000 jsonl rows to disk and every line parses back", async () => {
     const target = path.join(dir, "big.jsonl")
     const rows = Array.from({ length: 1200 }, (_, i) => ({ id: i, note: i === 7 ? "换行\n引号\"" : "ok" }))
-    expect(await streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).toBe(true)
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "jsonl", target)).toMatchObject({ bytes: expect.any(Number), sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
     const lines = (await fs.readFile(target, "utf8")).trimEnd().split("\n")
     expect(lines).toHaveLength(1200)
     expect(JSON.parse(lines[7])).toEqual({ id: 7, note: "换行\n引号\"" })
@@ -106,15 +107,15 @@ describe("streamOutputToFile error handling", () => {
     const target = path.join(dir, "big.csv")
     const rows: unknown[] = Array.from({ length: 1100 }, (_, i) => ({ a: i, b: i === 3 ? "x,y" : "z" }))
     rows.push(null) // csv branch silently drops non-object rows — lock that in
-    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", target)).toBe(true)
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", target)).toMatchObject({ bytes: expect.any(Number), sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
     const lines = (await fs.readFile(target, "utf8")).trimEnd().split("\n")
     expect(lines[0]).toBe("﻿a,b") // header carries the Excel BOM
     expect(lines).toHaveLength(1 + 1100)
     expect(lines[4]).toBe('3,"x,y"')
   })
 
-  it("returns false below the 1000-row streaming threshold (caller falls back to join)", async () => {
-    expect(await streamOutputToFile({ total: 2, list: [{ a: 1 }] }, "jsonl", path.join(dir, "small.jsonl"))).toBe(false)
+  it("returns null below the 1000-row streaming threshold (caller falls back to join)", async () => {
+    expect(await streamOutputToFile({ total: 2, list: [{ a: 1 }] }, "jsonl", path.join(dir, "small.jsonl"))).toBeNull()
   })
 
   it("falls back to non-streaming csv for an all-scalar list instead of writing a BOM-only file", async () => {
@@ -122,14 +123,14 @@ describe("streamOutputToFile error handling", () => {
     // object rows to derive columns from and used to write just the BOM header.
     const scalars = Array.from({ length: 1000 }, (_, i) => `code-${i}`)
     const target = path.join(dir, "scalars.csv")
-    expect(await streamOutputToFile({ total: 1000, list: scalars }, "csv", target)).toBe(false)
+    expect(await streamOutputToFile({ total: 1000, list: scalars }, "csv", target)).toBeNull()
     await expect(fs.access(target)).rejects.toThrow() // nothing half-written either
   })
 
   it("prefixes the streamed csv with a BOM for Excel", async () => {
     const target = path.join(dir, "bom.csv")
     const rows = Array.from({ length: 1000 }, (_, i) => ({ 名称: `第${i}行` }))
-    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", target)).toBe(true)
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", target)).toMatchObject({ bytes: expect.any(Number), sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
     const content = await fs.readFile(target, "utf8")
     expect(content.startsWith("\ufeff")).toBe(true)
   })
@@ -312,7 +313,7 @@ describe("jsonl record selection is one rule across the streaming threshold", ()
       const small = renderOutput(rows(999), "jsonl").split("\n").filter(Boolean)
       expect(small).toHaveLength(998)
       const target = path.join(dir, "big.jsonl")
-      expect(await streamOutputToFile(rows(1000), "jsonl", target)).toBe(true)
+      expect(await streamOutputToFile(rows(1000), "jsonl", target)).toMatchObject({ bytes: expect.any(Number), sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
       expect((await fs.readFile(target, "utf8")).split("\n").filter(Boolean)).toHaveLength(999)
       expect(countOutputRows(rows(1000), "jsonl")).toBe(999)
       // a {list} result keeps every item on both paths

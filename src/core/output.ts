@@ -1,9 +1,73 @@
+import { createHash, randomBytes } from "node:crypto"
 import fs from "node:fs/promises"
 
 import type { OutputFormat } from "./config.js"
 import { ConfigError } from "./errors.js"
 
 const OUTPUT_FORMATS = ["table", "json", "jsonl", "csv", "markdown"] as const
+
+/**
+ * A staging sibling of `target`, named for THIS write and no other. Every write that
+ * publishes by rename must take its name from here.
+ *
+ * 🔴 Deriving it from the target alone (`<target>.part`) makes the temp file a property of
+ * the destination instead of the operation, and two writers aimed at the same explicit
+ * --output then share one file: both open it, both write at their own offsets, and the
+ * first rename publishes a mix of the two runs — as a complete file, with exit 0. A name
+ * unique to the write keeps each writer's bytes its own; the rename that lands last wins,
+ * which is the overwrite semantics an explicit --output already has.
+ *
+ * Stays well inside the 255-byte filename limit: download names are truncated to 200.
+ */
+export function stagingPath(target: string, suffix = "part"): string {
+  return `${target}.${randomBytes(4).toString("hex")}.${suffix}`
+}
+
+/** What a finished export actually wrote: byte count and content hash. */
+export interface ExportDigest {
+  bytes: number
+  sha256: string
+}
+
+/**
+ * Byte count + sha256 of a file, streamed so memory stays flat.
+ *
+ * 🔴 The digest a sidecar PUBLISHES must be taken from the export's own staging file, before
+ * the rename — never by reading back the published path. By then another process writing the
+ * same --output may already have replaced it, and hashing that would certify someone else's
+ * bytes as ours. Reading the published path is only for the opposite question: "is what is
+ * there still mine?" (see warnIfSuperseded).
+ *
+ * Byte count alone is not a check: `{"price":10}` and `{"price":20}` are the same length, so
+ * a size match proves nothing and only a size MISMATCH detects. The hash is what makes a
+ * match mean something.
+ *
+ * What neither can do: prove the data and the sidecar came from the same RUN. Two exports
+ * with identical rows hash identically even when their queries, columns or `complete`
+ * verdicts differ. See `bug/cli-backlog.md` K34.
+ *
+ * `digestBuffer` is the same digest over bytes the caller still holds — same rule, no read
+ * back. Prefer it whenever the content is already in memory: the streamed paths use the file
+ * form because they never held the whole export, but a writer that has the buffer would be
+ * re-reading what it just wrote, and the download path pays that on every saved file.
+ */
+export function digestBuffer(content: string | Uint8Array): ExportDigest {
+  const buf = typeof content === "string" ? Buffer.from(content, "utf8") : content
+  return { bytes: buf.byteLength, sha256: createHash("sha256").update(buf).digest("hex") }
+}
+
+export async function digestFile(filePath: string): Promise<ExportDigest> {
+  const { createReadStream } = await import("node:fs")
+  const hash = createHash("sha256")
+  let bytes = 0
+  const stream = createReadStream(filePath)
+  for await (const chunk of stream) {
+    const buf = chunk as Buffer
+    bytes += buf.byteLength
+    hash.update(buf)
+  }
+  return { bytes, sha256: hash.digest("hex") }
+}
 
 export function parseOutputFormat(value?: string): OutputFormat {
   const format = value ?? "table"
@@ -189,13 +253,13 @@ export function renderOutput(value: unknown, format: OutputFormat): string {
 }
 
 /** Stream large jsonl/csv output row-by-row to avoid building a full string in memory. */
-export async function streamOutputToFile(value: unknown, format: OutputFormat, outputPath: string): Promise<boolean> {
-  if (format !== "jsonl" && format !== "csv") return false
+export async function streamOutputToFile(value: unknown, format: OutputFormat, outputPath: string): Promise<ExportDigest | null> {
+  if (format !== "jsonl" && format !== "csv") return null
 
   const list = pickList(value)
-  if (!list) return false
+  if (!list) return null
   // Below this row count the join() approach is cheaper than per-row writes.
-  if (list.length < 1000) return false
+  if (list.length < 1000) return null
 
   // csv can only stream object rows; an all-scalar list has no columns — fall back
   // to renderOutput's index/value shaping instead of writing a BOM-only file.
@@ -203,7 +267,7 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   let csvColumns: string[] = []
   if (format === "csv") {
     csvRows = list.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
-    if (csvRows.length === 0) return false
+    if (csvRows.length === 0) return null
     csvColumns = Array.from(new Set(csvRows.flatMap((row) => Object.keys(row))))
   }
 
@@ -211,9 +275,9 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   const { createWriteStream } = await import("node:fs")
   await fs.mkdir(dirname(outputPath), { recursive: true })
 
-  // Stream into a .part sibling and rename over the target only on success, so a
+  // Stream into a staging sibling and rename over the target only on success, so a
   // failed re-export never destroys the previous good file.
-  const partPath = `${outputPath}.part`
+  const partPath = stagingPath(outputPath)
   const stream = createWriteStream(partPath, { encoding: "utf8" })
   // A stream 'error' with no listener (EACCES on open, ENOSPC mid-write) crashes the
   // process before any write callback fires. Swallow the event here — the failure
@@ -237,7 +301,9 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
     await new Promise<void>((resolve, reject) => {
       stream.end((err?: Error | null) => err ? reject(err) : resolve())
     })
+    const digest = await digestFile(partPath)
     await fs.rename(partPath, outputPath)
+    return digest
   } catch (error) {
     // Mirror the download path: never leave a truncated file that looks complete.
     // createWriteStream opens lazily — an early abort can reach unlink BEFORE the
@@ -252,7 +318,6 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
     await fs.unlink(partPath).catch(() => {})
     throw error
   }
-  return true
 }
 
 /** Extract a row array from a value: the array itself, or its `.list` property,
@@ -298,7 +363,7 @@ export function writeLine(stream: LineSink, line: string): Promise<void> {
   })
 }
 
-export async function saveOutputIfNeeded(content: string | Uint8Array, outputPath?: string): Promise<void> {
+export async function saveOutputIfNeeded(content: string | Uint8Array, outputPath?: string): Promise<ExportDigest | undefined> {
   if (!outputPath) {
     return
   }
@@ -306,16 +371,20 @@ export async function saveOutputIfNeeded(content: string | Uint8Array, outputPat
   const { dirname } = await import("node:path")
   await fs.mkdir(dirname(outputPath), { recursive: true })
 
-  // Write to a .part sibling and rename over the target only on success, so a
+  // Write to a staging sibling and rename over the target only on success, so a
   // failed re-export/download never destroys the previous good file.
-  const partPath = `${outputPath}.part`
+  const partPath = stagingPath(outputPath)
   try {
     if (typeof content === "string") {
       await fs.writeFile(partPath, content, "utf8")
     } else {
       await fs.writeFile(partPath, content)
     }
+    // Digested from `content`, not from the file: these are the bytes just written, and a
+    // read-back would cost a full pass over every saved download for a value only exports use.
+    const digest = digestBuffer(content)
     await fs.rename(partPath, outputPath)
+    return digest
   } catch (error) {
     await fs.unlink(partPath).catch(() => {})
     throw error

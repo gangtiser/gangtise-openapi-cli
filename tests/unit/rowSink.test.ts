@@ -4,6 +4,7 @@ import path from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { stagingSiblings, waitForStaging } from "../fixtures/staging.js"
 import { streamOutputToFile } from "../../src/core/output.js"
 import { attachRowSink, getRowSink, ExportSink, rowCount } from "../../src/core/rowSink.js"
 import { MAX_TITLES_PER_ENDPOINT } from "../../src/core/titleCache.js"
@@ -46,7 +47,26 @@ describe("ExportSink", () => {
     expect(lines).toHaveLength(1200)
     expect(lines[0]).toEqual({ id: 0, v: "x" })
     expect(lines[1199]).toEqual({ id: 1199, v: "x" })
-    await expect(fs.access(`${target}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
+  })
+
+  it("two exports aimed at the same file never blend: each publishes its own rows whole", async () => {
+    // Two overlapping runs with the same --output (a re-run, overlapping cron jobs). They
+    // may overwrite each other — that is what an explicit output path means — but a
+    // staging file named after the TARGET made them share one inode and write at their
+    // own offsets, so the first rename published a mix of both runs as a complete file.
+    const target = path.join(dir, "contended.jsonl")
+    const a = new ExportSink(target)
+    const b = new ExportSink(target)
+    await a.push(Array.from({ length: 1000 }, () => ({ who: "A" })))
+    await b.push(Array.from({ length: 1000 }, () => ({ who: "B" })))
+    await a.push([{ who: "A" }])
+    await a.finish()
+    await b.finish() // the loser's own file is still intact and publishable
+    const lines = await readLines(target) as Array<{ who: string }>
+    expect(new Set(lines.map((l) => l.who))).toEqual(new Set(["B"]))
+    expect(lines).toHaveLength(1000)
+    expect(await stagingSiblings(target)).toEqual([])
   })
 
   it("writes object rows as they are, even when a header is set", async () => {
@@ -64,7 +84,7 @@ describe("ExportSink", () => {
     await sink.push(Array.from({ length: 1000 }, (_, i) => ({ i })))
     expect(sink.opened).toBe(true)
     await sink.abort()
-    await expect(fs.access(`${target}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
     await sink.finish()
     await expect(fs.access(target)).rejects.toThrow()
     // Nothing opened → nothing to remove: abort must be safe to call on the way out.
@@ -106,12 +126,11 @@ describe("ExportSink", () => {
     await sink.finish()
     const streamed = await fs.readFile(target, "utf8")
     const reference = path.join(dir, "reference.csv")
-    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", reference)).toBe(true)
+    expect(await streamOutputToFile({ total: rows.length, list: rows }, "csv", reference)).toMatchObject({ bytes: expect.any(Number), sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect(streamed).toBe(await fs.readFile(reference, "utf8"))
     expect(streamed.startsWith("\ufeffa,b,c\n")).toBe(true)
     expect(streamed.split("\n")[501]).toBe("500,,true")
-    await expect(fs.access(`${target}.part`)).rejects.toThrow()
-    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
   })
 
   it("csv: zips columnar rows against the header and drops stray scalar rows like rowsFromList", async () => {
@@ -145,8 +164,7 @@ describe("ExportSink", () => {
     const sink = new ExportSink(target, "csv")
     await sink.push(Array.from({ length: 1000 }, (_, i) => ({ i })))
     await sink.abort()
-    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
-    await expect(fs.access(`${target}.part`)).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
     await expect(fs.access(target)).rejects.toThrow()
   })
 
@@ -154,15 +172,14 @@ describe("ExportSink", () => {
     const target = path.join(dir, "second-pass.csv")
     const sink = new ExportSink(target, "csv")
     await sink.push(Array.from({ length: 1000 }, (_, i) => ({ id: i })))
-    // The rows file opens lazily; wait for it to exist before making it unreadable.
-    for (let i = 0; i < 50; i++) { try { await fs.access(`${target}.rows.part`); break } catch { await new Promise((r) => setTimeout(r, 10)) } }
-    await fs.chmod(`${target}.rows.part`, 0o000) // the second pass cannot read its own rows
+    // The rows file opens lazily, and its name is per-export; wait for it before making
+    // it unreadable.
+    await fs.chmod(await waitForStaging(target, ".rows.part"), 0o000) // the second pass cannot read its own rows
     await expect(sink.finish()).rejects.toThrow()
     await sink.abort()
     // Give a lazily-opened writer every chance to recreate the file — it must not.
     await new Promise((r) => setTimeout(r, 300))
-    await expect(fs.access(`${target}.part`)).rejects.toThrow()
-    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
     await expect(fs.access(target)).rejects.toThrow()
   })
 
@@ -176,13 +193,11 @@ describe("ExportSink", () => {
     const wide: Record<string, number> = {}
     for (let c = 0; c < 1000; c++) wide[`a_rather_long_column_name_that_pads_the_header_out_to_many_kilobytes_${String(c).padStart(4, "0")}`] = c
     await sink.push([wide, ...Array.from({ length: 999 }, (_, i) => ({ id: i }))])
-    for (let i = 0; i < 50; i++) { try { await fs.access(`${target}.rows.part`); break } catch { await new Promise((r) => setTimeout(r, 10)) } }
-    await fs.chmod(`${target}.rows.part`, 0o000)
+    await fs.chmod(await waitForStaging(target, ".rows.part"), 0o000)
     await expect(sink.finish()).rejects.toThrow()
     await sink.abort()
     await new Promise((r) => setTimeout(r, 300))
-    await expect(fs.access(`${target}.part`)).rejects.toThrow()
-    await expect(fs.access(`${target}.rows.part`)).rejects.toThrow()
+    expect(await stagingSiblings(target)).toEqual([])
     await expect(fs.access(target)).rejects.toThrow()
   })
 
@@ -195,8 +210,8 @@ describe("ExportSink", () => {
     const bare = new ExportSink(path.join(dir, "bare.csv"), "csv")
     await expect(bare.push(rows)).rejects.toThrow(/没有 fieldList/)
     await bare.abort()
-    await expect(fs.access(path.join(dir, "dup.jsonl.part"))).rejects.toThrow()
-    await expect(fs.access(path.join(dir, "bare.csv.rows.part"))).rejects.toThrow()
+    expect(await stagingSiblings(path.join(dir, "dup.jsonl"))).toEqual([])
+    expect(await stagingSiblings(path.join(dir, "bare.csv"))).toEqual([])
   })
 
   it("caps the collected titles at the cache's per-endpoint limit", async () => {

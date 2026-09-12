@@ -243,9 +243,9 @@ export function checkScreenerBindings(data: unknown, requested: { field: string;
 /** What the caller asked for that the response does not contain.
  *
  * The server used to drop any axis it had no DATA for, which made this a
- * coverage check. Re-probed 2026-08-08: a coverage gap is now padded with `null`
- * and keeps its row and column, down to the 1×1 case (`finc_pb_mrq` × 09992.HK,
- * `mgn_bal` × 00700.HK — null, present, alone in the request). What still
+ * coverage check. Re-probed 2026-09-12: a coverage gap is now padded with `null`
+ * and keeps its row and column, down to the 1×1 case (`mgn_bal` × 00700.HK —
+ * null, present, alone in the request). What still
  * disappears is a code the server cannot RESOLVE: an unknown indicator code, or
  * a security code with the wrong market suffix (`AAPL.US` vanishes, `AAPL.O`
  * returns).

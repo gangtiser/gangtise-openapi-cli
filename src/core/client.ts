@@ -10,6 +10,7 @@ import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredent
 import { ApiError, attachEnvelopeTraceId, markStructural, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
+import { stagingPath } from "./output.js"
 import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runInOrder, withRetry } from "./transport.js"
 import { attachRowSink, type ExportSink } from "./rowSink.js"
 import type { DownloadResult } from "./download.js"
@@ -25,7 +26,7 @@ interface Envelope<T> {
 }
 // Auth errors that warrant a forced re-login + one replay: the token was rejected
 // server-side while still looking valid by local expiry, so only a forced refresh
-// recovers it. 0000001008 is the legacy code (probed 2026-07-20: still what the
+// recovers it. 0000001008 is the legacy code (probed 2026-09-12: still what the
 // token filter emits); 999002 TOKEN_INVALID is its 2026-07-17 replacement, listed
 // ahead of the rollout so self-heal does not silently die when the filter switches.
 // 8000014/8000015 are the retired AK/SK codes, kept for older server builds.
@@ -750,11 +751,11 @@ export class GangtiseClient {
       // Stream directly to disk when caller already knows the destination
       if (options?.streamTo) {
         await fs.mkdir(path.dirname(options.streamTo), { recursive: true })
-        // Stream into a .part sibling and rename over the target only on success:
+        // Stream into a staging sibling and rename over the target only on success:
         // writing to the target directly would truncate an existing file on the
         // FIRST byte and delete it on failure — a failed re-download (or each
         // withRetry attempt) must never destroy the user's previous good file.
-        const partPath = `${options.streamTo}.part`
+        const partPath = stagingPath(options.streamTo)
         try {
           await pipeline(response.body, createWriteStream(partPath))
           await fs.rename(partPath, options.streamTo)
