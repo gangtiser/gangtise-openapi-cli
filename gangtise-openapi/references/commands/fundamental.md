@@ -2,7 +2,9 @@
 
 通用：所有命令都需 `--security-code`（如 `600519.SH`，注意是 `--security-code` 不是 `--security`）。`--field` 可重复，可用字段见 `references/fields.md`；A / 港 / 美股三大报表命令都在省略 `--field` 时返回完整报表，指定后只保留基础字段与所选科目。
 
-**`--field` 字段名必须核对**：三大报表遇到不存在的字段名会补 `null`（安全），但 `main-business` / `valuation-analysis` 是**只丢值、字段名照请求回显**，按位置拍平会把值贴到错误的字段上（同 `quote realtime`，详见 `references/commands/quote.md`）。CLI 长度不匹配就直接失败（退出码 1），不输出错位数据。不确定字段名就别传 `--field`。
+**`--field` 字段名必须核对**：三大报表遇到不存在的字段名会补 `null`（安全），但 `main-business` / `valuation-analysis` 是**只丢值、字段名照请求回显**，`fieldList` 比行长，按位置拍平会把值贴到错误的字段上。CLI 长度不匹配就直接失败（退出码 1），不输出错位数据。不确定字段名就别传 `--field`。
+
+⚠️ **别把这个行为套到 `quote` 系上**——那边是**字段名和值一起消失**、列数与值数始终对得上，CLI 的处理也不同（标 `partial` + `missingFields`、退出码 3）。两族的完整对照见 `references/fields.md` 顶部。
 
 ---
 

@@ -4,6 +4,15 @@
 
 > 🔴 **服务端问题的逐轮复核记录在 `bug/review-log.md`**，不在本文件。本文件只记版本变更。
 
+### v0.40.1 — 2026-09-19
+
+**文档修正，无代码变更。**
+
+1. **`--field` 写错字段名时，两族接口的表现完全不同——`references/fields.md` 顶部补上对照表**。实测：`quote realtime` / `day-kline` / `minute-kline` / `fund-flow` 把字段名和值一起丢掉，`fieldList` 里也没有它，列数与值数始终对得上；`fundamental main-business` / `valuation-analysis` 把字段名照请求回显在 `fieldList` 里、行里却少一个值。两族都不报错。
+2. **第二族是危险的那个**：`fieldList` 比行长，按下标对位会让缺口之后的每个值都贴到错误的字段名上——数字本身合理，肉眼看不出错。CLI 对它直接报错退出 1，不输出可能错位的数据；对第一族则标 `partial` + `missingFields`、退出码 3。
+3. **订正 `references/commands/fundamental.md` 的一处反向类比**：原文把 `main-business` / `valuation-analysis` 的「只丢值」写成「同 `quote realtime`」，而 `quote realtime` 恰恰是名值一起丢，与 `SKILL.md` 的记载相矛盾。
+4. `fields.md` 的主营业务 / 估值分析两个小节各加一行指回顶部的对照表。
+
 ### v0.40.0 — 2026-09-19
 
 **自选股股票池的增删改（本 CLI 仅有的写操作）**

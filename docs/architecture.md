@@ -39,14 +39,14 @@
 | Configuration | Authentication | **Core Dispatcher** |
 |:--|:--|:--|
 | `config.ts` | `auth.ts` | **`client.ts` · GangtiseClient** |
-| GANGTISE_BASE_URL / AK / SK / TIMEOUT | Token cache (0600) · AK/SK login · isTokenCacheValid() | **call() → requestPaginated / requestJson / download / uploadFile** |
+| GANGTISE_BASE_URL / AK / SK / TIMEOUT | Token cache (0600) · AK/SK login · `isTokenCacheValid()` gated on a credential fingerprint (`accessKey` + `baseUrl`, hashed) so a cache minted for other credentials is a miss | **call() → requestPaginated / requestJson / download / uploadFile** |
 
 ### Processing
 
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| O(1) endpoint lookup | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
+| O(1) endpoint lookup · per-endpoint contract flags: `pagination` / `retry` / `expects` / `destructive` (requires `--yes` on every entry point) / `itemFailures` (judge `failList` inside a `000000`) | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
 
 ### Request & Content Helpers
 
@@ -56,10 +56,13 @@
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
 | `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`aShares` / `hkStocks` / `usStocks`; retired per-market endpoints still take `all`) & fund-flow (`aShares`), each market at its own shard size · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
 | `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / screener / time-series `values` matrix flattened into a wide table |
-| `printer.ts` | `printData`: normalize + render + title-cache writeback |
+| `printer.ts` | `printData`: normalize + render + title-cache writeback · stages the `<file>.meta.json` sidecar (row/column counts, completeness flags, `bytes` + `sha256`) and re-reads the published path to detect a file replaced by a concurrent export (exit 4) |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |
-| `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) · 410110 pending / 410111 failed |
+| `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) · pending 140001 (legacy 410110) / terminal 140002 (legacy 410111) · both the ready and pending results go through `printData`, so `--output` / `--format` hold either way |
 | `fileParse.ts` | `tool file-parse`: pre-upload validation (PDF / non-empty / ≤100MB) · multipart submit → taskId · poll + stream the result ZIP (140001 = still generating) |
+| `perSecurity.ts` | Splits one command into per-security requests — endpoints that accept a single code (minute-kline), or many codes × a long range that would hit the row cap — then merges in request order. Stricter than date sharding: the caller named every security, so any shard with a mismatched `fieldList` fails the whole command |
+| `rowSink.ts` | `ExportSink`: ordered batched writes to disk for large `jsonl` / `csv` exports (1000-row threshold · staging file + rename · csv goes through a temp row file in two passes) |
+| `calendarType.ts` | `resolveCalendarType`: picks the time-series date axis when `--calendar-type` is absent. Probes each distinct indicator's `parameterList` via the free `indicator search`; asks for `TD` only when every indicator is trading-day typed, and falls back to the server's `ND` on anything else — an unknown code, an empty `parameterList`, a failed probe. The asymmetry is deliberate: a wrong `ND` costs cells, a wrong `TD` silently empties report-period rows |
 
 ↓
 
@@ -139,10 +142,14 @@
 ## Token Resolution Chain
 
 ```
-1. GANGTISE_TOKEN env  → miss →  2. Cached token (~/.config/...)  → expired →  3. Auto-login AK/SK → POST loginV2
+1. GANGTISE_TOKEN env  → miss →  2. Cached token (~/.config/...)  → expired OR issued for other credentials →  3. Auto-login AK/SK → POST loginV2
 ```
 
 Concurrent requests coalesce into a single in-flight refresh promise (no duplicate login calls).
+
+Step 2 compares the cache's `issuedFor` fingerprint against the configured `accessKey` + `baseUrl`; a cache belonging to another account — or one written before the field existed — is treated as a miss rather than reused. When no `accessKey` is configured there is nothing to compare and any unexpired cache is accepted, which keeps the token-cache-only setup working.
+
+`auth login` reports the identity requests will actually use rather than always minting a new token: with `GANGTISE_TOKEN` set it returns that token and contacts nothing (`source: "env-token"`), because that token wins for every other command.
 
 ---
 
