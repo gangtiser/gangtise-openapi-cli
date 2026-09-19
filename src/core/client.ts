@@ -6,7 +6,7 @@ import { pipeline } from "node:stream/promises"
 import { FormData, request } from "undici"
 
 import type { CliConfig } from "./config.js"
-import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
+import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, attachEnvelopeTraceId, markStructural, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
@@ -61,11 +61,14 @@ export class GangtiseClient {
     }
 
     if (!forceRefresh) {
-      if (isTokenCacheValid(this.memoCache)) {
+      // `undefined` when no accessKey is configured: nothing to compare against, and
+      // without credentials there is no second account this cache could belong to.
+      const expected = this.config.accessKey ? credentialFingerprint(this.config.accessKey, this.config.baseUrl) : undefined
+      if (isTokenCacheValid(this.memoCache, undefined, expected)) {
         return normalizeToken(this.memoCache!.accessToken)
       }
       const cache = await readTokenCache(this.config.tokenCachePath)
-      if (isTokenCacheValid(cache)) {
+      if (isTokenCacheValid(cache, undefined, expected)) {
         this.memoCache = cache
         return normalizeToken(cache!.accessToken)
       }
@@ -104,7 +107,13 @@ export class GangtiseClient {
     const expiresIn = Number.isFinite(envelope.expiresIn) ? envelope.expiresIn : 0
     const expiresAt = Math.floor(Date.now() / 1000) + expiresIn
 
-    const cache: TokenCache = { ...envelope, accessToken, expiresIn, expiresAt }
+    const cache: TokenCache = {
+      ...envelope,
+      accessToken,
+      expiresIn,
+      expiresAt,
+      issuedFor: credentialFingerprint(credentials.accessKey, this.config.baseUrl),
+    }
     this.memoCache = cache
     try {
       await writeTokenCache(this.config.tokenCachePath, cache)
@@ -478,13 +487,29 @@ export class GangtiseClient {
     out.totalCapped = true
   }
 
-  async login() {
-    const authorization = await this.getAuthorizationHeader()
-    const cache = await readTokenCache(this.config.tokenCachePath)
-    return {
-      authorization,
-      cache,
+  /** `auth login` reports the identity requests will actually use, and says how it
+   * got there. Three cases, and the distinction matters because this is a diagnostic:
+   *
+   * - `GANGTISE_TOKEN` set → that token wins for EVERY other command, so reporting a
+   *   freshly minted one would name an account no request will use. Report the
+   *   injected token, contact nothing, and say so. (Forcing a refresh here also made
+   *   the token-only workflow fail outright: with no AK/SK to log in with, a
+   *   documented setup turned into "缺少环境变量 GANGTISE_ACCESS_KEY".)
+   * - otherwise, AK/SK present → force a real login. Falling back to the cache would
+   *   report the PREVIOUS account after a credential swap, which is the question
+   *   `auth login` is least able to afford getting wrong.
+   * - neither → `requireAccessCredentials` raises, which is the right answer.
+   *
+   * The cache comes from `doTokenRefresh`'s own in-memory result, never a re-read of
+   * disk: when persisting fails (read-only HOME, full disk) the file still holds the
+   * PREVIOUS account, and a re-read would pair this login's `authorization` with that
+   * stale account's `cache` — one response naming two accounts. */
+  async login(): Promise<{ authorization: string; cache: TokenCache | null; source: "env-token" | "login" }> {
+    if (this.config.token && !this.envTokenInvalidated) {
+      return { authorization: normalizeToken(this.config.token), cache: null, source: "env-token" }
     }
+    const authorization = await this.getAuthorizationHeader(true)
+    return { authorization, cache: this.memoCache ?? null, source: "login" }
   }
 
   async requestJson<T>(endpoint: EndpointDefinition, body?: unknown, useAuth = true): Promise<T> {

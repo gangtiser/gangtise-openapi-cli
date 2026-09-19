@@ -122,5 +122,10 @@ export async function checkAsyncContent(
     }
     if (!isAsyncPending(error)) throw error
   }
-  process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" })}\n`)
+  // Through printData, like the ready branch three lines up and like the submit path:
+  // a caller who passed --output/--format gets them honoured whatever the task's
+  // state. Writing straight to stdout meant "still pending" was the one outcome that
+  // produced exit 0 and no file, which is exactly the outcome a polling script has to
+  // read to decide whether to poll again.
+  await printData({ dataId, status: "pending", hint: "Content not ready yet, retry in ~2 minutes" }, format, output)
 }

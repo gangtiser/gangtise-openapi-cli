@@ -323,6 +323,35 @@ describe("ApiError", () => {
     expect(hint).toContain("绑定")
   })
 
+  it("hints the three stock-pool write codes, and 140002 no longer claims to be one of them", () => {
+    // The server used to reject a duplicate pool name with a bare 140002
+    // 「业务处理失败」, so the 140002 hint carried a "this might be a duplicate pool
+    // name" clause. Since 2026-09-19 the rejections have their own codes with
+    // readable messages, which makes that clause actively wrong: it would send an
+    // EDE-parameter or async-failure caller off hunting through their pool names.
+    const dup = new ApiError("股票池名称重复", "230006").hint ?? ""
+    expect(dup).toContain("stock-pool-list")
+    const long = new ApiError("股票池名称超长，长度不能超过 10 个字符", "230007").hint ?? ""
+    expect(long).toContain("10")
+    const limit = new ApiError("股票池数量超限", "230003").hint ?? ""
+    expect(limit).toContain("30")
+
+    const terminal = new ApiError("业务处理失败", "140002").hint ?? ""
+    expect(terminal).not.toContain("股票池")
+    expect(terminal).toContain("indicator search")
+  })
+
+  it("points a 100006 caller at the EDE cell budget, not only at --size", () => {
+    // 100006 covers three unrelated things now: list page size, whole-market K-line
+    // volume, and (since 2026-09) the EDE 30000-cell ceiling. Probed 2026-09-19:
+    // cross-section 5000×6 passes and 5001×6 is rejected; time-series 300×100 passes
+    // and 301×100 is rejected. A hint that only mentions --size leaves the EDE caller
+    // with nothing to act on, because neither indicator command HAS a --size.
+    const hint = new ApiError("查询单元格数量超过限制 30000", "100006").hint ?? ""
+    expect(hint).toContain("30000")
+    expect(hint).toContain("cross-section")
+  })
+
   it("does not tell a 110003 caller to shorten the window", () => {
     // 110003 is "outside the account's data-permission range", not "window too
     // wide" — probed 2026-08-08: `fundamental --fiscal-year 2015` returns it no

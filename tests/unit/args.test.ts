@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNumberList, collectText, dateArg, datetimeArg, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -33,6 +33,26 @@ describe("collectList", () => {
 
   it("handles comma-separated input", () => {
     expect(collectList("a,b", ["c"])).toEqual(["c", "a", "b"])
+  })
+})
+
+describe("collectText", () => {
+  it("keeps a comma-bearing sentence whole", () => {
+    // collectList would split this into two half-questions and search each — the
+    // caller then gets plausible results for something they never asked.
+    expect(collectText("比较两家公司毛利率，并解释差异")).toEqual(["比较两家公司毛利率，并解释差异"])
+    expect(collectText("compare A, then explain B")).toEqual(["compare A, then explain B"])
+    // Contrast with the list collector, which is still right for codes and IDs.
+    expect(collectList("600519.SH，000858.SZ")).toEqual(["600519.SH", "000858.SZ"])
+  })
+
+  it("accumulates one entry per occurrence, trimmed", () => {
+    expect(collectText("第二问", collectText("  第一问  "))).toEqual(["第一问", "第二问"])
+  })
+
+  it("drops an all-whitespace occurrence instead of sending an empty query", () => {
+    expect(collectText("   ", ["已有"])).toEqual(["已有"])
+    expect(collectText("   ")).toEqual([])
   })
 })
 

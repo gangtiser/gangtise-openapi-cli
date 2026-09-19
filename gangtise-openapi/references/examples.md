@@ -356,3 +356,32 @@
 4. unzip 后读 file.md（图片在 images/）；正文长先 wc -l / head 采样再呈现
 5. 超时不要重跑 file-parse（会重复扣费），用 file-parse-check 拿同一个 taskId 的结果
 ```
+
+## 例 20：维护自选股股票池（本 CLI 仅有的写操作）
+
+**用户**："把今天筛出来的这几只建个池叫「AI算力观察」"
+
+```
+1. 路由 → vault stock-pool-create → stock-pool-add-stock
+2. Pre-flight：🔴 这两个命令会改动用户账号数据 → 先复述「建一个叫 X 的池，把这 N 只加进去」再执行
+   公司名先 reference securities-search 换成代码，不要猜
+3. gangtise vault stock-pool-create --name "AI算力观察" --format json
+   → { poolId, poolName }；重名会被拒（230006），名称超过 10 个字符被拒（230007），
+     撞到就先 stock-pool-list 看现有名称，跟用户确认换名还是往老池里加
+4. gangtise vault stock-pool-add-stock --pool-id <poolId> \
+     --security 600519.SH --security 000858.SZ --format json
+   → { successList[], failList[] }
+5. 🔴 看退出码：0 = 全部加进去了；3 = 有失败项，stderr 已列出是哪几只（多为代码写错），
+   把失败的几只复述给用户，别只报「已完成」
+```
+
+**用户**："这个池不要了，删掉"
+
+```
+1. 路由 → vault stock-pool-list 拿 poolId → vault stock-pool-delete
+2. Pre-flight：🔴 删池会连带清掉池内全部关注关系且不可恢复（投资笔记不受影响）
+   → 复述池名与池内证券数，等用户确认后才加 --yes
+3. gangtise vault stock-pool-delete --pool-id <poolId> --yes
+   不加 --yes 时 CLI 直接报错、不发请求——**看到这个报错不要自动补 --yes 重跑**，
+   那是留给用户点头的一步
+```

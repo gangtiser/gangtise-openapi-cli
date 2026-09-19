@@ -57,6 +57,29 @@ export function flagMissingFields(data: unknown, requested: string[] | undefined
   process.stderr.write(`[gangtise] warning: ${label} returned no column for ${missing.join(", ")} — the server drops a field name it does not recognise (or no longer serves) without an error. Check the name against references/fields.md; result marked partial (exit 3).\n`)
 }
 
+/** The stock-pool write endpoints report per-item failures INSIDE a `000000` success:
+ * an unknown security code lands in `failList` while the envelope still says 操作成功
+ * (probed 2026-09-14 on addStock and deleteStock). Without this the command prints the
+ * result and exits 0, so a script that added 50 codes and got 48 in cannot tell.
+ * Mark the result `partial` (printData → exit 3) and name the failures on stderr.
+ *
+ * Only a NON-EMPTY failList flags: the same endpoints answer a fully successful call
+ * with `failList: []`, which must stay exit 0. */
+export function flagFailedItems(data: unknown, label: string): void {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return
+  const rec = data as Record<string, unknown>
+  if (!Array.isArray(rec.failList) || rec.failList.length === 0) return
+  rec.partial = true
+  const detail = rec.failList.map((item) => {
+    if (!item || typeof item !== "object") return String(item)
+    const entry = item as Record<string, unknown>
+    // The two write families key the failure on different fields (securityCode / poolId).
+    const id = entry.securityCode ?? entry.poolId ?? JSON.stringify(entry)
+    return entry.failReason ? `${String(id)}（${String(entry.failReason)}）` : String(id)
+  }).join("、")
+  process.stderr.write(`[gangtise] warning: ${label} — ${rec.failList.length} item(s) failed while the request itself succeeded: ${detail}. Result marked partial (exit 3).\n`)
+}
+
 /** Header check for array (columnar) rows, shared by normalizeRows and the streamed
  * export so the 1000-row threshold cannot change what is accepted: a fieldList must exist
  * and carry unique names, or the rows cannot be read by position. */

@@ -22,7 +22,7 @@
 | `110001` / `110002` | 日期格式错（msg 带字段名）/ 起晚于止。⚠️ **服务端对多种格式做宽松解析**（`2026/07/01`、`20260701`、`07/01/2026` 都能被接受），所以「没报 110001」不等于「格式被按你的意思理解了」 | — | 按参数名：`--*-date` 用 `YYYY-MM-DD`、`--*-time` 用 `YYYY-MM-DD HH:mm:ss`；`ai knowledge-batch` 的 --start-time/--end-time 收时间戳或 datetime，CLI 统一转 13 位毫秒 |
 | `120001` | 证券代码无效——msg 带原因（「非有效A股」）。Fundamental 系与 `quote day-kline`/`realtime`/`minute-kline`/`fund-flow` 都会报；**旧版 `day-kline-hk`/`day-kline-us`/`index-day-kline` 静默返回空** | — | `reference securities-search` 确认代码与后缀（`600519.SH` / `00700.HK`） |
 | `110003` | **超出账号数据权限的时间范围**。范围按账号等级而定、**不是平台常量**；窗口按**账号**配、不按接口配 | — | 把日期移进权限范围内；整个区间都早于下界时缩短窗口无用（`--fiscal-year 2015` 无论怎么缩都报错）；**换接口绕不过去**，要更长历史联系客户经理开通 |
-| `100006` | 查询/下载数量超限（旧码 `430007`）；`fund-flow` 全市场不传日期即此码 | — | 缩短日期范围或调小 `--size`/`--limit`；全市场场景应已自动分片 |
+| `100006` | 查询/下载数量超限（旧码 `430007`）；`fund-flow` 全市场不传日期即此码；**`indicator cross-section` / `time-series` 单次单元格数超 30000** 也是此码（msg 写明限额） | — | 缩短日期范围或调小 `--size`/`--limit`；全市场场景应已自动分片；EDE 按「截面=证券数×指标数、时序=证券数或指标数×日期数」拆批 |
 | `240001` | 财报期未披露或超出查询期（`earnings-review` 提交阶段就报，**不扣积分**） | — | 换更早的 `--period`（`2025q3` → `2025interim`） |
 | `250001` | 不支持的数据源（旧码 `433007`） | — | 检查 `resourceType + sourceId` 组合 |
 | `999011` | 开发账号凭证无效（旧码 `8000014`/`8000015`，已合并，不区分 AK 错还是 SK 错） | 登录即失败，**不重试** | 检查 `GANGTISE_ACCESS_KEY`/`GANGTISE_SECRET_KEY` 是否写反或未 export |
@@ -32,6 +32,9 @@
 | `0000001007` | 请求未携带 Bearer token | — | 检查 `GANGTISE_TOKEN` / AK/SK 是否已 export |
 | `900002` | **请求方法不正确**（msg「请求类型有误」，HTTP 405） | — | `raw call` 时确认该 endpoint 是 GET 还是 POST |
 | `140002` | 终态参数错：AI 异步生成失败，或 `indicator` 的指标必填参数缺失 / 枚举越界 / 表达式语法错 | **不重试**（终态码） | 按 msg 改参数重提；EDE 的参数名与枚举读 `indicator search --format json` 的 `parameterList` |
+| `230003` | 股票池数量已达账号上限（30 个） | — | 先 `vault stock-pool-delete` 删掉不用的池再建 |
+| `230006` | 建 / 改股票池撞池名重复 | — | 先 `vault stock-pool-list` 看现有名称再换一个 |
+| `230007` | 股票池名超过 10 个字符（中文算 1 个） | — | 缩短名称；终端里建的老池可以更长，本接口不行 |
 
 ## ⚠️ 几类「不报错」的坑（最难发现，逐条都关系到拿没拿到对的数）
 
@@ -39,6 +42,7 @@
 - **财报接口的日期按「报告期末」过滤**，不是公告日：`fundamental balance-sheet` 等的 `--start-date`/`--end-date` 匹配的是 `endDate` 字段（如 `20200630`）；公告日看 `earliestAnncDate`（首次公告日，做时点对齐用这个）而不是 `announcementDate`。**查某期财报要传季度末日期**（`2020-06-30` / `2020-03-31` / `2020-09-30` / `2020-12-31`）；传 `2020-07-01` 这类非报告期日期会返回 0 行，属正常行为，不是没数据
 - **非法证券代码**：`quote day-kline` / `realtime` / `minute-kline` / `fund-flow` 与 Fundamental 系都会报 `120001`，按报错核对后缀即可。⚠️ **三个已下线的旧端点 `quote day-kline-hk` / `day-kline-us` / `index-day-kline` 则返回空结果**，与"该票该区间真无数据"无法区分——**用这三个拿到空结果时先回头核对代码后缀**。它们的能力已并入统一 `day-kline`（支持 A 股 / 港股 / 美股 / 沪深 ETF / 交易所指数 / 概念指数 `.GT` / 行业指数 `.CI` `.SWI` / 20 个全球指数），新代码直接用 `day-kline`
 - **枚举值拼错基本都会报 `100005`，但「字段名不被该端点支持」仍然静默**：纪要 `summary`、三个公告 list、路演 `roadshow`、调研 `site-visit`、`insight research`、`foreign-report`、`official-account` 的 `--search-type` / `--rank-type` / `--category` / `--market` 等传非法值报 `100005`。⚠️ **剩下的口子是「该端点根本没有这个参数」**：传一个端点不支持的字段名（如给 `opinion` 传 `searchType`——它只有 `--rank-type`）会被静默丢弃、按未传处理，返回未经筛选的全库而不报错。**CLI 本地拦截**：全部 `--search-type` / `--rank-type`、全部 `--file-type`（`foreign-report` 为 1–4、其余 1–2）、`pamirs-summary` 的 `--category` / `--market`、`--top` 上限、以及 `reference securities-search` / `institution-search` / `official-account-search` 的 `--category`。**仍未覆盖**：`insight research/summary --category`、`--market`、`--source`、`--llm-tag` 等仍是自由字符串，拼错不报错也不生效——这些要自己核对。**拼错的筛选条件会伪装成"结果正常"，枚举拼写要自己保证**
+- **股票池写操作的单条失败不报错**：`vault stock-pool-add-stock` / `stock-pool-remove-stock` / `stock-pool-delete` 是逐条处理的，证券代码不存在这类单条失败仍返回成功信封（`code` 为 `000000`），失败明细在 `failList` 里。**CLI 已拦**：`failList` 非空时 stderr 列出失败项、结果标 `partial`、退出码 3。绕过 CLI 直连接口时要自己读 `failList`，别只看 `code`
 - **`viewpoint-debate` 传敏感内容不会被提前拦截**——不返回 `240002`，而是照常受理、扣满 50 积分、生成阶段才以 `410111` 失败。**提交前自己把关措辞**
 - **`ai one-pager` 的非法 `mode` 被静默忽略**，照常生成并扣 50 积分
 

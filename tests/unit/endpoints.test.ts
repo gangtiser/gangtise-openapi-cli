@@ -519,6 +519,10 @@ describe("ENDPOINTS", () => {
       "insight.pamirs-summary.download",
       // Billed per page AT SUBMIT — a replayed submit re-parses and re-charges.
       "tool.file-parse.submit",
+      // The one entry here that is NOT about billing (creating a pool is free):
+      // duplicate pool names are rejected, so replaying a create whose first
+      // attempt succeeded answers 230006 and reports the success as a failure.
+      "vault.stock-pool.create",
     ]
     // Set EQUALITY, not one-way containment. A one-way check only proves the
     // listed endpoints are marked; it stays green when a NEW no-replay endpoint
@@ -532,6 +536,74 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS["ai.earnings-review.get-content"].retry).toBeUndefined()
     expect(ENDPOINTS["ai.viewpoint-debate.get-content"].retry).toBeUndefined()
     expect(ENDPOINTS["insight.qa.list"].retry).toBeUndefined()
+    // The idempotent stock-pool writes keep the default policy: re-adding a security
+    // already in the pool, removing one that isn't, and deleting a missing pool id all
+    // succeed server-side, so a replay after a 5xx cannot do damage or double-charge.
+    for (const key of ["vault.stock-pool.delete", "vault.stock-pool.rename", "vault.stock-pool.add-stock", "vault.stock-pool.remove-stock"]) {
+      expect(ENDPOINTS[key], key).toBeDefined()
+      expect(ENDPOINTS[key].retry, key).toBeUndefined()
+    }
+  })
+
+  it("marks exactly the irreversible endpoints destructive", () => {
+    // ⚠️ Set equality here catches ONE direction only: a marker appearing on an
+    // endpoint nobody listed. It cannot catch the opposite — a new irreversible
+    // endpoint added WITHOUT the marker never enters the filtered set, so this
+    // assertion stays green (verified by injecting exactly such an endpoint). The
+    // omission direction is covered by the classification test below, which needs an
+    // independent signal rather than the marker itself.
+    const destructive = Object.keys(ENDPOINTS).filter((k) => ENDPOINTS[k].destructive)
+    expect(destructive.sort()).toEqual(["vault.stock-pool.delete"])
+    // The warning lives on the endpoint because the gate is generic: a shared string
+    // would tell whoever adds the second destructive endpoint that they are about to
+    // lose stock pools. Every marked endpoint must carry its own.
+    for (const key of destructive) {
+      expect(ENDPOINTS[key].destructive?.warning, key).toBeTruthy()
+    }
+    // The other four writes are recoverable by running their opposite, so they must
+    // NOT ask — a confirmation on every write trains callers to pass --yes blindly,
+    // and then the one that matters is unguarded in practice.
+    for (const key of ["vault.stock-pool.create", "vault.stock-pool.rename", "vault.stock-pool.add-stock", "vault.stock-pool.remove-stock"]) {
+      expect(ENDPOINTS[key].destructive, key).toBeUndefined()
+    }
+  })
+
+  it("classifies every deletion-flavoured endpoint as destructive or explicitly not", () => {
+    // The independent signal the test above lacks: whether the endpoint DELETES
+    // something is visible in its path, not in the marker we are trying to verify.
+    // Every such endpoint must be a deliberate decision on someone's part — a new one
+    // that is neither marked nor listed here fails, which is the "added it and forgot
+    // the guard" case the `--yes` gate exists for.
+    //
+    // Reversible by running the opposite command, so deliberately NOT destructive:
+    // asking for confirmation on every write trains callers to pass --yes reflexively,
+    // and then the one that matters is unguarded in practice.
+    const REVIEWED_REVERSIBLE = ["vault.stock-pool.remove-stock"]
+    const deletionFlavoured = Object.keys(ENDPOINTS)
+      .filter((k) => /delete|remove|destroy|drop|purge/i.test(ENDPOINTS[k].path) || /delete|remove|destroy/i.test(k))
+    expect(deletionFlavoured.length, "the heuristic matched nothing — it has stopped working").toBeGreaterThan(0)
+    for (const key of deletionFlavoured) {
+      const classified = Boolean(ENDPOINTS[key].destructive) || REVIEWED_REVERSIBLE.includes(key)
+      expect(classified, `${key} deletes something but is neither marked destructive nor listed as reversible`).toBe(true)
+    }
+  })
+
+  it("marks exactly the batch writes that report per-item failures inside a success", () => {
+    // Same one-directional limit as the destructive set above, and here there is no
+    // independent signal in the registry: "answers {successList, failList}" is a
+    // response shape, not something a path reveals. So this guards against the marker
+    // spreading, not against a new batch endpoint forgetting it — a new one has to be
+    // caught by the reviewer, or by its own end-to-end test.
+    const itemFailures = Object.keys(ENDPOINTS).filter((k) => ENDPOINTS[k].itemFailures)
+    expect(itemFailures.sort()).toEqual([
+      "vault.stock-pool.add-stock",
+      "vault.stock-pool.delete",
+      "vault.stock-pool.remove-stock",
+    ])
+    // create / rename answer with {poolId, poolName} — no failList to judge.
+    for (const key of ["vault.stock-pool.create", "vault.stock-pool.rename"]) {
+      expect(ENDPOINTS[key].itemFailures, key).toBeUndefined()
+    }
   })
 
   it("marks every indicator endpoint as no-999999 (replaying a billed EDE query buys nothing)", () => {

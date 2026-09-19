@@ -68,7 +68,11 @@ gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n
 - 省略 `--size` 拉全量（接口返回 `total`，CLI 按 total 并发翻页）；传 `--size N` 只取前 N 条。单页最大 50
 - 返回字段：`total`（总条数）/ `chatroomName` / `chatroomId`
 
-## 自选股股票池 `vault stock-pool-list / stock-pool-stocks`
+## 自选股股票池 `vault stock-pool-*`
+
+查询两个、增删改五个，全部免费，只操作当前账号本人的数据。
+
+### 查询
 
 ```bash
 gangtise vault stock-pool-list
@@ -80,3 +84,34 @@ gangtise vault stock-pool-stocks [--pool-id <id>]
   - `--pool-id`：股票池 ID，可重复；不传默认 `all`（返回所有池中的非重复证券）
   - 传入 `--pool-id all` 等同于全量查询，最多返回 10000 只
   - 返回字段：`securityCode` / `securityName`
+
+### 增删改
+
+🔴 **这五个命令会改动账号数据**，是本 CLI 仅有的写操作；`--pool-id` 一律取自 `stock-pool-list`。
+
+```bash
+gangtise vault stock-pool-create      --name <名称>
+gangtise vault stock-pool-rename      --pool-id <id> --name <新名称>
+gangtise vault stock-pool-add-stock   --pool-id <id> --security <code> [--security <code>...]
+gangtise vault stock-pool-remove-stock --pool-id <id> --security <code> [--security <code>...]
+gangtise vault stock-pool-delete      --pool-id <id> [--pool-id <id>...] --yes
+```
+
+- `stock-pool-create`：建池，返回新池的 `poolId` / `poolName`
+  - **池名上限 10 个字符**（按字符计，中文算 1 个），超出返回 `230007`。⚠️ 在 Gangtise 终端里建的老池名可以更长，通过本接口建池 / 改名则一律受这个上限约束
+  - **池名不能与已有池重复**，重名返回 `230006`；判重是整串精确比较——首尾空格不会被去掉（`" A "` 与 `"A"` 可并存），大小写也不归一（`abc` 与 `ABC` 可并存）
+  - 每个账号最多 30 个池，达到上限后返回 `230003`
+  - 这条命令超时或 5xx **不会自动重发**（重发一个其实已经建成的请求只会撞重名报错）；超时后先 `stock-pool-list` 看池建成没有，再决定重来
+- `stock-pool-rename`：只改名，池内自选股不受影响；新名的长度与重名规则同上（改成该池自己当前的名字算成功）
+- `stock-pool-add-stock` / `stock-pool-remove-stock`：批量加 / 批量移出，`--security` 可重复或逗号分隔；单池上限 10000 只
+  - 代码要带市场后缀且**大小写敏感**：`600519.SH` / `00700.HK` / `AAPL.O` 可混在一次请求里；`600519`（缺后缀）、`600519.sh`、`aapl.o`、`700.HK`（港股要 5 位）都会进 `failList` 报「证券代码不存在」，而不是报错退出
+  - 首尾空格会被自动去掉，列表内重复的同一代码会去重（成功项只计一次）
+- `stock-pool-delete`：批量删池，**必须显式加 `--yes`**（不加会直接报错退出，不发请求）
+  - 删池会同时移除池内全部证券的关注关系，**不可恢复**；个股的投资笔记独立保留，不受影响
+  - **`raw call vault.stock-pool.delete` 同样要 `--yes`**——换成 raw 入口不会跳过这道确认
+
+**部分失败会被标出来**：`add-stock` / `remove-stock` / `delete` 是逐条处理的——证券代码不存在这类单条失败，服务端仍返回成功信封，把失败明细放进 `failList`（`successList` 里是成功的那些）。CLI 检测到 `failList` 非空时在 stderr 列出失败项与原因、给结果标 `partial`、**退出码 3**；全部成功才是退出码 0。批量脚本按退出码判断即可，不必自己解析 `failList`。**`raw call` 打这三个端点时判定完全相同**，同一份响应不会一个入口退 3、另一个退 0。
+
+**幂等**：重复加已在池内的证券、移出本就不在池内的证券、删不存在的 `poolId`，都算成功并计入 `successList`，不会报错。唯一不幂等的是 `stock-pool-create`（见上面的重名规则）。
+
+**返回字段**：`create` / `rename` 返回 `poolId` / `poolName`；`add-stock` / `remove-stock` / `delete` 返回 `successList[]` + `failList[]{securityCode 或 poolId, failReason}`。

@@ -273,6 +273,40 @@ describe("cli smoke", () => {
     expect(out).toContain("--source")
   }, 30_000)
 
+  it("exposes the five stock-pool write subcommands", async () => {
+    const { code, out } = await cli(["vault", "--help"])
+    expect(code).toBe(0)
+    for (const sub of ["stock-pool-create", "stock-pool-rename", "stock-pool-add-stock", "stock-pool-remove-stock", "stock-pool-delete"]) {
+      expect(out).toContain(sub)
+    }
+  }, 30_000)
+
+  it("stock-pool-delete refuses without --yes, before any request goes out", async () => {
+    // The env this suite runs under points at 127.0.0.1:1 with no credentials, so a
+    // command that reached the network would fail with a connection error instead.
+    // Asserting on the refusal text is what proves the guard fired first — the
+    // deletion is irreversible, so "it happened to fail" is not good enough.
+    const { code, out } = await cli(["vault", "stock-pool-delete", "--pool-id", "808477293"])
+    expect(code).not.toBe(0)
+    expect(out).toContain("--yes")
+    expect(out).toContain("808477293")
+    expect(out).not.toContain("ECONNREFUSED")
+  }, 30_000)
+
+  it("stock-pool writes require their target ids", async () => {
+    for (const args of [
+      ["vault", "stock-pool-create"],
+      ["vault", "stock-pool-rename", "--pool-id", "1"],
+      ["vault", "stock-pool-add-stock", "--pool-id", "1"],
+      ["vault", "stock-pool-remove-stock", "--pool-id", "1"],
+      ["vault", "stock-pool-delete", "--yes"],
+    ]) {
+      const { code, out } = await cli(args)
+      expect(code, args.join(" ")).not.toBe(0)
+      expect(out, args.join(" ")).toMatch(/--name|--security|--pool-id/)
+    }
+  }, 60_000)
+
   it("lists insight announcement subcommands including announcement-us", async () => {
     const { code, out } = await cli(["insight", "--help"])
     expect(code).toBe(0)

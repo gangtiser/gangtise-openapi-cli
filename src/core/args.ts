@@ -19,6 +19,17 @@ export function collectList(value: string, previous: string[] = []): string[] {
   return [...previous, ...splitCsv(value)]
 }
 
+/** Repeatable option that keeps each occurrence WHOLE. For free-form text, where a
+ * comma is punctuation rather than a separator: `collectList` would turn
+ * "比较两家公司毛利率，并解释差异" into two half-sentences and search on each, and the
+ * caller gets plausible-looking results for a question they never asked. Use this
+ * for anything a human writes as prose; `collectList` stays right for code and ID
+ * lists, where "600519，000858" really is two values. */
+export function collectText(value: string, previous: string[] = []): string[] {
+  const text = value.trim()
+  return text ? [...previous, text] : previous
+}
+
 export function parseNumberOption(value: string | number | undefined, optionName: string, config: NumberOptionConfig = {}): number {
   if (value === undefined || String(value).trim() === "") {
     throw new ValidationError(`Invalid ${optionName}: expected a number`)

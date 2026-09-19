@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { stagingSiblings } from "../fixtures/staging.js"
 import { ApiError, isStructuralError, ValidationError } from "../../src/core/errors.js"
+import { credentialFingerprint } from "../../src/core/auth.js"
 import { GangtiseClient } from "../../src/core/client.js"
 import { ENDPOINTS } from "../../src/core/endpoints.js"
 import { getRowSink, ExportSink } from "../../src/core/rowSink.js"
@@ -914,6 +915,11 @@ describe("GangtiseClient retry policy wiring", () => {
 
 describe("GangtiseClient auth recovery", () => {
   const tokenCachePath = `/tmp/gangtise-auth-recovery-${process.pid}.json`
+  // A cache is only reusable by the credentials that minted it, so the pre-seeded
+  // ones below have to carry the matching identity — otherwise they read as
+  // "unknown owner", trigger an extra login, and the login counts here go wrong for
+  // a reason unrelated to what each test is about. Computed, never a literal hex.
+  const SEEDED_FINGERPRINT = credentialFingerprint("ak", "https://open.gangtise.com")
 
   beforeEach(() => {
     requestMock.mockReset()
@@ -932,6 +938,120 @@ describe("GangtiseClient auth recovery", () => {
       tokenCachePath,
     })
   }
+
+  // --- the token cache is bound to the credentials that minted it ---
+  //
+  // auth.test.ts proves isTokenCacheValid compares the fingerprint; only these prove
+  // getAuthorizationHeader still COMPUTES one and passes it in. Dropping that single
+  // line leaves the auth.test.ts suite entirely green while every request silently
+  // goes out as whichever account happened to log in last.
+  function clientFor(accessKey: string) {
+    return new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, accessKey, secretKey: "sk", tokenCachePath })
+  }
+
+  function loginStub(tokens: string[]) {
+    let n = 0
+    return (url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        const accessToken = tokens[Math.min(n++, tokens.length - 1)]
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken, expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve(jsonResponse({ ok: true }))
+    }
+  }
+
+  it("logs in again when the cached token belongs to different credentials", async () => {
+    requestMock.mockImplementation(loginStub(["token-A", "token-B"]))
+    await clientFor("ACCOUNT-A").call("ai.one-pager", { securityCode: "600519.SH" })
+    const afterA = JSON.parse(await fs.readFile(tokenCachePath, "utf8")) as { accessToken: string }
+    expect(afterA.accessToken).toBe("Bearer token-A")
+
+    // Same unexpired cache on disk, different credentials in hand.
+    await clientFor("ACCOUNT-B").call("ai.one-pager", { securityCode: "600519.SH" })
+    const afterB = JSON.parse(await fs.readFile(tokenCachePath, "utf8")) as { accessToken: string }
+    expect(afterB.accessToken, "account B reused account A's token").toBe("Bearer token-B")
+  })
+
+  it("reuses the cache when the credentials are unchanged", async () => {
+    // The guard must not cost a login per command — that would be a different bug.
+    let logins = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        logins += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "token-A", expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve(jsonResponse({ ok: true }))
+    })
+    await clientFor("ACCOUNT-A").call("ai.one-pager", { securityCode: "600519.SH" })
+    await clientFor("ACCOUNT-A").call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(logins).toBe(1)
+  })
+
+  it("re-logs in for a cache written before the identity field existed", async () => {
+    // Its owner cannot be established, so it must not be trusted for these credentials.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer legacy", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    requestMock.mockImplementation(loginStub(["token-fresh"]))
+    await clientFor("ACCOUNT-A").call("ai.one-pager", { securityCode: "600519.SH" })
+    const after = JSON.parse(await fs.readFile(tokenCachePath, "utf8")) as { accessToken: string }
+    expect(after.accessToken).toBe("Bearer token-fresh")
+  })
+
+  // --- auth login reports the identity requests will actually use ---
+  it("reports the injected GANGTISE_TOKEN without contacting the server", async () => {
+    // Two regressions in one: forcing a refresh here broke the documented
+    // token-only setup outright (no AK/SK to log in with), and when BOTH are set it
+    // named a freshly minted account while every request still went out as the
+    // injected token.
+    requestMock.mockImplementation(() => { throw new Error("must not contact the server") })
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com", timeoutMs: 30_000,
+      accessKey: "ak", secretKey: "sk", token: "Bearer INJECTED", tokenCachePath,
+    })
+    const result = await client.login()
+    expect(result.source).toBe("env-token")
+    expect(result.authorization).toBe("Bearer INJECTED")
+    expect(result.cache).toBeNull()
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
+  it("works with an injected token and NO credentials at all", async () => {
+    requestMock.mockImplementation(() => { throw new Error("must not contact the server") })
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "Bearer ONLY", tokenCachePath,
+    })
+    await expect(client.login()).resolves.toMatchObject({ source: "env-token", authorization: "Bearer ONLY" })
+  })
+
+  it("returns this login's own result, not a re-read of a cache that failed to persist", async () => {
+    // The persist has to ACTUALLY fail, or reading disk and reading memory agree and
+    // the test proves nothing. A cache path whose parent is a regular file makes
+    // writeTokenCache's mkdir fail with ENOTDIR — while a stale cache for a DIFFERENT
+    // account sits at the path the client would fall back to.
+    // Under the suite's own cache path, not a bare /tmp name: a leftover from a killed
+    // run would otherwise collide, and if that name happened to be a directory
+    // fs.writeFile fails with EISDIR — a red test for a reason unrelated to the code.
+    const blocker = `${tokenCachePath}.blocker`
+    const unwritable = path.join(blocker, "token.json")
+    await fs.writeFile(blocker, "not a directory")
+    requestMock.mockImplementation(loginStub(["token-B"]))
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      const client = new GangtiseClient({
+        baseUrl: "https://open.gangtise.com", timeoutMs: 30_000,
+        accessKey: "ACCOUNT-B", secretKey: "sk", tokenCachePath: unwritable,
+      })
+      const result = await client.login()
+      expect(result.source).toBe("login")
+      expect(result.authorization).toBe("Bearer token-B")
+      // Reading disk here yields null (nothing was written) or, in the real-world
+      // shape of this bug, the previous account's file. Either way it is not THIS login.
+      expect(result.cache?.accessToken, "cache must describe THIS login").toBe("Bearer token-B")
+      expect(warn.mock.calls.map((c) => String(c[0])).join("")).toContain("could not persist token cache")
+    } finally {
+      warn.mockRestore()
+      await fs.unlink(blocker).catch(() => {})
+    }
+  })
 
   it("auto-recovers a JSON request from an auth error by refreshing the token once", async () => {
     let listCalls = 0
@@ -955,7 +1075,7 @@ describe("GangtiseClient auth recovery", () => {
     // Regression guard for the authState.retried latch: if the replay after a
     // forced refresh is rejected again, the client must fail — not login forever.
     // Pre-seed a valid cache so the only login on the wire is the forced refresh.
-    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
     let loginCalls = 0
     let listCalls = 0
     requestMock.mockImplementation((url: unknown) => {
@@ -977,7 +1097,7 @@ describe("GangtiseClient auth recovery", () => {
     // The refreshPromise single-flight must merge concurrent refresh attempts from
     // the pagination fan-out instead of firing one login per failed page.
     // Pre-seed a valid cache so the only login on the wire is the forced refresh.
-    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
     let loginCalls = 0
     const failedOnce = new Set<number>()
     requestMock.mockImplementation((url: unknown, init?: { body?: string }) => {
@@ -1034,7 +1154,7 @@ describe("GangtiseClient auth recovery", () => {
     // failure lands AFTER that refresh completed (the staggered case). B must
     // detect "the token I used is older than memoCache" and replay with the fresh
     // one — a second login could kick the fresh session server-side.
-    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
     let loginCalls = 0
     let staleFailures = 0
     requestMock.mockImplementation((url: unknown, init?: { headers?: Record<string, string> }) => {

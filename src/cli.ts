@@ -3,17 +3,18 @@ import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "./core/asyncContent.js"
 import { readTokenCache, redactTokenCache } from "./core/auth.js"
-import { collectKeyValue, collectList, collectNumberList, dateArg, datetimeArg, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
+import { collectKeyValue, collectList, collectNumberList, collectText, dateArg, datetimeArg, screenerExpressionFields, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseScreenerIndicators, parseSize, parseTimestamp13 } from "./core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "./core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "./core/indicatorMatrix.js"
 import { callPerSecurity, estimateTradingDays } from "./core/perSecurity.js"
 import { callKlineWithSharding, isFullMarket } from "./core/quoteSharding.js"
 import { loadConfig } from "./core/config.js"
 import { releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "./core/download.js"
+import { resolveCalendarType } from "./core/calendarType.js"
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
 import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./core/fileParse.js"
-import { assertColumnarHeader, flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
+import { assertColumnarHeader, flagFailedItems, flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
 import { printData } from "./core/printer.js"
 import { ExportSink, rowCount } from "./core/rowSink.js"
@@ -209,7 +210,16 @@ program
       .option("--format <format>", "Output format", "json")
       .action((options) => emit(options, async (client) => {
         const result = await client.login()
-        return options.showToken ? result : { authorization: "<redacted>", cache: redactTokenCache(result.cache) }
+        // `source` is the load-bearing field: with GANGTISE_TOKEN set, that token is
+        // what every other command sends, and no login happened. Without it the output
+        // reads like "logged in as X" while requests go out as someone else.
+        const note = result.source === "env-token"
+          ? "GANGTISE_TOKEN is set, so this is the token every command will send — no login was performed. Unset it to use GANGTISE_ACCESS_KEY / GANGTISE_SECRET_KEY instead."
+          : undefined
+        const base = { source: result.source, ...(note ? { note } : {}) }
+        return options.showToken
+          ? { ...base, authorization: result.authorization, cache: result.cache }
+          : { ...base, authorization: "<redacted>", cache: redactTokenCache(result.cache) }
       })),
   )
   .addCommand(
@@ -816,7 +826,7 @@ fundamental.command("earning-forecast").requiredOption("--security-code <code>")
 program.addCommand(fundamental)
 
 const ai = new Command("ai").description("AI APIs")
-ai.command("knowledge-batch").option("--query <text>", "Query", collectList, []).option("--top <number>", "Max results (default: 10, max: 20)", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)").option("--end-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => {
+ai.command("knowledge-batch").option("--query <text>", "Query text; repeat for up to 5. Each --query is taken whole — commas inside it are part of the question, not separators", collectText, []).option("--top <number>", "Max results (default: 10, max: 20)", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)").option("--end-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => {
   if (!options.query.length) throw new ValidationError("--query is required: pass at least one --query")
   return emit(options, (client) => client.call("ai.knowledge-batch", { queries: options.query, top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 20 }), resourceTypes: options.resourceType.length ? options.resourceType : undefined, knowledgeNames: maybeArray(options.knowledgeName), startTime: parseTimestamp13(options.startTime, "--start-time"), endTime: parseTimestamp13(options.endTime, "--end-time") }))
 })
@@ -842,7 +852,11 @@ ai.command("earnings-review").requiredOption("--security-code <code>").requiredO
 
   if (!options.wait) {
     process.stderr.write(`Earnings review task submitted. dataId: ${dataId}\n`)
-    process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: `Run 'gangtise ai earnings-review-check --data-id ${dataId}' in ~2 minutes to get results` })}\n`)
+    // Through printData, not a bare stdout.write: the submit-only path still has to
+    // honour --output and --format. Writing straight to stdout meant a caller who
+    // passed --output got exit 0 and no file, and the automation that was supposed
+    // to read the dataId out of it had nothing to read.
+    await printData({ dataId, status: "pending", hint: `Run 'gangtise ai earnings-review-check --data-id ${dataId}' in ~2 minutes to get results` }, format, options.output)
     return
   }
 
@@ -897,7 +911,11 @@ ai.command("viewpoint-debate").requiredOption("--viewpoint <text>", "Viewpoint t
 
   if (!options.wait) {
     process.stderr.write(`Viewpoint debate task submitted. dataId: ${dataId}\n`)
-    process.stdout.write(`${JSON.stringify({ dataId, status: "pending", hint: `Run 'gangtise ai viewpoint-debate-check --data-id ${dataId}' in ~2 minutes to get results` })}\n`)
+    // Through printData, not a bare stdout.write: the submit-only path still has to
+    // honour --output and --format. Writing straight to stdout meant a caller who
+    // passed --output got exit 0 and no file, and the automation that was supposed
+    // to read the dataId out of it had nothing to read.
+    await printData({ dataId, status: "pending", hint: `Run 'gangtise ai viewpoint-debate-check --data-id ${dataId}' in ~2 minutes to get results` }, format, options.output)
     return
   }
 
@@ -979,6 +997,44 @@ vault.command("wechat-message-list").option("--from <number>", "Starting offset"
 vault.command("wechat-chatroom-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--room-name <name>", "WeChat group name; repeat or comma-separate for multiple names", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.wechat-chatroom.list", buildWechatChatroomListBody(options))))
 vault.command("stock-pool-list").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.stock-pool.list", {})))
 vault.command("stock-pool-stocks").option("--pool-id <id>", "Pool ID; repeat for multiple; omit (or 'all') for all pools", collectList).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.stock-pool.stocks", buildStockPoolStocksBody(options))))
+/** The `--yes` gate for irreversible endpoints, shared by the dedicated commands and
+ * `raw call`. It reads `ENDPOINTS[key].destructive` so there is one fact, not two:
+ * a rule duplicated per entry point is a rule that will be added to one and not the
+ * other. Throws BEFORE a client is acquired, so a refusal can never race a
+ * half-issued request. */
+function assertConfirmed(endpointKey: string, confirmed: boolean, target: string): void {
+  const destructive = ENDPOINTS[endpointKey]?.destructive
+  if (!destructive || confirmed) return
+  throw new ValidationError(`${destructive.warning} 确认要对 ${target} 执行就加上 --yes。`)
+}
+
+// ── stock-pool writes ──
+// These five change the user's own watchlists; every other command in the CLI only reads.
+// `addStock` / `deleteStock` / `deletePool` report per-item failures inside a 000000
+// envelope, so each pipes its result through flagFailedItems (→ partial, exit 3).
+vault.command("stock-pool-create").requiredOption("--name <name>", "New pool name; max 10 characters (a CJK character counts as 1) and must differ from every existing pool name. A duplicate is rejected with 230006, an over-long name with 230007. Max 30 pools per account (230003)").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.stock-pool.create", { poolName: options.name })))
+vault.command("stock-pool-rename").requiredOption("--pool-id <id>", "Pool ID from 'stock-pool-list'").requiredOption("--name <name>", "New pool name; same rules as stock-pool-create (max 10 characters, must differ from every existing pool name). Renaming a pool to its own current name succeeds").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.stock-pool.rename", { poolId: options.poolId, poolName: options.name })))
+vault.command("stock-pool-add-stock").requiredOption("--pool-id <id>", "Target pool ID from 'stock-pool-list'").requiredOption("--security <code>", "Security code, e.g. 600519.SH (repeat or comma-separate)", collectList).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, async (client) => {
+  const data = await client.call("vault.stock-pool.add-stock", { poolId: options.poolId, securityCodeList: options.security })
+  flagFailedItems(data, "vault stock-pool-add-stock")
+  return data
+}))
+vault.command("stock-pool-remove-stock").requiredOption("--pool-id <id>", "Target pool ID from 'stock-pool-list'").requiredOption("--security <code>", "Security code, e.g. 600519.SH (repeat or comma-separate)", collectList).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, async (client) => {
+  const data = await client.call("vault.stock-pool.remove-stock", { poolId: options.poolId, securityCodeList: options.security })
+  flagFailedItems(data, "vault stock-pool-remove-stock")
+  return data
+}))
+// --yes is required, not a convenience: deleting a pool also drops every watch relation
+// inside it (a pool can hold up to 10000 securities) and nothing restores them. The other
+// four writes are recoverable by re-running their opposite, so only this one asks.
+vault.command("stock-pool-delete").requiredOption("--pool-id <id>", "Pool ID to delete; repeat or comma-separate for multiple", collectList).option("--yes", "Required: confirm the deletion").option("--format <format>", "Output format", "table").option("--output <path>").action(async (options) => {
+  assertConfirmed("vault.stock-pool.delete", Boolean(options.yes), options.poolId.join("、"))
+  await emit(options, async (client) => {
+    const data = await client.call("vault.stock-pool.delete", { poolIdList: options.poolId })
+    flagFailedItems(data, "vault stock-pool-delete")
+    return data
+  })
+})
 program.addCommand(vault)
 program.addCommand(ai)
 
@@ -1083,10 +1139,22 @@ indicator.command("cross-section").option("--indicator <code>", "Indicator code,
   flagDropped(rows, data, options.security, options.indicator)
   await printData(rows, format, options.output)
 }))
-indicator.command("time-series").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).requiredOption("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday (default TD)").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode/securityCode, unique & order-stable for batch mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+indicator.command("time-series").option("--indicator <code>", "Indicator code, e.g. qte_close (REQUIRED, repeat for multiple)", collectList, []).option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, []).requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).requiredOption("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday. Omit it and the CLI picks: a free 'indicator search' reads each parameterList and sends TD only when EVERY indicator is trading-day typed, otherwise it leaves the server on ND (report-period indicators land on dates a trading calendar lacks, and TD would answer them with an all-null grid). An explicit value is sent as given, with no lookup").option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)").option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)").option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, []).addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode/securityCode, unique & order-stable for batch mapping").choices(["name", "code"]).default("name")).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   requireIndicatorScope(options.indicator, options.security)
-  const raw = await client.call("indicator.time-series", buildIndicatorTimeSeriesBody(options))
+  // Build first: buildIndicatorTimeSeriesBody runs the --indicator-param binding check,
+  // and that guard has to fire before ANY request goes out — including the free probe below.
+  const body = buildIndicatorTimeSeriesBody(options)
+  // Then pick the date axis, and only when the caller left --calendar-type off:
+  // an explicit value is an instruction, not a default to improve on.
+  if (!body.calendarType) {
+    const resolved = await resolveCalendarType(client, options.indicator)
+    if (resolved) {
+      body.calendarType = resolved
+      process.stderr.write(`[gangtise] note: every requested indicator takes tradeDate, so this series was fetched on the trading-day calendar (calendarType=TD) instead of the server default ND — no all-null non-trading rows, and fewer cells against the 30000 cap. Pass --calendar-type ND to override.\n`)
+    }
+  }
+  const raw = await client.call("indicator.time-series", body)
   const data = requireIndicatorMatrix(raw)
   // Pass the universe itself, not a count: flattenTimeSeries needs to know
   // whether a sector ID is in play (the server expands it, so one entry can mean
@@ -1176,16 +1244,26 @@ tool.command("file-parse-check").description("Download a finished file-parse res
   .option("--output <path>", "Where to save the result ZIP")
   .action((options) => withClient(async (client) => {
     if (await fetchFileParseResult(client, options.taskId, options.output) === "pending") {
+      // 🔴 Deliberately a bare stdout write, NOT printData — do not "make this
+      // consistent" with the ai *-check commands. Their --output is a render target;
+      // this one is "where to save the result ZIP" (and there is no --format here at
+      // all), so routing a pending JSON through it would leave a .zip that is not a
+      // zip. The status line belongs on stdout precisely because --output is spoken
+      // for.
       process.stdout.write(`${JSON.stringify({ taskId: options.taskId, status: "pending", hint: "Parse not finished yet, retry in ~1 minute" })}\n`)
     }
   }))
 program.addCommand(tool)
 
-program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
+program.command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--yes", "Confirm an irreversible endpoint (required for the ones marked destructive)").option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
   const endpoint = ENDPOINTS[endpointKey]
   if (!endpoint) {
     throw new ConfigError(`Unknown endpoint key: ${endpointKey}`)
   }
+  // Same gate as the dedicated command. `raw call` is a passthrough for the REQUEST,
+  // not a way around a guard on what the request does — and this one protects data
+  // that nothing restores. Checked before the client is acquired.
+  assertConfirmed(endpointKey, Boolean(options.yes), endpointKey)
   const format = parseOutputFormat(options.format)
   const client = await createClient({ format, output: options.output })
   let body: unknown
@@ -1215,7 +1293,12 @@ program.command("raw").description("Raw API calls").addCommand(new Command("call
     throw new ValidationError(`--query is not supported for JSON endpoints (use --body '{...}'); ${endpointKey} is kind=json`)
   }
   try {
-    await printData(await client.call(endpointKey, body), format, options.output)
+    const data = await client.call(endpointKey, body)
+    // Result INTERPRETATION, which this path already does elsewhere (envelope
+    // unwrapping, `total`, the duplicate-column check). Leaving it out here is what
+    // let the same response exit 3 through the dedicated command and 0 through here.
+    if (endpoint.itemFailures) flagFailedItems(data, `raw call ${endpointKey}`)
+    await printData(data, format, options.output)
   } finally {
     await client.rowSink?.abort()
   }

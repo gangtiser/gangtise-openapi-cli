@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { isTokenCacheValid, normalizeToken, readTokenCache, redactTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "../../src/core/auth.js"
+import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, redactTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "../../src/core/auth.js"
 import { ConfigError } from "../../src/core/errors.js"
 
 const nowSec = () => Math.floor(Date.now() / 1000)
@@ -25,6 +25,55 @@ describe("normalizeToken", () => {
   it("normalizes a lowercase/odd-case bearer prefix instead of double-prefixing", () => {
     expect(normalizeToken("bearer abc")).toBe("Bearer abc")
     expect(normalizeToken("BEARER abc")).toBe("Bearer abc")
+  })
+})
+
+describe("credentialFingerprint", () => {
+  it("separates accounts and hosts, and never carries the key itself", () => {
+    const a = credentialFingerprint("ACCOUNT-A", "https://openapi.gangtise.com")
+    const b = credentialFingerprint("ACCOUNT-B", "https://openapi.gangtise.com")
+    const aElsewhere = credentialFingerprint("ACCOUNT-A", "https://staging.example.com")
+    expect(a).not.toBe(b)
+    expect(a).not.toBe(aElsewhere)
+    expect(credentialFingerprint("ACCOUNT-A", "https://openapi.gangtise.com")).toBe(a)
+    // The fingerprint lands in a file on disk — it must not be reversible to the key.
+    expect(a).not.toContain("ACCOUNT-A")
+    expect(a).toMatch(/^[0-9a-f]{16}$/)
+  })
+})
+
+describe("isTokenCacheValid identity binding", () => {
+  const fresh = (extra: Partial<TokenCache> = {}): TokenCache => ({
+    accessToken: "Bearer t", expiresIn: 86400, time: Date.now(),
+    expiresAt: Math.floor(Date.now() / 1000) + 86400, ...extra,
+  })
+
+  it("rejects an unexpired token minted for other credentials", () => {
+    // The failure this prevents: cache account A, export account B's key, and every
+    // request — including the irreversible stock-pool delete — still goes out as A.
+    expect(isTokenCacheValid(fresh({ issuedFor: "aaaaaaaaaaaaaaaa" }), undefined, "bbbbbbbbbbbbbbbb")).toBe(false)
+  })
+
+  it("accepts it when the fingerprint matches", () => {
+    expect(isTokenCacheValid(fresh({ issuedFor: "aaaaaaaaaaaaaaaa" }), undefined, "aaaaaaaaaaaaaaaa")).toBe(true)
+  })
+
+  it("rejects a cache written before the field existed, when an identity IS expected", () => {
+    // Its owner is unknown, so it cannot be shown to belong to these credentials.
+    // One extra login is the entire cost of being wrong here.
+    expect(isTokenCacheValid(fresh(), undefined, "aaaaaaaaaaaaaaaa")).toBe(false)
+  })
+
+  it("still accepts any unexpired cache when no identity can be checked", () => {
+    // No accessKey configured — there is no second account to confuse this with, and
+    // refusing would break the token-cache-only workflow for no safety gain.
+    expect(isTokenCacheValid(fresh())).toBe(true)
+    expect(isTokenCacheValid(fresh({ issuedFor: "aaaaaaaaaaaaaaaa" }))).toBe(true)
+  })
+
+  it("still rejects an expired token regardless of identity", () => {
+    const stale = fresh({ issuedFor: "aaaaaaaaaaaaaaaa", expiresAt: Math.floor(Date.now() / 1000) - 10 })
+    expect(isTokenCacheValid(stale, undefined, "aaaaaaaaaaaaaaaa")).toBe(false)
   })
 })
 

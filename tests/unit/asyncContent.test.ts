@@ -1,3 +1,7 @@
+import { readFile, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
 import { checkAsyncContent, pollAsyncContent } from "../../src/core/asyncContent.js"
@@ -149,6 +153,19 @@ describe("asyncContent", () => {
       const client = { call: vi.fn().mockRejectedValue(new ApiError("generating", "410110")) }
       await checkAsyncContent(client, "ep", "d1", "json")
       expect(stdout()).toContain("pending")
+    })
+
+    it("writes the pending status to --output, like the ready branch does", async () => {
+      // "Still pending" is the outcome a polling script most needs to read, and it
+      // was the one that went straight to stdout — exit 0, no file, nothing to parse.
+      const outPath = path.join(os.tmpdir(), `gangtise-async-pending-${process.pid}.json`)
+      const client = { call: vi.fn().mockRejectedValue(new ApiError("generating", "410110")) }
+      try {
+        await checkAsyncContent(client, "ep", "d1", "json", outPath)
+        expect(JSON.parse(await readFile(outPath, "utf8"))).toMatchObject({ dataId: "d1", status: "pending" })
+      } finally {
+        await rm(outPath, { force: true })
+      }
     })
 
     it("sets exit code 1 on a terminal 410111 failure", async () => {

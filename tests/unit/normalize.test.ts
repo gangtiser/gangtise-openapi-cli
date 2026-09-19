@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { attachEnvelopeTraceId } from "../../src/core/errors.js"
-import { flagMissingFields, normalizeRows } from "../../src/core/normalize.js"
+import { flagFailedItems, flagMissingFields, normalizeRows } from "../../src/core/normalize.js"
 
 describe("normalizeRows", () => {
   it("preserves total metadata with plain list rows", () => {
@@ -193,6 +193,53 @@ describe("flagMissingFields", () => {
     flagMissingFields(null, ["close"], "quote fund-flow")
     expect(noFields.partial).toBeUndefined()
     expect(objectRows.partial).toBeUndefined()
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+})
+
+describe("flagFailedItems", () => {
+  const silence = () => vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+
+  it("marks partial and names the failures when a write reports per-item errors inside a success", () => {
+    const errSpy = silence()
+    const data: Record<string, unknown> = {
+      successList: ["600519.SH"],
+      failList: [{ securityCode: "999999.SH", failReason: "证券代码不存在" }],
+    }
+    flagFailedItems(data, "vault stock-pool-add-stock")
+    expect(data.partial).toBe(true)
+    const written = errSpy.mock.calls.map((c) => String(c[0])).join("")
+    expect(written).toContain("999999.SH")
+    expect(written).toContain("证券代码不存在")
+    errSpy.mockRestore()
+  })
+
+  it("keeps a fully successful write at exit 0 (empty failList must not flag)", () => {
+    const errSpy = silence()
+    const data: Record<string, unknown> = { successList: ["600519.SH"], failList: [] }
+    flagFailedItems(data, "vault stock-pool-remove-stock")
+    expect(data.partial).toBeUndefined()
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it("keys the failure on poolId when that is what the entry carries", () => {
+    const errSpy = silence()
+    const data: Record<string, unknown> = { successList: [], failList: [{ poolId: "808477293", failReason: "股票池不存在" }] }
+    flagFailedItems(data, "vault stock-pool-delete")
+    expect(data.partial).toBe(true)
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("808477293")
+    errSpy.mockRestore()
+  })
+
+  it("is a no-op on results that carry no failList at all", () => {
+    const errSpy = silence()
+    const created: Record<string, unknown> = { poolId: "1", poolName: "A" }
+    flagFailedItems(created, "vault stock-pool-create")
+    flagFailedItems(null, "vault stock-pool-create")
+    flagFailedItems([{ failList: ["x"] }], "vault stock-pool-create")
+    expect(created.partial).toBeUndefined()
     expect(errSpy).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })

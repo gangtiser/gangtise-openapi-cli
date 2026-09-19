@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
 
@@ -12,6 +12,20 @@ export interface TokenCache {
   uid?: number
   userName?: string
   tenantId?: number
+  /** Which credentials + host this token was minted for. Without it the cache is
+   * just "some valid token": swap GANGTISE_ACCESS_KEY to a second account and the
+   * unexpired token of the FIRST one keeps being sent, so writes land on the wrong
+   * account — and `stock-pool-delete` is not reversible. Never the key itself; a
+   * fingerprint is enough to tell two accounts apart and leaks nothing if the
+   * 0600 file is read. Absent on caches written before this field existed. */
+  issuedFor?: string
+}
+
+/** Stable, non-reversible id for "which credentials + which host". Only the
+ * accessKey participates — the secret never needs to, and keeping it out means a
+ * leaked cache file cannot help an offline guess against the secret. */
+export function credentialFingerprint(accessKey: string, baseUrl: string): string {
+  return createHash("sha256").update(`${accessKey}\u0000${baseUrl}`).digest("hex").slice(0, 16)
 }
 
 export async function readTokenCache(filePath: string): Promise<TokenCache | null> {
@@ -61,8 +75,20 @@ export async function writeTokenCache(filePath: string, cache: TokenCache): Prom
   }
 }
 
-export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300): boolean {
+/** @param expectedFingerprint identity the caller requires, or `undefined` when it
+ *   cannot check one (no accessKey in the environment — then there is no "other
+ *   account" to confuse this with, and refusing the cache would only break the
+ *   token-cache-only workflow with no safety gained). */
+export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300, expectedFingerprint?: string): boolean {
   if (!cache?.accessToken || !cache.expiresAt) {
+    return false
+  }
+
+  // A cache that belongs to other credentials (or a cache from before this field
+  // existed, whose owner is simply unknown) is not valid for this caller — treat it
+  // as a miss so the caller logs in fresh. One extra login is the whole cost; the
+  // alternative is silently acting as the previous account.
+  if (expectedFingerprint !== undefined && cache.issuedFor !== expectedFingerprint) {
     return false
   }
 

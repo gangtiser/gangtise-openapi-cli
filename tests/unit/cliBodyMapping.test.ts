@@ -256,6 +256,22 @@ beforeAll(async () => {
         } } }))
         return
       }
+      if ((req.url ?? "").includes("/EDE/search")) {
+        // Feeds resolveCalendarType. The keyword IS the indicator code, and the server
+        // answers with near-matches too, so the decoy entry makes sure the CLI picks
+        // its row by exact indicatorCode rather than taking the first hit.
+        const keyword = (body as { keyword?: string } | undefined)?.keyword ?? ""
+        const PARAMS: Record<string, string[]> = {
+          finc_pe_ttm: ["tradeDate"],
+          qte_close: ["tradeDate", "adjustType"],
+          is_op_rev: ["reportDate", "reportType"],
+        }
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: [
+          { indicatorCode: `${keyword}_decoy`, indicatorName: "诱饵", parameterList: [{ paramKey: "reportDate" }] },
+          ...(PARAMS[keyword] ? [{ indicatorCode: keyword, indicatorName: keyword, parameterList: PARAMS[keyword].map((paramKey) => ({ paramKey })) }] : []),
+        ] }))
+        return
+      }
       if ((req.url ?? "").includes("/EDE/time-series")) {
         // NULLDATA.XX: a success envelope whose inner payload is null. It cannot
         // carry the non-enumerable traceId, so the check has to run before the
@@ -277,10 +293,14 @@ beforeAll(async () => {
         }
         // Single indicator × two securities → columns are securities; --key-by code
         // must key them by securityCode (600519.SH), not the display name (贵州茅台).
+        // The indicator is echoed from the request so the response is not "missing"
+        // whatever the caller actually asked for — flagDropped would call that a
+        // dropped column and exit 3, which has nothing to do with what is under test.
+        const asked = ((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? ["finc_pe_ttm"])[0]
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
           securityCodeList: ["600519.SH", "000858.SZ"],
           securityNameList: ["贵州茅台", "五粮液"],
-          indicatorList: [{ code: "finc_pe_ttm", name: "市盈率(TTM)", dataType: "double" }],
+          indicatorList: [{ code: asked, name: "市盈率(TTM)", dataType: "double" }],
           dates: ["2026-05-18"],
           values: [[20.03], [26.36]],
         } } }))
@@ -362,6 +382,25 @@ beforeAll(async () => {
           indicatorList: [{ field: "F1", code: "qte_mkt_cptl", name: "总市值", dataType: "double" }],
           values: [[16883.6021]],
         } } }))
+        return
+      }
+      // Paths taken from the registry (`earnings-review-getid`), not guessed from the
+      // command name — a matcher that never fires makes the stub answer with the
+      // default payload and the test fails for a reason that has nothing to do with it.
+      if ((req.url ?? "").includes("-getid")) {
+        res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { dataId: "TASK-12345" } }))
+        return
+      }
+      if ((req.url ?? "").includes("/stock-pool/")) {
+        // The write endpoints report per-item failures INSIDE a 000000 envelope
+        // (probed 2026-09-14). BAD* stands in for a code the server cannot resolve.
+        const items = (body as { securityCodeList?: string[]; poolIdList?: string[] } | undefined)
+        const list = items?.securityCodeList ?? items?.poolIdList ?? []
+        const idKey = items?.securityCodeList ? "securityCode" : "poolId"
+        res.end(JSON.stringify({ code: "000000", msg: "操作成功", status: true, data: {
+          successList: list.filter((c) => !c.startsWith("BAD")),
+          failList: list.filter((c) => c.startsWith("BAD")).map((id) => ({ [idKey]: id, failReason: "证券代码不存在" })),
+        } }))
         return
       }
       if ((req.url ?? "").includes("/valuation-analysis")) {
@@ -446,6 +485,53 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       categoryList: ["macro"],
       ratingList: ["buy"],
     })
+  }, 30_000)
+
+  it("stock-pool writes map --pool-id/--security to the server's list fields", async () => {
+    const { code } = await cli([
+      "vault", "stock-pool-add-stock",
+      "--pool-id", "808477293", "--security", "600519.SH,000858.SZ", "--security", "00700.HK",
+      "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].path).toBe("/application/open-vault/stock-pool/addStock")
+    expect(captured[0].body).toEqual({ poolId: "808477293", securityCodeList: ["600519.SH", "000858.SZ", "00700.HK"] })
+  }, 30_000)
+
+  it("a non-empty failList inside a 000000 success exits 3 and names the failures", async () => {
+    // The whole point of the guard: the request itself succeeded, so without it the
+    // command prints the result and exits 0 while two of the three codes never went in.
+    const { code, stderr } = await cli([
+      "vault", "stock-pool-add-stock",
+      "--pool-id", "808477293", "--security", "600519.SH", "--security", "BAD1.XX", "--security", "BAD2.XX",
+      "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect(stderr).toContain("BAD1.XX")
+    expect(stderr).toContain("BAD2.XX")
+    expect(stderr).toContain("证券代码不存在")
+  }, 30_000)
+
+  it("an all-success write stays at exit 0", async () => {
+    const { code, stderr } = await cli([
+      "vault", "stock-pool-remove-stock", "--pool-id", "808477293", "--security", "600519.SH", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-vault/stock-pool/deleteStock")
+    expect(stderr).not.toContain("warning")
+  }, 30_000)
+
+  it("stock-pool-delete sends poolIdList only once --yes is given", async () => {
+    const refused = await cli(["vault", "stock-pool-delete", "--pool-id", "808477293"])
+    expect(refused.code).not.toBe(0)
+    expect(captured, "the refusal must happen before any request").toHaveLength(0)
+
+    const { code } = await cli(["vault", "stock-pool-delete", "--pool-id", "808477293,808477294", "--yes", "--format", "json"])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].path).toBe("/application/open-vault/stock-pool/deletePool")
+    expect(captured[0].body).toEqual({ poolIdList: ["808477293", "808477294"] })
   }, 30_000)
 
   it("insight announcement list converts both date forms to the same local-midnight epoch millis", async () => {
@@ -1157,6 +1243,137 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     }, 30_000)
   }
 
+  // --- free-text --query is not a comma-separated list ---
+  it("knowledge-batch sends a comma-bearing question as ONE query", async () => {
+    // args.test.ts proves collectText keeps the string whole; only this proves
+    // --query is still wired to it. Swapping the collector back is a one-word edit
+    // that the unit test cannot see.
+    const { code } = await cli(["ai", "knowledge-batch", "--query", "比较两家公司毛利率，并解释差异", "--format", "json"])
+    expect(code).toBe(0)
+    expect((captured[0].body as { queries?: string[] }).queries).toEqual(["比较两家公司毛利率，并解释差异"])
+  }, 30_000)
+
+  it("knowledge-batch still takes one entry per repeated --query", async () => {
+    const { code } = await cli(["ai", "knowledge-batch", "--query", "比亚迪", "--query", "最近热门概念", "--format", "json"])
+    expect(code).toBe(0)
+    expect((captured[0].body as { queries?: string[] }).queries).toEqual(["比亚迪", "最近热门概念"])
+  }, 30_000)
+
+  // --- an async submit must honour --output like every other command ---
+  for (const [command, arg] of [
+    ["earnings-review", ["--security-code", "600519.SH", "--period", "2025q3"]],
+    ["viewpoint-debate", ["--viewpoint", "白酒板块已见底"]],
+  ] as const) {
+    it(`ai ${command} without --wait writes the task id to --output`, async () => {
+      // It used to print to stdout directly: exit 0, no file, and the automation
+      // that was meant to pick the dataId out of that file found nothing.
+      const outPath = path.join(os.tmpdir(), `gangtise-${command}-${process.pid}.json`)
+      try {
+        const { code } = await cli(["ai", command, ...arg, "--output", outPath, "--format", "json"])
+        expect(code).toBe(0)
+        expect(JSON.parse(await readFile(outPath, "utf8")), `${command} ignored --output`)
+          .toMatchObject({ dataId: "TASK-12345", status: "pending" })
+      } finally {
+        await rm(outPath, { force: true })
+      }
+    }, 30_000)
+  }
+
+  // --- the destructive / item-failure guards on BOTH entry points ---
+  //
+  // Both markers live on the endpoint, and the point of putting them there is that
+  // `raw call` honours them too. Before that, `raw call vault.stock-pool.delete`
+  // issued an irreversible delete with no confirmation, and the same failList
+  // response exited 3 through the dedicated command and 0 through raw — so the
+  // raw-side assertions here are the ones carrying the fix.
+  it("raw call refuses a destructive endpoint without --yes, before any request", async () => {
+    const { code, out } = await cli(["raw", "call", "vault.stock-pool.delete", "--body", '{"poolIdList":["808477293"]}'])
+    expect(code, out).not.toBe(0)
+    expect(out).toContain("--yes")
+    expect(captured, "the refusal must happen before any request").toHaveLength(0)
+  }, 30_000)
+
+  it("raw call sends the destructive request once --yes is given", async () => {
+    const { code } = await cli(["raw", "call", "vault.stock-pool.delete", "--body", '{"poolIdList":["808477293"]}', "--yes", "--format", "json"])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].path).toBe("/application/open-vault/stock-pool/deletePool")
+  }, 30_000)
+
+  it("raw call leaves non-destructive endpoints alone", async () => {
+    // A gate that fires on every write would push callers to pass --yes reflexively.
+    const { code } = await cli(["raw", "call", "vault.stock-pool.rename", "--body", '{"poolId":"1","poolName":"x"}', "--format", "json"])
+    expect(code).toBe(0)
+    expect(captured).toHaveLength(1)
+  }, 30_000)
+
+  it("raw call exits 3 on a non-empty failList, same as the dedicated command", async () => {
+    const { code, stderr } = await cli([
+      "raw", "call", "vault.stock-pool.add-stock",
+      "--body", '{"poolId":"1","securityCodeList":["600519.SH","BAD1.XX"]}', "--format", "json",
+    ])
+    expect(code).toBe(3)
+    expect(stderr).toContain("BAD1.XX")
+  }, 30_000)
+
+  it("raw call stays at exit 0 when every item succeeds", async () => {
+    const { code, stderr } = await cli([
+      "raw", "call", "vault.stock-pool.add-stock",
+      "--body", '{"poolId":"1","securityCodeList":["600519.SH"]}', "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(stderr).not.toContain("warning")
+  }, 30_000)
+
+  // --- the auto-selected calendar, through the real CLI ---
+  //
+  // calendarType.test.ts covers the decision itself against a stubbed client, which says
+  // nothing about whether cli.ts still consults it or still puts the answer on the wire.
+  // Deleting the two lines in the time-series action leaves that suite fully green, so
+  // these three are the only thing standing between a refactor and a silent return to
+  // "every quote series pays for its weekends".
+  it("time-series sends calendarType=TD when every indicator takes tradeDate", async () => {
+    const { code, stderr } = await cli([
+      "indicator", "time-series", "--indicator", "finc_pe_ttm",
+      "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-date", "2026-05-18", "--end-date", "2026-05-18",
+      "--format", "json",
+    ])
+    expect(code).toBe(0)
+    const series = captured.filter((c) => c.path.includes("/EDE/time-series"))
+    expect(series).toHaveLength(1)
+    expect((series[0].body as { calendarType?: string }).calendarType).toBe("TD")
+    expect(stderr).toContain("calendarType=TD")
+  }, 30_000)
+
+  it("time-series leaves calendarType off as soon as one indicator takes a report period", async () => {
+    // The whole point of the asymmetry: TD would answer is_op_rev with an all-null grid
+    // and exit 0. Staying off means the server applies ND and the report-period rows survive.
+    const { code } = await cli([
+      "indicator", "time-series", "--indicator", "is_op_rev",
+      "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-date", "2026-05-18", "--end-date", "2026-05-18",
+      "--indicator-param", "is_op_rev:reportDate=2026-03-31", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    const series = captured.filter((c) => c.path.includes("/EDE/time-series"))
+    expect(series).toHaveLength(1)
+    expect((series[0].body as { calendarType?: string }).calendarType).toBeUndefined()
+  }, 30_000)
+
+  it("an explicit --calendar-type is an instruction: it is sent as given and costs no probe", async () => {
+    const { code } = await cli([
+      "indicator", "time-series", "--indicator", "finc_pe_ttm",
+      "--security", "600519.SH", "--security", "000858.SZ",
+      "--start-date", "2026-05-18", "--end-date", "2026-05-18",
+      "--calendar-type", "ND", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    const series = captured.filter((c) => c.path.includes("/EDE/time-series"))
+    expect((series[0].body as { calendarType?: string }).calendarType).toBe("ND")
+    expect(captured.filter((c) => c.path.includes("/EDE/search")), "an explicit value needs no lookup").toHaveLength(0)
+  }, 30_000)
+
   it("indicator cross-section forwards a valid --indicator-param instead of injecting tradeDate over it", async () => {
     // The positive half: proves the flag actually arrives, so the negative tests above
     // cannot be satisfied by an --indicator-param that never reaches the builder at all.
@@ -1402,7 +1619,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
   it("indicator time-series --key-by code keys multi-security columns by securityCode", async () => {
     // Guards the src/cli.ts time-series --key-by passthrough (identical pattern to
     // cross-section) so it can't be silently dropped without a failing test.
-    const { code, out } = await cli([
+    const { code, stdout } = await cli([
       "indicator", "time-series",
       "--indicator", "finc_pe_ttm",
       "--security", "600519.SH", "--security", "000858.SZ",
@@ -1410,7 +1627,8 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       "--key-by", "code", "--format", "json",
     ])
     expect(code).toBe(0)
-    const row = (JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]
+    // Parse stdout, not out (= stdout + stderr): the auto-calendar note lands on stderr.
+    const row = (JSON.parse(stdout) as { list: Record<string, unknown>[] }).list[0]
     expect(row).toMatchObject({ "600519.SH": 20.03, "000858.SZ": 26.36 })
     expect(Object.keys(row)).not.toContain("贵州茅台")
   }, 30_000)

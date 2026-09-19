@@ -82,6 +82,11 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault my-conference-download | 文件路径（stdout） | — |
 | vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**字段名是 `content` / `url`**，不是 `msgContent` / `contentUrl` |
 | vault wechat-chatroom-list | `{list, total}` | `list[].chatroomName` / `list[].chatroomId` |
+| vault stock-pool-list | 数组 | `[].poolId`（后续命令的 `--pool-id`）/ `[].poolName` |
+| vault stock-pool-stocks | 数组 | `[].securityCode` / `[].securityName`。空池返回 `[]` |
+| vault stock-pool-create / stock-pool-rename | `{poolId, poolName}` | 新建 / 改名后的池 ID 与名称 |
+| vault stock-pool-add-stock / stock-pool-remove-stock | `{successList, failList}` | `successList[]` 是规范化后的证券代码（含已在池内 / 本就不在池内的幂等成功项）；`failList[]{securityCode, failReason}`。**外层 `code` 恒为 `000000`，逐条失败只在 `failList` 里**——CLI 检测到非空时标 `partial`、退出码 3 |
+| vault stock-pool-delete | `{successList, failList}` | 同上，但键是 `failList[].poolId`；删不存在的池算幂等成功，计入 `successList` |
 | alternative edb-search | `{list: [...]}` 指标列表 | `indicatorId` / `indicatorName` / `dataSource` / `frequency` / `unit` |
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |

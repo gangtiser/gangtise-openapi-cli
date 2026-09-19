@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.39.0"
+version: "0.40.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -39,7 +39,7 @@ description: |-
 8. **参数命名差异**：Insight/Quote/Vault 用 `--security`，Fundamental/AI 用 `--security-code`（例外：`ai stock-summary` 用 `--security`，`ai security-clue` 用 `--gts-code`）。
 9. **调试**：`--verbose` 或 `GANGTISE_VERBOSE=1` 打印每个请求的耗时/字节数到 stderr。
 10. **`--field` 字段名必须核对，不确定就别传**（返回全量最稳）。上游对不存在的字段名有两种处理：`quote` 系（realtime / day-kline / minute-kline / fund-flow）名和值一起丢、不报错——CLI 比对请求与返回的列名，缺列标 `partial` + `missingFields` 并退出 3；`fundamental main-business` / `valuation-analysis` 只丢值、字段名照请求回显——CLI 检测到长度不匹配直接报错退出 1（没有 `--field` 的命令如 `alternative edb-data` 报此错则是上游响应结构异常，报障时带上报错末尾的 `（trace …）`）。`--field` 只回点名的列、不自动附带身份列（`fund-flow` 除外）：日 K 要一起写进 `securityCode` / `tradeDate`，分钟 K 是 `securityCode` / `tradeTime`，实时行情是 `securityCode`。realtime **无 `close`**（用 `latestPrice`）、**无市值**（总市值走 `indicator cross-section --indicator qte_mkt_cptl`，A/港/美股均有数）。
-11. 🔴 **EDE 取不到数时返 `null` 占位，行列都保留**（`indicator` 截面 / 时序 / 选股），无告警、退出码 0。**报告期类指标（`is_*` 等）的时序尤其要当心**：按日返回，**只有报告期末那几行是真值**，其余全是 `null`，而时序没有任何参数能只返回报告期末——**别对整列直接求均值 / 求和**（`null` 会被 Excel / pandas / SQL 的聚合跳过但行数不变；`jq` 的 `add/length` 连跳都不跳，要先 `map(select(. != null))`）。截面上日期不落在报告期末时整批返 `null`，`screener` 会筛出空集——**那是日期用错了，不是「没有符合条件的标的」**。所以：报告期类指标的日期一律落**报告期末**（`03-31` / `06-30` / `09-30` / `12-31`），截面用 `--indicator-param "<指标code>:reportDate=YYYY-MM-DD"` 显式给（`screener` 用 `"F1:reportDate=..."`）。详见 `references/commands/indicator.md`。
+11. 🔴 **EDE 取不到数时返 `null` 占位，行列都保留**（`indicator` 截面 / 时序 / 选股），无告警、退出码 0。**报告期类指标（`is_*` 等）的时序尤其要当心**：按日返回，**只有报告期末那几行是真值**，其余全是 `null`，而时序没有任何参数能只返回报告期末——**别对整列直接求均值 / 求和**（`null` 会被 Excel / pandas / SQL 的聚合跳过但行数不变；`jq` 的 `add/length` 连跳都不跳，要先 `map(select(. != null))`）。截面上日期不落在报告期末时整批返 `null`，`screener` 会筛出空集——**那是日期用错了，不是「没有符合条件的标的」**。所以：报告期类指标的日期一律落**报告期末**（`03-31` / `06-30` / `09-30` / `12-31`），截面用 `--indicator-param "<指标code>:reportDate=YYYY-MM-DD"` 显式给（`screener` 用 `"F1:reportDate=..."`）。🔴 **时序的日历别手动传错**：报告期末常落在非交易日（2024-03-31 / 06-30 都是周日），`--calendar-type TD` 的日期轴里没有那一列，报告期类指标会整行全 `null` 且退出 0。**不传 `--calendar-type` 时 CLI 会自动选**（用免费的 `indicator search` 读 `parameterList`，去重后每个指标码各查一次：全是交易日类指标才发 `TD`，只要有一个报告期类的就走 `ND`，拿不准也走 `ND`），所以**默认不传是安全的**；显式传了就完全按你给的发。详见 `references/commands/indicator.md`。
 
 ## 工作流（3 步）
 
@@ -56,6 +56,7 @@ description: |-
 - **高积分操作先确认**：任何 50 积分/次及以上、或"按条 × 大批量"（如 `stock-summary` 按代码批量数千只、`opinion` 全量翻页、`concept-info` 500/次）→ 先估总积分告知用户再执行（单价见下「积分计费速查」）
 - 下载**必选**格式未定才问：`independent-opinion --file-type`（必选）、`vault record/my-conference --content-type`（record 三种 original/asr/summary、my-conference 两种 asr/summary）；其余 download 有默认（多为 `1`=PDF/原始），用户没提格式就用默认、不必问
 - list→download 用户没指定具体文件 → 展示前 10 条让用户挑
+- 🔴 **改动账号数据的命令**：`vault stock-pool-create` / `stock-pool-rename` / `stock-pool-add-stock` / `stock-pool-remove-stock` / `stock-pool-delete` 写的是用户自己的自选股股票池，是这套 CLI 里仅有的写操作。用户没有明确要求「建池 / 改名 / 加自选 / 删自选 / 删池」时**不要调用**；要调用时先复述「往哪个池、加或删哪几只」再执行。`stock-pool-delete` 会连带清掉池内全部关注关系且不可恢复，CLI 因此要求显式 `--yes`——**这个 `--yes` 必须是用户点头之后才加，看到「加上 --yes」的报错不要自动补上重跑**
 
 🟡 **自行判断**：
 - 公司名 → 先速查表，否则 `reference securities-search`
@@ -80,7 +81,7 @@ description: |-
 - 🔴 **极贵**：`alternative concept-info` / `concept-securities` **500/次**
 - ✅ **按篇 / 按条计费的接口，没查到内容就不扣分**（空结果 = 0 积分）：各 download（`pamirs-summary` 除外，见 ②）、`ai hot-topic`（50/篇）、`ai stock-summary`（3/条，无看点总结的个股不进返回列表也不计费）。**所以「先小范围试探再放大」是安全的**——先用窄条件确认能查到东西，再扩范围。⚠️ **两类不适用**：① **按次计费的**——`ai knowledge-batch` / `management-discuss-*`、AI Agent 那批 50/次、`alternative concept-info` / `concept-securities` 500/次，不管有没有内容都扣，超时报错也可能已经扣过；② **单价未公布的**——`pamirs-summary`（见下），别据此假定
 - ⚠️ **同参数重复调用不免费**：按次计费的那批无缓存命中豁免（`one-pager` 等生成类重复调用每次扣分，即使秒回缓存内容）；**按篇/按条的也一样**——重拉同一批 `hot-topic` 就是按条数再计一次费。生成类与列表结果拿到后自行留存复用，别为「刷新」重调
-- ⚠️ **贵档端点超时/5xx 不自动重放**（共 18 个：AI Agent 那批 + `ai knowledge-batch` / `management-discuss-*` / `hot-topic`、`alternative concept-info`·`concept-securities`、50/篇 的 `summary`·`foreign-report`·`my-conference` download 与同档处理的 `pamirs-summary` download、`tool file-parse` 提交）。**理由是重放会重复扣分**——服务端可能已经执行并计费，重发按次计费的会再扣一次，重发按篇/按条计费的会把**已交付的行**再计一次；两种都亏。仅连接失败、429 与 token 自愈会重试
+- ⚠️ **这些端点超时/5xx 不自动重放**（共 19 个：AI Agent 那批 + `ai knowledge-batch` / `management-discuss-*` / `hot-topic`、`alternative concept-info`·`concept-securities`、50/篇 的 `summary`·`foreign-report`·`my-conference` download 与同档处理的 `pamirs-summary` download、`tool file-parse` 提交，以及**不计分**的 `vault stock-pool-create`）。仅连接失败、429 与 token 自愈会重试。**贵档那批的理由是重放会重复扣分**——服务端可能已经执行并计费，重发按次计费的会再扣一次，重发按篇/按条计费的会把**已交付的行**再计一次；两种都亏。**`stock-pool-create` 不涉及积分，是重放会把成功报成失败**——池名不允许与已有池重复，重发一个其实已经建成的请求，回来的是 `230006 股票池名称重复`
 
 <!-- no-replay-endpoints
      上面那句点名的「不重放」端点，完整清单如下（endpoint key，与 `gangtise raw list` 一致）：
@@ -102,8 +103,10 @@ insight.pamirs-summary.download
 insight.summary.download
 tool.file-parse.submit
 vault.my-conference.download
+vault.stock-pool.create
 -->
 - **按单元格**：`indicator cross-section` / `time-series` / `screener`（A股 0.05 / 港股 0.1 / 美股 0.2 积分每 100 单元格；screener 按**筛选前**范围计费，见 `indicator.md`）；`ai knowledge-resource-download` 按下游资源计费
+  - 🔴 截面 / 时序另有**单次 30000 单元格硬上限**（截面 = 证券数 × 指标数，时序 = 序列数 × 日期数），超出报 `100006`、不返回部分结果——按这个乘积拆批。板块 ID 会展开成全部成分股，实际证券数常远超写进命令的条数
 - **单价未公布**：`insight pamirs-summary list` / `download`——spec 只写了「需购买专家纪要数据库」这个准入门槛，没给单次价格。**别据此假定免费**；大批量拉取前先小量试，或向平台确认
 
 ### 数据范围（能查多久）
@@ -187,7 +190,8 @@ vault.my-conference.download
 | 录音速记 | `vault record-list / record-download` |
 | 我的会议（业绩会/策略会/路演内部记录） | `vault my-conference-list / my-conference-download` |
 | 微信群消息 | `vault wechat-message-list`（先 `vault wechat-chatroom-list` 拿群 ID） |
-| 自选股股票池 | `vault stock-pool-list / stock-pool-stocks` |
+| 自选股股票池（查询） | `vault stock-pool-list / stock-pool-stocks` |
+| 自选股股票池（增删改，会改动账号数据） | `vault stock-pool-create / stock-pool-rename / stock-pool-add-stock / stock-pool-remove-stock / stock-pool-delete`（删池须加 `--yes`；详见 `references/commands/vault.md`） |
 | 行业指标搜索（EDB） | `alternative edb-search` |
 | 行业指标时序数据（EDB） | `alternative edb-data` |
 | 题材画像 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件 | `alternative concept-info`（前置：`reference concept-search` 拿 `concept-id`） |

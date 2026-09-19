@@ -47,6 +47,25 @@ export interface EndpointDefinition {
    * an unknown code and an empty range with `{total: 0, list: []}` too (probed
    * 2026-09-05 on all three), so a legal empty answer always has its `list`. */
   expects?: "list"
+  /** Irreversible once it lands: require an explicit `--yes` before the request goes
+   * out, on EVERY entry point. Marking it here rather than in the command handler is
+   * what makes `raw call` honour it too — a guard that only the dedicated command
+   * checks is one `raw call vault.stock-pool.delete --body '{...}'` away from being
+   * no guard at all, and that detour is a realistic one: `SKILL.md` already has to
+   * tell agents not to re-run with `--yes` after being refused, so the next thing a
+   * blocked caller reaches for is the raw entry point. */
+  destructive?: {
+    /** What is lost, in the caller's terms. The gate is generic, so the wording has to
+     * come from the endpoint — a shared string would name stock pools to whoever adds
+     * the second destructive endpoint. */
+    warning: string
+  }
+  /** Reports per-item failures INSIDE a `000000` success: `{successList, failList}`,
+   * where an unresolvable item lands in `failList` while the envelope still says
+   * 操作成功 (probed 2026-09-19 on all three stock-pool batch writes). Both entry
+   * points run `flagFailedItems` on these, so the same response cannot exit 3 through
+   * the dedicated command and 0 through `raw call`. */
+  itemFailures?: true
 }
 
 /** Effective request timeout: the endpoint's floor, or the config timeout if higher
@@ -666,6 +685,52 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-vault/stock-pool/getStockList",
     kind: "json",
     description: "List securities in stock pool(s)",
+  },
+  // ─── vault stock-pool writes ───
+  // The only write endpoints in the CLI. Four of the five are idempotent by the
+  // server's own rules (probed 2026-09-14): re-adding a security already in the pool,
+  // removing one that isn't, and deleting a pool id that doesn't exist all answer
+  // `000000` with the item in `successList`. `createPool` is the exception — see below.
+  "vault.stock-pool.create": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/createPool",
+    kind: "json",
+    // Not idempotent, and its non-idempotence is what makes a replay actively
+    // misleading: a duplicate pool name is REJECTED with 230006 STOCK_POOL_NAME_DUPLICATE
+    // (probed 2026-09-19 — both against a pool created seconds earlier and against a
+    // long-standing one). So replaying a create whose first attempt actually succeeded
+    // reports a failure for a pool that now exists. Failing fast and letting the caller
+    // run `stock-pool-list` states the truth: we don't know whether it went through.
+    retry: "no-replay",
+    description: "Create a stock pool",
+  },
+  "vault.stock-pool.delete": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/deletePool",
+    kind: "json",
+    destructive: { warning: "删除股票池会同时移除池内全部证券的关注关系，且不可恢复（投资笔记不受影响）；先用 'gangtise vault stock-pool-list' 核对 ID 对应的池名。" },
+    itemFailures: true,
+    description: "Delete stock pools (removes every watch relation inside them)",
+  },
+  "vault.stock-pool.rename": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/updatePool",
+    kind: "json",
+    description: "Rename a stock pool",
+  },
+  "vault.stock-pool.add-stock": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/addStock",
+    kind: "json",
+    itemFailures: true,
+    description: "Add securities to a stock pool",
+  },
+  "vault.stock-pool.remove-stock": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/deleteStock",
+    kind: "json",
+    itemFailures: true,
+    description: "Remove securities from a stock pool",
   },
 
   // ─── alternative ───

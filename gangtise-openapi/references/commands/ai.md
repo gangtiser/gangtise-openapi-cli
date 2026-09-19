@@ -12,7 +12,7 @@
 gangtise ai knowledge-batch --query <text> [--query <text2>] [--top <n>] [--resource-type <n>] [--knowledge-name <name>] [--start-time <ts|datetime>] [--end-time <ts|datetime>]
 ```
 
-- `--query`（**必选**，可重复，最多 5 个）：缺失时本地报错，不发空请求
+- `--query`（**必选**，可重复，最多 5 个）：缺失时本地报错，不发空请求。**每个 `--query` 整段送出**——句子里的逗号是标点，不会被当成分隔符拆成两个查询；要问多个问题就重复传 `--query`
 - `--top` 默认 10，最大 20
 - `--resource-type`：`10` 券商研报 | `11` 外资研报 | `20` 内部报告 | `40` 首席观点 | `50` 公司公告 | `51` 港股公告 | `60` 会议平台纪要 | `70` 调研纪要公告 | `80` 网络资源纪要 | `90` 产业公众号
 - `--knowledge-name`：`system_knowledge_doc` 系统知识库 | `tenant_knowledge_doc` 机构知识库
@@ -86,6 +86,8 @@ gangtise ai earnings-review-check --data-id <id>
 - `--period`：`年份+报告期`，如 `2025q3`（q1/interim/q3/annual），仅 A 股，覆盖最近 6 期
 - `--wait`（**推荐**）：阻塞等待到出结果（最长约 5 分钟：14 次指数退避轮询 5s→30s，累计 ≈316s）——**用它时把工具/命令超时设到 ≥360s**，否则外层先超时
 - 不带 `--wait` 的手动轮询：① `earnings-review` → 拿 `{dataId, status, hint}` → ② 间隔 ~30s `*-check`（预算 ~2-3 分钟）→ pending 继续 → 多次仍 pending 交用户稍后手动 check
+  - 这一步的 `{dataId, status, hint}` 同样受 `--format` / `--output` 控制，**加了 `--output` 就会落盘**，脚本可以直接从文件里取 `dataId` 再去轮询
+  - `*-check` 返回「还在生成中」时同样落盘（`{dataId, status: "pending", hint}`），所以轮询脚本每一轮都能从同一个文件读状态，不必区分「出结果了」和「还没好」两种取法
 - 错误码：`140001`（旧 `410110`）生成中，继续等待；`140002`（旧 `410111`）生成失败，终态不重试。CLI 两代码都识别
 
 ## 观点 PK `ai viewpoint-debate`（异步）
