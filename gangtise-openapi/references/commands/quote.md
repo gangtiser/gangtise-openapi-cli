@@ -6,7 +6,7 @@
 
 **关键规则**：查"最近"K线必须显式 `--start-date`/`--end-date` 拉范围，再从 `tradeDate` 取尾部最近 N 条；不要只用 `--limit N`（会截取查询窗口开头）。
 
-🔴 **全市场关键字**：`quote day-kline` 不认 `--security all`，只认三个市场关键字之一——`aShares` / `hkStocks` / `usStocks`，且**必须单独传**（不能与证券代码或另一个关键字混填）。传 `all` 或混填 CLI 会直接报错并提示正确写法。三个已下线的旧命令（`day-kline-hk` / `day-kline-us` / `index-day-kline`）仍认 `all`。
+🔴 **全市场关键字**：`quote day-kline` 不认 `--security all`，只认三个市场关键字之一——`aShares` / `hkStocks` / `usStocks`，且**必须单独传**（不能与证券代码或另一个关键字混填）。传 `all` 或混填 CLI 会直接报错并提示正确写法。已下线的旧命令里，`day-kline-hk` / `day-kline-us` 仍认 `all`；`index-day-kline` 对 `all` 返回空结果，CLI 在发请求前直接拒绝——**全部沪深京指数没有一次拿全的写法**，要逐个传指数代码。
 
 **自动分片**：全市场关键字跨日期范围时 CLI 自动按日切片并并发执行，合并结果返回，无需手动分批。分片粒度按各市场单个交易日的行数规模定，保证单请求不撞 10000 行的 API 上限：
 
@@ -16,7 +16,7 @@
 | `day-kline` | `hkStocks` | 2 天/片 |
 | `day-kline` | `usStocks` | 1 天/片 |
 | `fund-flow` | `aShares` | 1 天/片 |
-| `day-kline-hk` / `day-kline-us` / `index-day-kline`（旧） | `all` | 2 / 1 / 15 天/片 |
+| `day-kline-hk` / `day-kline-us`（旧） | `all` | 2 / 1 天/片 |
 
 分片路径会自动把 `limit` 抬到 10000（API 上限），避免默认 6000 行截断；按日分片自动跳过周六日。
 
@@ -73,7 +73,7 @@ gangtise quote day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 
 - 旧命令**不校验证券代码**——传错代码返回空结果（`{"total":0,"list":[]}`）而不是报错，与「该票该区间真无数据」无法区分；`day-kline` 会报 `120001`
 - 参数与字段和 `day-kline` 完全一致（`--security` / `--start-date` / `--end-date` / `--limit` / `--field`），迁移只是换命令名
-- 三者的全市场关键字仍是 `all`（不是 `aShares` 那套）
+- `day-kline-hk` / `day-kline-us` 的全市场关键字仍是 `all`（不是 `aShares` 那套）；`index-day-kline` 没有全市场关键字，只收明确的指数代码
 
 ## 实时行情 `quote realtime`
 
@@ -118,14 +118,11 @@ gangtise quote fund-flow [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 gangtise quote index-day-kline [--security <code>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
 ```
 
-- 沪深京指数：如 `000001.SH` 上证综指、`399001.SZ` 深成指；`--security all` 全市场指数（**仍是 `all`，不是 `aShares` 那套**）
+- 沪深京指数：如 `000001.SH` 上证综指、`399001.SZ` 深成指，可重复传；**没有全市场关键字**——`--security all` 在这个接口上返回空结果，CLI 直接拒绝
 - `--limit` 默认 6000，上限 10000
-- 常用字段：`securityCode` `securityName` `tradeDate` `open` `high` `low` `close` `preClose` `change` `pctChange` `volume` `amount`
-- `securityName` 为指数名称（如 `上证指数`）
-- **还值得用它的两个场景**（都是 `day-kline` 做不到的）：
-  1. **一次拿全部沪深京指数**（`--security all`）——`day-kline` 的指数必须逐个传代码
-  2. **要指数名称**——`index-day-kline` 返回 `securityName`（如「上证指数」），`day-kline` **没有这个字段**，查指数只拿得到代码
-- 反过来 `day-kline` 独有 `adjustFactor`（复权因子），但指数本来就没有复权，该字段查指数时恒为 `null`
+- 返回字段与 `day-kline` 相同：`securityCode` `tradeDate` `open` `high` `low` `close` `preClose` `change` `pctChange` `volume` `amount` `adjustFactor`（指数恒为 `null`）。**不含指数名称**
+- 没有 `day-kline` 做不到的能力，新代码直接用 `day-kline` 传同样的代码
+- **要指数名称**：`gangtise reference securities-search --keyword 000001.SH --category index`，返回的 `gtsName` 即名称（如「上证指数」）
 
 ## 分钟 K 线 `quote minute-kline`
 

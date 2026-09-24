@@ -1,6 +1,6 @@
 {
   "name": "gangtise-openapi-cli",
-  "version": "0.41.0",
+  "version": "0.41.1",
   "description": "CLI for Gangtise OpenAPI",
   "license": "MIT",
   "repository": {
@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "commander": "^14.0.0",
-    "undici": "^7.28.0"
+    "undici": "^7.29.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

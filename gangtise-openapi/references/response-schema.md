@@ -61,7 +61,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
 | reference sector-search | `{returnedCount, list}` | `list[].sectorId` / `list[].sectorName` / `list[].hierarchy`（层级路径） / `list[].matchScore` |
 | reference sector-constituents | `{total, list}` | `list[].gtsCode` / `list[].gtsName`；total=0 说明 sectorId 不对（先 sector-search 确认） |
-| quote day-kline（及已下线的 day-kline-hk / day-kline-us / index-day-kline） | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume` / `amount`（全球指数为 `null`）/ `adjustFactor`（指数为 `null`，ETF 有值）；`index-day-kline` 另含 `securityName`（指数名称） |
+| quote day-kline（及已下线的 day-kline-hk / day-kline-us / index-day-kline） | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume` / `amount`（全球指数为 `null`）/ `adjustFactor`（指数为 `null`，ETF 有值）；四者字段相同，均不含指数名称 |
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `tradeStatus` / `open` / `high` / `low` / `latestPrice` / `preClose` / `change` / `pctChange` / `volume` / `amount` / `amplitude`（共 15 个，**无 `close`、无市值、无 `turnoverRate` / `volumeRatio`**；美股 `amount`、全球指数 `volume` / `amount` / `amplitude` 为 `null`） |
 | quote fund-flow | `{fieldList, list, total}` 列式 → 规范化后 `{list: [{...}], total}` 宽表 | `securityCode` / `tradeDate` + 请求的字段（`mainNetInflow` / `largeInflow` / `xlargeOutflow` / …） |

@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.41.0"
+version: "0.41.1"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -29,7 +29,7 @@ description: |-
 5. **多值参数**：优先重复传（最稳、最明确）：`--security 600519.SH --security 000858.SZ`。CLI 也支持半/全角逗号分隔（语音输入容错），但重复传不易被 shell 吞。
 6. **K 线"最近 N 条"**：必须用 `--start-date`/`--end-date` 拉日期范围，从结果按 `tradeDate` 取尾部最近 N 条。**不要只用 `--limit N`**（截取的是窗口开头）。
 6.1. **日 K 仅历史**：`day-kline` **不返回盘中实时数据**。当日数据入库时间：A 股 ~15:30 / 港股 ~16:30 / 美股 ~07:00（北京时间）。需要盘中快照请走 `quote realtime`。
-6.1.1. 🔴 **`quote day-kline` 一个命令覆盖 A 股 / 港股 / 美股 / 沪深 ETF / 各类指数（含 20 个全球指数）**，可混着传代码。**全市场关键字是 `aShares` / `hkStocks` / `usStocks`，必须单独传**（不能与代码或另一个关键字混填；`--security all` 会被 CLI 拒并提示改用哪个）。**关键字只覆盖个股**：ETF 与各类指数（`.SH`/`.SZ`/`.BJ` 交易所指数、`.GT` 概念、`.CI`/`.SWI` 行业、`SPX.SPI` 等全球指数，清单见 `references/commands/quote.md`）须逐个传代码。全球指数 realtime 的 `volume` / `amount` / `amplitude` 与分钟 K 的 `volume` / `amount` 为 `null`，日 K 只有 `amount` 为 `null`；`tradeTime` 是交易所当地时间。`day-kline-hk` / `day-kline-us` / `index-day-kline` 已下线（接口仍可调、仍用 `all`），**新代码别用**——它们不校验证券代码，传错返空而不报错。
+6.1.1. 🔴 **`quote day-kline` 一个命令覆盖 A 股 / 港股 / 美股 / 沪深 ETF / 各类指数（含 20 个全球指数）**，可混着传代码。**全市场关键字是 `aShares` / `hkStocks` / `usStocks`，必须单独传**（不能与代码或另一个关键字混填；`--security all` 会被 CLI 拒并提示改用哪个）。**关键字只覆盖个股**：ETF 与各类指数（`.SH`/`.SZ`/`.BJ` 交易所指数、`.GT` 概念、`.CI`/`.SWI` 行业、`SPX.SPI` 等全球指数，清单见 `references/commands/quote.md`）须逐个传代码。全球指数 realtime 的 `volume` / `amount` / `amplitude` 与分钟 K 的 `volume` / `amount` 为 `null`，日 K 只有 `amount` 为 `null`；`tradeTime` 是交易所当地时间。`day-kline-hk` / `day-kline-us` / `index-day-kline` 已下线（接口仍可调；前两个仍用 `all`，`index-day-kline` 的 `all` 取不到数、CLI 会拒绝），**新代码别用**——它们不校验证券代码，传错返空而不报错。
 6.2. **多标的日 K**：显式传多个 `--security` 时，「证券数 × 交易日数」不超过 `--limit`（默认 6000 / 上限 10000）走单请求；超过则 CLI 自动逐只请求并按传入顺序合并，每只各自受 `--limit` 约束，撞上的标 `partial` + `truncatedSecurities`、退出码 3。单只超 10000 行仍要缩日期区间分批。
 7. **CLI 已内置自动化，不要手动复刻**：
    - 翻页 → 首页拿 total 后剩余页并发拉取；🔴 **全量拉取结束会多探一行验证 `total` 是不是服务端封顶**（`total` 若只是服务端封顶值，按它翻完会停在上限、看起来却像全量）——探到就标 `partial` + `totalCapped` + 退出 3，**这时导出的是截断结果，要缩小时间范围分片拉**
@@ -156,7 +156,7 @@ vault.stock-pool.create
 | 管理层讨论 / A·港·美股公告 / `alternative edb-*` 行业指标 | 前溯 **3 年** |
 | `insight pamirs-summary` 帕米尔纪要 | **不限**（但需单独购买专家纪要库） |
 
-⚠️ **这是官方口径，不是硬边界**：服务端按**账号**配这个时间窗口、不按接口配——**换接口绕不过去**（`indicator` 三接口与 `quote day-kline` 同界）。超范围查询返回 `110003`，**不是空结果**——拿到 `110003` 就是撞了权限边界，缩窗口对「整段都在界外」的查询无效，要把日期移进范围或联系客户经理。
+⚠️ **这是官方口径，不是硬边界**：服务端按**账号**配这个时间窗口、不按接口配——**换接口绕不过去**（`indicator` 三接口与 `quote day-kline` 同界）。整段都在界外返回 `110003`，**不是空结果**——缩窗口对这种查询无效，要把日期移进范围或联系客户经理。🔴 **区间跨过下界时各接口不同**：`quote` 日 K 与 `fundamental valuation-analysis` 从下界起返回、**不报错**（结果看着完整，要核对首行日期；估值分析 CLI 会在 stderr 提示）；`indicator` 三接口与 `bond` 整批报 `110003`，把起点移进窗口再查。
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -209,7 +209,7 @@ vault.stock-pool.create
 | 管理层讨论（财报） | `ai management-discuss-announcement` |
 | 管理层讨论（业绩会） | `ai management-discuss-earnings-call` |
 | 日 K（历史，A 股 / 港股 / 美股 / 沪深 ETF / 各类指数含 20 个全球指数，可混查） | `quote day-kline` |
-| 全部沪深京指数日 K / 要指数名称 | `quote index-day-kline`（**旧命令仍有两处 `day-kline` 做不到**：`--security all` 一次拿全部指数；返回 `securityName` 指数名称——`day-kline` 查指数只有代码没有名称） |
+| 沪深京指数日 K / 要指数名称 | `quote day-kline` 逐个传指数代码（**没有一次拿全部指数的写法**，旧命令 `index-day-kline --security all` 已取不到数、CLI 会拒绝）；指数名称用 `reference securities-search --keyword <指数代码> --category index`（返回 `gtsName`） |
 | ~~港股 / 美股日 K~~ | ⚠️ 已下线，用 `quote day-kline`（`day-kline-hk` / `day-kline-us` 仍可调但不校验代码） |
 | 分钟 K（沪深 A 股 / ETF + 各类指数含全球指数） | `quote minute-kline`（`--security` 可重复，逐只并发合并） |
 | 实时行情（A / 港 / 美 / 沪深 ETF / 各类指数含全球指数） | `quote realtime` |
@@ -218,7 +218,7 @@ vault.stock-pool.create
 | 单证券 港股完整利润表 / 资产负债 / 现金流 | `fundamental income-statement-hk / balance-sheet-hk / cash-flow-hk` |
 | 单证券 美股完整利润表 / 资产负债 / 现金流 | `fundamental income-statement-us / balance-sheet-us / cash-flow-us` |
 | 单证券主营业务 / 收入结构 | `fundamental main-business` |
-| A股单证券估值序列 / PE / PB / 历史分位 | `fundamental valuation-analysis` |
+| A股单证券估值序列 / PE / PB / 历史分位 | `fundamental valuation-analysis`（逐自然日一行，默认只取最近 2000 行；长区间要把 `--limit` 设到不小于区间天数，撞满会退出 3；起点早于账号回溯下界时从下界起返回、不报错） |
 | A股盈利预测 / 一致预期 | `fundamental earning-forecast` |
 | 前十大股东 | `fundamental top-holders` |
 | 债券基本资料 / 票面利率 / 到期日 / 债券条款 | `bond basic-info`（`--field` 写错**整批拒绝** `100003`，不会静默丢列） |

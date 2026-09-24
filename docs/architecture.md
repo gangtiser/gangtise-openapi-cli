@@ -54,7 +54,7 @@
 |:--|:--|
 | `transport.ts` | Shared `undici.Agent` (keep-alive pool) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for replay-unsafe endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control |
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
-| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`aShares` / `hkStocks` / `usStocks`; retired per-market endpoints still take `all`) & fund-flow (`aShares`), each market at its own shard size · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
+| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`aShares` / `hkStocks` / `usStocks`; the retired HK / US endpoints still take `all`, the retired index endpoint takes codes only) & fund-flow (`aShares`), each market at its own shard size · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
 | `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / screener / time-series `values` matrix flattened into a wide table |
 | `printer.ts` | `printData`: normalize + render + title-cache writeback · stages the `<file>.meta.json` sidecar (row/column counts, completeness flags, `bytes` + `sha256`) and re-reads the published path to detect a file replaced by a concurrent export (exit 4) |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |

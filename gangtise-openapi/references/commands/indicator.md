@@ -278,7 +278,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 | `100003`@400 | 入参/表达式错误：`time-series` 传了「多指标 × 多证券」、`expression` 引用未声明变量、`indicatorParamList` 的 code 不在 `indicatorCodeList` 里 | 按 msg 改；多 × 多改用 `cross-section`。CLI 已在本地拦截「表达式引用未绑定变量」，不会白发一次请求 |
 | `140002`@500 | **终态参数错**：指标必填参数缺失、枚举越界（如「参数 adjustType 的值 99 不在有效范围内 [1,2,3,4]」）、表达式语法错误 | **不重试**（CLI 已把 140002 列为终态码）。读 `search --format json` 的 `parameterList` 改参数名/取值 |
 | `999999` | 系统故障。「无数据」不用此码，所以它基本只剩真故障。⚠️ 别把它和空表混为一谈：无数据是占位单元格（统一 `null`），空表表示整轴 code 未识别或参数名写错 | CLI 对 indicator 端点**不重试此码**；确认参数无误仍报错，稍后再试或联系平台支持 |
-| `110003` | **超出账号数据权限的时间范围**。窗口按**账号**配、不按接口配——`cross-section` / `time-series` / `screener` 同界，`quote day-kline` 也在同一条界上 | 把日期移进范围；整段区间都早于下界时缩短窗口无用，**换接口绕不过去**，要更长历史联系客户经理开通 |
+| `110003` | **超出账号数据权限的时间范围**。窗口按**账号**配、不按接口配——`cross-section` / `time-series` / `screener` 同界，区间**跨过**下界也整批报这个码；`quote day-kline` 在同一条界上，但跨界时从下界起返回、不报错 | 把起点移进范围；整段区间都早于下界时缩短窗口无用，**换接口绕不过去**，要更长历史联系客户经理开通 |
 | `130001`（旧 `410004`） | 数据未找到，或**该指标无权限**（内层信封失败会带具体 msg，如"指标无权限"；此码被服务端复用） | 检查查询条件与指标权限；换证券/日期仍失败多为无权限，联系管理员开通 |
 
 ### 必填参数（`140002` 的根因）
@@ -418,5 +418,5 @@ gangtise indicator cross-section --indicator scr_indu_citic --indicator scr_indu
 - **发现流程**：`indicator search --format json` → 核对 `indicatorName` + `description`、`scopeList`（含 `usageRestriction`）、`parameterList`（**参数名以此为准**）→ 三项都通过才用 `cross-section` / `time-series` / `screener`
 - **积分**：`search` 免费；`cross-section` / `time-series` / `screener` 按请求单元格数量计费，标价为每 100 单元格 A 股 0.05 / 港股 0.1 / 美股 0.2 积分，每次查询不足 100 单元格按 100 计
 - **空结果排查顺序**：真无数据会返回占位单元格（统一 `null`）而不是空表，所以**空表基本等于「没有任何 code 被认出来」或参数名写错**。按序排查：① 证券代码与后缀对不对（美股 `.O`/`.N`，不是 `.US`）② 指标 code 拼写对不对 ③ 参数名对不对（`indicator search` 的 `parameterList`）④ 日期语义对不对（`tradeDate` vs `reportDate`——报告期类指标日期用错会整批返 `null`，看着像「没数据」）
-- **数据权限**：正式账号行情 / 财务 / 指标类可回溯的年限按服务等级而定，试用账号更短。这个时间窗口按**账号**配、不按接口配——三个 EDE 接口同界（`quote day-kline` 也在同一条界上），撞界统一返 `110003`，**换接口绕不过去**；整段区间都早于下界时缩短窗口无用，要更长历史联系客户经理开通
+- **数据权限**：正式账号行情 / 财务 / 指标类可回溯的年限按服务等级而定，试用账号更短。这个时间窗口按**账号**配、不按接口配——三个 EDE 接口同界，区间跨过下界也整批返 `110003`（`quote day-kline` 在同一条界上，但跨界时从下界起返回、不报错），**换接口绕不过去**；整段区间都早于下界时缩短窗口无用，要更长历史联系客户经理开通
 - 所有格式（table/json/jsonl/csv/markdown）均可用；导出宽表给 Excel 直接用 `--format csv --output xxx.csv`

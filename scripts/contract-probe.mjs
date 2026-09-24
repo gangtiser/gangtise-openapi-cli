@@ -11,9 +11,12 @@
 // A diff here is a doc / skill update waiting to happen, not (necessarily) a bug.
 //
 // Needs credentials (GANGTISE_ACCESS_KEY / GANGTISE_SECRET_KEY, or GANGTISE_TOKEN).
-// Every probe is free of credits. Values are NOT compared — only names and null-ness —
-// so a normal trading day and a holiday produce the same snapshot. Row order is not part
-// of the contract either: everything keyed by security is sorted before comparison.
+// Most probes are free. The ones in PAID_PROBES are billed per row, so each fetches a
+// single row: a run costs a few credits. Values are NOT compared — only names and
+// null-ness — so a normal trading day and a holiday produce the same snapshot. Row order
+// is not part of the contract either: everything keyed by security is sorted before
+// comparison. The paid list probes record column names only: which row comes back is
+// "the newest one", so its null pattern changes with the data, not with the contract.
 //
 // GANGTISE_CONTRACT_CLI / GANGTISE_CONTRACT_SNAPSHOT override the CLI script and the
 // snapshot path — the test suite drives this file against a stand-in CLI through them.
@@ -99,7 +102,26 @@ const probes = {
     const list = rows(cli(["reference", "constant-category"]))
     return { columns: columns(list), count: list.length }
   },
+  // Free. Top-level keys only: the entries depend on what the account keeps in its drive,
+  // so recording their columns would report a "change" whenever a file is added.
+  "vault.drive.folder-list": () => sortedObject(["1", "2"].map((space) => {
+    const data = cli(["vault", "drive-folder-list", "--space-type", space])
+    return [`space${space}`, Object.keys(data).sort()]
+  })),
+  "insight.opinion.list": () => ({ columns: columns(rows(cli(["insight", "opinion", "list", "--size", "1"]))) }),
+  "insight.foreign-opinion.list": () => ({ columns: columns(rows(cli(["insight", "foreign-opinion", "list", "--size", "1"]))) }),
+  "insight.highlight.list": () => ({ columns: columns(rows(cli(["insight", "highlight", "list", "--size", "1"]))) }),
+  "bond.basic-info": () => ({ columns: columns(rows(cli(["bond", "basic-info", "--security", "019742.SH"]))) }),
+  // Free. `quote index-day-kline` refuses `all` locally because this endpoint answers it
+  // with an empty list. Sent through `raw call` (which has no such check) so a server that
+  // starts answering it again shows up here as a change — the cue to lift the refusal.
+  "quote.index-day-kline.all": () => ({
+    answersAll: rows(cli(["raw", "call", "quote.index-day-kline", "--body", JSON.stringify({ securityList: ["all"], startDate: START, endDate: END })])).length > 0,
+  }),
 }
+/** Billed per row; each fetches one. Named here so the cost is visible in one place. */
+const PAID_PROBES = ["insight.opinion.list", "insight.foreign-opinion.list", "insight.highlight.list", "bond.basic-info"]
+process.stderr.write(`contract probe: ${Object.keys(probes).length} probes, ${PAID_PROBES.length} of them paid (one row each)\n`)
 
 const update = process.argv.includes("--update")
 const previous = existsSync(SNAPSHOT) ? JSON.parse(readFileSync(SNAPSHOT, "utf8")) : {}

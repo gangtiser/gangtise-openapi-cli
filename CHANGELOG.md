@@ -4,6 +4,17 @@
 
 > 🔴 **服务端问题的逐轮复核记录在 `bug/review-log.md`**，不在本文件。本文件只记版本变更。
 
+### v0.41.1 — 2026-09-24
+
+**修正三处静默取数问题；依赖安全更新。**
+
+1. **`quote index-day-kline` 不再接受 `--security all`**：该接口对 `all` 返回 `total: 0` 的空结果、不报错，与「当天无数据」无法区分，CLI 改为在发请求前报错，报错信息写明原因与替代写法。指数日 K 用 `quote day-kline` 逐个传代码（该接口的返回字段与 `day-kline` 相同，不含 `securityName`）；指数名称用 `reference securities-search --keyword <指数代码> --category index` 返回的 `gtsName`。**全部沪深京指数目前没有一次拿全的写法。** `quote.md` / `fields.md` / `response-schema.md` / `SKILL.md` / README 同步。
+2. **`fundamental valuation-analysis` 的长区间截断改为显式报出**：序列逐自然日一行（含周末），接口默认只返回最近 2000 行，区间更长时**开头**会缺失，此前退出 0。现在 CLI 显式发送默认 `limit`，行数撞满即标 `partial`、退出码 3，stderr 说明缺的是区间开头、`--limit` 至少设到区间天数（权限窗口内的十年约 3700 行，如 `--limit 4000`）；首行恰好就是 `--start-date` 时说明一行没丢，不标；`--skip-null` 同样保留该标记。`--limit` 补充帮助说明。
+3. **估值分析 `--field` 的字段组合不再可能错列**：CLI 发请求前对 `--field` 去重，并去掉 `tradeDate`（它总在第一列返回；只要了 `tradeDate` 一项时照常发送）。旧版在 `--field` 同时含 `tradeDate`（或同一字段写了两次）与不存在的字段名时，输出的每个值会整体右移一列且退出 0，`--skip-null` 与导出元信息也看不出来——**用过这类组合的估值结果请重跑**。只含 `tradeDate` 或重复字段、不含不存在的名字时，旧版退出 1，不会输出错列数据。
+4. **估值分析的起点被推迟时给出提示**：`--start-date` 早于账号回溯下界时，该接口从下界起返回、不报错（整段都在界外才报 `110003`）。首行晚于 `--start-date` 时 CLI 在 stderr 提示——可能是上市较晚，也可能是撞了权限窗口。`SKILL.md` / `errors.md` / `indicator.md` 同步写明：区间跨过下界时 `quote` 日 K 与估值分析不报错、`indicator` 与 `bond` 整批报 `110003`。
+5. **依赖**：`undici` 7.28.0 → 7.29.1（安全更新；本 CLI 未使用受影响的缓存与重试拦截器）。
+6. **文档**：`fundamental.md` / `fields.md` 写明估值分析 `--field` 的用法——至少要含一个数值列（`value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`），只传 `tradeDate` 或只传不存在的名字（含 `securityCode`）时接口返回 0 行、不报错；数值列与不存在的名字混传时 CLI 因字段数对不上报错退出 1。`references/errors.md` 的退出码摘要补上 `4`（导出的数据完整，但 `--output` 已被另一次导出替换）。README 的 skill 安装命令改为首次安装与更新都适用（先删旧副本再复制）：目标目录已存在时直接 `cp -r`，新版会被复制进嵌套的 `gangtise-openapi/gangtise-openapi/`，已安装的副本仍是旧版——**这样更新过的，按新命令重新执行一次即可**（嵌套目录会一并清掉）。
+
 ### v0.41.0 — 2026-09-24
 
 **观点与题材改走省积分的 v2 接口；新增云盘管理、`bond` 族、会议线索与联网搜索。**

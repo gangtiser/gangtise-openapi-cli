@@ -277,7 +277,7 @@ export class GangtiseClient {
       //
       // Applies to EVERY malformed shape, not just `null`: a string `total` truncates the
       // result to page 1, which looks complete and is therefore worse than an obviously
-      // empty payload. All 24 paginated endpoints are genuine {total, list} lists (the
+      // empty payload. Every paginated endpoint is a genuine {total, list} list (the
       // odd-shaped ones like reference.constant-list are not marked paginated), so there
       // is no legitimate response that lands here. Endpoints where `null` IS a valid
       // answer (ai.one-pager for a security with no generated content) are unpaginated

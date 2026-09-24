@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Stand-in for `dist/src/cli.js`, driven by scripts/contract-probe.mjs through
-// GANGTISE_CONTRACT_CLI. Answers the six probes with canned shapes. FAKE_MODE:
+// GANGTISE_CONTRACT_CLI. Answers every probe with canned shapes. FAKE_MODE:
 //   ok       — the reference shapes
 //   reorder  — identical contract, every row list reversed (must NOT trip the probe)
 //   fail     — every command exits 1 (must never end up in a written snapshot)
@@ -39,6 +39,14 @@ if (group === "quote" && command === "realtime") {
   out = order([hit, { indicatorCode: "unrelated_code", parameterList: [], scopeList: [] }])
 } else if (group === "reference" && command === "constant-category") {
   out = { list: order([{ category: "a" }, { category: "b" }]) }
+} else if (group === "vault" && command === "drive-folder-list") {
+  out = { folderTotal: 0, folderList: [], fileTotal: 0, fileList: [] }
+} else if (group === "insight" && args[2] === "list" && ["opinion", "foreign-opinion", "highlight"].includes(command)) {
+  out = { total: 1, list: [{ id: "1", title: "t", publishTime: 1 }] }
+} else if (group === "raw" && command === "call") {
+  out = { total: 0, list: [] }
+} else if (group === "bond" && command === "basic-info") {
+  out = { total: 1, list: [{ securityCode: values("--security")[0], couponRate: 1 }] }
 } else {
   process.stderr.write(`fake-gangtise: unhandled ${args.join(" ")}\n`)
   process.exit(2)

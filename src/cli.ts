@@ -86,16 +86,17 @@ const DEFAULT_QUOTE_LIMIT = 6000
  * RETURNED row count, not the true total, so a full page (rows == the limit we sent) is
  * the only truncation signal. Flag the result partial (printData → exit 3) + warn so a
  * capped export isn't mistaken for the full set. `cap` MUST be the exact limit the caller
- * sent on the request; `--limit` is validated to <= 10000 so `cap` can't exceed the
- * server ceiling and hide a truncation.
+ * sent on the request. Where the server has a row ceiling of its own (the quote
+ * endpoints: 10000), `--limit` is validated to it, so `cap` never exceeds that ceiling
+ * and hides a truncation.
  */
-function flagIfLimitTruncated(data: unknown, cap: number, label: string, rangeFlags = "--start-date/--end-date"): void {
+function flagIfLimitTruncated(data: unknown, cap: number, label: string, rangeFlags = "--start-date/--end-date", advice?: string): void {
   if (!data || typeof data !== "object" || Array.isArray(data)) return
   const rec = data as Record<string, unknown>
   if (rec.partial === true) return
   if (Array.isArray(rec.list) && rec.list.length >= cap) {
     rec.partial = true
-    process.stderr.write(`[gangtise] warning: ${label} returned ${rec.list.length} rows = the ${cap}-row limit; results are likely truncated (this endpoint has no pagination). Narrow ${rangeFlags} or raise --limit (max 10000), fetching in date batches.\n`)
+    process.stderr.write(`[gangtise] warning: ${label} returned ${rec.list.length} rows = the ${cap}-row limit; results are likely truncated (this endpoint has no pagination). ${advice ?? `Narrow ${rangeFlags} or raise --limit (max 10000), fetching in date batches.`}\n`)
   }
 }
 
@@ -626,11 +627,7 @@ const quote = new Command("quote").description("Quote APIs")
 /** Whole-market keywords an endpoint accepts, mapped to days per shard. A shard holds
  * (rows per trading day x shardDays) and must stay under the 10K-row API cap. A-shares
  * and US each list several thousand securities per day, so they take one day per shard;
- * HK is roughly half that and takes two; the SH/SZ/BJ index universe is only in the
- * hundreds, so fifteen calendar days still lands well inside the cap.
- *
- * Indices are NOT "far fewer per window": a few hundred rows across ~22 trading days
- * clears 10K, which is why the historical 30-day size silently truncated every shard.
+ * HK is roughly half that and takes two.
  *
  * These universes grow with listings, and the counts are not pinned here on purpose —
  * they drift. What to watch is the product: when a market's rows per trading day
@@ -638,8 +635,11 @@ const quote = new Command("quote").description("Quote APIs")
  * the date it was taken, are in the `bug/` ledger.
  *
  * The unified `day-kline` dropped the old `all` keyword on 2026-08-14 in favour of the
- * three market keywords, which must each be sent alone. The menu-retired per-market
- * endpoints still take `all`. */
+ * three market keywords, which must each be sent alone. Of the menu-retired per-market
+ * endpoints, the HK and US ones still take `all`; the index one answers `all` with
+ * `000000` and an empty list (probed 2026-09-24 over four windows back to 2024, three
+ * samples each, while explicit index codes return rows), so it takes no keyword here and
+ * `all` is refused before anything is sent. */
 type MarketShardDays = Record<string, number>
 const KLINE_MARKETS: MarketShardDays = { aShares: 1, hkStocks: 2, usStocks: 1 }
 const LEGACY_ALL_MARKET = (shardDays: number): MarketShardDays => ({ all: shardDays })
@@ -674,8 +674,8 @@ const FUND_FLOW_MARKETS = ["aShares"]
  *
  * ⚠️ `all` collides with a real ticker root (`ALL` is Allstate on the NYSE), so a bare
  * `--security ALL` fetches the whole US market instead of that stock. That resolution
- * happens on the SERVER (`ALL` / `All` / `all` are equivalent to it on all three retired
- * endpoints), so matching case-sensitively here would not prevent it — it would only stop
+ * happens on the SERVER (`ALL` / `All` / `all` are equivalent to it on the two retired
+ * per-market endpoints that still take it), so matching case-sensitively here would not prevent it — it would only stop
  * us from sharding a request the server treats as whole-market anyway, turning a complete
  * result into a 6000-row truncation. The fix for that user is the suffixed `ALL.N`.
  *
@@ -685,7 +685,7 @@ const FUND_FLOW_MARKETS = ["aShares"]
 const MARKET_KEYWORDS = new Set(["all", "ashares", "hkstocks", "usstocks"])
 const matchesMarketKeyword = (value: string, keyword: string): boolean =>
   value.toLowerCase() === keyword.toLowerCase()
-const checkMarketKeywords = (securities: string[], accepted: readonly string[], command: string): void => {
+const checkMarketKeywords = (securities: string[], accepted: readonly string[], command: string, noKeywordReason?: string): void => {
   const used = securities.filter((s) => MARKET_KEYWORDS.has(s.toLowerCase()))
   if (used.length === 0) return
   // Report an unsupported keyword before the alone-ness rule: when both are wrong, the
@@ -694,7 +694,7 @@ const checkMarketKeywords = (securities: string[], accepted: readonly string[], 
   if (unsupported.length > 0) {
     throw new ValidationError(accepted.length > 0
       ? `${command}: '${unsupported[0]}' is not a whole-market keyword for this command — use ${accepted.join(" / ")}`
-      : `${command}: this command takes explicit security codes only — '${unsupported[0]}' and other whole-market keywords are not supported`)
+      : `${command}: this command takes explicit security codes only — '${unsupported[0]}' and other whole-market keywords are not supported${noKeywordReason ? `: ${noKeywordReason}` : ""}`)
   }
   // The API rejects a keyword sent alongside security codes or a second keyword, again
   // as a bare 120001 that points at the codes rather than at the combination. On
@@ -711,7 +711,7 @@ const checkMarketKeywords = (securities: string[], accepted: readonly string[], 
 const canonicalizeMarketKeywords = (securities: string[], accepted: readonly string[]): string[] =>
   securities.map((s) => accepted.find((a) => matchesMarketKeyword(s, a)) ?? s)
 
-const addKlineCommand = (name: string, endpointKey: string, securityHelp: string, markets: MarketShardDays) =>
+const addKlineCommand = (name: string, endpointKey: string, securityHelp: string, markets: MarketShardDays, noKeywordReason?: string) =>
   quote.command(name)
     .option("--security <code>", securityHelp, collectList, [])
     .option("--start-date <date>", "Start date (default: 1 year before end-date)", dateArg("--start-date"))
@@ -723,7 +723,7 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
     .action((options) => {
       // Validate BEFORE withClient: createClient() logs in when no token is cached, so a
       // check inside the callback would spend a request to then fail locally anyway.
-      checkMarketKeywords(options.security, Object.keys(markets), `quote ${name}`)
+      checkMarketKeywords(options.security, Object.keys(markets), `quote ${name}`, noKeywordReason)
       options.security = canonicalizeMarketKeywords(options.security, Object.keys(markets))
       return withClient(options, async (client) => {
       const format = parseOutputFormat(options.format)
@@ -766,11 +766,7 @@ const addKlineCommand = (name: string, endpointKey: string, securityHelp: string
 addKlineCommand("day-kline", "quote.day-kline", "Security code — A-share .SH/.SZ/.BJ, ETF .SH/.SZ (e.g. 512800.SH), HK .HK, US .O/.N/.A, exchange index .SH/.SZ/.BJ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); or one market keyword: aShares / hkStocks / usStocks (auto-sharded by date, must be passed alone; keywords cover stocks only — ETFs and indices must be listed by code)", KLINE_MARKETS)
 addKlineCommand("day-kline-hk", "quote.day-kline-hk", "[deprecated: use 'day-kline'] Security code (HK stock: .HK, or 'all' for full market)", LEGACY_ALL_MARKET(2))
 addKlineCommand("day-kline-us", "quote.day-kline-us", "[deprecated: use 'day-kline'] Security code (US stock: e.g. AAPL.O, or 'all' for full market)", LEGACY_ALL_MARKET(1))
-// 15 days, not the historical 30: ~531 index rows per trading day x ~11 trading days in a
-// 15-day window is ~5.8K, while a 30-day window is ~11.7K — every shard silently maxed out
-// at the 10K cap and lost ~11% of the range (it surfaced as exit 3 + truncatedShards, but
-// the split was never sized to avoid it in the first place).
-addKlineCommand("index-day-kline", "quote.index-day-kline", "[deprecated: use 'day-kline'] Index code (.SH/.SZ/.BJ, or 'all' for full market)", LEGACY_ALL_MARKET(15))
+addKlineCommand("index-day-kline", "quote.index-day-kline", "[deprecated: use 'day-kline'] Index code (.SH/.SZ/.BJ), repeat for several; no whole-market keyword — 'all' is refused because the endpoint answers it with an empty result", {}, "the endpoint answers 'all' with an empty result. List the index codes one by one — quote day-kline takes the same codes")
 quote.command("minute-kline").option("--security <code>", "Security code — A-share .SH/.SZ (SH/SZ only), ETF .SH/.SZ (e.g. 512800.SH), exchange index .SH/.SZ, concept index .GT, industry index .CI/.SWI, global index (e.g. SPX.SPI / N225.NKI / HSI.HI); repeat for several — one request each, run concurrently and merged; no whole-market keyword", collectList, []).option("--start-time <datetime>", "Start time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time")).option("--end-time <datetime>", "End time (yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time")).option("--limit <number>", "Max rows per request (default: 6000, max: 10000)").option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(options, async (client) => {
   const format = parseOutputFormat(options.format)
   const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }) ?? DEFAULT_QUOTE_LIMIT
@@ -853,17 +849,60 @@ addFinancialReport("income-statement-us", "fundamental.income-statement-us", "Pe
 addFinancialReport("balance-sheet-us", "fundamental.balance-sheet-us", "Period: q1/h1/q3/nsd/annual/latest")
 addFinancialReport("cash-flow-us", "fundamental.cash-flow-us", "Period: q1/h1/q3/nsd/annual/latest")
 fundamental.command("main-business").requiredOption("--security-code <code>").option("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).option("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).addOption(new Option("--breakdown <type>", "Breakdown: product/industry/region").choices(["product", "industry", "region"]).default("product")).option("--period <type>", "Period: interim/annual", collectList, []).option("--field <field>", "Field", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("fundamental.main-business", { securityCode: options.securityCode, startDate: options.startDate, endDate: options.endDate, breakdown: options.breakdown, periodList: maybeArray(options.period), fieldList: maybeArray(options.field) })))
-fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).option("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--limit <number>").option("--field <field>", "Field", collectList, []).option("--skip-null", "Drop rows where value or percentileRank is null").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
+const VALUATION_DEFAULT_LIMIT = 2000
+/** The fieldList actually sent: each name once, and no `tradeDate` unless it is all that
+ * was asked for. The endpoint always answers with `tradeDate` first; asking for it anyway,
+ * or naming a column twice, repeats that value in every row while the echoed field list
+ * names it once, and an unknown name drops its value (probed 2026-09-25, three samples
+ * each). One of each cancels out — `tradeDate,value,percentileRank,foo` came back with
+ * every value one column to the right and the widths equal, so the width check passed it
+ * at exit 0. With nothing that can add a value, an unknown name always leaves the rows
+ * short, which the width check refuses. `tradeDate` alone is kept: dropping it would ask
+ * for every column, and the endpoint answers it with no rows. */
+function valuationFieldsToSend(fields: string[]): string[] {
+  const unique = [...new Set(fields)]
+  const values = unique.filter((field) => field !== "tradeDate")
+  return values.length > 0 ? values : unique
+}
+/** `tradeDate` of the first row, whatever shape the rows came in; undefined when absent
+ * (e.g. --field left it out). */
+function firstRowTradeDate(data: unknown): string | undefined {
+  const normalized = normalizeRows(data)
+  const list = Array.isArray(normalized) ? normalized : (normalized as { list?: unknown } | null)?.list
+  const first = Array.isArray(list) ? list[0] : undefined
+  const value = first && typeof first === "object" ? (first as Record<string, unknown>).tradeDate : undefined
+  return typeof value === "string" ? value : undefined
+}
+fundamental.command("valuation-analysis").requiredOption("--security-code <code>").addOption(new Option("--indicator <name>", "Indicator").choices(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).makeOptionMandatory()).option("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date")).option("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date")).option("--limit <number>", "Max rows (default: 2000). One row per calendar day, weekends included, and the most recent are kept — a range longer than the limit loses its START (flagged partial, exit 3)").option("--field <field>", "Field", collectList, []).option("--skip-null", "Drop rows where value or percentileRank is null").option("--format <format>", "Output format", "table").option("--output <path>").action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
-  const requested = maybeArray(options.field)
+  const requested = maybeArray<string>(options.field)
   // --skip-null judges `value` and `percentileRank`, so both must come back even when
   // --field asked for neither: a column that was not requested reads as `undefined` here,
   // the filter counts that as null, and EVERY row is dropped — an empty result with exit 0
   // that looks like "no data for this security". Fetch the columns the filter needs on top
   // of --field, then drop them again before output so --field still decides the columns.
   const filterFields = options.skipNull && requested ? ["value", "percentileRank"].filter((field) => !requested.includes(field)) : []
-  const fieldList = requested && filterFields.length > 0 ? [...requested, ...filterFields] : requested
-  let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }), fieldList })
+  const fieldList = requested && valuationFieldsToSend([...requested, ...filterFields])
+  // Sent explicitly, so the sent limit and the truncation cap are the same number by
+  // construction. Omitted, the server applies this same default and keeps the MOST RECENT
+  // rows: a ten-year --start-date silently came back as its last 2000 days, exit 0
+  // (probed 2026-09-24: 茅台 peTtm 2016-01-01..2026-09-24 → 2000 rows from 2021-04-04;
+  // --limit 5000 → all 3920). The series has one row per calendar day, weekends included.
+  const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1 }) ?? VALUATION_DEFAULT_LIMIT
+  let data: unknown = await client.call("fundamental.valuation-analysis", { securityCode: options.securityCode, indicator: options.indicator, startDate: options.startDate, endDate: options.endDate, limit, fieldList })
+  // The series is ascending with one row per calendar day, so its first date settles what
+  // a full page cannot: a first row ON --start-date means nothing was cut (a range of
+  // exactly `limit` days), and a first row AFTER it on a page that did not fill means the
+  // server started late on its own — a later listing, or a range that reaches past the
+  // account's history window, which this endpoint clips without an error (probed
+  // 2026-09-24: 2015-01-01..2016-03-31 starts at the 2016-01-01 bound, exit 0).
+  const firstDate = firstRowTradeDate(data)
+  if (!(options.startDate && firstDate === options.startDate)) {
+    flagIfLimitTruncated(data, limit, "fundamental valuation-analysis", "--start-date", `The API keeps the most recent rows, so it is the START of the range that is missing. The series has one row per calendar day (weekends included): raise --limit to at least the number of days in the range (e.g. --limit 4000 for ten years within your account's history window), or move --start-date later.`)
+  }
+  if (options.startDate && firstDate && firstDate > options.startDate && !(data as { partial?: boolean }).partial) {
+    process.stderr.write(`[gangtise] note: the series starts at ${firstDate}, later than --start-date ${options.startDate}. Either the security listed later, or the range reaches past your account's history window — this endpoint returns what lies inside the window without an error.\n`)
+  }
   if (options.skipNull) {
     const normalized = normalizeRows(data)
     if (normalized && typeof normalized === "object" && !Array.isArray(normalized)) {

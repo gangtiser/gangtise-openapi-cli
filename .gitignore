@@ -22,3 +22,6 @@ evals/
 contracts/
 scripts/skill-eval.mjs
 scratchpad/
+
+# per-run CLI builds for the spawn-based tests (tests/globalSetup.ts)
+.test-dist/

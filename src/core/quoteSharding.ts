@@ -93,7 +93,7 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
     // every 1-day-sharded full-market query: fund-flow AND day-kline (aShares/usStocks)
     // / day-kline-us.
     //
-    // Multi-day shards (day-kline hkStocks=2, index-day-kline=15) are NOT filtered. Note
+    // Multi-day shards (day-kline hkStocks=2, day-kline-hk=2) are NOT filtered. Note
     // this is a deliberate simplification, not a claim that they always contain a weekday:
     // a 2-day shard starting on a Saturday is Sat+Sun and returns nothing. That costs one
     // wasted request at a range boundary and never drops a trading day, whereas filtering

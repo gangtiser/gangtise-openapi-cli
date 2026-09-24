@@ -1,32 +1,80 @@
 import { execFile } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { promisify } from "node:util"
 
+import type { TestProject } from "vitest/node"
+
 const run = promisify(execFile)
 
-/** Build dist from clean once per vitest invocation so the spawn-based CLI tests
- * (cli.test, cliBodyMapping.test) run `node dist/src/cli.js` (~150ms/spawn) instead of tsx
- * (~1s/spawn — it used to dominate 96% of the suite's wall clock).
+declare module "vitest" {
+  export interface ProvidedContext {
+    /** Absolute path of the CLI entry compiled for THIS vitest invocation. */
+    cliPath: string
+  }
+}
+
+/** Where each run compiles to. Inside the repo on purpose: the compiled CLI imports
+ * `commander` / `undici`, and Node only finds them by walking up to this repo's
+ * node_modules — an OS temp dir has none. */
+const BUILD_ROOT = ".test-dist"
+
+/** Build the CLI from clean once per vitest invocation, into a directory of its own, so
+ * the spawn-based tests (cli.test, cliBodyMapping.test) run `node <build>/src/cli.js`
+ * (~150ms/spawn) instead of tsx (~1s/spawn).
  *
- * Always a clean build, never a "dist is newer than src" shortcut: that shortcut trusted
+ * Always a clean build, never a "build is newer than src" shortcut: that shortcut trusted
  * mtimes, and a source restored with its old mtime (cp -p), a tsconfig change, or a
- * deleted dist module all left a stale dist in place — so a mutation check could turn
- * red or green on the wrong build. The few seconds tsc takes are the price of the
- * spawn tests testing this checkout.
+ * deleted module all left a stale build in place — so a mutation check could turn red or
+ * green on the wrong build.
  *
- * KNOWN LOCAL HAZARD — running `npm run build` / `npm run prepare` WHILE the
- * suite is running makes the spawn-based tests fail in a block. `prebuild` does
- * `rmSync('dist', {recursive: true})`, so for the few seconds tsc takes to
- * rewrite it, every `node dist/src/cli.js` spawn dies with
- * `Cannot find module .../dist/src/cli.js` — exit 1, nothing captured, and each
- * remaining case in that file fails the same way. Diagnosed 2026-08-03 after
- * ~6 sightings; the signature (7–27 failures, only on full runs, never on a
- * single file) had previously been misread as a product flake. Two concurrent
- * vitest invocations do it too. CI runs the suite once, serially, so it is not
- * affected. Locally: don't build while testing. */
-export default async function buildCliOnce(): Promise<void> {
+ * A directory per run, not the shared `dist/`: two concurrent invocations (two sessions,
+ * or `npm run build` during a run) used to wipe each other's build mid-suite, which showed
+ * up as a block of `Cannot find module .../cli.js` failures in exactly these two files —
+ * indistinguishable at a glance from a regression. */
+export default async function buildCliOnce(project: TestProject): Promise<() => void> {
   const root = process.cwd()
-  fs.rmSync(path.join(root, "dist"), { recursive: true, force: true })
-  await run("npx", ["tsc", "-p", "tsconfig.json"], { cwd: root, timeout: 120_000 })
+  const buildRoot = path.join(root, BUILD_ROOT)
+  sweepStale(buildRoot)
+
+  const outDir = path.join(buildRoot, `${process.pid}-${randomBytes(4).toString("hex")}`)
+  fs.mkdirSync(outDir, { recursive: true })
+  try {
+    await run("npx", ["tsc", "-p", "tsconfig.json", "--outDir", outDir], { cwd: root, timeout: 120_000 })
+  } catch (error) {
+    // No teardown runs when setup throws, so a failed compile would otherwise stay behind.
+    fs.rmSync(outDir, { recursive: true, force: true })
+    throw error
+  }
+  project.provide("cliPath", path.join(outDir, "src", "cli.js"))
+
+  return () => fs.rmSync(outDir, { recursive: true, force: true })
+}
+
+/** Removes the build dirs whose owning vitest process is gone — a run killed with Ctrl-C
+ * never reaches its teardown. Keyed on the pid in the dir name rather than on age, so a
+ * long-lived run (watch mode) is never swept from under itself. */
+function sweepStale(buildRoot: string): void {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(buildRoot, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const pid = Number(/^(\d+)-/.exec(entry.name)?.[1])
+    if (!entry.isDirectory() || !pid || isAlive(pid)) continue
+    fs.rmSync(path.join(buildRoot, entry.name), { recursive: true, force: true })
+  }
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM: the process exists but belongs to someone else.
+    return (error as NodeJS.ErrnoException).code === "EPERM"
+  }
 }

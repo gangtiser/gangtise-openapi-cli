@@ -41,11 +41,11 @@ describe("contract-probe", () => {
   it("--update writes a baseline and a rerun on the same contract passes", async () => {
     expect((await probe("ok", "--update")).code).toBe(0)
     const written = JSON.parse(await readFile(snapshot, "utf8")) as Record<string, unknown>
-    expect(Object.keys(written).sort()).toEqual(["indicator.search", "quote.day-kline", "quote.fund-flow", "quote.minute-kline", "quote.realtime", "reference.constant-category"])
+    expect(Object.keys(written).sort()).toEqual(["bond.basic-info", "indicator.search", "insight.foreign-opinion.list", "insight.highlight.list", "insight.opinion.list", "quote.day-kline", "quote.fund-flow", "quote.index-day-kline.all", "quote.minute-kline", "quote.realtime", "reference.constant-category", "vault.drive.folder-list"])
     const again = await probe("ok")
     expect(again.code).toBe(0)
     expect(again.stderr).not.toContain("≠")
-  }, 30_000)
+  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
 
   it("row order is not part of the contract: reversed rows still pass", async () => {
     // Identical columns and null pattern, every list reversed — including the two-date
@@ -54,7 +54,7 @@ describe("contract-probe", () => {
     const reordered = await probe("reorder")
     expect(reordered.stderr).not.toContain("≠")
     expect(reordered.code).toBe(0)
-  }, 30_000)
+  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
 
   it("a genuine contract change fails the plain run, leaves the baseline alone, and is accepted only by --update", async () => {
     // One extra column on the realtime rows — everything else identical. This is the
@@ -70,7 +70,7 @@ describe("contract-probe", () => {
     expect((await probe("drift", "--update")).code).toBe(0)
     expect(await readFile(snapshot, "utf8")).not.toBe(before)
     expect((await probe("drift")).code).toBe(0)
-  }, 30_000)
+  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
 
   it("--update refuses to write when a probe failed to run, and keeps the old baseline", async () => {
     expect((await probe("ok", "--update")).code).toBe(0)
@@ -82,18 +82,18 @@ describe("contract-probe", () => {
     expect(failed.stderr).not.toContain("snapshot written")
     expect(await readFile(snapshot, "utf8")).toBe(before)
     expect((await stat(snapshot)).mtimeMs).toBe(mtimeBefore)
-  }, 30_000)
+  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
 
   it("--update with no prior baseline and failing probes writes nothing at all", async () => {
     const failed = await probe("fail", "--update")
     expect(failed.code).toBe(1)
     await expect(stat(snapshot)).rejects.toThrow()
-  }, 30_000)
+  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
 
   it("a plain run reports failed probes as a non-zero exit, not as a pass", async () => {
     expect((await probe("ok", "--update")).code).toBe(0)
     const failed = await probe("fail")
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain("failed to run")
-  }, 30_000)
+  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
 })

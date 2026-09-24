@@ -76,12 +76,14 @@
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|
-| `securityCode` | 指数代码 | `securityName` | 指数名称（如 上证指数） |
-| `tradeDate` | 交易日期 | `open` | 开盘价 |
-| `high` | 最高价 | `low` | 最低价 |
-| `close` | 收盘价 | `preClose` | 昨收价 |
-| `change` | 涨跌额 | `pctChange` | 涨跌幅(%) |
-| `volume` | 成交量(股) | `amount` | 成交总额(元) |
+| `securityCode` | 指数代码 | `tradeDate` | 交易日期 |
+| `open` | 开盘价 | `high` | 最高价 |
+| `low` | 最低价 | `close` | 收盘价 |
+| `preClose` | 昨收价 | `change` | 涨跌额 |
+| `pctChange` | 涨跌幅(%) | `volume` | 成交量(股) |
+| `amount` | 成交总额(元) | `adjustFactor` | 复权因子（指数恒为 `null`） |
+
+与 `day-kline` 查指数的返回完全相同，**不含指数名称**；要名称用 `reference securities-search --keyword <指数代码> --category index` 的 `gtsName`。
 
 ---
 
@@ -202,7 +204,7 @@
 
 ### 估值分析 (`fundamental valuation-analysis`)
 
-> ⚠️ `--field` 写错字段名时**只丢值、字段名照回显**，CLI 会因长度不匹配报错退出 1——见本文顶部「字段名写错时，两族接口的表现完全不同」。
+> ⚠️ `--field` 写错字段名时**只丢值、字段名照回显**，CLI 会因长度不匹配报错退出 1——见本文顶部「字段名写错时，两族接口的表现完全不同」。🔴 例外：`--field` 里一个数值列都没有时（只传 `tradeDate`、或只有不存在的名字），接口返回 0 行、不报错。 `tradeDate` 总在第一列返回，不用写进 `--field`（写了 CLI 会自动去掉）。
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|

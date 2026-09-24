@@ -6,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from "vitest"
 
 // End-to-end smoke test: runs the real CLI (built once by tests/globalSetup.ts)
 // so command wiring, option parsing, and the top-level error handler are
@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 // commander-level validation, and argument-validation paths (which throw
 // before any client.call).
 const run = promisify(execFile)
-const CLI = path.resolve(process.cwd(), "dist/src/cli.js")
+const CLI = inject("cliPath")
 
 async function cli(args: string[]): Promise<{ code: number; out: string }> {
   try {

@@ -6,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from "vitest"
 
 import { stagingSiblings } from "../fixtures/staging.js"
 
@@ -16,7 +16,7 @@ import { stagingSiblings } from "../fixtures/staging.js"
 // unfiltered data in production while every unit test stays green. One spawn per case,
 // so keep this to one representative command per wiring pattern, not one per command.
 const run = promisify(execFile)
-const CLI = path.resolve(process.cwd(), "dist/src/cli.js")
+const CLI = inject("cliPath")
 
 interface CapturedRequest {
   path: string
@@ -460,12 +460,23 @@ beforeAll(async () => {
         // Columnar, and --field narrows what comes back: a column the caller did not ask
         // for is simply absent. That is what makes the two columns --skip-null judges a
         // FETCH-time concern, not a display one.
+        // Shaped like the live answer: `indicator` echoed, no `total`. `limit` keeps the
+        // MOST RECENT rows, as the server does. LONG.XX has 5 daily rows, anything else 2.
         const KNOWN = ["tradeDate", "value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]
-        const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
-        const fieldList = requested ? KNOWN.filter((f) => requested.includes(f)) : KNOWN
-        const rows: unknown[][] = [["2026-09-01", 21.5, 0.42, 20, 20, 30, 10], ["2026-09-02", 22.5, 0.45, 20, 20, 30, 10]]
-        const list = rows.map((row) => fieldList.map((f) => row[KNOWN.indexOf(f)]))
-        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: list.length, fieldList, list } }))
+        const req = body as { fieldList?: string[]; securityCode?: string; indicator?: string; limit?: number } | undefined
+        // Like the live endpoint (probed 2026-09-25, three samples each): the echoed field
+        // list is `tradeDate` then the requested names, de-duplicated, unknown ones kept;
+        // each row is the date then one value per requested name in request order — so an
+        // explicit `tradeDate` or a repeated name adds a value, and an unknown name adds
+        // none. A request with no value column answers an empty list.
+        const requested = req?.fieldList
+        const fieldList = requested ? ["tradeDate", ...new Set(requested.filter((f) => f !== "tradeDate"))] : KNOWN
+        const days = req?.securityCode === "LONG.XX" ? 5 : 2
+        const rows: unknown[][] = Array.from({ length: days }, (_, i) => [`2026-09-0${i + 1}`, 21.5 + i, 0.42, 20, 20, 30, 10])
+        const hasValueColumn = !requested || requested.some((f) => KNOWN.slice(1).includes(f))
+        const kept = !hasValueColumn ? [] : typeof req?.limit === "number" ? rows.slice(-req.limit) : rows
+        const list = kept.map((row) => (requested ? [row[0], ...requested.filter((f) => KNOWN.includes(f)).map((f) => row[KNOWN.indexOf(f)])] : row))
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { indicator: req?.indicator, fieldList, list } }))
         return
       }
       res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
@@ -989,17 +1000,12 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     }
   }, 60_000)
 
-  it("pins the shard granularity of the retired per-market endpoints, including index=15", async () => {
-    // The index endpoint used to split `all` into 30-day windows, which ALWAYS maxed out:
-    // ~531 index rows per trading day x ~22 trading days in 30 days is ~11.7K against a
-    // 10K cap, so every shard silently lost rows (surfaced as exit 3 + truncatedShards).
-    // 15 days caps a window at 11 trading days (~5.8K). Nothing else guards that number —
-    // without this test, changing it back to 30 keeps the whole suite green.
-    // 2026-08-03..09-16 is 45 days: 15->3 shards, 2->23, 1->45.
+  it("pins the shard granularity of the retired per-market endpoints that still take `all`", async () => {
+    // Nothing else guards these numbers — change one and the rest of the suite stays green.
+    // 2026-08-03..09-16 is 45 days: 2->23 shards, 1->45 (33 once weekends are skipped).
     const range = ["--start-date", "2026-08-03", "--end-date", "2026-09-16", "--format", "json"]
 
     for (const [command, expectedShards] of [
-      ["index-day-kline", 3],
       ["day-kline-hk", 23],
       ["day-kline-us", 33], // 1 day/shard, weekends skipped: 45 days -> 33 weekdays
     ] as const) {
@@ -1139,15 +1145,32 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(out).toContain("truncated")
   }, 30_000)
 
-  it("quote index-day-kline --security all does not false-flag partial when the result fits the limit", async () => {
-    // --limit omitted → full-market path uses the 10000 cap; the stub's 3 rows are well
-    // under it, so the result must NOT be flagged partial (true negative). A result that
-    // actually hits the limit IS flagged — covered in quoteSharding.test.ts.
-    const { code } = await cli([
-      "quote", "index-day-kline", "--security", "all",
+  it("quote index-day-kline refuses `all` before any request — the endpoint answers it with an empty list", async () => {
+    // The server answers `all` here with 000000 and zero rows while explicit index codes
+    // still return data, so passing it through would be a silent exit-0 empty result.
+    // Case variants too: the server folds case, so `ALL` is the same request.
+    for (const keyword of ["all", "ALL"]) {
+      captured.length = 0
+      const { code, out } = await cli([
+        "quote", "index-day-kline", "--security", keyword,
+        "--start-date", "2026-06-03", "--end-date", "2026-06-03", "--format", "json",
+      ])
+      expect(code, keyword).toBe(1)
+      expect(out, keyword).toContain("explicit security codes only")
+      // The reason and the way out, so the refusal does not read as a usage mistake.
+      expect(out, keyword).toContain("answers 'all' with an empty result")
+      expect(out, keyword).toContain("quote day-kline takes the same codes")
+      expect(captured, keyword).toHaveLength(0)
+    }
+    // Positive control: explicit index codes still go out, in one request.
+    captured.length = 0
+    const ok = await cli([
+      "quote", "index-day-kline", "--security", "000001.SH", "--security", "399001.SZ",
       "--start-date", "2026-06-03", "--end-date", "2026-06-03", "--format", "json",
     ])
-    expect(code).toBe(0)
+    expect(ok.code).toBe(0)
+    expect(captured).toHaveLength(1)
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["000001.SH", "399001.SZ"])
   }, 30_000)
 
   it("reference institution-search maps keyword, categories and top", async () => {
@@ -2274,21 +2297,120 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     // to narrow the REQUEST too, so percentileRank never came back, read as undefined, and
     // the filter dropped every row — {total:0,list:[]} with exit 0, which reads as "this
     // security has no valuation history".
-    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "tradeDate", "--field", "value", "--skip-null", "--format", "json"])
+    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "value", "--skip-null", "--format", "json"])
     expect(code).toBe(0)
     const sent = captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { fieldList?: string[] }
-    expect(sent.fieldList).toEqual(["tradeDate", "value", "percentileRank"])
+    expect(sent.fieldList).toEqual(["value", "percentileRank"])
     const data = JSON.parse(stdout) as { total: number; list: Array<Record<string, unknown>> }
     expect(data.total).toBe(2)
-    // Fetched for the filter only: --field still decides which columns the caller gets.
+    // Fetched for the filter only: --field still decides which columns the caller gets
+    // (tradeDate comes back on its own).
     expect(Object.keys(data.list[0])).toEqual(["tradeDate", "value"])
   }, 30_000)
 
   it("valuation-analysis without --skip-null sends --field unchanged", async () => {
-    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "tradeDate", "--field", "value", "--format", "json"])
+    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "value", "--format", "json"])
     expect(code).toBe(0)
-    expect((captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { fieldList?: string[] }).fieldList).toEqual(["tradeDate", "value"])
-    expect((JSON.parse(stdout) as { total: number }).total).toBe(2)
+    expect((captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { fieldList?: string[] }).fieldList).toEqual(["value"])
+    const data = JSON.parse(stdout) as { list: Array<Record<string, unknown>> }
+    expect(data.list.map((row) => Object.keys(row))).toEqual([["tradeDate", "value"], ["tradeDate", "value"]])
+  }, 30_000)
+
+  it("valuation-analysis sends each field once and never tradeDate, so the rows stay in line", async () => {
+    // The endpoint returns tradeDate on its own; asking for it, or for a column twice,
+    // repeats a value in every row while the field list names it once.
+    const valueSent = async (args: string[]) => {
+      captured.length = 0
+      const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", ...args, "--format", "json"])
+      const sent = (captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { fieldList?: string[] }).fieldList
+      return { code, sent, rows: (JSON.parse(stdout) as { list: Array<Record<string, unknown>> }).list }
+    }
+    for (const args of [["--field", "tradeDate", "--field", "value"], ["--field", "value", "--field", "value"], ["--field", "value", "--field", "tradeDate", "--field", "value"]]) {
+      const { code, sent, rows } = await valueSent(args)
+      expect(code, args.join(" ")).toBe(0)
+      expect(sent, args.join(" ")).toEqual(["value"])
+      expect(rows[0], args.join(" ")).toEqual({ tradeDate: "2026-09-01", value: 21.5 })
+    }
+    // --skip-null with only tradeDate asked for: the filter columns are fetched, tradeDate
+    // is not sent, and the output keeps just the date.
+    const onlyDate = await valueSent(["--field", "tradeDate", "--skip-null"])
+    expect(onlyDate.sent).toEqual(["value", "percentileRank"])
+    expect(onlyDate.rows[0]).toEqual({ tradeDate: "2026-09-01" })
+  }, 30_000)
+
+  it("valuation-analysis refuses a field list that would shift every value one column, instead of printing it", async () => {
+    // tradeDate (one value too many) plus an unknown name (one too few) used to cancel out:
+    // widths equal, every value one column to the right, exit 0 — complete: true in the
+    // sidecar. With tradeDate no longer sent, the unknown name leaves the rows short.
+    for (const extra of [[], ["--skip-null"]]) {
+      captured.length = 0
+      const { code, stdout, stderr } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "tradeDate", "--field", "value", "--field", "percentileRank", "--field", "foo", ...extra, "--format", "json"])
+      expect(code, extra.join(" ")).toBe(1)
+      expect(stderr, extra.join(" ")).toContain("fieldList")
+      expect(stdout.trim(), extra.join(" ")).toBe("")
+      expect((captured[0].body as { fieldList?: string[] }).fieldList, extra.join(" ")).toEqual(["value", "percentileRank", "foo"])
+    }
+  }, 30_000)
+
+  it("valuation-analysis sends the default limit when --limit is omitted", async () => {
+    // Sent explicitly so the truncation check compares against the number actually sent.
+    const { code } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--format", "json"])
+    expect(code).toBe(0)
+    expect((captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { limit?: number }).limit).toBe(2000)
+  }, 30_000)
+
+  it("valuation-analysis flags partial (exit 3) when rows fill --limit, and says the START is what is missing", async () => {
+    // The server keeps the most recent rows, so a range longer than the limit silently
+    // loses its beginning. That used to be exit 0.
+    const { code, stdout, stderr } = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--limit", "3", "--format", "json"])
+    expect(code).toBe(3)
+    expect(stderr).toContain("START of the range")
+    const data = JSON.parse(stdout) as { partial?: boolean; list: Array<Record<string, unknown>> }
+    expect(data.partial).toBe(true)
+    expect(data.list.map((r) => r.tradeDate)).toEqual(["2026-09-03", "2026-09-04", "2026-09-05"])
+  }, 30_000)
+
+  it("valuation-analysis keeps the partial flag through --skip-null", async () => {
+    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--limit", "3", "--skip-null", "--format", "json"])
+    expect(code).toBe(3)
+    expect((JSON.parse(stdout) as { partial?: boolean }).partial).toBe(true)
+  }, 30_000)
+
+  it("valuation-analysis does not flag a range of exactly --limit days: the first row is --start-date itself", async () => {
+    // LONG.XX has 2026-09-01..05; --limit 3 keeps 09-03..05. With --start-date 09-03 the
+    // page is full but nothing was cut — the ascending first row IS the requested start.
+    const { code, stdout, stderr } = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--start-date", "2026-09-03", "--limit", "3", "--format", "json"])
+    expect(code).toBe(0)
+    expect(stderr).not.toContain("truncated")
+    expect((JSON.parse(stdout) as { partial?: boolean }).partial).toBeUndefined()
+  }, 30_000)
+
+  it("valuation-analysis still flags a full page whose first row is after --start-date", async () => {
+    const { code, stderr } = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--start-date", "2026-09-01", "--limit", "3", "--format", "json"])
+    expect(code).toBe(3)
+    expect(stderr).toContain("START of the range")
+    // The truncation warning already says the start is missing; no second, vaguer note.
+    expect(stderr).not.toContain("later than --start-date")
+  }, 30_000)
+
+  it("valuation-analysis notes a series that starts after --start-date on a page that did not fill", async () => {
+    // The server clips a range reaching past the account's history window without an
+    // error, and a later listing looks the same; either way the caller should know.
+    const late = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--start-date", "2026-08-01", "--format", "json"])
+    expect(late.code).toBe(0)
+    expect(late.stderr).toContain("starts at 2026-09-01, later than --start-date 2026-08-01")
+    const onTime = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--start-date", "2026-09-01", "--format", "json"])
+    expect(onTime.code).toBe(0)
+    expect(onTime.stderr).not.toContain("later than --start-date")
+  }, 30_000)
+
+  it("valuation-analysis does not flag a result that fits under --limit", async () => {
+    const { code, stdout, stderr } = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--limit", "10", "--format", "json"])
+    expect(code).toBe(0)
+    expect(stderr).not.toContain("truncated")
+    const data = JSON.parse(stdout) as { partial?: boolean; list: unknown[] }
+    expect(data.partial).toBeUndefined()
+    expect(data.list).toHaveLength(5)
   }, 30_000)
 })
 

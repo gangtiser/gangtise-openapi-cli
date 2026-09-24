@@ -6,6 +6,8 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.41.1 — 2026-09-24**：① **`quote index-day-kline --security all` 改为直接报错**：该接口对 `all` 返回空结果、不报错，与「当天无数据」无法区分；报错信息写明原因与替代写法。指数日 K 请用 `quote day-kline` 逐个传代码；该接口的返回字段与 `day-kline` 相同、不含指数名称，名称用 `reference securities-search --keyword <指数代码> --category index` 返回的 `gtsName`。② **`fundamental valuation-analysis` 长区间不再被静默截断**：序列逐自然日一行（含周末），默认只取最近 2000 行，区间更长时开头会缺失——现在撞满即标 `partial`、退出码 3，并提示把 `--limit` 设到不小于区间天数（权限窗口内的十年约 3700 行）；首行恰好就是 `--start-date` 时说明没丢，不标。起点早于账号回溯下界时该接口从下界起返回、不报错，CLI 在 stderr 提示首行晚于 `--start-date`。③ **估值分析 `--field` 不再可能错列**：CLI 发请求前对字段去重并去掉 `tradeDate`（它总在第一列返回）。旧版在 `--field` 同时含 `tradeDate`（或重复字段）与不存在的字段名时，会输出整体右移一列的数据且退出 0，**用过这类组合的估值结果请重跑**。④ 依赖 `undici` 升至 7.29.1（安全更新）。⑤ 文档：`fundamental valuation-analysis` 的 `--field` 至少要含一个数值列（`value` 等），只传 `tradeDate` 或只传不存在的名字时接口返回 0 行、不报错；`references/errors.md` 的退出码摘要补上 `4`。⑥ **Skill 安装命令改为可重复执行**：目标目录已存在时直接 `cp -r`，新版会被复制进嵌套的 `gangtise-openapi/gangtise-openapi/`、已安装的副本仍是旧版；这样更新过的，按「AI Agent Skill」段的新命令重新执行一次即可。
+
 - **v0.41.0 — 2026-09-24**：① **观点列表改走 v2，省积分**：`insight opinion list` / `foreign-opinion list` 默认只返回摘要（`brief`，外资另有 `briefTranslate`，取正文前 200 字），**1 积分/条**；要正文用新增的 `insight opinion detail --chief-opinion-id` / `foreign-opinion detail --foreign-opinion-id`（**30 积分/条**，按返回条数计；ID 可一次传多个，CLI 按 20 个一批自动拆分；没返回正文的 ID 列在 `missingIds`、中途某批失败时未取的 ID 列在 `unfetchedIds`，两种情况都以退出码 3 结束）。想像以前一样列表直接带正文，加 `--with-content`（30 积分/条，返回旧版结构：内资正文在 `contentList.content`；与 `detail` 一样超时不自动重发）。② **题材画像与成分股改走 v2**：`alternative concept-info` / `concept-securities` **50 积分/次**；v2 不含催化事件 `keyEvents`、重点个股标识 `isKey`、纳入理由 `inclusionReason`，需要这几列加 `--full`（500 积分/次）。③ **云盘管理 9 个命令，全部免费**：`vault drive-folder-list`（浏览目录）/ `drive-upload` / `drive-create-folder` / `drive-rename` / `drive-move-file` / `drive-move-folder` / `drive-copy`（把文件复制到另一空间：我的云盘 ↔ 租户云盘）/ `drive-delete-file` / `drive-delete-folder`。两个删除**需 `--yes`**，删文件夹会连同其中全部子文件夹与文件一起删除且不可恢复；云盘允许同名，上传 / 新建 / 复制每跑一次就多一份，这三个与两个删除**超时不自动重发**。④ **新增 `bond` 族 12 个命令，0.4 积分起**：`basic-info`（静态档案）/ `issuer-info` / `daily-quote` / `valuation`（上清所估值）/ `cash-flow` / `announcement` / `issuance-detail` / `rating-overview` / `rating-change`（债项评级变动）/ `issuer-rating-change` / `issuance-plan` / `exercise-notice`。多数按次计费；`rating-overview` 按条、`rating-change` 按有数据的债券只数、`issuer-rating-change` 按发行人计。`--security` **只收标准债券代码**（`019742.SH` / `220205.IB`），简称与拼音整批拒绝（`120001`），先用 `reference securities-search` 换代码；`--field` 写错字段名同样整批拒绝（`100003`），不会静默丢列。**整族超时不自动重发**——计费接口重发会重复扣费，偶发 5xx / 超时请自行重跑。🔴 **`bond announcement` 需手动翻页**：本族唯一分页的接口且**不返回 `total`**，`--page-no` 从 1 起逐页递增直到某页为空。⑤ **`insight highlight list` 会议线索**（会议核心要点信息流；🔴 **5 积分/条，务必带 `--size`**，省略会拉全量；`content` 是 HTML 片段，`--research-area` 不认申万码；按偏移量最多能翻到第 10000 条，超出部分请缩短时间范围分段取）。⑥ **`tool web-search` 联网搜索**（1 积分/次，零结果不扣）：`--site` 定向站点、`--min-tier` 收信源等级、`--freshness` 收时效、`--include-content` 取正文（此时 `--size` ≤5）。⚠️ **排序是「信源等级 → 发布日期 → 相关性」，首条不等于最相关**；`publishTime` 判不出时为 `null`，`--freshness` 会把这批一并滤掉，做时点判断别用 `indexTime`。⑦ **常量接口新增 9 个分类**：`fundType` / `fundBondType` / `bondType` / `interestRateType` / `interestFrequency` / `absUnderlyingAssetType` / `ratingType` / `exchange` / `nationalEconomicIndustry`。⑧ **取数前注意几处取值**：`bond issuer-info` 的评级列混合境内外口径，做信用比较一并取 `ratingAgency`；评级值可能带 `sf` / `pi` 后缀；`bond daily-quote` / `valuation` / `issuance-plan` 的 `--start-date` 早于可回溯下界时整批返回 `110003`，把起点移进窗口再查。逐条见 `gangtise-openapi/references/commands/bond.md`。
 
 - **v0.40.1 — 2026-09-19**：**文档修正，无代码变更**。① **字段名写错时两族接口的表现完全不同，现在写明了**：`quote realtime` / `day-kline` / `minute-kline` / `fund-flow` 是**字段名和值一起消失**（列数与值数始终对得上，CLI 标 `partial` + `missingFields`、退出码 3）；`fundamental main-business` / `valuation-analysis` 是**字段名照请求回显、行里少一个值**（`fieldList` 比行长，按下标对位会让缺口之后每个值都贴到错误的表头上，CLI 因此直接报错退出 1）。对照表在 `gangtise-openapi/references/fields.md` 顶部。② 订正 `references/commands/fundamental.md` 里一处把这两族说反的类比。**两族都不报错**，所以 `--field` 的字段名要以 `fields.md` 为准，不确定就别传（不传即返回全部字段）。
@@ -13,9 +15,10 @@ README 仅列最近 5 个版本摘要：
 - **v0.40.0 — 2026-09-19**：① **自选股股票池可增删改**：新增 `vault stock-pool-create` / `stock-pool-rename` / `stock-pool-add-stock` / `stock-pool-remove-stock` / `stock-pool-delete` 五个命令，全部免费、只操作本账号数据。**这是本 CLI 仅有的写操作**——`stock-pool-delete` 会连带移除池内全部关注关系且不可恢复，必须显式加 `--yes`（不加则直接报错、不发请求；个股的投资笔记不受影响）。加 / 删自选与删池是**逐条处理**的：单条失败（如证券代码不存在）服务端仍返回成功信封、明细放在 `failList`，CLI 检测到后在 stderr 点名、标 `partial`、**退出码 3**，批量脚本按退出码判断即可。池名上限 10 个字符、不可与已有池重名（分别返回 `230007` / `230006`），每账号最多 30 个池（`230003`）；证券代码大小写敏感且要带市场后缀，`600519.sh` / `700.HK` 这类会进 `failList` 而不是报错。**`raw call` 打这些端点时规则完全相同**——`raw call vault.stock-pool.delete` 一样要 `--yes`，逐条失败一样退出 3。② **`indicator time-series` 的日期轴改为自动判定**：不传 `--calendar-type` 时，CLI 先用免费的 `indicator search` 读各指标的 `parameterList`（去重后每个指标码各查一次，并发）——**全部是交易日类指标才按交易日取**（无非交易日空行，单元格也更省），只要有一个报告期类指标就按自然日取。这条很要紧：报告期末常落在非交易日（如 2024-03-31、2024-06-30 均为周日），按交易日取会让报告期类指标**整行全 `null`、退出码 0、不报错**。显式传了 `--calendar-type` 就完全按给的发。③ **`indicator` 截面 / 时序新增单次 30000 单元格上限**（截面 = 证券数 × 指标数，时序 = 序列数 × 日期数），超出报 `100006` 且不返回部分结果——按这个乘积拆批。⚠️ `--security` 传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进命令的条数。④ 🔴 **Token 缓存绑定签发它的凭证**：同一台机器上换掉 `GANGTISE_ACCESS_KEY` 后，只要上一个账号的 token 还没过期，此前会继续拿它发请求——取到的是**上一个账号**的数据；本版新增的股票池写命令若撞上，改的也会是上一个账号的池。现在凭证一换即重新登录。**`auth login` 报告的是接下来真正会用的身份**（新增 `source` 字段）：设了 `GANGTISE_TOKEN` 就报那个注入的 token 并说明未登录，只有走 AK/SK 时才真的登录；返回的 `cache` 描述这次登录本身，缓存落盘失败也不会混进上一个账号。⑤ **`ai knowledge-batch --query` 整段送出**：此前按逗号拆，`--query "比较两家公司毛利率，并解释差异"` 会被拆成两个半句各查一次；多个问题仍用重复 `--query`。⑥ **异步任务的提交与查询都遵守 `--output` / `--format`**：`ai earnings-review` / `viewpoint-debate` 不加 `--wait` 的提交结果，以及 `*-check` 返回「还在生成中」时的 pending 结果，此前都直接打到 stdout——传了 `--output` 却拿到退出 0 加一个不存在的文件，而 pending 恰恰是轮询脚本最需要读的那个。⑦ 错误码：新增 `230003` / `230006` / `230007` 的处置提示；`100006` 的提示补上 EDE 单元格口径。⑧ 文档：分钟线加总对日线的口径更正——**个别历史交易日的分钟数据与日线不一致**，成交量 / 成交额统计一律以日线为准，**别把「Σ分钟 = 日线」写成校验条件**（详见 `gangtise-openapi/references/fields.md`）。
 
 - **v0.39.0 — 2026-09-12**：① **导出文件可核验**：`csv` / `jsonl` 的 `<文件>.meta.json` 增加数据文件的字节数 `bytes` 与内容哈希 `sha256`，转交或归档前 `shasum -a 256 <文件>` 比一下，就能确认这份元信息描述的是旁边这份数据。② **并发导出到同一 `--output` 不再互相掺混**：两个进程同时写同一路径时各写各的暂存文件，最终文件是其中某一次的完整产物（此前可能把两次的行混进一个文件、还报成功）；收尾时回读比对哈希，文件已被另一次导出替换就在 stderr 说明并**退出码 4**——数据是完整的，只是那个位置上的文件不是本次产物（与退出码 3 同时发生时退出 3）。并发导出请给各自不同的 `--output`。③ **K 线分片合并的缺列护栏**：合并结果的列集取自第一个有数据的分片，只有靠后分片才返回的列放不下——现在标 `partial` + `droppedColumns`、退出码 3 并在 stderr 点名（此前静默丢弃），需要这些列就缩小日期区间单独拉。④ **`fundamental valuation-analysis` 的 `--skip-null` 与 `--field` 同用**：`--skip-null` 判的是 `value` 与 `percentileRank` 两列，`--field` 没点名它们时此前会把每一行都判成空、返回 `{total: 0, list: []}`（读起来像「这只票没有估值历史」）；现在自动补取这两列做过滤，输出仍只给 `--field` 点名的列。⑤ `ai stock-summary` 单次上限由 5000 放宽到接口上限 **6000**，全 A 股可一次提交完。⑥ 文档：EDE 指标覆盖按当前实测更新——`finc_pe_ttm` / `finc_pb_mrq` 港股均有数。分钟线加总对日线的口径见 `gangtise-openapi/references/fields.md`。
-- **v0.38.0 — 2026-09-06**：① `quote realtime` / `day-kline` / `minute-kline` 支持**沪深 ETF**（`512800.SH`）与 **20 个全球指数**（`SPX.SPI` 标普500 / `N225.NKI` 日经225 / `HSI.HI` 恒生…，清单见 `gangtise-openapi/references/commands/quote.md`），代码直接传即可；全市场关键字 `aShares` 不含 ETF；全球指数 realtime 的 `volume` / `amount` / `amplitude` 与分钟 K 的 `volume` / `amount` 为 `null`，日 K 只有 `amount` 为 `null`；`tradeTime` 是交易所当地时间。② `quote realtime` 字段集：新增 `tradeStatus`（仅 A 股 / 港股个股有值），`turnoverRate` / `volumeRatio` 不返回，美股 `amount` 为 `null`。③ **缺列护栏**：`quote` 系带 `--field` 时，请求了但服务端没回的列（字段名写错或已下线，服务端不报错）标 `partial` + `missingFields`、退出码 3 并在 stderr 点名；`--field` 只回点名的列、不自动附带身份列（日 K 要自己写进 `securityCode` / `tradeDate`，分钟 K 是 `securityCode` / `tradeTime`，realtime 是 `securityCode`；`fund-flow` 会自动附带）。④ **列结构护栏**：K 线全市场分片合并按列名对齐各片；响应的 `fieldList` 有重名列、或数组行没有 `fieldList` 时报错退出 1，不按位置拍平；`quote` 单请求收到无 `list` 的载荷报错退出 1；全量翻页从末页起步时同样做 `total` 封顶探测；后续页 / 分片自带的 `partial` 保留到合并结果。⑤ `fundamental earning-forecast` 的 `roe` 单位为百分比（`35.6` = 35.6%）。⑥ ETF 有复权因子：day-kline `adjustFactor` 与 EDE `qte_adj_factor` 都覆盖。⑦ 文档：`SKILL.md` 精简为规则 + 路由 + 引用，错误码全表、不报错的坑、`screener` 缺列判据与困境自救集中在 `references/errors.md`。⑧ `quote minute-kline` 的 `--security` 可重复，逐只并发请求后按传入顺序合并；`quote day-kline` 显式多证券在「证券数 × 交易日数」超过 `--limit` 时自动逐只请求合并，撞上限的证券标 `partial` + `truncatedSecurities`。⑨ **大导出**：`--format jsonl` / `csv` 加 `--output` 时，翻页 / 分片 / 逐只结果按到达顺序逐批写盘，内存不随行数增长（csv 磁盘两遍）；落盘时旁边生成 `<文件>.meta.json`（命令、数据行数、列、`complete` 与 `partial` 等完整性标记、抓取时间与时区、CLI 版本；密钥类字段脱敏），文件转交后仍可核验。⑩ `ai stock-summary` 单次最多 5000 只（更大的批次服务端返回空列表，CLI 本地拦截并提示分批）。⑪ A 股公告与 `ai knowledge-batch` 的 `--start-time` / `--end-time` 按**北京时间**换算成毫秒，与运行机器的时区无关。⑫ 省略 `--output` 的自动命名下载并发时各得其名、不互相覆盖；`raw call auth.login` 不需要环境里先有凭证。
+
 ### 历史里程碑
 
+- **v0.38.0**：`quote realtime` / `day-kline` / `minute-kline` 支持沪深 ETF 与 20 个全球指数，代码直接传即可。
 - **v0.37.0**：下载的「智能文件命名」改为默认只读缓存，缓存未命中不再自动回查 list 接口（省下按条计费的开销），要中文文件名加 `--resolve-title`。
 - **v0.36.0**：日期写法放宽为三种「年在前」格式（「年在后」仍拒收，接口会按美式解析导致差半年），`indicator screener` 支持无日期指标。
 - **v0.29.0**：新增财报日历与 PDF 解析工具，群消息补 `quoteMsg`，并加强大整数 ID 与高积分调用防护。
@@ -74,17 +77,17 @@ export GANGTISE_TIMEOUT_MS=30000       # 请求超时（默认 30s）
 export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.config/gangtise/token.json）
 ```
 
-如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。Token 失效（`0000001008` / `999002`）时会自动重新登录并重试一次；凭证本身错（`999011`）不重试，直接报错让你查环境变量。
+如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。服务端判定 Token 失效时会自动重新登录并重试一次；凭证本身错（AK/SK 不匹配）不重试，直接报错让你查环境变量。
 
 
 ## AI Agent Skill
 
 本项目包含 Skill 定义（`gangtise-openapi/SKILL.md`），可让 AI agent 自动调用 `gangtise` CLI 完成投研数据查询。支持以下 AI 编程助手：
 
-- [Claude Code](https://claude.ai/claude-code) — `~/.claude/skills/`
+- [Claude Code](https://claude.com/product/claude-code) — `~/.claude/skills/`
 - [Codex](https://github.com/openai/codex) — `~/.codex/skills/`
 - [OpenClaw](https://github.com/openclaw/openclaw) — `~/.openclaw/workspace/skills/`
-- [Hermes](https://github.com/nicepkg/hermes) — `~/.hermes/skills/`
+- [Hermes](https://github.com/NousResearch/hermes-agent) — `~/.hermes/skills/`
 
 Skill 目录结构：
 
@@ -93,50 +96,40 @@ gangtise-openapi/
 ├── SKILL.md                          # 主 skill 文件（必备规则、速查表、按需引用 references）
 └── references/
     ├── commands/                     # 按命令组拆分的详细参数文档（agent 按需 Read）
-    │   ├── ai.md                     #   AI 能力命令（one-pager / earnings-review / viewpoint-debate 等）
-    │   ├── alternative.md            #   行业指标数据库（EDB search / EDB data）
-    │   ├── fundamental.md            #   财务数据命令（A股/港股三大报表 / 估值 / 盈利预测 / 股东）
+    │   ├── ai.md                     #   AI 能力（知识库 / 个股线索与看点 / 一页通等生成类 / 业绩点评与观点 PK 异步任务 / 热点 / 管理层讨论）
+    │   ├── alternative.md            #   行业指标数据库 EDB（search / data）+ 题材指数画像与成分股
+    │   ├── bond.md                   #   债券（基本资料 / 发行人 / 行情与估值 / 兑付 / 公告 / 发行 / 评级 / 行权）
+    │   ├── fundamental.md            #   财务数据（A股/港股/美股三大报表 / 主营 / 估值 / 盈利预测 / 股东）
     │   ├── indicator.md              #   证券级数据指标 EDE（search / 截面 / 时序 / 条件选股）
-    │   ├── insight.md                #   投研内容命令（研报 / 观点 / 纪要 / 公告 / 外资）
-    │   ├── quote.md                  #   行情命令（A股/港股/指数 K 线）
-    │   ├── reference-and-lookup.md   #   GTS Code 搜索与枚举速查
-    │   ├── tool.md                   #   PDF 解析（file-parse）
-    │   └── vault.md                  #   云盘/录音/会议/群消息/股票池
-    ├── errors.md                     # 错误码全表、不报错的坑、退出码 3 的判读、Troubleshooting
+    │   ├── insight.md                #   投研内容（研报 / 观点 / 纪要 / 公告 / 外资 / 财报日历 / 会议线索 / 公众号 / QA / 研报图表）
+    │   ├── quote.md                  #   行情（A股/港股/美股/ETF/各类指数的日 K、分钟 K、实时行情、资金流向）
+    │   ├── reference-and-lookup.md   #   证券 / 首席 / 机构 / 公众号 / 题材 / 板块 ID 搜索与常量速查
+    │   ├── tool.md                   #   PDF 解析（file-parse）/ 联网搜索（web-search）
+    │   └── vault.md                  #   云盘（含目录与文件管理）/ 录音 / 会议 / 群消息 / 股票池
+    ├── errors.md                     # 错误码全表、不报错的坑、退出码 3 / 4 的判读、Troubleshooting
     ├── examples.md                   # 典型场景的端到端示例
-    ├── fields.md                     # K线/财务字段中英文对照速查表
+    ├── fields.md                     # 行情 / 财务 / 估值等字段中英文对照速查表
     ├── lookup-ids.md                 # 常用 ID 速查表（行业/券商/机构/公告分类等）
     └── response-schema.md            # 各接口响应字段说明
 ```
 
-安装（skill 目录随 npm 包分发，`npm install -g` 之后即可从全局安装位置复制）：
+安装（skill 目录随 npm 包分发，`npm install -g` 之后即可从全局安装位置复制）。首次安装与版本更新都执行这一段，只保留你在用的助手那一行：
 
 ```bash
 SKILL_SRC="$(npm root -g)/gangtise-openapi-cli/gangtise-openapi"
 
-# Claude Code
-cp -r "$SKILL_SRC" ~/.claude/skills/gangtise-openapi
+# 先删旧副本再复制：目标目录已存在时直接 cp -r 会复制进嵌套的 gangtise-openapi/gangtise-openapi/，旧版原样留着
+install_skill() { rm -rf "$1/gangtise-openapi" && mkdir -p "$1" && cp -R "$SKILL_SRC" "$1/gangtise-openapi"; }
 
-# Codex
-cp -r "$SKILL_SRC" ~/.codex/skills/gangtise-openapi
-
-# OpenClaw
-cp -r "$SKILL_SRC" ~/.openclaw/workspace/skills/gangtise-openapi
-
-# Hermes
-cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
+install_skill ~/.claude/skills               # Claude Code
+install_skill ~/.codex/skills                # Codex
+install_skill ~/.openclaw/workspace/skills   # OpenClaw
+install_skill ~/.hermes/skills               # Hermes
 ```
 
-> 从仓库 clone 开发时，把 `$SKILL_SRC` 换成仓库内的 `gangtise-openapi` 目录即可。
+> 从仓库 clone 开发时，把 `$SKILL_SRC` 换成仓库内 `gangtise-openapi` 目录的绝对路径即可。
 
-> **版本更新**：每次 CLI 发版时，`gangtise-openapi/SKILL.md` 的 `version` 字段会自动同步。更新 CLI 后，请将项目中的 `gangtise-openapi/` 目录重新复制到对应的 skills 目录覆盖更新：
->
-> ```bash
-> # 示例：更新 Claude Code 的 skill
-> cp -r gangtise-openapi ~/.claude/skills/gangtise-openapi
-> ```
->
-> 可通过查看 SKILL.md 头部的 `version` 字段确认当前版本。
+> **版本更新**：`SKILL.md` 头部的 `version` 字段与 CLI 版本一致。`npm update -g gangtise-openapi-cli` 之后重新执行上面这段，再看已安装副本的 `version` 是否与 `gangtise --version` 相同。对已安装副本做过的本地修改会被覆盖。
 
 安装后，可以用自然语言触发，例如：
 - "帮我查今天所有的研报"
@@ -179,7 +172,7 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | | `sector-constituents` | 板块成分股查询 |
 | **Quote** | `day-kline` | 历史日K线——A股/港股/美股个股 + 沪深 ETF + 交易所/概念/行业指数 + 20 个全球指数，可混查 |
 | | `day-kline-hk` / `day-kline-us` | ⚠️ 已下线，能力并入 `day-kline`（接口仍可调，但不校验证券代码） |
-| | `index-day-kline` | ⚠️ 已下线，能力并入 `day-kline`；但仍是取「全部沪深京指数」（`--security all`）和拿指数名称（`securityName`）的唯一方式 |
+| | `index-day-kline` | ⚠️ 已下线，能力并入 `day-kline`（返回字段相同）；只收明确的指数代码，`--security all` 会被 CLI 拒绝 |
 | | `minute-kline` | 分钟K线——沪深A股 / ETF + 各类指数含全球指数（`--security` 可重复，逐只并发合并） |
 | | `realtime` | 实时行情快照——A股/港股/美股个股 + 沪深 ETF + 各类指数含全球指数 |
 | | `fund-flow` | A股个股日资金流向（沪深京；小/中/大/特大单 + 主力净流入） |
@@ -239,7 +232,8 @@ cp -r "$SKILL_SRC" ~/.hermes/skills/gangtise-openapi
 | | `concept-securities` | 题材指数成分股（按分组；50 积分/次，`--full` 另含重点个股标识与纳入理由 500 积分/次） |
 | **Tool** | `file-parse` / `file-parse-check` | PDF 解析为 Markdown + 图片（异步，返回 ZIP） |
 | | `web-search` | 联网搜索（公开互联网定向检索，信源分级 T0–T3，可选返回正文；1 积分/次） |
-| **Raw** | `call` | 原始接口调用（可访问任意 JSON / download endpoint；upload 型的 `tool.file-parse.submit` / `vault.drive.upload` 需走 `tool file-parse` / `vault drive-upload`，raw 带不了文件） |
+| **Raw** | `list` | 列出全部 endpoint key（供 `raw call` 使用） |
+| | `call` | 原始接口调用（可访问任意 JSON / download endpoint；upload 型的 `tool.file-parse.submit` / `vault.drive.upload` 需走 `tool file-parse` / `vault drive-upload`，raw 带不了文件） |
 
 ## 命令概览
 
@@ -341,10 +335,10 @@ vault.drive.upload
 vault.my-conference.download
 vault.stock-pool.create
 -->
-- **Token 自愈**：调用返回 `0000001008` / `999002` 时自动强制刷新 Token 并重试一次。
+- **Token 自愈**：服务端判定 Token 失效时自动强制刷新 Token 并重试一次。
 - **Token 缓存绑定账号**：缓存记录它是为哪组凭证 + 哪个 `GANGTISE_BASE_URL` 签发的（只存不可逆的指纹，不存 key 本身）。换了 `GANGTISE_ACCESS_KEY` 再跑，即使旧 token 还没过期也会重新登录，**不会拿上一个账号的身份去发请求**——这点在股票池那五个写命令上尤其要紧。
 - **`auth login` 报告的是「接下来真正会用的身份」**，返回体里的 `source` 说明它从哪来：`GANGTISE_TOKEN` 有值时是 `env-token`（那个 token 对所有命令优先，所以不联服务端、也不签发新的，并附一句提示）；没有它、有 AK/SK 时是 `login`（每次都真的登录，不复用缓存）；两者都没有才报错。返回的 `cache` 描述的就是这次登录的结果，缓存落盘失败也不会混进上一个账号的信息。
-- **K线/资金流向自动分片**：`quote day-kline --security aShares|hkStocks|usStocks`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、港股 2 天/片；已下线的 `day-kline-hk`/`day-kline-us`/`index-day-kline` 用 `all`，分别 2/1/15 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。**显式多证券**的日 K 在「证券数 × 交易日数」超过 `--limit` 时自动逐只请求并按传入顺序合并（撞上限的证券标 `partial` + `truncatedSecurities`）；`minute-kline` 的 `--security` 可重复，逐只并发请求后合并。
+- **K线/资金流向自动分片**：`quote day-kline --security aShares|hkStocks|usStocks`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（A股 K线/资金流向 1 天/片、美股 1 天/片、港股 2 天/片；已下线的 `day-kline-hk`/`day-kline-us` 用 `all`，分别 2/1 天/片），并发执行后合并结果；按日分片自动跳过周六日。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。**显式多证券**的日 K 在「证券数 × 交易日数」超过 `--limit` 时自动逐只请求并按传入顺序合并（撞上限的证券标 `partial` + `truncatedSecurities`）；`minute-kline` 的 `--security` 可重复，逐只并发请求后合并。
 - **Token 内存缓存**：Token 在进程内存中缓存，避免每次请求读盘。
 - **`--verbose`**：打印每个请求的方法、路径、状态码、耗时和响应大小到 stderr，方便定位慢查询。
 
@@ -559,8 +553,8 @@ gangtise quote day-kline --security 512800.SH --security SPX.SPI --security N225
 gangtise quote day-kline --security hkStocks --start-date 2026-04-01 --end-date 2026-04-10 --format json
 # 美股全市场（自动按 1 天/片分片）
 gangtise quote day-kline --security usStocks --start-date 2026-04-01 --end-date 2026-04-02 --field securityCode --field close --format json
-# 沪深京指数日K线
-gangtise quote index-day-kline --security 000001.SH --security 399001.SZ --start-date 2024-05-01 --end-date 2024-05-20 --field securityCode --field tradeDate --field close --field volume
+# 沪深京指数日K线（逐个传指数代码；要指数名称用 reference securities-search --category index）
+gangtise quote day-kline --security 000001.SH --security 399001.SZ --start-date 2024-05-01 --end-date 2024-05-20 --field securityCode --field tradeDate --field close --field volume
 # A股分钟K线
 gangtise quote minute-kline --security 600519.SH --start-time "2026-04-15 09:30:00" --end-time "2026-04-15 15:00:00" --field open --field close --field volume
 # 实时行情：三大市场混合查询
@@ -964,7 +958,7 @@ datetime 参数（`--start-time` / `--end-time`）同理，只归一日期部分
 
 > **错误码分两代并存**：服务端错误码分三层（`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层），信封带 `errorType` 和 `traceId`。按「错误处理层」而不是按业务模块划分：参数校验层与路由层发新码（信封 `code` 是 JSON 数字且带 `errorType`），方法路由层、token 过滤器、以及异步生成状态仍发旧码（字符串、无 `errorType`）——这判断的是单条错误路径，不是整个接口；CLI 对两代都能识别。报错行会带 `[trace <id>]`，**报障时请带上它**。
 >
-> 其余码（`999003`–`999006`、`999012`–`999016`、`100002`、`210001`、`220001`、`230001`、`240002`、`240003`）未见触发，多被上面的兜底码接管，CLI 仍内置了对应提示。⚠️ 两个需要留意的行为：**枚举值拼错和分页越界在部分端点上会报 `100005`/`100006`、在另一些端点上被静默忽略**（后者按未传该筛选条件处理，结果看着正常但范围不对——CLI 对 `--search-type`/`--rank-type`/`--file-type` 等已知枚举本地拦截，未覆盖的自由字符串参数要自己核对）；**`viewpoint-debate` 的敏感内容不会被提前拦截**，会扣满 50 积分再以 `410111` 失败。
+> 表里没列的码（`999004`、`999007`–`999009`、`999015`、`100002`、`210001`、`220001`、`230001`、`240002`、`240003` 等）多被上面的兜底码接管，CLI 同样内置了对应提示，逐条说明见 skill 的 `references/errors.md`。⚠️ 两个需要留意的行为：**枚举值拼错和分页越界在部分端点上会报 `100005`/`100006`、在另一些端点上被静默忽略**（后者按未传该筛选条件处理，结果看着正常但范围不对——CLI 对 `--search-type`/`--rank-type`/`--file-type` 等已知枚举本地拦截，未覆盖的自由字符串参数要自己核对）；**`viewpoint-debate` 的敏感内容不会被提前拦截**，会扣满 50 积分再以 `410111` 失败。
 
 ---
 
@@ -977,6 +971,8 @@ npm 发版通过 GitHub Actions Trusted Publishing 完成，不需要 `NPM_TOKEN
 ```bash
 npm version patch --no-git-tag-version
 npm run prepare
+npm test && TZ=UTC npx vitest run                              # CI 是 UTC，两个时区都要过
+npm audit --omit=dev --registry=https://registry.npmjs.org     # 显式走官方源：默认源是 npmmirror 时审计请求会 404，报不出告警
 VERSION=$(node -p "require('./package.json').version")
 git commit -am "chore: release v$VERSION"
 git tag -a "v$VERSION" -m "v$VERSION"   # 必须 annotated
