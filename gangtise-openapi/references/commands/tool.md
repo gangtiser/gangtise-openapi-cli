@@ -29,6 +29,41 @@ ZIP 内容：
 
 呈现建议：解压后读 `file.md`；正文很长时先 `wc -l` / `head` 采样，不要整篇灌进上下文。
 
+## 联网搜索 `tool web-search`
+
+对公开互联网做投研定向检索。服务端已做转载去重、信源分级、黑名单剔除与内容特征打标，按信源等级排序返回。
+
+```bash
+# 轻搜：默认 10 条摘要
+gangtise tool web-search --query "<检索词>" [--size N]
+
+# 收窄：定向站点 + 只要高等级信源 + 近一周
+gangtise tool web-search --query "减持新规" --site csrc.gov.cn --site sse.com.cn --min-tier T1 --freshness week
+
+# 精读：返回网页正文
+gangtise tool web-search --query "<标题>" --site csrc.gov.cn --include-content --max-content-chars 6000 --size 2 --format json
+```
+
+- `--query`（**必填**）：1–200 字符。**服务端不做意图推断或改写**，检索词原样发送；要限定站点必须显式用 `--site`
+- `--size`：1–20，默认 10；**带 `--include-content` 时上限降为 5**（CLI 本地拦截并说明是哪个 flag 压低了上限）。指去重与过滤**之后**的条数，不足不补
+- `--freshness`：`day` / `week` / `month` / `none`（默认）。按 `publishTime` 过滤，⚠️ **判不出发布日期（`publishTime` 为 `null`）的结果在 `day`/`week`/`month` 下不返回**——收窄时效会连带丢掉这批
+- `--min-tier`：`T0` / `T1` / `T2` / `T3`（默认 T3 = 不过滤）。低于该等级不返回
+- `--site`：注册域或子域（`csrc.gov.cn`、`finance.sina.com.cn`），可重复，**最多 10 个**（按去重后计），相互之间是**或**关系，子域按后缀匹配
+- `--include-content`：返回网页正文 `content`（Markdown，保留标题/列表/表格，图片只留链接）。个别页面取不到正文时该条 `content` 为 `null`，不报错
+- `--max-content-chars`：1000–20000，默认 8000，仅在 `--include-content` 时生效；超出截断并置 `contentTruncated: true`（按段落边界回退，实际长度可能略小）
+- **积分**：**1 积分/次**，与返回条数、是否带 `--include-content` 无关；**零结果与报错不扣**。标 `no-replay`，超时/5xx 不自动重放
+
+返回字段要点：
+
+- `publishTime`（`yyyy-MM-dd`）是**规则判定**的发布日期，判不出为 `null`——**`null` 不表示网页没有日期**。排序与 `--freshness` 只用它；`publishTimeSource` 说明判定依据（`url` / `cluster` / `page` / `index`），与 `publishTime` 同空同有
+- `indexTime` 是搜索索引记录的网页时间，**原样转述、不保证是发布时间**（政府站常把页面生成时间写进元数据，部分站点是抓取批次日）。做时点判断用 `publishTime`，不要用它
+- `tier` 信源等级 T0–T3；`flags` 内容特征标：`rumor` 传闻 / `forward` 转载稿 / `disclaimer` 含免责声明 / `toutSuspect` 疑似荐股 / `paywall` 付费墙
+- `upgradedFrom` 是转载簇合并时被替换掉的低等级来源 URL，本条是簇内保留的最高等级来源
+- `hints`：`total = 0` 时必非空（给出放宽建议）；有结果时也可能带提示（如「结果全部为 T3 自媒体」）
+- **排序是 `tier` 升序 → `publishTime` 降序 → 相关性**，⚠️ **首条不等于最相关**，接口只保证信源与时效的确定性次序
+
+典型链路：先轻搜 10 条选定目标 → 再用 `--site` 收束到目标站点、带 `--include-content` 搜一次取正文。
+
 ## 常见搭配
 
 ```bash

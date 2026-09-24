@@ -4,6 +4,38 @@
 
 > 🔴 **服务端问题的逐轮复核记录在 `bug/review-log.md`**，不在本文件。本文件只记版本变更。
 
+### v0.41.0 — 2026-09-24
+
+**观点与题材改走省积分的 v2 接口；新增云盘管理、`bond` 族、会议线索与联网搜索。**
+
+1. **观点列表改走 v2**：`insight opinion list` / `foreign-opinion list` 默认请求 `/v2/getList`，只返回摘要（`brief`；外资另有 `briefTranslate`，取正文前 200 字），**1 积分/条**（原 30）。
+   - 新增 `insight opinion detail --chief-opinion-id` / `foreign-opinion detail --foreign-opinion-id`，按 ID 取正文（外资含 `content` + `contentTranslate`），**30 积分/条**，按返回条数计。ID 可重复传或逗号分隔，CLI 去重后按 20 个一批拆分；**没有有效正文的 ID 不报错、直接跳过**，CLI 比对请求与返回，缺的 ID 写 stderr、结果标 `partial` + `missingIds`、退出 3。后一批失败时保留已取到的正文，未取的 ID 与失败原因写进结果的 `unfetchedIds` / `unfetchedError`（含错误码与 trace），脚本可只重跑这些 ID。两个 `detail` 标 `no-replay`。
+   - `list --with-content` 走旧版 `/getList`，列表直接带正文（30 积分/条），给需要一次拿全文的脚本用；与 `detail` 同价，同样标 `no-replay`。返回保持旧版结构：内资的标题与正文在 `contentList.title` / `contentList.content`（没有顶层 `title` / `brief`），外资是顶层 `content` / `contentTranslate`。
+2. **题材画像与成分股改走 v2**：`alternative concept-info` / `concept-securities` 默认请求 `/concept/v2/*`，**50 积分/次**（原 500）。v2 去掉了 `keyEvents`（催化事件）与 `isKey` / `inclusionReason`（重点个股、纳入理由）；需要这几列加 `--full`，走旧版接口（500 积分/次）。
+3. **云盘管理 9 个命令，全部免费**：`vault drive-folder-list` / `drive-upload` / `drive-create-folder` / `drive-rename` / `drive-move-file` / `drive-move-folder` / `drive-copy` / `drive-delete-file` / `drive-delete-folder`。`drive-copy` 只做文件的跨空间复制（我的云盘 ↔ 租户云盘），整个文件夹的复制暂未提供。
+   - 两个删除标 `destructive`，**必须 `--yes`**（`raw call` 同样要求）；`drive-delete-folder` 连同其中全部内容一起删除。
+   - 批量的 `drive-delete-file` / `drive-move-file` / `drive-copy` 对单条失败仍回 `000000`，明细在 `failList`（按 `fileId`），CLI 标 `partial` 退出 3。
+   - 上传 / 新建 / 复制 / 两个删除标 `no-replay`：云盘允许同名，重发前三个会多出一份；重发一个已生效的删除会回「文件不存在」或 `130002`，把成功报成失败。重命名与两个移动重复执行结果不变，保留默认重试。
+   - 云盘专有码 `230004`（名称超长）/ `230005`（文件夹移动目标非法）/ `230008`（试用账号当日上传超限）补处置提示；`130002` 的提示不再只针对下载。
+   - `drive-upload` 本地先拦空文件、>100MB 与超长文件名（按 UTF-16 计 200）。
+   - `client.uploadFile` 支持附带表单字段。
+4. **新增 `bond` 族 12 个命令，0.4 积分起**：`basic-info` / `issuer-info` / `daily-quote` / `valuation`（上清所估值）/ `cash-flow` / `announcement` / `issuance-detail` / `rating-overview` / `rating-change`（债项评级变动）/ `issuer-rating-change` / `issuance-plan` / `exercise-notice`。多数按次计费；`rating-overview` 按条、`rating-change` 按有数据的债券只数、`issuer-rating-change` 按发行人计。`--security` 只收标准债券代码（简称与拼音整批 `120001`），返回是**列式**的，CLI 自动拍平成对象。
+   - **整族标 `no-replay`**：计费 + 可重放正是会重复扣费的组合。
+   - 🔴 **`bond announcement` 需要手动翻页**：唯一分页的接口且响应**不返回 `total`**，不能走自动翻页。`--page-no` 从 1 起逐页递增，翻过末页返回空数组即停；条件下一条都没有时任何页码都返回 `130001`。
+   - 三对互斥参数在本地拦截：`issuer-info` / `issuer-rating-change` 的 `--security` 与 `--issuer`、`announcement` 的 `--security` 与日期区间。`rating-overview` / `rating-change` 的 10 只上限本地拦截——**按去重后的只数计**，与服务端一致。
+5. **`insight highlight list` 会议线索**（会议核心要点信息流）：按发布时间倒序，可按证券、研究方向与时间筛。🔴 **5 积分/条**，标 `no-replay`，**务必带 `--size`**。`content` 是 HTML 片段；`--research-area` 不认申万码。
+   - 服务端只允许 `from + size ≤ 10000`。端点新增 `pagination.maxWindow`：翻页规划不会跨过这个窗口，需要窗口之外的行时取到第 10000 条为止、stderr 说明并标 `partial`（退出 3）；`--from` ≥ 10000 本地拒绝；`total` 恰好顶到窗口时无法核实是否为真实条数，stderr 说明、不标 `partial`。
+6. **`tool web-search` 联网搜索**：结果带信源等级 T0–T3、特征标与判定后的发布日期。`--site` 最多 10 个（**按去重后计**）、`--min-tier` / `--freshness` / `--include-content`（此时 `--size` 上限降为 5，CLI 本地拦截并说明原因）。1 积分/次，零结果与报错不扣，标 `no-replay`。
+   - ⚠️ **排序是「信源等级 → 发布日期 → 相关性」，首条不等于最相关**；`publishTime` 判不出时为 `null`，`--freshness` 会把这批一并滤掉。
+7. **常量接口新增 9 个分类**：`fundType` / `fundBondType` / `bondType` / `interestRateType` / `interestFrequency` / `absUnderlyingAssetType` / `ratingType` / `exchange` / `nationalEconomicIndustry`。`reference-and-lookup.md` 的分类表不再写死条数，以 `reference constant-category` 的实际返回为准。
+8. **文档**：新增 `references/commands/bond.md`；`insight.md` 补观点 `detail` 与会议线索、`alternative.md` 补 `--full`、`vault.md` 补云盘管理、`tool.md` 补联网搜索。`no-replay` 清单由 19 条增至 44 条（README 与 SKILL.md 两处正文与注释块同步，有集合相等测试守着）。观点家族的 `total` 已是真实条数，文档里「恒为 10000」的例子撤掉（全量拉取后多探一行的封顶检查保留，是通用护栏）。
+
+**取数前注意几处取值**（逐条见 `gangtise-openapi/references/commands/bond.md`）：
+
+- `bond issuer-info` 的行业有两套：`swIndustry`（申万「一级/二级」）与 `nationalIndustry`（国民经济行业分类）；`latestIssuerRating` 的括号部分可能缺省，且混合了境内与境外评级口径，做信用比较需一并取 `ratingAgency`。
+- 评级值可能带 `sf` / `pi` 小写后缀（`AA+sf`、`AAApi`），按档位统计前先处理。
+- `bond daily-quote` / `valuation` / `issuance-plan` 的 `--start-date` 早于可回溯下界时整批返回 `110003`「超出时间范围限制」，即使 `--end-date` 在窗口内也不会只返回窗口内那段；把起点移进窗口再查。
+
 ### v0.40.1 — 2026-09-19
 
 **文档修正，无代码变更。**

@@ -13,6 +13,7 @@ import { releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "./co
 import { resolveCalendarType } from "./core/calendarType.js"
 import { ENDPOINTS, listEndpoints } from "./core/endpoints.js"
 import { ApiError, ConfigError, ValidationError } from "./core/errors.js"
+import { uploadDriveFile } from "./core/driveUpload.js"
 import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "./core/fileParse.js"
 import { assertColumnarHeader, flagFailedItems, flagMissingFields, normalizeRows, zipFieldRow } from "./core/normalize.js"
 import { parseOutputFormat } from "./core/output.js"
@@ -262,7 +263,7 @@ const officialAccount = new Command("official-account")
 const qa = new Command("qa")
 const reportImage = new Command("report-image")
 
-addTimeFilters(opinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--research-area <id>", "Research area ID: citicIndustry code (1008001xx) or gangtiseIndustry direction code (122000xxx: macro/strategy/fixed-income/quant/overseas). swIndustry (104xx0000) returns 0 here", collectList, []).option("--chief <id>", "Chief ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--concept <id>", "Concept ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--source <source>", "Source", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.opinion.list", {
+addTimeFilters(opinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--research-area <id>", "Research area ID: citicIndustry code (1008001xx) or gangtiseIndustry direction code (122000xxx: macro/strategy/fixed-income/quant/overseas). swIndustry (104xx0000) returns 0 here", collectList, []).option("--chief <id>", "Chief ID", collectList, []).option("--security <code>", "Security code", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--industry <id>", "Industry ID", collectList, []).option("--concept <id>", "Concept ID", collectList, []).option("--llm-tag <tag>", "Semantic tag", collectList, []).option("--source <source>", "Source", collectList, []).option("--with-content", "Return the full body inline (v1 list, 30 credits/row) instead of the 200-char brief (1 credit/row). v1 shape: title and body sit under contentList.title / contentList.content, and there is no brief").option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call(options.withContent ? "insight.opinion.list-with-content" : "insight.opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime,
     rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }), keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), chiefList: maybeArray(options.chief),
     securityList: maybeArray(options.security), brokerList: maybeArray(options.broker), industryList: maybeArray(options.industry), conceptList: maybeArray(options.concept),
@@ -485,7 +486,7 @@ addTimeFilters(announcementUs.command("list").addOption(new Option("--search-typ
   }), { endpointKey: "insight.announcement-us.list", idField: "announcementId" }))
 addDownloadCommand(announcementUs, { endpointKey: "insight.announcement-us.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement-us", fileType: { description: "File type: 1=original PDF 2=Markdown", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.announcement-us.list" })
 
-addTimeFilters(foreignOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code -- this endpoint accepts only cn/cnHk/cnTw/us/jp/uk; the other 13 values of regionCategory (sea/gl/fr/de/kr/in/ca/me/othAs/othEur/latAm/oce/af) are rejected here with 100005 though they all work on foreign-report", collectList, []).option("--industry <id>", "Industry ID -- swIndustry codes only (104xx0000); citicIndustry codes are rejected with 100005 even where constant-category declares them", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.foreign-opinion.list", {
+addTimeFilters(foreignOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. UBER.N)", collectList, []).option("--region <code>", "Region code -- this endpoint accepts only cn/cnHk/cnTw/us/jp/uk; the other 13 values of regionCategory (sea/gl/fr/de/kr/in/ca/me/othAs/othEur/latAm/oce/af) are rejected here with 100005 though they all work on foreign-report", collectList, []).option("--industry <id>", "Industry ID -- swIndustry codes only (104xx0000); citicIndustry codes are rejected with 100005 even where constant-category declares them", collectList, []).option("--broker <id>", "Broker ID", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--with-content", "Return the full body inline (v1 list, 30 credits/row) as content / contentTranslate, instead of the 200-char brief (1 credit/row)").option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call(options.withContent ? "insight.foreign-opinion.list-with-content" : "insight.foreign-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
     startTime: options.startTime, endTime: options.endTime,
     rankType: parseNumberOption(options.rankType, "--rank-type", { integer: true, min: 1 }),
@@ -494,6 +495,58 @@ addTimeFilters(foreignOpinion.command("list").addOption(new Option("--rank-type 
     securityList: maybeArray(options.security), brokerList: maybeArray(options.broker),
     ratingList: maybeArray(options.rating), ratingChangeList: maybeArray(options.ratingChange),
   })))
+
+/** Opinion bodies by ID, for the two detail endpoints. Each takes at most 20 IDs per
+ * call and skips, without an error, any ID it has no body for — a typo, an ID outside
+ * the account's data window, and possibly one published minutes ago. Batches go out
+ * one at a time — 30 credits per returned body — and the IDs that came back empty are
+ * named on stderr and in `missingIds`, marking the result partial (exit 3). */
+async function fetchOpinionDetails(client: GangtiseClient, endpointKey: string, idListField: string, idField: string, ids: string[]): Promise<Record<string, unknown>> {
+  const BATCH = 20
+  const unique = [...new Set(ids)]
+  if (!unique.length) throw new ValidationError("pass at least one opinion ID")
+  const list: Record<string, unknown>[] = []
+  let unfetched: string[] = []
+  let unfetchedError: Record<string, unknown> | undefined
+  for (let i = 0; i < unique.length; i += BATCH) {
+    try {
+      const rows = await client.call(endpointKey, { [idListField]: unique.slice(i, i + BATCH) })
+      if (Array.isArray(rows)) list.push(...(rows as Record<string, unknown>[]))
+    } catch (error) {
+      // Earlier batches are paid for: keep them, and put what was not fetched (and why)
+      // in the result itself, so a script can re-run exactly those IDs.
+      if (i === 0) throw error
+      unfetched = unique.slice(i)
+      const message = error instanceof Error ? error.message : String(error)
+      unfetchedError = { message, ...(error instanceof ApiError ? { code: error.code, traceId: error.traceId } : {}) }
+      process.stderr.write(`[gangtise] warning: ${endpointKey} failed on batch ${i / BATCH + 1} (${message}); ${unfetched.length} ID(s) not fetched: ${unfetched.join(", ")}. The bodies already returned are kept below — re-run for the IDs in unfetchedIds only.\n`)
+      break
+    }
+  }
+  const returned = new Set(list.map((row) => String(row[idField])))
+  const missing = unique.filter((id) => !returned.has(id) && !unfetched.includes(id))
+  const out: Record<string, unknown> = { total: list.length, list }
+  if (missing.length > 0) {
+    process.stderr.write(`[gangtise] warning: no body returned for ${missing.length} ID(s): ${missing.join(", ")} — the server skips an ID it has no body for without an error (e.g. a wrong ID; a just-published opinion may also not have its body yet). Result marked partial (exit 3).\n`)
+    out.missingIds = missing
+  }
+  if (unfetched.length > 0) {
+    out.unfetchedIds = unfetched
+    out.unfetchedError = unfetchedError
+  }
+  if (missing.length > 0 || unfetched.length > 0) out.partial = true
+  return out
+}
+
+opinion.command("detail").description("Full bodies of domestic chief opinions by ID (30 credits per returned opinion; batched 20 per call)")
+  .requiredOption("--chief-opinion-id <id>", "chiefOpinionId from 'insight opinion list' (repeat or comma-separate)", collectList)
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, (client) => fetchOpinionDetails(client, "insight.opinion.detail", "chiefOpinionIdList", "chiefOpinionId", options.chiefOpinionId)))
+
+foreignOpinion.command("detail").description("Full bodies (content + contentTranslate) of foreign opinions by ID (30 credits per returned opinion; batched 20 per call)")
+  .requiredOption("--foreign-opinion-id <id>", "foreignOpinionId from 'insight foreign-opinion list' (repeat or comma-separate)", collectList)
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, (client) => fetchOpinionDetails(client, "insight.foreign-opinion.detail", "foreignOpinionIdList", "foreignOpinionId", options.foreignOpinionId)))
 
 addTimeFilters(independentOpinion.command("list").addOption(new Option("--rank-type <number>", "Rank type: 1=composite 2=time desc").choices(["1", "2"]).default("1")).option("--security <code>", "Security code (e.g. GSK.N)", collectList, []).option("--industry <id>", "Industry ID -- swIndustry codes only (104xx0000); citicIndustry codes are rejected with 100005 even where constant-category declares them", collectList, []).option("--rating <name>", "Rating", collectList, []).option("--rating-change <name>", "Rating change", collectList, []).option("--format <format>", "Output format", "table").option("--output <path>", "Output path")).action((options) => emit(options, (client) => client.call("insight.independent-opinion.list", {
     from: parseFrom(options.from), size: parseSize(options.size),
@@ -549,6 +602,23 @@ insight.addCommand(independentOpinion)
 insight.addCommand(officialAccount)
 insight.addCommand(qa)
 insight.addCommand(reportImage)
+
+// Meeting highlights feed. Billed per ROW (5 credits), so `--size` matters here more
+// than on the free list endpoints: omitting it fetches every page in the range.
+const highlight = new Command("highlight")
+highlight.command("list").description("Meeting highlights feed: key takeaways per meeting, newest first (5 credits/row)")
+  .option("--from <number>", "Starting offset", "0")
+  .option("--size <number>", "Total rows to return; omit to fetch all (max page 50). Billed per row — bound this on wide ranges")
+  .option("--start-time <datetime>", "Start time (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)", datetimeArg("--start-time"))
+  .option("--end-time <datetime>", "End time (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)", datetimeArg("--end-time"))
+  .option("--security <code>", "Security code, e.g. 000001.SZ / 09992.HK / AAPL.O (repeatable)", collectList, [])
+  .option("--research-area <id>", "Research area ID: citicIndustry (1008001xx) or gangtiseIndustry direction (122000xxx). swIndustry codes are NOT accepted here", collectList, [])
+  .option("--format <format>", "Output format", "table").option("--output <path>")
+  .action((options) => emit(options, (client) => client.call("insight.highlight.list", {
+    from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime,
+    securityList: maybeArray(options.security), researchAreaList: maybeArray(options.researchArea),
+  })))
+insight.addCommand(highlight)
 program.addCommand(insight)
 
 const quote = new Command("quote").description("Quote APIs")
@@ -825,6 +895,104 @@ fundamental.command("earning-forecast").requiredOption("--security-code <code>")
 }))
 program.addCommand(fundamental)
 
+// ─── bond ───
+// Every bond endpoint is metered (0.4 credits per call, or per row / bond / issuer on
+// three of them), so the code list is checked locally before spending anything.
+// They answer COLUMNAR (`{fieldList, list}` with array rows); `normalizeRows` zips
+// that into objects, so nothing here needs to handle it.
+const bond = new Command("bond").description("Bond APIs: profiles, issuers, quotes, valuations, cash flows, ratings, announcements")
+
+function requireBondCodes(codes: string[], max?: number): string[] {
+  if (!codes.length) throw new ValidationError("--security is required: pass one or more bond codes, e.g. --security 019742.SH --security 220205.IB")
+  // The server counts the cap after de-duplication, so a merged list with repeats is legal.
+  const unique = [...new Set(codes)]
+  if (max && unique.length > max) throw new ValidationError(`${unique.length} distinct bond codes in one call — this endpoint takes at most ${max}. Split them into batches of ${max} and run one call per batch.`)
+  return unique
+}
+
+const bondSecurityOption = (command: Command) => command
+  .option("--security <code>", "Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB (repeatable). Short names and pinyin are rejected — resolve them with 'reference securities-search' first", collectList, [])
+  .option("--field <field>", "Field to return (repeatable); omit for all. An unsupported name rejects the whole call with 100003", collectList, [])
+  .option("--format <format>", "Output format", "table").option("--output <path>")
+
+/** securityList + optional date range + fieldList — the shape four of the twelve share. */
+const addBondRange = (name: string, endpointKey: string, describe: string, rangeHelp: string, max?: number) =>
+  bondSecurityOption(bond.command(name).description(describe))
+    .option("--start-date <date>", `${rangeHelp} start (yyyy-MM-dd); omit for all history`, dateArg("--start-date"))
+    .option("--end-date <date>", `${rangeHelp} end (yyyy-MM-dd); omit for all history`, dateArg("--end-date"))
+    .action((options) => emit(options, (client) => client.call(endpointKey, { securityList: requireBondCodes(options.security, max), startDate: options.startDate, endDate: options.endDate, fieldList: maybeArray(options.field) })))
+
+bondSecurityOption(bond.command("basic-info").description("Bond static profiles: issuance, term, coupon, rating, guarantee, special terms"))
+  .action((options) => emit(options, (client) => client.call("bond.basic-info", { securityList: requireBondCodes(options.security, 10000), fieldList: maybeArray(options.field) })))
+
+bondSecurityOption(bond.command("rating-overview").description("Bond, issuer and guarantor ratings side by side"))
+  .action((options) => emit(options, (client) => client.call("bond.rating-overview", { securityList: requireBondCodes(options.security, 10), fieldList: maybeArray(options.field) })))
+
+addBondRange("cash-flow", "bond.cash-flow", "Interest payment and redemption schedule per bond", "Payment date")
+addBondRange("issuance-detail", "bond.issuance-detail", "Issuance and re-issuance records: bidding, pricing, cover ratios", "Issue announcement date")
+addBondRange("rating-change", "bond.rating-change", "Bond rating change history: current vs previous rating, direction, outlook, agency (max 10 bonds per call)", "Announcement date", 10)
+addBondRange("exercise-notice", "bond.exercise-notice", "Put/call exercise schedule and results for option-embedded bonds", "Exercise date")
+
+bondSecurityOption(bond.command("daily-quote").description("Daily close quotes (exchange + CFETS): dirty/clean price, YTM, duration, convexity"))
+  .requiredOption("--start-date <date>", "Trade date range start (yyyy-MM-dd)", dateArg("--start-date"))
+  .requiredOption("--end-date <date>", "Trade date range end (yyyy-MM-dd)", dateArg("--end-date"))
+  .action((options) => emit(options, (client) => client.call("bond.daily-quote", { securityList: requireBondCodes(options.security), startDate: options.startDate, endDate: options.endDate, fieldList: maybeArray(options.field) })))
+
+bondSecurityOption(bond.command("valuation").description("Shanghai Clearing House valuations: price, yield, duration, convexity, PVBP"))
+  .requiredOption("--start-date <date>", "Valuation date range start (yyyy-MM-dd)", dateArg("--start-date"))
+  .requiredOption("--end-date <date>", "Valuation date range end (yyyy-MM-dd)", dateArg("--end-date"))
+  .addOption(new Option("--confidence-level <level>", "Valuation confidence; defaults to 推荐 server-side, which already filters out 不推荐").choices(["推荐", "不推荐"]))
+  .action((options) => emit(options, (client) => client.call("bond.valuation", { securityList: requireBondCodes(options.security), startDate: options.startDate, endDate: options.endDate, confidenceLevel: options.confidenceLevel, fieldList: maybeArray(options.field) })))
+
+/** The two issuer-keyed commands: `--security` (bond codes → their issuers) and
+ * `--issuer` (fuzzy name match, one best hit per name) are mutually exclusive
+ * upstream — sending both returns 100003, so the pair is checked here. */
+function issuerSelector(security: string[], issuer: string[]): Record<string, unknown> {
+  if (security.length && issuer.length) throw new ValidationError("--security and --issuer are mutually exclusive: pass bond codes or issuer names, not both")
+  if (!security.length && !issuer.length) throw new ValidationError("pass either --security (bond codes) or --issuer (issuer names)")
+  return security.length ? { securityList: security } : { issuerNameList: issuer }
+}
+
+const issuerNameOption = (command: Command) => command.option("--issuer <name>", "Issuer name, full or short (repeatable); fuzzy-matched, one best hit per name", collectList, [])
+
+issuerNameOption(bondSecurityOption(bond.command("issuer-info").description("Issuer profiles: nature, SW industry, registration, rating, outstanding bonds")))
+  .action((options) => emit(options, (client) => client.call("bond.issuer-info", { ...issuerSelector(options.security, options.issuer), fieldList: maybeArray(options.field) })))
+
+issuerNameOption(bondSecurityOption(bond.command("issuer-rating-change").description("Issuer rating change history (at most 10 issuers matched per call)")))
+  .option("--start-date <date>", "Announcement date range start (yyyy-MM-dd); omit for all history", dateArg("--start-date"))
+  .option("--end-date <date>", "Announcement date range end (yyyy-MM-dd); omit for all history", dateArg("--end-date"))
+  .action((options) => emit(options, (client) => client.call("bond.issuer-rating-change", { ...issuerSelector(options.security, options.issuer), startDate: options.startDate, endDate: options.endDate, fieldList: maybeArray(options.field) })))
+
+bond.command("issuance-plan").description("Rate-bond issuance calendar over a date range")
+  .requiredOption("--start-date <date>", "Issue date range start (yyyy-MM-dd)", dateArg("--start-date"))
+  .requiredOption("--end-date <date>", "Issue date range end (yyyy-MM-dd)", dateArg("--end-date"))
+  .option("--field <field>", "Field to return (repeatable); omit for all", collectList, [])
+  .option("--format <format>", "Output format", "table").option("--output <path>")
+  .action((options) => emit(options, (client) => client.call("bond.issuance-plan", { startDate: options.startDate, endDate: options.endDate, fieldList: maybeArray(options.field) })))
+
+// The one paged endpoint of the family, and the only one anywhere that answers WITHOUT
+// a `total` (by design, per the 2026-09 spec) — so it cannot join the shared
+// auto-pagination, which needs the first page's total to plan the rest. Callers walk
+// `--page-no` until a page comes back empty.
+bondSecurityOption(bond.command("announcement").description("Bond announcements, paged. Filter by bond codes OR by announcement date range, never both"))
+  .option("--start-date <date>", "Announcement date range start (yyyy-MM-dd); mutually exclusive with --security", dateArg("--start-date"))
+  .option("--end-date <date>", "Announcement date range end (yyyy-MM-dd); mutually exclusive with --security", dateArg("--end-date"))
+  .option("--page-no <number>", "Page number, from 1. No total is returned: increment until a page comes back empty", "1")
+  .option("--page-size <number>", "Rows per page, 1-200", "50")
+  .action((options) => emit(options, (client) => {
+    const byDate = Boolean(options.startDate || options.endDate)
+    if (options.security.length && byDate) throw new ValidationError("--security and --start-date/--end-date are mutually exclusive on bond announcement: filter by bond codes or by date range, not both")
+    if (!options.security.length && !byDate) throw new ValidationError("pass either --security (bond codes) or --start-date/--end-date (announcement date range)")
+    return client.call("bond.announcement", {
+      securityList: maybeArray(options.security), startDate: options.startDate, endDate: options.endDate,
+      pageNo: parseNumberOption(options.pageNo, "--page-no", { integer: true, min: 1 }),
+      pageSize: parseNumberOption(options.pageSize, "--page-size", { integer: true, min: 1, max: 200 }),
+      fieldList: maybeArray(options.field),
+    })
+  }))
+
+program.addCommand(bond)
+
 const ai = new Command("ai").description("AI APIs")
 ai.command("knowledge-batch").option("--query <text>", "Query text; repeat for up to 5. Each --query is taken whole — commas inside it are part of the question, not separators", collectText, []).option("--top <number>", "Max results (default: 10, max: 20)", "10").option("--resource-type <number>", "Resource type", collectNumberList, []).option("--knowledge-name <name>", "Knowledge name", collectList, []).option("--start-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)").option("--end-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => {
   if (!options.query.length) throw new ValidationError("--query is required: pass at least one --query")
@@ -989,6 +1157,91 @@ program.addCommand(reference)
 const vault = new Command("vault").description("Vault APIs")
 vault.command("drive-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>", "Start time", datetimeArg("--start-time")).option("--end-time <datetime>", "End time", datetimeArg("--end-time")).option("--keyword <text>").option("--file-type <number>", "File type", collectNumberList, []).option("--space-type <number>", "Space type", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.drive.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, fileTypeList: options.fileType.length ? options.fileType : undefined, spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), { endpointKey: "vault.drive.list", idField: "fileId" }))
 addDownloadCommand(vault, { endpointKey: "vault.drive.download", name: "drive-download", idOption: "--file-id", idField: "fileId", fallbackPrefix: "file", titleListEndpoint: "vault.drive.list" })
+
+// ── drive management ──
+// All free. Folder IDs come from 'drive-folder-list' ('root' = a space's root); file IDs
+// from 'drive-folder-list' or 'drive-list'. Names are never unique — same-name files and
+// folders are allowed and told apart only by ID — so re-running an upload, a create or a
+// copy makes a second one. The two deletes are irreversible and need --yes.
+const driveSpaceOption = (help: string) => new Option("--space-type <n>", help).choices(["1", "2"]).default("1")
+
+vault.command("drive-folder-list").description("List the direct subfolders and files of a drive folder (free)")
+  .addOption(driveSpaceOption("Space: 1=my drive 2=tenant drive"))
+  .option("--parent-id <id>", "Folder ID in that space; omit (or 'root') for the space's root. A folder of the other space is rejected with 100003")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, (client) => client.call("vault.drive.folder-list", { spaceType: Number(options.spaceType), parentId: options.parentId })))
+
+vault.command("drive-upload").description("Upload a file to the AI drive (free; max 100MB per file; trial accounts max 500MB/day)")
+  .requiredOption("--file <path>", "File to upload")
+  .addOption(driveSpaceOption("Target space: 1=my drive 2=tenant drive (shared with your whole tenant)"))
+  .option("--folder-id <id>", "Target folder ID in that space; omit (or 'root') for the space's root")
+  .option("--title <name>", "Name in the drive, max 200 characters; defaults to the local file name")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, (client) => uploadDriveFile(client, options.file, { spaceType: Number(options.spaceType), folderId: options.folderId, title: options.title })))
+
+vault.command("drive-create-folder").description("Create a drive folder (free). Same-name folders are allowed, so re-running creates a second one")
+  .requiredOption("--name <name>", "Folder name, max 200 characters (230004 past that)")
+  .addOption(driveSpaceOption("Space: 1=my drive 2=tenant drive (shared with your whole tenant)"))
+  .option("--parent-id <id>", "Parent folder ID in that space; omit (or 'root') for the root")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, (client) => client.call("vault.drive.create-folder", { folderName: options.name, spaceType: Number(options.spaceType), parentId: options.parentId })))
+
+vault.command("drive-rename").description("Rename a drive file or folder (free)")
+  .addOption(new Option("--type <type>", "What --id names").choices(["file", "folder"]).makeOptionMandatory())
+  .requiredOption("--id <id>", "File or folder ID")
+  .requiredOption("--name <name>", "New name, max 200 characters")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, (client) => client.call("vault.drive.rename", { type: options.type, id: options.id, name: options.name })))
+
+vault.command("drive-move-file").description("Move drive files into a folder of the SAME space (free)")
+  .requiredOption("--file-id <id>", "File ID (repeat or comma-separate)", collectList)
+  .requiredOption("--target-folder-id <id>", "Destination folder ID, or 'root'. Files of the other space land in failList (空间不一致)")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, async (client) => {
+    const data = await client.call("vault.drive.move-file", { fileIdList: options.fileId, targetFolderId: options.targetFolderId })
+    flagFailedItems(data, "vault drive-move-file")
+    return data
+  }))
+
+vault.command("drive-move-folder").description("Move a drive folder under another folder of the SAME space (free)")
+  .requiredOption("--folder-id <id>", "Folder ID to move")
+  .requiredOption("--target-parent-id <id>", "Destination parent folder ID, or 'root'. Not the folder itself, one of its subfolders, or the other space (230005)")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, (client) => client.call("vault.drive.move-folder", { folderId: options.folderId, targetParentId: options.targetParentId })))
+
+// Files only. The endpoint also takes copyType=folder, but that answers 000000 with a new
+// folder ID while leaving the copy empty (probed 2026-09-24), so it is not offered here.
+vault.command("drive-copy").description("Copy files to the OTHER space: my drive <-> tenant drive (free; same-space copies are rejected)")
+  .requiredOption("--file-id <id>", "Source file ID (repeat or comma-separate)", collectList)
+  .requiredOption("--target-folder-id <id>", "Destination folder ID in the other space, or 'root' for that space's root")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => emit(options, async (client) => {
+    const data = await client.call("vault.drive.copy", { copyType: "file", fileIdList: options.fileId, targetFolderId: options.targetFolderId })
+    flagFailedItems(data, "vault drive-copy")
+    return data
+  }))
+
+vault.command("drive-delete-file").description("Delete drive files — irreversible (free)")
+  .requiredOption("--file-id <id>", "File ID to delete (repeat or comma-separate)", collectList)
+  .option("--yes", "Required: confirm the deletion")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action(async (options) => {
+    assertConfirmed("vault.drive.delete-file", Boolean(options.yes), options.fileId.join("、"))
+    await emit(options, async (client) => {
+      const data = await client.call("vault.drive.delete-file", { fileIdList: options.fileId })
+      flagFailedItems(data, "vault drive-delete-file")
+      return data
+    })
+  })
+
+vault.command("drive-delete-folder").description("Delete a drive folder AND every subfolder and file inside it — irreversible (free)")
+  .requiredOption("--folder-id <id>", "Folder ID to delete")
+  .option("--yes", "Required: confirm the deletion")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action(async (options) => {
+    assertConfirmed("vault.drive.delete-folder", Boolean(options.yes), options.folderId)
+    await emit(options, (client) => client.call("vault.drive.delete-folder", { folderId: options.folderId }))
+  })
 vault.command("record-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>", "Start time", datetimeArg("--start-time")).option("--end-time <datetime>", "End time", datetimeArg("--end-time")).option("--keyword <text>").option("--category <name>", "Recording type: upload/link/mobile/gtNote/pc/share", collectList, []).option("--space-type <number>", "Space type: 1=my records / 2=tenant records", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.record.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, categoryList: maybeArray(options.category), spaceTypeList: options.spaceType.length ? options.spaceType : undefined }), { endpointKey: "vault.record.list", idField: "recordId" }))
 addDownloadCommand(vault, { endpointKey: "vault.record.download", name: "record-download", idOption: "--record-id", idField: "recordId", fallbackPrefix: "record", contentTypeDescription: "Content type: original/asr/summary", titleListEndpoint: "vault.record.list" })
 vault.command("my-conference-list").option("--from <number>", "Starting offset", "0").option("--size <number>", "Total rows to return; omit to fetch all").option("--start-time <datetime>", "Start time", datetimeArg("--start-time")).option("--end-time <datetime>", "End time", datetimeArg("--end-time")).option("--keyword <text>").option("--research-area <id>", "Research area ID: citicIndustry code (1008001xx) or gangtiseIndustry direction code (122000xxx: macro/strategy/fixed-income/quant/overseas). swIndustry (104xx0000) returns 0 here", collectList, []).option("--security <code>", "Security code", collectList, []).option("--institution <id>", "Institution ID", collectList, []).option("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", collectList, []).option("--source <number>", "Recording source: 1=企微会议助理 2=会议服务微信群 (repeat)", collectNumberList, []).option("--format <format>", "Output format", "table").option("--output <path>").action((options) => emit(options, (client) => client.call("vault.my-conference.list", { from: parseFrom(options.from), size: parseSize(options.size), startTime: options.startTime, endTime: options.endTime, keyword: options.keyword, researchAreaList: maybeArray(options.researchArea), securityList: maybeArray(options.security), institutionList: maybeArray(options.institution), categoryList: maybeArray(options.category), sourceList: options.source.length ? options.source : undefined }), { endpointKey: "vault.my-conference.list", idField: "conferenceId" }))
@@ -1062,8 +1315,8 @@ alternative.command("edb-data").option("--indicator-id <id>", "Indicator ID (rep
   }
   await printData(data, format, options.output)
 }))
-alternative.command("concept-info").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-info", { conceptId: options.conceptId })))
-alternative.command("concept-securities").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call("alternative.concept-securities", { conceptId: options.conceptId })))
+alternative.command("concept-info").description("Concept profile: definition, investment logic, industry space, competitive landscape (50 credits/call)").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--full", "Also return catalyst events (keyEvents) via the v1 endpoint — 500 credits/call instead of 50").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call(options.full ? "alternative.concept-info-full" : "alternative.concept-info", { conceptId: options.conceptId })))
+alternative.command("concept-securities").description("Concept constituents, grouped (50 credits/call; free when the concept has none)").requiredOption("--concept-id <id>", "Concept (theme index) ID, e.g. 121000130 机器人; discover via 'gangtise reference concept-search'").option("--full", "Also return the key-stock flag (isKey) and inclusion reason via the v1 endpoint — 500 credits/call instead of 50").option("--format <format>", "Output format", "json").option("--output <path>").action((options) => emit(options, (client) => client.call(options.full ? "alternative.concept-securities-full" : "alternative.concept-securities", { conceptId: options.conceptId })))
 program.addCommand(alternative)
 
 /** Mark and report the request codes the server did not answer for at all.
@@ -1252,6 +1505,31 @@ tool.command("file-parse-check").description("Download a finished file-parse res
       // for.
       process.stdout.write(`${JSON.stringify({ taskId: options.taskId, status: "pending", hint: "Parse not finished yet, retry in ~1 minute" })}\n`)
     }
+  }))
+
+tool.command("web-search").description("Search the public web for research: deduped, source-tiered (T0-T3) results with optional page content (1 credit/call)")
+  .requiredOption("--query <text>", "Search query, 1-200 chars. Sent verbatim — no intent rewriting server-side, so spell out what you want")
+  .option("--size <number>", "Results to return, 1-20 (1-5 with --include-content)", "10")
+  .addOption(new Option("--freshness <window>", "Time window over publishTime; results with no resolvable publish date are dropped by day/week/month").choices(["day", "week", "month", "none"]))
+  .addOption(new Option("--min-tier <tier>", "Lowest source tier to keep; T3 = no filtering").choices(["T0", "T1", "T2", "T3"]))
+  .option("--site <domain>", "Restrict to a registered domain or subdomain, e.g. csrc.gov.cn (repeatable, max 10, OR-ed)", collectList, [])
+  .option("--include-content", "Return page body as Markdown; caps --size at 5")
+  .option("--max-content-chars <number>", "Max chars per body, 1000-20000 (only with --include-content)")
+  .option("--format <format>", "Output format", "table").option("--output <path>")
+  .action((options) => emit(options, (client) => {
+    // The size ceiling drops to 5 with bodies on. Checked here so a rejected call
+    // doesn't spend the credit, and so the message names the flag that lowered the cap
+    // instead of an unexplained "expected a number <= 5".
+    const size = parseNumberOption(options.size, "--size", { integer: true, min: 1, max: 20 })
+    if (options.includeContent && size > 5) throw new ValidationError(`--size ${size} with --include-content: this endpoint caps size at 5 when page bodies are requested. Lower --size, or drop --include-content to fetch up to 20 snippets.`)
+    // Counted after de-duplication, as the server counts it.
+    const sites = [...new Set(options.site as string[])]
+    if (sites.length > 10) throw new ValidationError(`--site takes at most 10 distinct domains, got ${sites.length}`)
+    return client.call("tool.web-search", {
+      query: options.query, size, freshness: options.freshness, minTier: options.minTier,
+      siteList: maybeArray(sites), includeContent: options.includeContent || undefined,
+      maxContentChars: parseOptionalNumberOption(options.maxContentChars, "--max-content-chars", { integer: true, min: 1000, max: 20000 }),
+    })
   }))
 program.addCommand(tool)
 

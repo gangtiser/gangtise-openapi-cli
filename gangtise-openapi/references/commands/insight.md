@@ -45,11 +45,18 @@
 
 ---
 
-## 内资机构观点 `insight opinion list`
+## 内资机构观点 `insight opinion list/detail`
 
 ```bash
-gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--llm-tag <tag>] [--source <src>] [--rank-type <n>]
+gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--llm-tag <tag>] [--source <src>] [--rank-type <n>] [--with-content]
+gangtise insight opinion detail --chief-opinion-id <id> [--chief-opinion-id <id>...]
 ```
+
+- 🔴 **列表只含摘要**：`brief` 是正文前 200 字的截断，**1 积分/条**。要正文用 `detail` 按 `chiefOpinionId` 取（`content`，**30 积分/条**，按返回条数计）；或 `list --with-content` 让列表直接带正文（30 积分/条）。只需判断相关性、做筛选时看 `brief` 就够，别默认加 `--with-content`
+- `detail` 与 `--with-content` 都按返回条数计费，**超时 / 5xx 不自动重发**（重发可能对已交付的正文再计一次费），偶发失败自行重跑
+- ⚠️ **`--with-content` 返回的是旧版结构**：标题与正文在 `contentList.title` / `contentList.content`（`contentList` 是对象，不是数组），顶层没有 `title` / `brief`。按 `content` 字段名取会取不到；要统一成 `detail` 的结构就走 `list` + `detail`
+- `detail`：ID 可重复传或逗号分隔，CLI 去重后按 **20 个一批**自动拆分请求。**没有有效正文的 ID 不报错、直接跳过**（ID 写错时即如此；刚发布的观点也可能暂时取不到，稍后重取）。CLI 比对请求与返回，缺的 ID 列在 `missingIds`；某一批请求失败时，已取到的正文照常输出，没取的 ID 列在 `unfetchedIds`、原因在 `unfetchedError`，只需对这些 ID 重跑。两种情况都标 `partial`、**退出 3**
+- 返回字段（list）：`chiefOpinionId` / `publishTime` / `title` / `brief` / `author{chiefId, chiefName, researchAreaList, brokerID, brokerName}` / `securityList[]` / `industryList[]` / `conceptList[]` / `llmTagList`；`detail` 另加 `content`。`author.chiefId` / `chiefName` 在机构点评类观点上为 `null`
 
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
 - `--source`：`realTime` 实时 | `openSource` 开放来源
@@ -69,6 +76,24 @@ gangtise insight summary download --summary-id <id> [--file-type <n>] [--output 
 - `--participant-role`：`management` 管理层 | `expert` 专家
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`
 - `--file-type`（download 可选）：`1` 原始内容（默认）| `2` HTML 格式；**仅影响来源为会议平台的纪要**
+
+## 会议线索 `insight highlight list`
+
+```bash
+gangtise insight highlight list [--from N] [--size N] [--start-time <t>] [--end-time <t>] [--security <code>] [--research-area <id>]
+```
+
+Gangtise 会议内容的核心要点信息流（官方名「会议线索」），固定按发布时间倒序，适合做每日会议跟踪看板。
+
+- 🔴 **5 积分/条**，按返回条数计。**必须带 `--size`**——省略会自动翻页拉全量（范围内常有数千条）。先 `--size 1` 看 stderr 的 `Total: N` 探量级，再决定取多少
+- `--size` 单页上限 50
+- 按偏移量**最多取到第 10000 条**（`--from` + 条数不能超过 10000）。命中更多时 CLI 取到第 10000 条为止、stderr 说明并**退出 3**；`--from` 本身 ≥10000 直接拒绝。要更多请缩短时间范围分段取
+- `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`，也接受 `yyyy-MM-dd`（自动补全）。超出账号数据权限窗口返回 `110003`
+- `--security`：证券代码，**大小写敏感需精确匹配**。A 股 `601702.SH`、港股 **5 位数字** `09992.HK`、美股 `AAPL.O`
+- `--research-area`：中信行业码 `1008001xx` 或 Gangtise 方向码 `122000xxx`。⚠️ **本端点不认申万码 `swIndustry`**
+- 返回字段：`highlightId` / `title` 会议名称 / `publishTime` / `content` / `securityList`（含 `securityCode`+`securityName`）/ `researchAreaList`（含 `researchAreaId`+`researchAreaName`）
+- ⚠️ **`content` 是 HTML 片段**：整体由 `<p>` 包裹，各要点小标题由 `<strong>` 包裹，除这两种标签外不含其他标签。要纯文本自行去标签（如 `re.sub(r"<[^>]+>", "", content)`）
+- 要点可能不关联任何证券（`securityList` 为 `[]`），宏观 / 行业类会议尤其常见——按证券筛会漏掉这批
 
 ## 帕米尔纪要 `insight pamirs-summary list/download`
 
@@ -209,18 +234,21 @@ gangtise insight announcement-us download --announcement-id <id> [--file-type <n
 - **积分**：list 0.1/条；download 20/篇
 - `--security TSLA.O` 的 `sourceName` 为「美国证券交易委员会」
 
-## 外资机构观点 `insight foreign-opinion list`
+## 外资机构观点 `insight foreign-opinion list/detail`
 
 ```bash
-gangtise insight foreign-opinion list [--rank-type <n>] [--security <code>] [--region <code>] [--industry <id>] [--broker <id>] [--rating <name>] [--rating-change <name>]
+gangtise insight foreign-opinion list [--rank-type <n>] [--security <code>] [--region <code>] [--industry <id>] [--broker <id>] [--rating <name>] [--rating-change <name>] [--with-content]
+gangtise insight foreign-opinion detail --foreign-opinion-id <id> [--foreign-opinion-id <id>...]
 ```
+
+- 🔴 **列表只含摘要**：`brief`（英文）/ `briefTranslate`（中文），取正文前 200 字，**1 积分/条**。原文与译文（`content` / `contentTranslate`）用 `detail` 按 `foreignOpinionId` 取（**30 积分/条**），或 `list --with-content`（30 积分/条，`content` / `contentTranslate` 直接在顶层，不含 `brief`）。`detail` 的分批与缺失 ID 处理同内资 `opinion detail`
 
 - `--security`：境外证券代码，如 `UBER.N`
 - ⚠️ `--region`：**本端点只接受 6 个取值**——`cn` | `cnHk` | `cnTw` | `us` | `jp` | `uk`。`regionCategory` 常量表里另外 13 个（`sea` / `gl` / `fr` / `de` / `kr` / `in` / `ca` / `me` / `othAs` / `othEur` / `latAm` / `oce` / `af`）在这里一律报 `100005 枚举值非法`，**而它们在 `insight foreign-report` 上全部合法且能正常收窄**。要按这 13 个区域筛，只能用 `foreign-report`，或不带该参数取回后按 `region` 字段本地筛
 - ⚠️ `--industry`：**只认申万码**（`104xx0000`）。中信码报 `100005 枚举值非法`——即使 `reference constant-category` 把本端点列在 `citicIndustry` 的 `usageScopes` 里也一样。⚠️ **返回记录的 `industryList[]` 同时带两套码**（如 `100800122 中信非银` + `104490000 申万非银金融`），**回查时要挑申万那条**，拿中信码回查会报错
 - `--broker`：外资券商 ID（见 `references/lookup-ids.md`）
 - `--rating` / `--rating-change`：同研报
-- 返回字段：`foreignOpinionId` / `title` / `titleTranslate` / `content` / `contentTranslate` / `publishTime` / `publisher{brokerId, brokerName}` / `securityList[]{securityCode, rating, targetPrice, currency}` / `region`
+- 返回字段（list）：`foreignOpinionId` / `title` / `titleTranslate` / `brief` / `briefTranslate` / `publishTime` / `publisher{brokerId, brokerName}` / `securityList[]{securityCode, securityName, rating, ratingChange, targetPrice, currency}` / `industryList[]` / `region{regionCode, regionName}`；`detail` 另加 `content` / `contentTranslate`
 
 ## 外资独立观点 `insight independent-opinion list/download`
 

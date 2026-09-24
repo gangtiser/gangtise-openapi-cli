@@ -9,6 +9,10 @@ export interface EndpointDefinition {
   pagination?: {
     enabled: true
     maxPageSize: number
+    /** Hard offset window: the server rejects any page with `from + size` above it
+     * (100006), however large `total` is. Pages are planned inside it, and a fetch that
+     * would need rows past it is returned partial instead of failing on the last page. */
+    maxWindow?: number
   }
   /** Per-endpoint timeout floor in ms. Synchronous AI generation blocks well past
    * the 30s default; without a floor it times out and retries, and a retry can
@@ -100,12 +104,33 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
   },
 
   // ─── insight ───
+  // The v2 list carries a 200-char `brief` instead of the body (1 credit/row); the body
+  // moved to getDetail (30/row). The v1 list still answers with the body inline at
+  // 30/row, and backs `--with-content`.
   "insight.opinion.list": {
+    method: "POST",
+    path: "/application/open-insight/chief-opinion/v2/getList",
+    kind: "json",
+    description: "List domestic institution chief opinions (brief only; body via detail)",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.opinion.list-with-content": {
     method: "POST",
     path: "/application/open-insight/chief-opinion/getList",
     kind: "json",
-    description: "List domestic institution chief opinions",
+    description: "List domestic institution chief opinions with the full body (v1 list)",
     pagination: { enabled: true, maxPageSize: 50 },
+    // Same 30 credits per body as getDetail, so the same replay rule.
+    retry: "no-replay",
+  },
+  "insight.opinion.detail": {
+    method: "POST",
+    path: "/application/open-insight/chief-opinion/getDetail",
+    kind: "json",
+    description: "Get domestic chief opinion bodies by ID (max 20 IDs per call)",
+    // 30 credits per returned opinion, up to 20 per call: a replayed batch re-bills
+    // every body the first attempt already delivered.
+    retry: "no-replay",
   },
   "insight.summary.list": {
     method: "POST",
@@ -247,12 +272,29 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "download",
     description: "Download US announcement file",
   },
+  // Same v2 split as insight.opinion: brief / briefTranslate in the list, content /
+  // contentTranslate via getDetail.
   "insight.foreign-opinion.list": {
+    method: "POST",
+    path: "/application/open-insight/foreign-opinion/v2/getList",
+    kind: "json",
+    description: "List foreign institution opinions (brief only; body via detail)",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.foreign-opinion.list-with-content": {
     method: "POST",
     path: "/application/open-insight/foreign-opinion/getList",
     kind: "json",
-    description: "List foreign institution opinions",
+    description: "List foreign institution opinions with the full body (v1 list)",
     pagination: { enabled: true, maxPageSize: 50 },
+    retry: "no-replay",
+  },
+  "insight.foreign-opinion.detail": {
+    method: "POST",
+    path: "/application/open-insight/foreign-opinion/getDetail",
+    kind: "json",
+    description: "Get foreign opinion bodies by ID (max 20 IDs per call)",
+    retry: "no-replay",
   },
   "insight.independent-opinion.list": {
     method: "POST",
@@ -293,6 +335,18 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/report-image/getList",
     kind: "json",
     description: "Search research report images by keyword (returns chunkId + metadata)",
+  },
+  "insight.highlight.list": {
+    method: "POST",
+    path: "/application/open-insight/summary/highlight/getList",
+    kind: "json",
+    description: "List meeting highlights (核心要点信息流; content is an HTML fragment)",
+    // from=10000,size=1 → 100006 (probed 2026-09-21).
+    pagination: { enabled: true, maxPageSize: 50, maxWindow: 10000 },
+    // 5 credits per ROW: replaying a page re-bills rows the server already
+    // delivered, same reasoning as `ai.hot-topic`.
+    retry: "no-replay",
+    expects: "list",
   },
   "insight.report-image.download": {
     method: "GET",
@@ -500,6 +554,109 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     description: "Query earning forecast (consensus estimates)",
   },
 
+  // ─── bond ───
+  // All twelve are metered (0.4 credits per call, per the 2026-09 spec; three of
+  // them per row / per bond / per issuer instead). Metered + replayable is the
+  // combination that double-bills, hence `no-replay` across the family.
+  // These answer COLUMNAR: `data` is `{fieldList, list}` where each row is an
+  // array ordered by `fieldList` — `normalizeRows` zips each row into an object.
+  "bond.basic-info": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/basic-info",
+    kind: "json",
+    description: "Query bond static profiles (issuance, term, coupon, rating, options)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.issuer-info": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/issuer-info",
+    kind: "json",
+    description: "Query bond issuer profiles (by bond code or issuer name)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.daily-quote": {
+    method: "POST",
+    path: "/application/open-quote/bond/daily-quote-exchange-cfets",
+    kind: "json",
+    description: "Query bond daily close quotes (exchange + CFETS; dirty/clean price, YTM, duration)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.valuation": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/valuation-shclearing",
+    kind: "json",
+    description: "Query Shanghai Clearing House bond valuations (price, yield, risk measures)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.cash-flow": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/cash-flow",
+    kind: "json",
+    description: "Query bond interest payment and redemption schedule",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.announcement": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/announcement",
+    kind: "json",
+    description: "Query bond announcements (pageNo/pageSize; the only paged endpoint of the family)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.issuance-detail": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/issuance-detail",
+    kind: "json",
+    description: "Query bond issuance and re-issuance records (bidding, pricing, cover ratios)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.rating-overview": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/rating-overview",
+    kind: "json",
+    description: "Query bond / issuer / guarantor ratings side by side (max 10 bonds per call)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.rating-change": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/rating-change",
+    kind: "json",
+    description: "Query bond rating change history (max 10 bonds per call)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.issuer-rating-change": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/issuer-rating-change",
+    kind: "json",
+    description: "Query issuer rating change history (by bond code or issuer name)",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.issuance-plan": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/issuance-plan",
+    kind: "json",
+    description: "Query the rate-bond issuance calendar over a date range",
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.exercise-notice": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/exercise-notice",
+    kind: "json",
+    description: "Query put/call exercise schedules and results for option-embedded bonds",
+    retry: "no-replay",
+    expects: "list",
+  },
+
   // ─── ai ───
   "ai.stock-summary.list": {
     method: "POST",
@@ -632,6 +789,81 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "download",
     description: "Download vault drive file",
   },
+  // ─── vault drive management (all free) ───
+  // `no-replay` on five of these is about side effects, not billing:
+  // - upload / createFolder / copy CREATE something, and names are never unique here
+  //   (same-name files and folders are allowed, told apart only by ID), so a replay
+  //   after a lost response leaves a second copy that nothing flags.
+  // - deleteFile / deleteFolder report a replay of a delete that already landed as a
+  //   failure: `failList: 文件不存在` / `130002` (probed 2026-09-24).
+  // rename, moveFile and moveFolder answered identically when repeated (probed
+  // 2026-09-24), so they keep the default policy.
+  "vault.drive.upload": {
+    method: "POST",
+    path: "/application/open-vault/drive/uploadFile",
+    kind: "upload",
+    description: "Upload a file to the AI drive (multipart; max 100MB)",
+    timeoutMs: 300_000,
+    retry: "no-replay",
+  },
+  "vault.drive.folder-list": {
+    method: "POST",
+    path: "/application/open-vault/drive/getFolderList",
+    kind: "json",
+    description: "List the direct subfolders and files of a drive folder",
+  },
+  "vault.drive.create-folder": {
+    method: "POST",
+    path: "/application/open-vault/drive/createFolder",
+    kind: "json",
+    description: "Create a drive folder",
+    retry: "no-replay",
+  },
+  "vault.drive.rename": {
+    method: "POST",
+    path: "/application/open-vault/drive/rename",
+    kind: "json",
+    description: "Rename a drive file or folder",
+  },
+  "vault.drive.delete-file": {
+    method: "POST",
+    path: "/application/open-vault/drive/deleteFile",
+    kind: "json",
+    destructive: { warning: "删除的云盘文件无法恢复；先用 'gangtise vault drive-folder-list' 或 'drive-list' 核对文件 ID 对应的文件名。" },
+    itemFailures: true,
+    description: "Delete drive files",
+    retry: "no-replay",
+  },
+  "vault.drive.delete-folder": {
+    method: "POST",
+    path: "/application/open-vault/drive/deleteFolder",
+    kind: "json",
+    destructive: { warning: "删除文件夹会连同其中全部子文件夹与文件一起删除，且无法恢复；先用 'gangtise vault drive-folder-list --parent-id <id>' 看清里面有什么。" },
+    description: "Delete a drive folder and everything inside it",
+    retry: "no-replay",
+  },
+  "vault.drive.move-file": {
+    method: "POST",
+    path: "/application/open-vault/drive/moveFile",
+    kind: "json",
+    itemFailures: true,
+    description: "Move drive files to a folder (same space only)",
+  },
+  "vault.drive.move-folder": {
+    method: "POST",
+    path: "/application/open-vault/drive/moveFolder",
+    kind: "json",
+    description: "Move a drive folder under another folder (same space only)",
+  },
+  "vault.drive.copy": {
+    method: "POST",
+    path: "/application/open-vault/drive/copy",
+    kind: "json",
+    itemFailures: true,
+    description: "Copy drive files to the OTHER space (my drive <-> tenant drive)",
+    retry: "no-replay",
+  },
+
   "vault.record.list": {
     method: "POST",
     path: "/application/open-vault/record/getList",
@@ -746,18 +978,34 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Get industry indicator time-series data by indicator ID list",
   },
+  // v2 (50/call) drops keyEvents from info and isKey / inclusionReason from securities;
+  // the v1 paths (500/call) still return them and back `--full`.
   "alternative.concept-info": {
     method: "POST",
-    path: "/application/open-alternative/concept/info",
+    path: "/application/open-alternative/concept/v2/info",
     kind: "json",
     description: "Query latest concept (theme index) profile by conceptId",
     retry: "no-replay",
   },
+  "alternative.concept-info-full": {
+    method: "POST",
+    path: "/application/open-alternative/concept/info",
+    kind: "json",
+    description: "Query latest concept profile incl. catalyst events (keyEvents; v1)",
+    retry: "no-replay",
+  },
   "alternative.concept-securities": {
+    method: "POST",
+    path: "/application/open-alternative/concept/v2/securities",
+    kind: "json",
+    description: "Query concept (theme index) constituent securities, grouped",
+    retry: "no-replay",
+  },
+  "alternative.concept-securities-full": {
     method: "POST",
     path: "/application/open-alternative/concept/securities",
     kind: "json",
-    description: "Query concept (theme index) constituent securities, grouped",
+    description: "Query concept constituents incl. isKey / inclusionReason (v1)",
     retry: "no-replay",
   },
 
@@ -813,6 +1061,15 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-tool/file-parse/result",
     kind: "download",
     description: "Fetch a file-parse result ZIP by taskId (140001 = still generating)",
+  },
+  "tool.web-search": {
+    method: "POST",
+    path: "/application/open-tool/web-search/search",
+    kind: "json",
+    description: "Search the public web for research (tiered sources, optional page content)",
+    // 1 credit per call, charged on a successful answer — a replayed timeout bills twice.
+    retry: "no-replay",
+    expects: "list",
   },
 }
 

@@ -60,6 +60,7 @@
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |
 | `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) · pending 140001 (legacy 410110) / terminal 140002 (legacy 410111) · both the ready and pending results go through `printData`, so `--output` / `--format` hold either way |
 | `fileParse.ts` | `tool file-parse`: pre-upload validation (PDF / non-empty / ≤100MB) · multipart submit → taskId · poll + stream the result ZIP (140001 = still generating) |
+| `driveUpload.ts` | `vault drive-upload`: pre-upload validation (non-empty / ≤100MB / name ≤200 UTF-16 units) · multipart upload with `spaceType` / `folderId` / `title` form fields |
 | `perSecurity.ts` | Splits one command into per-security requests — endpoints that accept a single code (minute-kline), or many codes × a long range that would hit the row cap — then merges in request order. Stricter than date sharding: the caller named every security, so any shard with a mismatched `fieldList` fails the whole command |
 | `rowSink.ts` | `ExportSink`: ordered batched writes to disk for large `jsonl` / `csv` exports (1000-row threshold · staging file + rename · csv goes through a temp row file in two passes) |
 | `calendarType.ts` | `resolveCalendarType`: picks the time-series date axis when `--calendar-type` is absent. Probes each distinct indicator's `parameterList` via the free `indicator search`; asks for `TD` only when every indicator is trading-day typed, and falls back to the server's `ND` on anything else — an unknown code, an empty `parameterList`, a failed probe. The asymmetry is deliberate: a wrong `ND` costs cells, a wrong `TD` silently empties report-period rows |
@@ -121,14 +122,16 @@
 | Domain | Base Path | Endpoints |
 |:--|:--|:--|
 | **Auth** | `/application/auth/oauth/open/` | loginV2 |
-| **Insight** | `/application/open-insight/` | chief-opinion / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account / Q&A-data / report-image |
+| **Insight** | `/application/open-insight/` | chief-opinion (v2 list + getDetail; v1 list for `--with-content`) / summary/highlight / summary / roadshow / site-visit / strategy-meeting / forum / broker-report / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account / Q&A-data / report-image |
 | **Reference** | `/application/open-reference/` | securities/search / chiefs/search / institutions/search / officialAccount/search / constants/category / constants/getList / concepts/search / sectors/search / sectors/constituents |
 | **Quote** | `/application/open-quote/` | kline/daily / kline-hk/daily / kline-us/daily / index/kline/daily / kline/minute / quote/realtime / fund-flow/daily |
 | **Fundamental** | `/application/open-fundamental/` | income-statement / income-statement-quarterly / balance-sheet / cash-flow / cash-flow-quarterly / income-statement-hk / balance-sheet-hk / cash-flow-hk / income-statement-us / balance-sheet-us / cash-flow-us / main-business / valuation-analysis / top-holders / earning-forecast |
+| **Bond** | `/application/open-fundamental/bond/` · daily quote → `/application/open-quote/bond/` | basic-info / issuer-info / daily-quote-exchange-cfets / valuation-shclearing / cash-flow / announcement / issuance-detail / rating-overview / rating-change / issuer-rating-change / issuance-plan / exercise-notice (all columnar `{fieldList, list}`) |
 | **Indicator** | `/application/open-indicator/` | EDE/search / EDE/cross-section / EDE/time-series / screener |
 | **AI** | `/application/open-ai/` · knowledge-* → `/application/open-data/ai/` | stock-summary / knowledge-batch / knowledge-resource / security-clue / hot-topic / one-pager / investment-logic / peer-comparison / earnings-review / viewpoint-debate / theme-tracking / research-outline / management-discuss |
-| **Vault** | `/application/open-vault/` | drive / record / my-conference / wechatgroupmsg / stock-pool |
-| **Alternative** | `/application/open-alternative/` | EDB/search / EDB/getData / concept/info / concept/securities |
+| **Vault** | `/application/open-vault/` | drive (list / download / getFolderList / uploadFile / createFolder / rename / moveFile / moveFolder / copy (files only) / deleteFile / deleteFolder) / record / my-conference / wechatgroupmsg / stock-pool |
+| **Alternative** | `/application/open-alternative/` | EDB/search / EDB/getData / concept/v2/info / concept/v2/securities (v1 paths for `--full`) |
+| **Tool** | `/application/open-tool/` | file-parse/submit / file-parse/result / web-search/search |
 
 ### Local Filesystem
 

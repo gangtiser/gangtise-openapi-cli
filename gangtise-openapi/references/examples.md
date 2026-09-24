@@ -38,8 +38,11 @@
 4. gangtise insight opinion list \
      --keyword AI \
      --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" \
-     --rank-type 2 --format json
-5. 提取 list[].title / chiefName / publishDate，按时间倒序列表
+     --rank-type 2 --size 20 --format json
+5. 提取 list[].title / author.chiefName / author.brokerName / publishTime / brief，按时间倒序列表
+6. 用户要看某几条全文 → 取对应 chiefOpinionId：
+     gangtise insight opinion detail --chief-opinion-id <id1> --chief-opinion-id <id2> --format json
+   （30 积分/条；list 只有 200 字摘要 brief，1 积分/条）
 ```
 
 ## 例 3：AI 内容生成（content 字段直接呈现）
@@ -198,14 +201,15 @@
      gangtise reference concept-search --keyword 机器人 --top 5 --format json
        → list[0].conceptId = 121000130
    注意：concept-id 不在速查表，**绝不猜测**，必须查 concept-search
-3. Pre-flight：认证 OK；两接口都仅返回最新截面，无历史回溯
+3. Pre-flight：认证 OK；两接口都仅返回最新截面，无历史回溯。
+   「龙头股」要用重点个股标识 isKey，它只在 --full 下返回（500 积分/次，默认 50）→ 先告知积分再加
 4. gangtise alternative concept-info --concept-id 121000130 --format json
-     → 单对象 {conceptName, definition, investmentLogic, industrySpace,
-              competitiveLandscape, keyEvents:[{date,content}]}
-   gangtise alternative concept-securities --concept-id 121000130 --format json
-     → 单对象 {securityCount, securityDetail:[{groupName, securityList:[...]}]}
+     → 单对象 {conceptName, definition, investmentLogic, industrySpace, competitiveLandscape}
+   gangtise alternative concept-securities --concept-id 121000130 --full --format json
+     → 单对象 {securityCount, securityDetail:[{groupName, securityList:[{securityCode, securityName, isKey, inclusionReason}]}]}
 5. 呈现：concept-info 各文本字段直接展示（含 null 则跳过）；
-   成分股按 groupName 分组列出，isKey=true 标记为「重点」
+   成分股按 groupName 分组列出，isKey=true 标记为「重点」。
+   没加 --full 时没有 isKey，不要自行判断哪只是龙头
 ```
 
 ## 例 14：板块成分股（sector-search → sector-constituents 两步）
@@ -357,7 +361,7 @@
 5. 超时不要重跑 file-parse（会重复扣费），用 file-parse-check 拿同一个 taskId 的结果
 ```
 
-## 例 20：维护自选股股票池（本 CLI 仅有的写操作）
+## 例 20：维护自选股股票池（会改动账号数据）
 
 **用户**："把今天筛出来的这几只建个池叫「AI算力观察」"
 

@@ -299,6 +299,13 @@ describe("ApiError", () => {
     expect(new ApiError("x", "999999", 500, envelope).traceId).toBe("own")
   })
 
+  it("gives the drive-management codes their own hints", () => {
+    expect(new ApiError("名称超长", "230004").hint).toContain("200")
+    expect(new ApiError("文件夹移动目标非法", "230005").hint).toContain("子文件夹")
+    expect(new ApiError("上传总量超出限制", "230008").hint).toContain("500MB")
+    expect(new ApiError("资源不存在", "130002").hint).toContain("drive-folder-list")
+  })
+
   it("covers all 41 codes published 2026-07-17 (the count the changelog claims)", () => {
     const unified = ["999001", "999002", "999003", "999004", "999005", "999006", "999007", "999008",
       "999009", "999010", "999011", "999012", "999013", "999014", "999015", "999016", "999999"]

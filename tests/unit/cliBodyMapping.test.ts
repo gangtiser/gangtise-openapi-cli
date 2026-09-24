@@ -161,7 +161,7 @@ beforeAll(async () => {
         else res.end(payload)
         return
       }
-      if ((req.url ?? "").includes("/foreign-opinion/getList") && (body as { industryList?: unknown } | undefined)?.industryList) {
+      if (/\/foreign-opinion\/(v2\/)?getList/.test(req.url ?? "") && (body as { industryList?: unknown } | undefined)?.industryList) {
         // A paginated endpoint answering a successful envelope with data:null (the real
         // shape for industryList on this endpoint): the client's unexpected-first-page
         // branch — exit 3 with no partial marker to hang on the result.
@@ -403,6 +403,59 @@ beforeAll(async () => {
         } }))
         return
       }
+      if (/\/(chief|foreign)-opinion\/getDetail/.test(req.url ?? "")) {
+        // The detail endpoints answer a bare array and skip, without an error, any ID
+        // they have no body for (probed 2026-09-24). GONE* stands in for such an ID.
+        const b = body as { chiefOpinionIdList?: string[]; foreignOpinionIdList?: string[] } | undefined
+        const idKey = b?.chiefOpinionIdList ? "chiefOpinionId" : "foreignOpinionId"
+        const ids = b?.chiefOpinionIdList ?? b?.foreignOpinionIdList ?? []
+        // A batch holding FAIL* is rejected outright (a non-retried 4xx), standing in for
+        // a later batch that fails after earlier ones were already delivered and billed.
+        if (ids.some((id) => id.startsWith("FAIL"))) {
+          res.statusCode = 400
+          res.end(JSON.stringify({ code: "100003", errorType: "PARAM_INVALID", msg: "参数值非法", status: false, data: "", traceId: "trace-detail-fail" }))
+          return
+        }
+        res.end(JSON.stringify({ code: "000000", msg: "操作成功", status: true, data: ids.filter((id) => !id.startsWith("GONE")).map((id) => ({ [idKey]: id, title: "t", content: "body" })) }))
+        return
+      }
+      if ((req.url ?? "").includes("/drive/uploadFile")) {
+        // A title of FAIL.pdf makes the upload fail with a 5xx.
+        if (raw.toString("utf8").includes("FAIL.pdf")) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ code: "140002", errorType: "PROCESSING_FAILED", msg: "业务处理失败", status: false, data: "" }))
+          return
+        }
+        res.end(JSON.stringify({ code: "000000", msg: "操作成功", status: true, data: { fileId: "50001", title: "t.pdf", folderId: "101", spaceType: 1, fileSize: "3" } }))
+        return
+      }
+      if (/\/drive\/(deleteFile|moveFile|copy)/.test(req.url ?? "") && (body as { fileIdList?: string[] } | undefined)?.fileIdList) {
+        // Per-item failures inside a 000000 envelope, keyed on fileId (probed 2026-09-24).
+        const ids = (body as { fileIdList: string[] }).fileIdList
+        res.end(JSON.stringify({ code: "000000", msg: "请求成功", status: true, data: {
+          successList: ids.filter((id) => !id.startsWith("BAD")),
+          failList: ids.filter((id) => id.startsWith("BAD")).map((fileId) => ({ fileId, failReason: "文件不存在" })),
+        } }))
+        return
+      }
+      if ((req.url ?? "").includes("/summary/highlight/getList")) {
+        // The feed rejects any page past the 10000-row offset window (100006), however
+        // large `total` is — the stub models both halves.
+        const b = body as { from?: number; size?: number } | undefined
+        const from = b?.from ?? 0
+        const size = b?.size ?? 20
+        if (from + size > 10000) {
+          res.statusCode = 400
+          res.end(JSON.stringify({ code: "100006", errorType: "QUERY_LIMIT_EXCEEDED", msg: "from与size之和不能超过10000", status: false, data: "" }))
+          return
+        }
+        // TOTAL10000.XX: a total that lands exactly on the window, so every row is
+        // reachable and the row at offset `total` is not.
+        const total = ((body as { securityList?: string[] } | undefined)?.securityList ?? []).includes("TOTAL10000.XX") ? 10000 : 12000
+        const count = Math.max(0, Math.min(size, total - from))
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total, list: Array.from({ length: count }, (_, i) => ({ highlightId: String(from + i) })) } }))
+        return
+      }
       if ((req.url ?? "").includes("/valuation-analysis")) {
         // Columnar, and --field narrows what comes back: a column the caller did not ask
         // for is simply absent. That is what makes the two columns --skip-null judges a
@@ -532,6 +585,171 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured).toHaveLength(1)
     expect(captured[0].path).toBe("/application/open-vault/stock-pool/deletePool")
     expect(captured[0].body).toEqual({ poolIdList: ["808477293", "808477294"] })
+  }, 30_000)
+
+  it("opinion lists go to the v2 brief-only path; --with-content goes to the v1 list", async () => {
+    expect((await cli(["insight", "opinion", "list", "--size", "1", "--format", "json"])).code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/chief-opinion/v2/getList")
+    captured.length = 0
+    expect((await cli(["insight", "foreign-opinion", "list", "--size", "1", "--with-content", "--format", "json"])).code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/foreign-opinion/getList")
+  }, 30_000)
+
+  it("opinion detail batches IDs 20 per call, de-duplicated, and names the IDs that came back empty", async () => {
+    const ids = Array.from({ length: 24 }, (_, i) => `ID${i}`)
+    const { code, stdout, stderr } = await cli(["insight", "opinion", "detail", "--chief-opinion-id", [...ids, "ID0", "GONE1"].join(","), "--format", "json"])
+    // 25 distinct IDs (the repeated ID0 is sent once) → 20 + 5.
+    expect(captured.map((r) => (r.body as { chiefOpinionIdList: string[] }).chiefOpinionIdList.length)).toEqual([20, 5])
+    expect(captured[0].path).toBe("/application/open-insight/chief-opinion/getDetail")
+    // The server answered 000000 for all of it; the skipped ID is the only signal.
+    expect(code).toBe(3)
+    expect(stderr).toContain("GONE1")
+    expect(JSON.parse(stdout).list).toHaveLength(24)
+  }, 30_000)
+
+  it("opinion detail keeps a failed later batch's IDs in the result, so a script can re-run just those", async () => {
+    const ids = [...Array.from({ length: 20 }, (_, i) => `ID${i}`), "FAIL1"]
+    const { code, stdout, stderr } = await cli(["insight", "opinion", "detail", "--chief-opinion-id", ids.join(","), "--format", "json"])
+    expect(captured).toHaveLength(2)
+    expect(code).toBe(3)
+    const out = JSON.parse(stdout)
+    expect(out.list).toHaveLength(20)
+    expect(out.unfetchedIds).toEqual(["FAIL1"])
+    expect(out.unfetchedError).toMatchObject({ code: "100003", traceId: "trace-detail-fail" })
+    // Not reported as "no body": these were never asked for successfully.
+    expect(out.missingIds).toBeUndefined()
+    expect(stderr).toContain("FAIL1")
+  }, 30_000)
+
+  it("foreign-opinion detail sends foreignOpinionIdList and stays at exit 0 when every ID comes back", async () => {
+    const { code, stderr } = await cli(["insight", "foreign-opinion", "detail", "--foreign-opinion-id", "10911654", "--format", "json"])
+    expect(code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/foreign-opinion/getDetail")
+    expect(captured[0].body).toEqual({ foreignOpinionIdList: ["10911654"] })
+    expect(stderr).not.toContain("warning")
+  }, 30_000)
+
+  it("concept commands use the v2 paths; --full reaches the v1 ones", async () => {
+    await cli(["alternative", "concept-info", "--concept-id", "121000130"])
+    await cli(["alternative", "concept-securities", "--concept-id", "121000130", "--full"])
+    expect(captured.map((r) => r.path)).toEqual([
+      "/application/open-alternative/concept/v2/info",
+      "/application/open-alternative/concept/securities",
+    ])
+  }, 30_000)
+
+  it("drive-upload sends the file with spaceType / folderId / title as form fields", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "drive-upload-"))
+    const file = path.join(dir, "report.pdf")
+    await writeFile(file, "pdf")
+    try {
+      const { code } = await cli(["vault", "drive-upload", "--file", file, "--space-type", "2", "--folder-id", "101", "--title", "深度报告.pdf"])
+      expect(code).toBe(0)
+      expect(captured[0].path).toBe("/application/open-vault/drive/uploadFile")
+      expect(captured[0].contentType).toContain("multipart/form-data")
+      const form = captured[0].raw.toString("utf8")
+      for (const [name, value] of [["spaceType", "2"], ["folderId", "101"], ["title", "深度报告.pdf"]]) {
+        expect(form).toMatch(new RegExp(`name="${name}"\\r\\n\\r\\n${value}\\r\\n`))
+      }
+      expect(form).toContain('filename="report.pdf"')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it("a failed drive-upload is not replayed", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "drive-upload-"))
+    const file = path.join(dir, "report.pdf")
+    await writeFile(file, "pdf")
+    try {
+      const { code } = await cli(["vault", "drive-upload", "--file", file, "--folder-id", "101", "--title", "FAIL.pdf"])
+      expect(code).not.toBe(0)
+      // Same-name files are allowed, so a replay after a lost response would leave a second copy.
+      expect(captured).toHaveLength(1)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it("drive-delete-file / drive-delete-folder refuse without --yes before any request", async () => {
+    expect((await cli(["vault", "drive-delete-file", "--file-id", "49412"])).code).not.toBe(0)
+    expect((await cli(["vault", "drive-delete-folder", "--folder-id", "103"])).code).not.toBe(0)
+    expect(captured).toHaveLength(0)
+
+    const { code, stderr } = await cli(["vault", "drive-delete-file", "--file-id", "49412,BAD1", "--yes"])
+    expect(captured[0].body).toEqual({ fileIdList: ["49412", "BAD1"] })
+    expect(code).toBe(3)
+    expect(stderr).toContain("BAD1（文件不存在）")
+  }, 30_000)
+
+  it("drive-copy sends a file copy only, and names the files that failed", async () => {
+    expect((await cli(["vault", "drive-copy", "--file-id", "49412"])).code).not.toBe(0)
+    expect(captured).toHaveLength(0)
+
+    const { code, stderr } = await cli(["vault", "drive-copy", "--file-id", "49412", "--file-id", "BAD1", "--target-folder-id", "root"])
+    expect(captured[0].path).toBe("/application/open-vault/drive/copy")
+    expect(captured[0].body).toEqual({ copyType: "file", fileIdList: ["49412", "BAD1"], targetFolderId: "root" })
+    expect(code).toBe(3)
+    expect(stderr).toContain("BAD1（文件不存在）")
+  }, 30_000)
+
+  it("drive folder commands map their flags to the documented fields", async () => {
+    await cli(["vault", "drive-folder-list", "--parent-id", "101"])
+    await cli(["vault", "drive-create-folder", "--name", "2026Q3", "--parent-id", "101"])
+    await cli(["vault", "drive-rename", "--type", "folder", "--id", "103", "--name", "2026三季报"])
+    await cli(["vault", "drive-move-folder", "--folder-id", "103", "--target-parent-id", "root"])
+    expect(captured.map((r) => [r.path.replace("/application/open-vault/drive/", ""), r.body])).toEqual([
+      ["getFolderList", { spaceType: 1, parentId: "101" }],
+      ["createFolder", { folderName: "2026Q3", spaceType: 1, parentId: "101" }],
+      ["rename", { type: "folder", id: "103", name: "2026三季报" }],
+      ["moveFolder", { folderId: "103", targetParentId: "root" }],
+    ])
+  }, 30_000)
+
+  it("bond code caps and web-search --site count after de-duplication, as the server does", async () => {
+    const same = Array.from({ length: 11 }, () => "136236.SH").join(",")
+    await cli(["bond", "rating-overview", "--security", same, "--format", "json"])
+    await cli(["bond", "rating-change", "--security", same, "--format", "json"])
+    await cli(["tool", "web-search", "--query", "q", "--site", Array.from({ length: 11 }, () => "csrc.gov.cn").join(","), "--format", "json"])
+    expect(captured.map((r) => r.path)).toEqual([
+      "/application/open-fundamental/bond/rating-overview",
+      "/application/open-fundamental/bond/rating-change",
+      "/application/open-tool/web-search/search",
+    ])
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["136236.SH"])
+    expect((captured[1].body as { securityList: string[] }).securityList).toEqual(["136236.SH"])
+    expect((captured[2].body as { siteList: string[] }).siteList).toEqual(["csrc.gov.cn"])
+  }, 30_000)
+
+  it("highlight list plans pages inside the 10000-row offset window and reports the rows past it", async () => {
+    // A fetch-all from 9990 against total 12000: one page of 10, never a page that
+    // straddles the window (which the server rejects outright).
+    const { code, stderr } = await cli(["insight", "highlight", "list", "--from", "9990", "--format", "json"])
+    expect(captured.map((r) => (r.body as { from: number; size: number }))).toEqual([{ from: 9990, size: 10 }])
+    expect(code).toBe(3)
+    expect(stderr).toContain("offset 10000")
+
+    captured.length = 0
+    expect((await cli(["insight", "highlight", "list", "--from", "10000", "--size", "5"])).code).not.toBe(0)
+    expect(captured).toHaveLength(0)
+
+    // total exactly on the window: every row is reachable, and the total-cap probe (which
+    // would ask for the row at offset 10000) cannot fit the window, so it is not sent.
+    captured.length = 0
+    const exact = await cli(["insight", "highlight", "list", "--from", "9990", "--security", "TOTAL10000.XX", "--format", "json"])
+    expect(captured.map((r) => (r.body as { from: number; size: number }).from)).toEqual([9990])
+    // Not partial (nothing shows rows are missing), but the unchecked total is said aloud.
+    expect(exact.code).toBe(0)
+    expect(exact.stderr).toContain("cannot be checked")
+  }, 30_000)
+
+  it("bond mutually exclusive or missing selectors are refused locally, before any metered request", async () => {
+    expect((await cli(["bond", "issuer-info", "--security", "136236.SH", "--issuer", "国家电网"])).code).not.toBe(0)
+    expect((await cli(["bond", "issuer-rating-change"])).code).not.toBe(0)
+    expect((await cli(["bond", "announcement", "--security", "019742.SH", "--start-date", "2026-09-01"])).code).not.toBe(0)
+    expect((await cli(["bond", "announcement"])).code).not.toBe(0)
+    expect((await cli(["bond", "cash-flow"])).code).not.toBe(0)
+    expect(captured).toHaveLength(0)
   }, 30_000)
 
   it("insight announcement list converts both date forms to the same local-midnight epoch millis", async () => {

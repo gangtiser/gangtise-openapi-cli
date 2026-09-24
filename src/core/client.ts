@@ -245,9 +245,16 @@ export class GangtiseClient {
     const startFrom = typeof initialBody.from === 'number' && Number.isFinite(initialBody.from) ? initialBody.from : 0
     const requestedSize = typeof initialBody.size === 'number' && Number.isFinite(initialBody.size) ? initialBody.size : undefined
     const maxPageSize = endpoint.pagination?.maxPageSize ?? requestedSize ?? 20
+    // Rows past the offset window are unreachable (the server rejects the page), so no
+    // page is planned across it — a page straddling it would fail the whole tail.
+    const maxWindow = endpoint.pagination?.maxWindow
+    if (maxWindow !== undefined && startFrom >= maxWindow) {
+      throw new ValidationError(`${endpoint.key} serves rows only up to offset ${maxWindow} (from + size ≤ ${maxWindow}); --from ${startFrom} is past it. Narrow the query (e.g. a shorter time range) instead of paging deeper.`)
+    }
+    const windowRoom = maxWindow === undefined ? Infinity : maxWindow - startFrom
 
     // First page: serial — we need total before deciding how many more requests to fan out.
-    const firstPageSize = requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize)
+    const firstPageSize = Math.min(requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize), windowRoom)
     const firstPage = await this.requestJson<Record<string, unknown>>(endpoint, {
       ...initialBody,
       from: startFrom,
@@ -282,7 +289,18 @@ export class GangtiseClient {
     const total = firstPage.total
 
     const available = Math.max(total - startFrom, 0)
-    const target = requestedSize === undefined ? available : Math.min(requestedSize, available)
+    const wanted = requestedSize === undefined ? available : Math.min(requestedSize, available)
+    const target = Math.min(wanted, windowRoom)
+    // The total-cap probe asks for the row at offset `total`; past the window the server
+    // rejects it outright, so it would only ever spend a request and learn nothing.
+    const probeFits = maxWindow === undefined || total + 1 <= maxWindow
+    // Rows the caller asked for that sit past the offset window: nothing can fetch them,
+    // so the result is partial on every return path below, whatever else happens.
+    const flagWindowCut = (out: Record<string, unknown>): void => {
+      if (target >= wanted) return
+      process.stderr.write(`[gangtise] warning: ${endpoint.key} serves rows only up to offset ${maxWindow} (from + size ≤ ${maxWindow}); ${wanted - target} of the ${wanted} requested rows lie past it and were not fetched. Narrow the query (e.g. a shorter time range) and fetch in slices.\n`)
+      out.partial = true
+    }
 
     // Rows either accumulate in `collected` or, for a large jsonl export, go straight out
     // through the sink in page order (ExportSink); `count` is the row count either way.
@@ -298,6 +316,12 @@ export class GangtiseClient {
       if (sink) await sink.push(kept)
       else for (const row of kept) collected.push(row)
     }
+    // A `total` that reaches the window cannot be probed. Nothing shows the result is cut
+    // short, so it is not marked partial — the caller is only told it was not checked.
+    const checkTotalCap = async (out: Record<string, unknown>): Promise<void> => {
+      if (probeFits) return this.flagIfTotalCapped(endpoint, initialBody, total, out, count)
+      process.stderr.write(`[gangtise] note: ${endpoint.key} reported total=${total}, which reaches its ${maxWindow}-row offset window, so whether that is the real count cannot be checked. Narrow the query (e.g. a shorter time range) to keep total below ${maxWindow} if you need to be sure.\n`)
+    }
     const result = (): Record<string, unknown> => {
       const out: Record<string, unknown> = { ...firstPage, total, list: collected }
       return sink ? attachRowSink(out, sink) : out
@@ -309,6 +333,7 @@ export class GangtiseClient {
     // maxPageSize — say so instead of silently returning a subset as "everything".
     if (firstPage.list.length < firstPageSize) {
       const out = result()
+      flagWindowCut(out)
       if (count < target) {
         process.stderr.write(`[gangtise] warning: server returned a short page (${count} rows) but reported total=${total}; treating it as the end of data — results may be incomplete\n`)
         // Machine-readable counterpart of the warning: scripts key off partial /
@@ -320,12 +345,13 @@ export class GangtiseClient {
 
     if (count >= target) {
       const out = result()
+      flagWindowCut(out)
       // Same probe the fan-out path runs below: a fetch-all that starts inside the last
       // page (from=9950 against total=10000) is just as exposed to a capped `total`, and
       // used to return here without ever checking. `total > firstPageSize` keeps the
       // request count unchanged for a result that genuinely fits in one page from offset
       // 0 — only a late `from` can land here with a total larger than a page.
-      if (requestedSize === undefined && total > firstPageSize) await this.flagIfTotalCapped(endpoint, initialBody, total, out, count)
+      if (requestedSize === undefined && total > firstPageSize && target === wanted) await checkTotalCap(out)
       return out
     }
 
@@ -407,9 +433,10 @@ export class GangtiseClient {
     const short = count < target
 
     const out = result()
+    flagWindowCut(out)
     // Only on a genuine fetch-all that otherwise looked complete — see flagIfTotalCapped.
-    if (requestedSize === undefined && total > 0 && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
-      await this.flagIfTotalCapped(endpoint, initialBody, total, out, count)
+    if (requestedSize === undefined && total > 0 && target === wanted && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
+      await checkTotalCap(out)
     }
     // Unified completeness backstop. Whatever the cause — a failed/shape-broken page,
     // a short later page (server page cap < maxPageSize), the MAX_PAGES cap, or `total`
@@ -632,9 +659,10 @@ export class GangtiseClient {
     })
   }
 
-  /** POST a file as multipart/form-data under the field name `file`. Reuses
-   * requestJson for auth / retry / envelope handling — only the body differs. */
-  async uploadFile<T>(endpointKey: string, file: { filename: string; data: Uint8Array; contentType?: string }): Promise<T> {
+  /** POST a file as multipart/form-data under the field name `file`, plus any plain
+   * text `fields` (undefined ones are left out). Reuses requestJson for auth / retry /
+   * envelope handling — only the body differs. */
+  async uploadFile<T>(endpointKey: string, file: { filename: string; data: Uint8Array; contentType?: string }, fields?: Record<string, string | number | undefined>): Promise<T> {
     const endpoint = ENDPOINTS[endpointKey]
     if (!endpoint || endpoint.kind !== 'upload') {
       throw new ApiError(`Not an upload endpoint: ${endpointKey}`)
@@ -643,6 +671,9 @@ export class GangtiseClient {
     // Cast: TS 5.7+ types Uint8Array as Uint8Array<ArrayBufferLike>, which BlobPart
     // (ArrayBufferView<ArrayBuffer>) rejects; a Node Buffer is always ArrayBuffer-backed.
     form.append('file', new Blob([file.data as BlobPart], { type: file.contentType ?? 'application/octet-stream' }), file.filename)
+    for (const [name, value] of Object.entries(fields ?? {})) {
+      if (value !== undefined) form.append(name, String(value))
+    }
     return this.requestJson<T>(endpoint, form)
   }
 
@@ -818,7 +849,7 @@ export class GangtiseClient {
     }
 
     if (endpoint.kind === 'upload') {
-      throw new ValidationError(`${endpointKey} takes a file upload — use 'gangtise tool file-parse --file <path>' ('raw call' cannot send files)`)
+      throw new ValidationError(`${endpointKey} takes a file upload — use its dedicated command ('gangtise tool file-parse --file <path>' / 'gangtise vault drive-upload --file <path>'); 'raw call' cannot send files`)
     }
 
     if (endpoint.kind === 'download') {

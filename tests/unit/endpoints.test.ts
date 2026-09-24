@@ -264,15 +264,31 @@ describe("ENDPOINTS", () => {
     expect(info).toBeDefined()
     expect(info.key).toBe("alternative.concept-info")
     expect(info.method).toBe("POST")
-    expect(info.path).toBe("/application/open-alternative/concept/info")
+    expect(info.path).toBe("/application/open-alternative/concept/v2/info")
     expect(info.kind).toBe("json")
 
     const securities = ENDPOINTS["alternative.concept-securities"]
     expect(securities).toBeDefined()
     expect(securities.key).toBe("alternative.concept-securities")
     expect(securities.method).toBe("POST")
-    expect(securities.path).toBe("/application/open-alternative/concept/securities")
+    expect(securities.path).toBe("/application/open-alternative/concept/v2/securities")
     expect(securities.kind).toBe("json")
+
+    // `--full` reaches the v1 paths, which still carry keyEvents / isKey / inclusionReason.
+    expect(ENDPOINTS["alternative.concept-info-full"].path).toBe("/application/open-alternative/concept/info")
+    expect(ENDPOINTS["alternative.concept-securities-full"].path).toBe("/application/open-alternative/concept/securities")
+  })
+
+  it("opinion lists default to the v2 brief-only paths; bodies come from getDetail", () => {
+    expect(ENDPOINTS["insight.opinion.list"].path).toBe("/application/open-insight/chief-opinion/v2/getList")
+    expect(ENDPOINTS["insight.opinion.list-with-content"].path).toBe("/application/open-insight/chief-opinion/getList")
+    expect(ENDPOINTS["insight.opinion.detail"].path).toBe("/application/open-insight/chief-opinion/getDetail")
+    expect(ENDPOINTS["insight.foreign-opinion.list"].path).toBe("/application/open-insight/foreign-opinion/v2/getList")
+    expect(ENDPOINTS["insight.foreign-opinion.list-with-content"].path).toBe("/application/open-insight/foreign-opinion/getList")
+    expect(ENDPOINTS["insight.foreign-opinion.detail"].path).toBe("/application/open-insight/foreign-opinion/getDetail")
+    // Detail is a fixed-size batch (≤20 IDs), never paged.
+    expect(ENDPOINTS["insight.opinion.detail"].pagination).toBeUndefined()
+    expect(ENDPOINTS["insight.foreign-opinion.detail"].pagination).toBeUndefined()
   })
 
   it("official-account endpoints use correct keys and paths", () => {
@@ -510,6 +526,14 @@ describe("ENDPOINTS", () => {
       "ai.viewpoint-debate.get-id",
       "alternative.concept-info",
       "alternative.concept-securities",
+      "alternative.concept-info-full",
+      "alternative.concept-securities-full",
+      // 30 credits per returned body: the detail batches and the v1 lists behind
+      // --with-content.
+      "insight.opinion.detail",
+      "insight.foreign-opinion.detail",
+      "insight.opinion.list-with-content",
+      "insight.foreign-opinion.list-with-content",
       // 50/篇 downloads — same price tier as the AI Agent calls.
       "insight.summary.download",
       "insight.foreign-report.download",
@@ -519,10 +543,36 @@ describe("ENDPOINTS", () => {
       "insight.pamirs-summary.download",
       // Billed per page AT SUBMIT — a replayed submit re-parses and re-charges.
       "tool.file-parse.submit",
+      // 1 credit per call, charged on a successful answer.
+      "tool.web-search",
+      // 5 credits per ROW: replaying a page re-bills rows already delivered.
+      "insight.highlight.list",
+      // The whole bond family is metered (0.4 per call, or per row / bond /
+      // issuer on three of them) — metered plus replayable is what double-bills.
+      "bond.basic-info",
+      "bond.issuer-info",
+      "bond.daily-quote",
+      "bond.valuation",
+      "bond.cash-flow",
+      "bond.announcement",
+      "bond.issuance-detail",
+      "bond.rating-overview",
+      "bond.rating-change",
+      "bond.issuer-rating-change",
+      "bond.issuance-plan",
+      "bond.exercise-notice",
       // The one entry here that is NOT about billing (creating a pool is free):
       // duplicate pool names are rejected, so replaying a create whose first
       // attempt succeeded answers 230006 and reports the success as a failure.
       "vault.stock-pool.create",
+      // Free drive writes, marked for their side effects (probed 2026-09-24): upload /
+      // create-folder / copy make a second same-name item on replay, and a replayed
+      // delete reports the delete that already landed as a failure.
+      "vault.drive.upload",
+      "vault.drive.create-folder",
+      "vault.drive.copy",
+      "vault.drive.delete-file",
+      "vault.drive.delete-folder",
     ]
     // Set EQUALITY, not one-way containment. A one-way check only proves the
     // listed endpoints are marked; it stays green when a NEW no-replay endpoint
@@ -539,7 +589,8 @@ describe("ENDPOINTS", () => {
     // The idempotent stock-pool writes keep the default policy: re-adding a security
     // already in the pool, removing one that isn't, and deleting a missing pool id all
     // succeed server-side, so a replay after a 5xx cannot do damage or double-charge.
-    for (const key of ["vault.stock-pool.delete", "vault.stock-pool.rename", "vault.stock-pool.add-stock", "vault.stock-pool.remove-stock"]) {
+    // Drive rename / moveFile / moveFolder answered identically when repeated (probed 2026-09-24).
+    for (const key of ["vault.stock-pool.delete", "vault.stock-pool.rename", "vault.stock-pool.add-stock", "vault.stock-pool.remove-stock", "vault.drive.rename", "vault.drive.move-file", "vault.drive.move-folder"]) {
       expect(ENDPOINTS[key], key).toBeDefined()
       expect(ENDPOINTS[key].retry, key).toBeUndefined()
     }
@@ -553,7 +604,7 @@ describe("ENDPOINTS", () => {
     // omission direction is covered by the classification test below, which needs an
     // independent signal rather than the marker itself.
     const destructive = Object.keys(ENDPOINTS).filter((k) => ENDPOINTS[k].destructive)
-    expect(destructive.sort()).toEqual(["vault.stock-pool.delete"])
+    expect(destructive.sort()).toEqual(["vault.drive.delete-file", "vault.drive.delete-folder", "vault.stock-pool.delete"])
     // The warning lives on the endpoint because the gate is generic: a shared string
     // would tell whoever adds the second destructive endpoint that they are about to
     // lose stock pools. Every marked endpoint must carry its own.
@@ -596,6 +647,9 @@ describe("ENDPOINTS", () => {
     // caught by the reviewer, or by its own end-to-end test.
     const itemFailures = Object.keys(ENDPOINTS).filter((k) => ENDPOINTS[k].itemFailures)
     expect(itemFailures.sort()).toEqual([
+      "vault.drive.copy",
+      "vault.drive.delete-file",
+      "vault.drive.move-file",
       "vault.stock-pool.add-stock",
       "vault.stock-pool.delete",
       "vault.stock-pool.remove-stock",

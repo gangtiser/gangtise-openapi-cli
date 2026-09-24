@@ -57,7 +57,7 @@ export function flagMissingFields(data: unknown, requested: string[] | undefined
   process.stderr.write(`[gangtise] warning: ${label} returned no column for ${missing.join(", ")} — the server drops a field name it does not recognise (or no longer serves) without an error. Check the name against references/fields.md; result marked partial (exit 3).\n`)
 }
 
-/** The stock-pool write endpoints report per-item failures INSIDE a `000000` success:
+/** The stock-pool and drive batch writes report per-item failures INSIDE a `000000` success:
  * an unknown security code lands in `failList` while the envelope still says 操作成功
  * (probed 2026-09-14 on addStock and deleteStock). Without this the command prints the
  * result and exits 0, so a script that added 50 codes and got 48 in cannot tell.
@@ -73,8 +73,8 @@ export function flagFailedItems(data: unknown, label: string): void {
   const detail = rec.failList.map((item) => {
     if (!item || typeof item !== "object") return String(item)
     const entry = item as Record<string, unknown>
-    // The two write families key the failure on different fields (securityCode / poolId).
-    const id = entry.securityCode ?? entry.poolId ?? JSON.stringify(entry)
+    // Each write family keys the failure on its own field (securityCode / poolId / fileId).
+    const id = entry.securityCode ?? entry.poolId ?? entry.fileId ?? JSON.stringify(entry)
     return entry.failReason ? `${String(id)}（${String(entry.failReason)}）` : String(id)
   }).join("、")
   process.stderr.write(`[gangtise] warning: ${label} — ${rec.failList.length} item(s) failed while the request itself succeeded: ${detail}. Result marked partial (exit 3).\n`)

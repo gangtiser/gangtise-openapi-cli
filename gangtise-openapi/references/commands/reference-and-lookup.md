@@ -91,7 +91,7 @@ gangtise reference constant-category [--format json]
 
 - 用途：全量导出常量分类及每个分类适用于哪些接口的哪些参数（无需传参，免积分）
 - 返回 `{total, list}`，`list[]` 字段：`category`（分类代码）/ `categoryName` / `structureType`（`flat` 平铺 | `tree` 树形）/ `maxLevel` / `usageScopes[]`（`apiName` + `paramName`）
-- 当前 8 个分类：
+- 分类清单以 `reference constant-category` 的实际返回为准（服务端会随新接口上线增补）。截至 2026-09 的分类：
 
 | category | 名称 | 结构 | 用于参数 |
 |----------|------|------|---------|
@@ -103,6 +103,15 @@ gangtise reference constant-category [--format json]
 | `hkShareAnnouncementCategory` | 港股公告分类 | tree（2 级） | `insight announcement-hk --category` |
 | `usShareAnnouncementCategory` | 美股公告分类（`103980xxx` 段） | tree（2 级） | `insight announcement-us --category` |
 | `regionCategory` | 区域分类 | flat | `insight foreign-report --region` |
+| `nationalEconomicIndustry` | 国民经济行业分类 | flat | 行业归属参考 |
+| `fundType` | 基金分类 | tree（2 级） | 基金类接口的基金分类字段 |
+| `fundBondType` | 基金持仓券种类别 | flat | 基金类接口的券种类别字段 |
+| `bondType` | 债券类型 | flat | `bond basic-info` / `bond rating-change` 的 `bondType` |
+| `interestRateType` | 利率类型 | flat | `bond basic-info` / `bond issuance-plan` 的 `interestRateType` |
+| `interestFrequency` | 付息频率 | flat | `bond basic-info` / `bond issuance-plan` 的 `interestFrequency` |
+| `absUnderlyingAssetType` | ABS 基础资产类型 | flat | `bond basic-info` 的 `absUnderlyingAssetType` |
+| `ratingType` | 评级类型 | flat | `bond rating-*` 的 `ratingType` |
+| `exchange` | 交易市场 | flat | `bond` 各命令的 `exchange` |
 
 > **行业 / 研究方向过滤——选哪套 category（⭐ 权威口径，其他文件引用此处、勿重复枚举命令清单以免漂移；逐端点核对）：**
 >

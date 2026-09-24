@@ -52,8 +52,10 @@ gangtise alternative edb-data \
 ## 题材指数基本信息 `alternative concept-info`
 
 ```bash
-gangtise alternative concept-info --concept-id <id>
+gangtise alternative concept-info --concept-id <id> [--full]
 ```
+
+- **积分**：**50/次**，按次计费、不论返回内容多少；加 `--full` 走旧版接口，**500/次**，只多一列 `keyEvents`（催化事件）。不需要催化事件就别加
 
 - `--concept-id`（**必选**）：题材指数 ID，如 `121000130`（机器人）
 - **如何拿 ID**：题材指数与主题（`ai theme-tracking --theme-id`）共用同一套 ID 体系，用 `gangtise reference concept-search --keyword <名称>` 查，取 `conceptId`（如 机器人 → `121000130`）。**绝不猜测**
@@ -65,8 +67,8 @@ gangtise alternative concept-info --concept-id <id>
   - `investmentLogic` — 投资逻辑（需求背景 / 技术临界点 / 产业链 / 风险点）
   - `industrySpace` — 行业空间测算（全球 / 中国各时点市场规模）
   - `competitiveLandscape` — 竞争格局（整机及核心细分头部玩家与份额）
-  - `keyEvents` — 催化事件列表 `[{date, content}]`，过去 1 年已发生 + 未来预期，最多 10 条，按时间倒序
-- **空值规范**：文本字段若题材未配置返回 `null`；`keyEvents` 无任何事件返回 `null`
+  - `keyEvents`（**仅 `--full`**）— 催化事件列表 `[{date, content}]`，过去 1 年已发生 + 未来预期，最多 10 条，按时间倒序
+- **空值规范**：文本字段若题材未配置返回 `null`；`keyEvents`（`--full`）无任何事件返回 `null`
 
 **示例：**
 ```bash
@@ -79,8 +81,10 @@ gangtise alternative concept-info --concept-id 121000130 --format json
 ## 题材指数成分股 `alternative concept-securities`
 
 ```bash
-gangtise alternative concept-securities --concept-id <id>
+gangtise alternative concept-securities --concept-id <id> [--full]
 ```
+
+- **积分**：**50/次**，题材无成分股时不扣；加 `--full` 走旧版接口，**500/次**，每只成分股多两列 `isKey`（重点个股）与 `inclusionReason`（纳入理由）
 
 - `--concept-id`（**必选**）：题材指数 ID，同上（`reference concept-search` 查）
 - 返回当前成分股，**按分组结构**组织（题材深度 F8）；仅最新截面，不支持历史回溯
@@ -90,13 +94,16 @@ gangtise alternative concept-securities --concept-id <id>
   - `securityCount` — 成分股总数
   - `securityDetail` — 分组数组 `[{groupName, securityList}]`，按 `groupName` 字母序
     - `groupName` — 分组名（如 灵巧手 / 丝杠）
-    - `securityList` — 该组成分股 `[{securityCode, securityName, isKey, inclusionReason}]`
+    - `securityList` — 该组成分股 `[{securityCode, securityName}]`；`--full` 另含：
       - `isKey` — 是否重点个股（`true` 排在组内前面）
       - `inclusionReason` — 纳入理由，未配置返回 `null`
-- **排序**：组按 `groupName` 字母序；组内 `isKey=true` 优先，再按 `securityCode` 升序
-- **空值规范**：题材无成分股时 `securityDetail` 返回 `null`，`securityCount` 为 0，接口仍返回成功（`000000`）
+- `securityCount` 是**去重后**的成分股数：一只股票可同时属于多个分组，逐组累加会多于它
+- **排序**：组按 `groupName` 字母序；组内按 `securityCode` 升序（`--full` 下 `isKey=true` 优先）
+- **空值规范**：题材无成分股时 `securityDetail` 返回 `null`，`securityCount` 为 0，接口仍返回成功（`000000`）；某分组下无成分股时其 `securityList` 为 `null`
 
 **示例：**
 ```bash
 gangtise alternative concept-securities --concept-id 121000130 --format json
+# 需要重点个股标识与纳入理由（500 积分）
+gangtise alternative concept-securities --concept-id 121000130 --full --format json
 ```

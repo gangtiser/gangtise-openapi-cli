@@ -14,6 +14,32 @@ gangtise vault drive-download --file-id <id> [--output <path>]
 - `--file-type`：`1` 文档（含 PDF/Word/PPT）| `2` 图片 | `3` 音视频 | `4` 公众号文章 | `5` 其他
 - `--space-type`：`1` 我的云盘 | `2` 租户云盘
 
+## AI 云盘管理 `vault drive-*`（目录、上传、增删改）
+
+全部**免费**。🔴 **除 `drive-folder-list` 外都会改动账号数据**；租户云盘（`--space-type 2`）的内容对整个租户可见，往里上传、复制，或在里面删除前先向用户确认。
+
+```bash
+gangtise vault drive-folder-list [--space-type 1|2] [--parent-id <id>]
+gangtise vault drive-upload --file <path> [--space-type 1|2] [--folder-id <id>] [--title <name>]
+gangtise vault drive-create-folder --name <name> [--space-type 1|2] [--parent-id <id>]
+gangtise vault drive-rename --type file|folder --id <id> --name <name>
+gangtise vault drive-move-file --file-id <id>... --target-folder-id <id|root>
+gangtise vault drive-move-folder --folder-id <id> --target-parent-id <id|root>
+gangtise vault drive-copy --file-id <id>... --target-folder-id <id|root>
+gangtise vault drive-delete-file --file-id <id>... --yes
+gangtise vault drive-delete-folder --folder-id <id> --yes
+```
+
+- **ID 从哪来**：文件夹 ID 用 `drive-folder-list` 逐层看（根目录写 `root` 或不传）；文件 ID 在 `drive-folder-list` 的 `fileList` 或 `drive-list` 里。`--space-type` 默认 `1`（我的云盘），**`--parent-id` / `--folder-id` 必须属于该空间**，否则报 `100003`（「parentId 与 spaceType 不一致」）
+- `drive-folder-list` 只返回该文件夹的**直接**子文件夹（`folderList`）与**直接**文件（`fileList`），不递归；返回为 `{folderTotal, folderList, fileTotal, fileList}`，默认 json 输出
+- **同名不报错**：文件与文件夹都允许同名，以 ID 区分。所以**上传 / 新建 / 复制每执行一次就多一份**，这三个命令超时不会自动重发；对同一内容别重复执行
+- `drive-upload`：单个文件 ≤100MB（CLI 本地先拦）；试用账号每天累计上传 ≤500MB（超出 `230008`）。`--title` 不传用本地文件名
+- 名称（`--name` / `--title`）≤200 个字符，按 UTF-16 计——中文算 1、emoji 算 2；超出 `230004`
+- **移动只能在同一空间内**：`drive-move-file` 里跨空间的文件进 `failList`（「空间不一致」）；`drive-move-folder` 移到其他空间、自身或其子文件夹报 `230005`
+- **跨空间用 `drive-copy`**：把文件在「我的云盘 ↔ 租户云盘」之间复制（可批量），源保留不动；`--target-folder-id` 必须在另一空间，`root` 即另一空间的根目录，同空间复制报 `100003`。返回 `successList[]{fileId, newFileId}`。**目前只支持复制文件**，整个文件夹的复制暂未提供
+- 🔴 **删除不可恢复，必须 `--yes`**：`drive-delete-file` 可批量；`drive-delete-folder` **连同其中全部子文件夹与文件一起删除**，删前先 `drive-folder-list --parent-id <id>` 看清里面有什么。拒绝后**不要自行补 `--yes` 重跑**，把要删的名称列给用户确认
+- **批量命令的部分失败**：`drive-delete-file` / `drive-move-file` / `drive-copy` 对单条失败仍返回成功，明细在 `failList`（`fileId` + `failReason`，如「文件不存在」）。CLI 把失败的 ID 写到 stderr、结果标 `partial` 并**退出 3**
+
 ## 录音速记 `vault record-list/download`
 
 ```bash
@@ -87,7 +113,7 @@ gangtise vault stock-pool-stocks [--pool-id <id>]
 
 ### 增删改
 
-🔴 **这五个命令会改动账号数据**，是本 CLI 仅有的写操作；`--pool-id` 一律取自 `stock-pool-list`。
+🔴 **这五个命令会改动账号数据**（与上面的云盘管理命令同属写操作）；`--pool-id` 一律取自 `stock-pool-list`。
 
 ```bash
 gangtise vault stock-pool-create      --name <名称>

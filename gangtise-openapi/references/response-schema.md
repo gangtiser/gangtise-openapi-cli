@@ -20,7 +20,9 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 
 | 命令 | data 结构 | 关键提取字段 |
 |------|----------|------------|
-| insight opinion list | `{list, total}` | `list[].id` / `list[].title` / `list[].publishDate` / `list[].chiefName` / `list[].securityCode` / `list[].institutionName` |
+| insight opinion list | `{list, total}` | `list[].chiefOpinionId`（`detail` 用）/ `list[].title` / `list[].brief`（正文前 200 字）/ `list[].publishTime` / `list[].author{chiefId, chiefName, researchAreaList, brokerID, brokerName}`（机构点评类 `chiefId` / `chiefName` 为 `null`）/ `list[].securityList[]{securityCode, securityName}` / `list[].industryList[]{industryCode, industryName}` / `list[].conceptList[]{conceptId, conceptName}` / `list[].llmTagList` |
+| insight opinion list --with-content | `{list, total}`（旧版结构） | 同上但**没有顶层 `title` / `brief`**；标题与正文在 `list[].contentList.title` / `list[].contentList.content`（对象，不是数组） |
+| insight opinion detail | `{total, list}`；缺失时另有 `missingIds` / `unfetchedIds` / `unfetchedError` + `partial` | `list[]` 同 list 的字段 + `content`（正文全文） |
 | insight summary list | `{list, total}` | `list[].summaryId` / `list[].title` / `list[].publishTime` |
 | insight summary download | 文件路径（stdout） | — |
 | insight pamirs-summary list | `{list, total}` | `list[].summaryId` / `list[].title` / `list[].brief` / `list[].summaryTime`（纪要生成时间）/ `list[].publishTime`（发布时间）/ `list[].securityList[]{securityCode, securityName}` / `list[].researchAreaList[]{researchAreaId, researchAreaName}` / `list[].conceptList[]{conceptId, conceptName}` / `list[].categoryList` / `list[].marketList`。⚠️ `conceptList` / `categoryList` / `marketList` 三个标签字段**稀疏，且是否有值随记录和查法而变**：不带筛选时经常整条为空，用 `--category` 或 `--market` 任一过滤时回填率明显更高（这两个字段绑定，一起有或一起没有）。所以**别拉全量再本地分组**（会漏记录），也**别据此断言某条记录没有该属性**（为空只说明这次没回填）。详见 `commands/insight.md` |
@@ -36,7 +38,8 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight announcement-hk download | 文件路径（stdout） | — |
 | insight announcement-us list | `{list, total}` | `list[].announcementId` / `list[].title` / `list[].publishTime` / `list[].securityList[].securityCode` / `list[].primaryCategory.categoryName` / `list[].sourceName` |
 | insight announcement-us download | 文件路径（stdout） | — |
-| insight foreign-opinion list | `{list, total}` | `list[].foreignOpinionId` / `list[].titleTranslate` / `list[].publishTime` / `list[].publisher.brokerName` / `list[].securityList[].rating` |
+| insight foreign-opinion list | `{list, total}` | `list[].foreignOpinionId`（`detail` 用）/ `list[].title` / `list[].titleTranslate` / `list[].brief` / `list[].briefTranslate` / `list[].publishTime` / `list[].region{regionCode, regionName}` / `list[].publisher{brokerId, brokerName}` / `list[].securityList[]{securityCode, securityName, rating, ratingChange, targetPrice, currency}` / `list[].industryList[]{industryId, industryName, rating, ratingChange}`；`--with-content` 另有顶层 `content` / `contentTranslate`、无 `brief` |
+| insight foreign-opinion detail | 同 opinion detail | `list[]` 同 list 的字段 + `content`（原文）/ `contentTranslate`（中文译文） |
 | insight independent-opinion list | `{list, total}` | `list[].independentOpinionId` / `list[].titleTranslate` / `list[].briefTranslate` / `list[].publishTime` / `list[].analyst.analystName` |
 | insight independent-opinion download | 文件路径（stdout） | — |
 | insight official-account list | `{list, total}` | `list[].articleId` / `list[].accountName` / `list[].title` / `list[].publishTime` / `list[].articleCategory` / `list[].summary` / `list[].industryList[].industryName` / `list[].conceptList[].conceptName` / `list[].securityList[].securityCode` |
@@ -44,7 +47,9 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight qa list | `{list, total}` | `list[].source`（conference/interactive/survey）/ `list[].publishTime` / `list[].question` / `list[].answer` / `list[].member` / `list[].securityCode` / `list[].questionCategory[]` / `list[].answerImportant`（1/0） |
 | insight performance-calendar list | `{list, total}` | `list[].performanceReportId`（下载用）/ `list[].securityCodeList[]`（A+H 可能多个）/ `list[].securityName` / `list[].category`（performanceForecast/performanceExpress/performanceAnnouncement）/ `list[].publishDate`（带 ` 00:00:00` 后缀）/ `list[].title` / `list[].hasAttachment`（`false` 则无法下载） |
 | insight performance-calendar download | 文件路径（stdout，PDF） | — |
+| insight highlight list | `{list, total}` | `list[].highlightId` / `list[].title`（会议名称）/ `list[].publishTime` / `list[].content`（**HTML 片段**：`<p>` 包裹、小标题 `<strong>`）/ `list[].securityList[]{securityCode, securityName}` / `list[].researchAreaList[]{researchAreaId, researchAreaName}` |
 | tool file-parse | `{taskId, status:"pending", hint}`（提交）；`--wait` 或 `file-parse-check` 就绪后 = 文件路径（stdout，ZIP） | ZIP 内 `file.md` + `images/`；未就绪时 check 输出 `{taskId, status:"pending"}`（退出码 0） |
+| tool web-search | `{query, total, hints, list}` | `list[].title` / `list[].url` / `list[].site` / `list[].snippet` / `list[].content`（仅 `--include-content`，否则 `null`）/ `list[].contentTruncated` / `list[].publishTime`（判不出时 `null`）/ `list[].publishTimeSource` / `list[].indexTime`（索引时间，不等于发布时间）/ `list[].tier`（T0–T3）/ `list[].flags[]` / `list[].upgradedFrom[]`；`total = 0` 时看 `hints` |
 | insight report-image list | `[{...}]`（扁平数组，无 `total`） | `[].chunkId`（下载用 `--chunk-id`）/ `[].title` / `[].sourceId` / `[].broker` / `[].category` / `[].page` / `[].totalPages` / `[].imageCaption[]` / `[].imageFootnote[]` / `[].pageContent`（该页 OCR/描述） |
 | insight report-image download | 文件路径（stdout，JPEG） | — |
 | reference securities-search | `{returnedCount, list}` | `list[].gtsCode` / `list[].gtsName` / `list[].category` / `list[].matchScore` / `list[].matchType` |
@@ -76,6 +81,13 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | ai viewpoint-debate | 同 earnings-review | — |
 | vault drive-list | `{list, total}` | `list[].fileId`（下载用 `--file-id`）/ `list[].title` / `list[].fileType` / `list[].uploadTime` |
 | vault drive-download | 文件路径（stdout） | — |
+| vault drive-folder-list | `{folderTotal, folderList, fileTotal, fileList}` | `folderList[]{folderId, parentId, folderName, spaceType, createTime}` / `fileList[]{fileId, title, fileSize, createTime}`；只含直接下级 |
+| vault drive-upload | `{fileId, title, folderId, spaceType, fileSize}` | `fileId`（后续重命名 / 移动 / 删除用） |
+| vault drive-create-folder | `{folderId, parentId, folderName, spaceType, createTime}` | `folderId` |
+| vault drive-rename | `{id, name}` | — |
+| vault drive-move-folder / drive-delete-folder | `{folderId, parentId}` / `{folderId}` | — |
+| vault drive-copy | `{successList, failList}` | `successList[]{fileId, newFileId}`（`newFileId` 是另一空间里副本的 ID）；`failList[]{fileId, failReason}`，非空时 `partial` + 退出码 3 |
+| vault drive-move-file / drive-delete-file | `{successList, failList}` | `successList[]` 为文件 ID；`failList[]{fileId, failReason}`，非空时 `partial` + 退出码 3 |
 | vault record-list | `{list, total}` | `list[].recordId` / `list[].title` / `list[].category` / `list[].createTime` / `list[].recordDuration` |
 | vault record-download | 文件路径（stdout） | — |
 | vault my-conference-list | `{list, total}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
@@ -89,8 +101,10 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault stock-pool-delete | `{successList, failList}` | 同上，但键是 `failList[].poolId`；删不存在的池算幂等成功，计入 `successList` |
 | alternative edb-search | `{list: [...]}` 指标列表 | `indicatorId` / `indicatorName` / `dataSource` / `frequency` / `unit` |
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |
-| alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape` / `keyEvents[].date` / `keyEvents[].content`；文本字段未配置为 `null` |
-| alternative concept-securities | `{conceptId, conceptName, securityCount, securityDetail}`（单对象，分组） | `securityCount` / `securityDetail[].groupName` / `securityDetail[].securityList[].securityCode` / `.securityName` / `.isKey` / `.inclusionReason`；无成分股时 `securityDetail` 为 `null` |
+| alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape`；**`keyEvents[].date` / `keyEvents[].content` 仅 `--full`**；文本字段未配置为 `null` |
+| alternative concept-securities | `{conceptId, conceptName, securityCount, securityDetail}`（单对象，分组） | `securityCount` / `securityDetail[].groupName` / `securityDetail[].securityList[].securityCode` / `.securityName` / `.isKey` / `.inclusionReason`（**这两列仅 `--full`**）；无成分股时 `securityDetail` 为 `null` |
+| bond basic-info / issuer-info / daily-quote / valuation / cash-flow / issuance-detail / rating-overview / rating-change / issuer-rating-change / issuance-plan / exercise-notice | 列式 `{fieldList, list, total}` → 规范化后 `{list: [{...}], total}` | 字段名按 `--field` 或全部；每条命令的默认列恒在最前（如 `securityCode` + `tradeDate`、`issuerName`、`issueDate`），见 `commands/bond.md` |
+| bond announcement | 列式 `{fieldList, list}`（**无 `total`**）→ 规范化后为行数组 | `announcementDate` / `securityCode` + 其余字段；翻过末页为 `[]` |
 | indicator search | `[{indicatorCode, indicatorName, ...}]`（列表） | `indicatorCode` / `indicatorName` / `description` / `scopeList[].market` / `scopeList[].securityType` / `scopeList[].usageRestriction`（接口限制，`null`=无限制） / `parameterList[].paramKey`（**参数名以此为准**） / `.enumList[].value` / `score` |
 | indicator cross-section | CLI 拍平为宽表 `{list, total}` | `list[].security` / `list[].name` + 每个指标名一列；**单日多指标 × 多证券**，每行一只证券。**没有 `date` 列**（查询日期挂在每个指标的参数上，各列可为不同日期）；原始响应的 `values` 为 `[证券][指标]` |
 | indicator time-series | CLI 拍平为宽表 `{list, total}` | `list[].date` + 序列列：单证券时列=各指标、多证券时列=各证券；每行一个日期。原始响应 `values` 仍为 `[序列][日期]` |
