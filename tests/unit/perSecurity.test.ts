@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ApiError, isStructuralError } from "../../src/core/errors.js"
 import { callPerSecurity, estimateTradingDays } from "../../src/core/perSecurity.js"
 import { getRowSink, ExportSink } from "../../src/core/rowSink.js"
+import { PAGE_CONCURRENCY } from "../../src/core/transport.js"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -10,6 +11,26 @@ import path from "node:path"
 const body = (code: string) => ({ securityCode: code })
 
 describe("callPerSecurity", () => {
+  it("keeps the default window: a stuck first security holds the rest to about twice the concurrency", async () => {
+    // One security's part can run to thousands of rows, so parts keep runInOrder's default
+    // window (= concurrency); at the default, at most window + concurrency - 1 start.
+    let release!: () => void
+    const stuck = new Promise<void>((resolve) => { release = resolve })
+    let started = 0
+    const codes = Array.from({ length: 4 * PAGE_CONCURRENCY + 4 }, (_, i) => `${600000 + i}.SH`)
+    const call = vi.fn().mockImplementation(async (_key: string, b: { securityCode: string }) => {
+      started++
+      if (b.securityCode === codes[0]) await stuck
+      return { fieldList: ["close"], list: [[1]] }
+    })
+    const result = callPerSecurity({ call }, "quote.minute-kline", codes, body, 6000, "quote minute-kline")
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(started).toBeLessThanOrEqual(2 * PAGE_CONCURRENCY)
+    release()
+    await result
+    expect(started).toBe(codes.length)
+  })
+
   it("issues one request per security and merges rows in input order under one fieldList", async () => {
     const call = vi.fn().mockImplementation(async (_key: string, b: { securityCode: string }) => ({
       total: 2, fieldList: ["securityCode", "close"], list: [[b.securityCode, 1], [b.securityCode, 2]],

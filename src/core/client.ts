@@ -14,6 +14,7 @@ import { stagingPath } from "./output.js"
 import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runInOrder, withRetry } from "./transport.js"
 import { attachRowSink, type ExportSink } from "./rowSink.js"
 import type { DownloadResult } from "./download.js"
+import { markIncomplete } from "./exitStatus.js"
 
 interface Envelope<T> {
   code?: string | number
@@ -34,6 +35,12 @@ interface Envelope<T> {
 // auth.login, which runs useAuth=false and so never reaches this check. Its "never
 // replay" guarantee lives in transport's TERMINAL_API_CODES instead.
 const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008", "999002"])
+
+/** The payload shape an endpoint promises (see `EndpointDefinition.expects`). */
+function hasExpectedShape(expects: "list" | "array", payload: unknown): boolean {
+  if (expects === "array") return Array.isArray(payload)
+  return Boolean(payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).list))
+}
 
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
@@ -282,7 +289,7 @@ export class GangtiseClient {
       // is no legitimate response that lands here. Endpoints where `null` IS a valid
       // answer (ai.one-pager for a security with no generated content) are unpaginated
       // and never reach this branch.
-      process.exitCode = 3
+      markIncomplete()
       return firstPage
     }
 
@@ -387,7 +394,9 @@ export class GangtiseClient {
     let firstError: unknown = null
     let aborted = false
     // Pages are kept in page order as they complete (runInOrder), so a streamed export
-    // is written in the same order a collected one is returned.
+    // is written in the same order a collected one is returned. A page holds at most
+    // maxPageSize rows, so a window of several pages per worker costs little memory and
+    // keeps the other workers fetching while one page backs off or waits out a timeout.
     await runInOrder(pageRequests, PAGE_CONCURRENCY, async (req) => {
       if (aborted) {
         failedPages.push(req)
@@ -415,7 +424,7 @@ export class GangtiseClient {
         failedPages.push(req)
         return [] as unknown[]
       }
-    }, (list) => keep(list))
+    }, (list) => keep(list), PAGE_CONCURRENCY * 4)
 
     if (unexpectedShape) {
       process.stderr.write(`[gangtise] warning: a page response had unexpected shape; its rows are missing (counted in failedPages)\n`)
@@ -625,8 +634,9 @@ export class GangtiseClient {
         // itself is what the error must hold for the failure to stay traceable.
         // Marked structural: local to this one response, so a fan-out (kline sharding)
         // records the shard as failed and keeps sending the others.
-        if (endpoint.expects === "list" && !(payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).list))) {
-          throw markStructural(new ApiError(`${endpoint.key} returned no list payload (got ${payload === null ? "null" : Array.isArray(payload) ? "an array" : typeof payload}) — the response layout may have changed`, undefined, response.statusCode, parsed))
+        if (endpoint.expects && !hasExpectedShape(endpoint.expects, payload)) {
+          const got = payload === null ? "null" : Array.isArray(payload) ? "an array" : typeof payload
+          throw markStructural(new ApiError(`${endpoint.key} returned no ${endpoint.expects} payload (got ${got}) — the response layout may have changed`, undefined, response.statusCode, parsed))
         }
         return payload
       } catch (error) {

@@ -187,6 +187,19 @@ describe("printData export metadata sidecar and streamed results", () => {
   const stderr = () => errSpy.mock.calls.map((c) => String(c[0])).join("")
   const readMeta = async (file: string) => JSON.parse(await fs.readFile(`${file}.meta.json`, "utf8")) as Record<string, unknown> & { result: Record<string, unknown>; command: unknown }
 
+  it("does not call an export complete when the command has already been judged failed", async () => {
+    const out = path.join(dir, "after-failure.jsonl")
+    process.exitCode = 1
+    try {
+      await printData({ total: 1, list: [{ a: 1 }] }, "jsonl", out)
+      const meta = await readMeta(out)
+      expect(meta.complete).toBe(false)
+      expect(meta.exitCode).toBe(1)
+    } finally {
+      process.exitCode = undefined
+    }
+  })
+
   it("writes <output>.meta.json beside a csv export with rows, columns and every completeness marker", async () => {
     const out = path.join(dir, "rows.csv")
     await printData({ total: 2, fieldList: ["a", "b"], list: [[1, 2], [3, 4]], partial: true, failedShards: [{ startDate: "2026-08-11", endDate: "2026-08-11" }] }, "csv", out)

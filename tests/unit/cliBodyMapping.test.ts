@@ -1,5 +1,5 @@
 import fs from "node:fs/promises"
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { readFile, rm, writeFile } from "node:fs/promises"
 import http from "node:http"
 import os from "node:os"
@@ -27,6 +27,10 @@ interface CapturedRequest {
 }
 
 const captured: CapturedRequest[] = []
+/** Requests the stub is answering right now, and the most it ever answered at once
+ * (for the SLOWPAGES research list, whose pages answer after a delay). */
+let inflight = 0
+let peakInflight = 0
 let server: http.Server
 let baseUrl: string
 
@@ -59,6 +63,18 @@ beforeAll(async () => {
       }
       captured.push({ path: req.url ?? "", body, contentType, raw })
       res.setHeader("content-type", "application/json")
+      if ((req.url ?? "").includes("/broker-report/getList") && (body as { keyword?: string } | undefined)?.keyword === "SLOWPAGES") {
+        const { from = 0, size = 50 } = body as { from?: number; size?: number }
+        const total = 2000
+        inflight++
+        peakInflight = Math.max(peakInflight, inflight)
+        setTimeout(() => {
+          inflight--
+          const count = Math.max(0, Math.min(size, total - from))
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total, list: Array.from({ length: count }, (_, i) => ({ reportId: String(from + i) })) } }))
+        }, 150)
+        return
+      }
       if ((req.url ?? "").includes("/file-parse/submit")) {
         // Hand-written JSON on purpose: taskId goes out as a BARE 19-digit number,
         // which JSON.parse would round to ...4700 (JSON.stringify here would already
@@ -416,6 +432,12 @@ beforeAll(async () => {
           res.end(JSON.stringify({ code: "100003", errorType: "PARAM_INVALID", msg: "参数值非法", status: false, data: "", traceId: "trace-detail-fail" }))
           return
         }
+        // LAYOUT* answers with the bodies wrapped in {list} — a changed layout, which must
+        // fail rather than read as "no bodies".
+        if (ids.some((id) => id.startsWith("LAYOUT"))) {
+          res.end(JSON.stringify({ code: "000000", msg: "操作成功", status: true, traceId: "trace-detail-layout", data: { list: ids.map((id) => ({ [idKey]: id, title: "t", content: "body" })) } }))
+          return
+        }
         res.end(JSON.stringify({ code: "000000", msg: "操作成功", status: true, data: ids.filter((id) => !id.startsWith("GONE")).map((id) => ({ [idKey]: id, title: "t", content: "body" })) }))
         return
       }
@@ -474,8 +496,19 @@ beforeAll(async () => {
         const days = req?.securityCode === "LONG.XX" ? 5 : 2
         const rows: unknown[][] = Array.from({ length: days }, (_, i) => [`2026-09-0${i + 1}`, 21.5 + i, 0.42, 20, 20, 30, 10])
         const hasValueColumn = !requested || requested.some((f) => KNOWN.slice(1).includes(f))
-        const kept = !hasValueColumn ? [] : typeof req?.limit === "number" ? rows.slice(-req.limit) : rows
-        const list = kept.map((row) => (requested ? [row[0], ...requested.filter((f) => KNOWN.includes(f)).map((f) => row[KNOWN.indexOf(f)])] : row))
+        // ROWSANYWAY.XX: a server that answers rows, aligned to the echoed fields, even when
+        // no value column was asked for — the answer that would make the CLI's "nothing came
+        // back" note wrong.
+        const rowsAnyway = req?.securityCode === "ROWSANYWAY.XX"
+        const kept = !hasValueColumn && !rowsAnyway ? [] : typeof req?.limit === "number" ? rows.slice(-req.limit) : rows
+        const list = kept.map((row) => (rowsAnyway ? fieldList.map((f) => row[KNOWN.indexOf(f)] ?? null) : requested ? [row[0], ...requested.filter((f) => KNOWN.includes(f)).map((f) => row[KNOWN.indexOf(f)])] : row))
+        // NOIND.XX: the same rows without the `indicator` echo, one of them null — the
+        // layout `normalizeRows` turns into a bare row array.
+        if (req?.securityCode === "NOIND.XX") {
+          const withNull = [...list, fieldList.map((f) => (f === "tradeDate" ? "2026-09-09" : null))]
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { fieldList, list: withNull } }))
+          return
+        }
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { indicator: req?.indicator, fieldList, list } }))
         return
       }
@@ -491,8 +524,15 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${address.port}`
 })
 
+// HOME for every CLI this file spawns. The title cache path is derived from os.homedir()
+// and has no override, so without this each list below merged the stub's fake titles into
+// the developer's real ~/.config/gangtise/title-cache.json (and read them back next run).
+const TEST_ROOT = path.join(os.tmpdir(), `gangtise-body-map-${process.pid}`)
+const TEST_HOME = path.join(TEST_ROOT, "home")
+
 afterAll(async () => {
   await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()))
+  await rm(TEST_ROOT, { recursive: true, force: true })
 })
 
 beforeEach(() => {
@@ -500,9 +540,16 @@ beforeEach(() => {
 })
 
 // stdout / stderr 分开返回：错列拦截既要断言报错进了 stderr，也要断言 stdout 一行数据都没吐。
-async function cli(args: string[], envOverride: Record<string, string | undefined> = {}): Promise<{ code: number; out: string; stdout: string; stderr: string }> {
+// Tuning variables a developer may have exported in their own shell. Inherited, a timeout
+// that does not take effect prints a warning and GANGTISE_VERBOSE logs every request, both
+// on stderr — so assertions on stderr failed for reasons unrelated to the change under
+// test. A test that needs one passes it through envOverride.
+const DEVELOPER_TUNING = ["GANGTISE_TIMEOUT_MS", "GANGTISE_VERBOSE", "GANGTISE_PAGE_CONCURRENCY"]
+
+function childEnv(envOverride: Record<string, string | undefined> = {}): Record<string, string> {
   const env: Record<string, string | undefined> = {
     ...process.env,
+    ...Object.fromEntries(DEVELOPER_TUNING.map((key) => [key, undefined])),
     GANGTISE_BASE_URL: baseUrl,
     // A pre-injected token skips login; the isolated cache path guards against
     // any accidental read/write of the developer's real ~/.config token.
@@ -510,9 +557,15 @@ async function cli(args: string[], envOverride: Record<string, string | undefine
     GANGTISE_TOKEN_CACHE_PATH: path.join(os.tmpdir(), `gangtise-body-map-${process.pid}`, "token.json"),
     GANGTISE_ACCESS_KEY: "",
     GANGTISE_SECRET_KEY: "",
+    HOME: TEST_HOME,
     ...envOverride,
   }
-  for (const [key, value] of Object.entries(envOverride)) if (value === undefined) delete env[key]
+  for (const [key, value] of Object.entries(env)) if (value === undefined) delete env[key]
+  return env as Record<string, string>
+}
+
+async function cli(args: string[], envOverride: Record<string, string | undefined> = {}): Promise<{ code: number; out: string; stdout: string; stderr: string }> {
+  const env = childEnv(envOverride)
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
       timeout: 25_000,
@@ -630,6 +683,62 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     // Not reported as "no body": these were never asked for successfully.
     expect(out.missingIds).toBeUndefined()
     expect(stderr).toContain("FAIL1")
+  }, 30_000)
+
+  it("keeps the incomplete exit code when the reader of stdout goes away (| head under pipefail)", async () => {
+    // The reader closes its end before the CLI's first write, so the write fails with
+    // EPIPE. That is not the CLI's failure — but a result already judged incomplete must
+    // still leave with 3, or `set -o pipefail; gangtise … | head` reports a partial
+    // export as a success.
+    const exitWithReaderGone = (args: string[]) => new Promise<number | null>((resolve) => {
+      const child = spawn(process.execPath, [CLI, ...args], {
+        env: childEnv(),
+      })
+      child.stdout.destroy()
+      child.stderr.resume()
+      child.on("exit", (code) => resolve(code))
+    })
+    const kline = ["quote", "day-kline", "--security", "600519.SH", "--start-date", "2026-06-01", "--end-date", "2026-06-03", "--format", "json"]
+    expect(await exitWithReaderGone([...kline, "--limit", "3"])).toBe(3)
+    expect(await exitWithReaderGone(kline)).toBe(0)
+  }, 30_000)
+
+  it("GANGTISE_PAGE_CONCURRENCY above 16 really runs that many requests at once (the socket pool grows with it)", async () => {
+    // With undici's pool fixed at 16 sockets, a concurrency of 32 only queued the other 16
+    // inside the client: the server never saw more than 16 at a time.
+    peakInflight = 0
+    const { code, stdout } = await cli(["insight", "research", "list", "--keyword", "SLOWPAGES", "--format", "json"], { GANGTISE_PAGE_CONCURRENCY: "32" })
+    expect(code).toBe(0)
+    expect((JSON.parse(stdout) as { list: unknown[] }).list).toHaveLength(2000)
+    // Past 16 is what the pool change buys (a pool fixed at 16 peaks at exactly 16); an
+    // exact 32 would also depend on every first-wave request reaching the stub while the
+    // earliest is still held, which a loaded machine does not guarantee.
+    expect(peakInflight).toBeGreaterThan(16)
+  }, 30_000)
+
+  it("refuses hex / exponent spellings of numbers before any request, naming the option", async () => {
+    // `--size 0x10` used to fetch 16 rows and `--from 1e21` went out as 1e+21.
+    for (const [args, flag] of [
+      [["insight", "research", "list", "--size", "0x10"], "--size"],
+      [["insight", "research", "list", "--from", "1e21"], "--from"],
+      [["insight", "summary", "list", "--source", "1e3"], "--source"],
+      [["ai", "knowledge-batch", "--query", "x", "--resource-type", "1e3"], "--resource-type"],
+    ] as const) {
+      captured.length = 0
+      const { code, stderr } = await cli([...args, "--format", "json"])
+      expect(code, flag).toBe(1)
+      expect(stderr, flag).toContain(`Invalid ${flag}`)
+      expect(captured, flag).toHaveLength(0)
+    }
+  }, 30_000)
+
+  it("opinion detail fails on a changed response layout instead of reporting every body as missing", async () => {
+    const { code, stdout, stderr } = await cli(["insight", "opinion", "detail", "--chief-opinion-id", "LAYOUT1,LAYOUT2", "--format", "json"])
+    expect(code).toBe(1)
+    expect(stderr).toContain("returned no array payload (got object)")
+    expect(stderr).toContain("trace-detail-layout")
+    expect(stderr).not.toContain("no body returned")
+    expect(stdout.trim()).toBe("")
   }, 30_000)
 
   it("foreign-opinion detail sends foreignOpinionIdList and stays at exit 0 when every ID comes back", async () => {
@@ -1423,14 +1532,14 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     // cf_finc_exp and cf_finc_exp_qtr both display as 「财务费用」; only the code
     // disambiguates. Proves --key-by actually reaches flattenCrossSection, not merely
     // that the option parses.
-    const { code, out } = await cli([
+    const { code, stdout } = await cli([
       "indicator", "cross-section",
       "--indicator", "cf_finc_exp", "--indicator", "cf_finc_exp_qtr",
       "--security", "600519.SH", "--date", "2026-03-31",
       "--key-by", "code", "--format", "json",
     ])
     expect(code).toBe(0)
-    const row = (JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]
+    const row = (JSON.parse(stdout) as { list: Record<string, unknown>[] }).list[0]
     expect(row).toMatchObject({ cf_finc_exp: 100, cf_finc_exp_qtr: 40 })
     expect(Object.keys(row)).not.toContain("财务费用")
   }, 30_000)
@@ -1569,7 +1678,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
   // --- the auto-selected calendar, through the real CLI ---
   //
   // calendarType.test.ts covers the decision itself against a stubbed client, which says
-  // nothing about whether cli.ts still consults it or still puts the answer on the wire.
+  // nothing about whether the command still consults it or still puts the answer on the wire.
   // Deleting the two lines in the time-series action leaves that suite fully green, so
   // these three are the only thing standing between a refactor and a silent return to
   // "every quote series pays for its weekends".
@@ -1634,7 +1743,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
   }, 30_000)
 
   it("indicator screener sends the variable bindings and expression", async () => {
-    const { code, out } = await cli([
+    const { code, stdout } = await cli([
       "indicator", "screener",
       "--indicator", "F1:qte_mkt_cptl", "--security", "600519.SH",
       "--expression", "F1 >= 800", "--date", "2026-07-31", "--format", "json",
@@ -1648,7 +1757,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
         { field: "F1", indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] },
       ],
     })
-    expect((JSON.parse(out) as { list: Record<string, unknown>[] }).list[0]).toEqual({
+    expect((JSON.parse(stdout) as { list: Record<string, unknown>[] }).list[0]).toEqual({
       security: "600519.SH", name: "贵州茅台", 总市值: 16883.6021,
     })
   }, 30_000)
@@ -1858,7 +1967,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
   }, 30_000)
 
   it("indicator time-series --key-by code keys multi-security columns by securityCode", async () => {
-    // Guards the src/cli.ts time-series --key-by passthrough (identical pattern to
+    // Guards the time-series --key-by passthrough in src/commands/indicator.ts (identical pattern to
     // cross-section) so it can't be silently dropped without a failing test.
     const { code, stdout } = await cli([
       "indicator", "time-series",
@@ -2157,6 +2266,14 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stdout.trim()).toBe("")
   }, 30_000)
 
+  it("a list writes its title cache under the test HOME, never the developer's own", async () => {
+    const cacheFile = path.join(TEST_HOME, ".config", "gangtise", "title-cache.json")
+    await rm(cacheFile, { force: true })
+    const { code } = await cli(["insight", "performance-calendar", "list", "--security", "000001.SZ", "--size", "5", "--format", "json"])
+    expect(code).toBe(0)
+    expect(Object.keys(JSON.parse(await readFile(cacheFile, "utf8")) as Record<string, unknown>)).toContain("insight.performance-calendar.list")
+  }, 30_000)
+
   it("insight performance-calendar list sends dates as startDate/endDate (not the sibling startTime)", async () => {
     const { code } = await cli([
       "insight", "performance-calendar", "list",
@@ -2402,6 +2519,31 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     const onTime = await cli(["fundamental", "valuation-analysis", "--security-code", "LONG.XX", "--indicator", "peTtm", "--start-date", "2026-09-01", "--format", "json"])
     expect(onTime.code).toBe(0)
     expect(onTime.stderr).not.toContain("later than --start-date")
+  }, 30_000)
+
+  it("valuation-analysis --skip-null filters whether or not the response echoes `indicator`", async () => {
+    // Without another meta key the normalized rows are a bare array; the filter used to act
+    // only on the object form and let the null row through at exit 0.
+    const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "NOIND.XX", "--indicator", "peTtm", "--skip-null", "--format", "json"])
+    expect(code).toBe(0)
+    const data = JSON.parse(stdout) as { list: Array<Record<string, unknown>> }
+    expect(data.list.map((r) => r.tradeDate)).toEqual(["2026-09-01", "2026-09-02"])
+  }, 30_000)
+
+  it("valuation-analysis says why when --field names no value column and nothing came back", async () => {
+    const empty = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "tradeDate", "--format", "json"])
+    expect(empty.code).toBe(0)
+    expect((JSON.parse(empty.stdout) as { list: unknown[] }).list).toEqual([])
+    expect(empty.stderr).toContain("--field names no value column")
+    // `tradeDate` alone is still sent: there is nothing left to send without it.
+    expect((captured.find((c) => c.path.includes("/valuation-analysis"))?.body as { fieldList?: string[] }).fieldList).toEqual(["tradeDate"])
+    const rowsAnyway = await cli(["fundamental", "valuation-analysis", "--security-code", "ROWSANYWAY.XX", "--indicator", "peTtm", "--field", "tradeDate", "--format", "json"])
+    expect(rowsAnyway.code).toBe(0)
+    expect((JSON.parse(rowsAnyway.stdout) as { list: unknown[] }).list.length).toBeGreaterThan(0)
+    expect(rowsAnyway.stderr).not.toContain("no value column")
+    const fine = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", "--field", "value", "--format", "json"])
+    expect(fine.code).toBe(0)
+    expect(fine.stderr).not.toContain("no value column")
   }, 30_000)
 
   it("valuation-analysis does not flag a result that fits under --limit", async () => {

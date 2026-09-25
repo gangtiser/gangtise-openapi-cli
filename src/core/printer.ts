@@ -7,6 +7,7 @@ import { countOutputRows, digestFile, type ExportDigest, pickList, renderOutput,
 import { getRowSink } from "./rowSink.js"
 import { extractTitles, type TitleCacheConfig, writeTitleCache } from "./titleCache.js"
 import { CLI_VERSION } from "../version.js"
+import { decidedExitCode, EXIT_SUPERSEDED, markIncomplete, markSuperseded } from "./exitStatus.js"
 
 /** Rows above which renderOutput's single in-memory string risks high memory / the V8
  * max-string-length cap. Well above normal result sizes, so it only fires on huge exports. */
@@ -22,7 +23,7 @@ const LARGE_RESULT_ROWS = 50_000
  * Which makes 3 the one that wins when BOTH are true: 4 asserts the rows were complete, so
  * overwriting a 3 with it would state the opposite of what happened, and drop the only
  * signal that says which slice of the data is missing. */
-export const SUPERSEDED_EXIT = 4
+export const SUPERSEDED_EXIT = EXIT_SUPERSEDED
 
 /**
  * Did the file we just published survive? Another process exporting to the same explicit
@@ -44,7 +45,7 @@ export async function warnIfSuperseded(output: string, digest: ExportDigest): Pr
     `[gangtise] warning: ${output} was replaced by another export to the same path while this one was finishing — the file there is not this command's output `
     + `(wrote sha256 ${digest.sha256.slice(0, 12)}…, found ${actual.sha256.slice(0, 12)}…). Give concurrent exports distinct --output paths.\n`,
   )
-  if (process.exitCode !== 3) process.exitCode = SUPERSEDED_EXIT
+  markSuperseded()
 }
 
 /** Warn when we're about to renderOutput a huge result. Called only on the paths that
@@ -132,7 +133,7 @@ async function stageExportMeta(output: string, format: OutputFormat, rows: numbe
     format,
     rows,
     complete,
-    exitCode: complete ? 0 : 3,
+    exitCode: decidedExitCode(),
     command: redactSecrets(process.argv.slice(2)),
     cliVersion: CLI_VERSION,
     fetchedAt: localIso(new Date()),
@@ -203,13 +204,13 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
     // cannot tell such an export from a clean one. `partial` means rows are
     // missing — failed pages/shards, a row cap, or an EDE response that dropped
     // whole securities/indicators because it did not recognise those codes.
-    if (meta.partial === true) {
-      process.exitCode = 3
-    }
+    if (meta.partial === true) markIncomplete()
   }
   // The sidecar's verdict must be the one the exit code gives: some incompleteness is
   // signalled by exit 3 alone (a first page of unexpected shape), with no `partial` marker.
-  const complete = process.exitCode !== 3
+  // Nothing decided yet means complete; a 3 — or a 1 from a command that failed before
+  // printing — does not. (4 is only ever decided after this, once the file is out.)
+  const complete = decidedExitCode() === 0
 
   if (output) {
     // Data rows the file will hold, under the renderer's own shaping rules.

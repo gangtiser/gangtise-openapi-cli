@@ -2,6 +2,7 @@ import type { OutputFormat } from "./config.js"
 import { ApiError } from "./errors.js"
 import { printData } from "./printer.js"
 import { isTransientError } from "./transport.js"
+import { markFailed } from "./exitStatus.js"
 
 // 14 attempts with exponential backoff (5s→30s cap) ≈ 316s total wait budget.
 export const POLL_MAX_ATTEMPTS = 14
@@ -63,6 +64,32 @@ function terminalFailureLine(error: unknown): string {
  * the "Do not retry" line right above it. */
 export type PollOutcome = "ok" | "failed" | "timeout"
 
+/** The wait loop shared by the AI content endpoints and `tool file-parse`: up to
+ * POLL_MAX_ATTEMPTS attempts, the delay growing between them. `attempt` says whether the
+ * result is ready ("ok"), not yet ("pending") or never will be ("failed"). An error it
+ * throws that is transient (a 5xx that outlived the client's own retries) consumes the
+ * attempt and the wait goes on — the task is already paid for, and generation windows are
+ * exactly when the server is busiest — while any other error (no credits, a bad id)
+ * aborts. `notReady` names what is being waited for in the progress lines. */
+export async function pollUntilDone(attempt: () => Promise<"ok" | "pending" | "failed">, notReady: string): Promise<PollOutcome> {
+  for (let n = 1; n <= POLL_MAX_ATTEMPTS; n++) {
+    try {
+      const state = await attempt()
+      if (state !== "pending") return state
+    } catch (error) {
+      if (!isTransientError(error)) throw error
+      const msg = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`Attempt ${n}/${POLL_MAX_ATTEMPTS}: transient error (${msg.slice(0, 80)}), continuing to wait...\n`)
+    }
+    if (n < POLL_MAX_ATTEMPTS) {
+      const delay = nextPollDelayMs(n)
+      process.stderr.write(`Attempt ${n}/${POLL_MAX_ATTEMPTS}: ${notReady}, retrying in ${Math.round(delay / 1000)}s...\n`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+  return "timeout"
+}
+
 export async function pollAsyncContent(
   client: AsyncContentClient,
   getContentEndpoint: string,
@@ -70,35 +97,21 @@ export async function pollAsyncContent(
   format: OutputFormat,
   output?: string,
 ): Promise<PollOutcome> {
-  for (let attempt = 1; attempt <= POLL_MAX_ATTEMPTS; attempt++) {
+  return pollUntilDone(async () => {
     try {
       const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
-      if (result?.content != null) {
-        await printData(result, format, output)
-        return "ok"
-      }
+      if (result?.content == null) return "pending"
+      await printData(result, format, output)
+      return "ok"
     } catch (error) {
       if (isAsyncFailed(error)) {
         process.stderr.write(terminalFailureLine(error))
         return "failed"
       }
-      if (!isAsyncPending(error)) {
-        // AI generation windows are exactly when the server is busiest: one 5xx
-        // (after the client's own retries) must not void minutes of waiting —
-        // the dataId is still valid. Transient errors consume this attempt and
-        // polling continues; anything else (no credits, bad params) aborts.
-        if (!isTransientError(error)) throw error
-        const msg = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: transient error (${msg.slice(0, 80)}), continuing to wait...\n`)
-      }
+      if (isAsyncPending(error)) return "pending"
+      throw error
     }
-    if (attempt < POLL_MAX_ATTEMPTS) {
-      const delay = nextPollDelayMs(attempt)
-      process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: content not ready, retrying in ${Math.round(delay / 1000)}s...\n`)
-      await new Promise(resolve => setTimeout(resolve, delay))
-    }
-  }
-  return "timeout"
+  }, "content not ready")
 }
 
 export async function checkAsyncContent(
@@ -117,7 +130,7 @@ export async function checkAsyncContent(
   } catch (error) {
     if (isAsyncFailed(error)) {
       process.stderr.write(terminalFailureLine(error))
-      process.exitCode = 1
+      markFailed()
       return
     }
     if (!isAsyncPending(error)) throw error

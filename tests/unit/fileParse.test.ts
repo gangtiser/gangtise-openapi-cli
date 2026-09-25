@@ -5,7 +5,8 @@ import path from "node:path"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
 import { ApiError, ValidationError } from "../../src/core/errors.js"
-import { fetchFileParseResult, submitFileParse } from "../../src/core/fileParse.js"
+import { nextPollDelayMs, POLL_MAX_ATTEMPTS } from "../../src/core/asyncContent.js"
+import { fetchFileParseResult, pollFileParseResult, submitFileParse } from "../../src/core/fileParse.js"
 
 describe("fileParse", () => {
   let dir: string
@@ -83,6 +84,56 @@ describe("fileParse", () => {
       expect(await fetchFileParseResult(client, "t1", output)).toBe("ok")
       expect(client.call).toHaveBeenCalledWith("tool.file-parse.result", { taskId: "t1" }, undefined, { streamTo: output })
       expect(outSpy.mock.calls.map((c) => String(c[0])).join("")).toContain(output)
+    })
+  })
+
+  describe("pollFileParseResult", () => {
+    // The parse is billed at submit, so the wait must survive a pending answer and a
+    // transient fault alike, and give up only on an error that will not change.
+    let errSpy: MockInstance<typeof process.stderr.write>
+    beforeEach(() => { errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true) })
+    afterEach(() => {
+      errSpy.mockRestore()
+      vi.useRealTimers()
+    })
+    const pending = () => new ApiError("结果生成中", "140001", 409)
+    const ready = (output: string) => ({ savedPath: output })
+
+    it("waits through pending answers and a transient fault, then saves the ZIP", async () => {
+      vi.useFakeTimers()
+      const output = path.join(dir, "polled.zip")
+      const client = {
+        uploadFile: vi.fn(),
+        call: vi.fn()
+          .mockRejectedValueOnce(pending())
+          .mockRejectedValueOnce(new ApiError("系统内部错误", "999999", 500))
+          .mockResolvedValueOnce(ready(output)),
+      }
+      const outcome = pollFileParseResult(client, "t1", output)
+      await vi.runAllTimersAsync()
+      expect(await outcome).toBe("ok")
+      expect(client.call).toHaveBeenCalledTimes(3)
+      const stderr = errSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(stderr).toContain("parse result not ready")
+      expect(stderr).toContain("transient")
+    })
+
+    it("aborts on an error that will not change, without waiting", async () => {
+      const client = { uploadFile: vi.fn(), call: vi.fn().mockRejectedValue(new ApiError("资源不存在", "130002", 400)) }
+      await expect(pollFileParseResult(client, "t1")).rejects.toBeInstanceOf(ApiError)
+      expect(client.call).toHaveBeenCalledTimes(1)
+    })
+
+    it("gives up with \"timeout\" after the attempt budget, the task still pending", async () => {
+      vi.useFakeTimers()
+      const t0 = Date.now()
+      const client = { uploadFile: vi.fn(), call: vi.fn().mockRejectedValue(pending()) }
+      const outcome = pollFileParseResult(client, "t1")
+      await vi.runAllTimersAsync()
+      expect(await outcome).toBe("timeout")
+      expect(client.call).toHaveBeenCalledTimes(POLL_MAX_ATTEMPTS)
+      const waits = Array.from({ length: POLL_MAX_ATTEMPTS - 1 }, (_, i) => nextPollDelayMs(i + 1))
+      expect(Date.now() - t0).toBe(waits.reduce((a, b) => a + b, 0))
     })
   })
 })

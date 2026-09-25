@@ -35,11 +35,17 @@ export function parseNumberOption(value: string | number | undefined, optionName
     throw new ValidationError(`Invalid ${optionName}: expected a number`)
   }
 
+  // Plain decimal only. `Number()` also takes `0x10`, `1e3` and `5.0`, so `--size 0x10`
+  // used to fetch 16 rows and `--from 1e21` went out as `1e+21` — spellings nobody means
+  // as a row count, accepted without a word.
+  if (typeof value === "string" && !(config.integer ? /^-?\d+$/ : /^-?\d+(\.\d+)?$/).test(value.trim())) {
+    throw new ValidationError(`Invalid ${optionName}: expected ${config.integer ? "an integer" : "a number"} written in plain decimal, got '${value}'`)
+  }
   const parsed = typeof value === "number" ? value : Number(value)
   if (!Number.isFinite(parsed)) {
     throw new ValidationError(`Invalid ${optionName}: expected a finite number`)
   }
-  if (config.integer && !Number.isInteger(parsed)) {
+  if (config.integer && !Number.isSafeInteger(parsed)) {
     throw new ValidationError(`Invalid ${optionName}: expected an integer`)
   }
   if (config.min !== undefined && parsed < config.min) {
@@ -64,10 +70,12 @@ export function parseSize(value: string | number | undefined): number | undefine
   return parseOptionalNumberOption(value, "--size", { integer: true, min: 1 })
 }
 
-export function collectNumberList(value: string, previous: number[] = []): number[] {
-  return [
+/** Parser for a repeatable list of integer codes (source types, permissions, file types):
+ * named, so a bad item says which option it came from. */
+export function numberListArg(optionName: string): (value: string, previous?: number[]) => number[] {
+  return (value, previous = []) => [
     ...previous,
-    ...splitCsv(value).map((item) => parseNumberOption(item, "number list item")),
+    ...splitCsv(value).map((item) => parseNumberOption(item, optionName, { integer: true })),
   ]
 }
 

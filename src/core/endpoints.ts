@@ -49,8 +49,14 @@ export interface EndpointDefinition {
    * failure trace-less, and the flatteners would otherwise print `null` at exit 0.
    * All seven quote endpoints carry it: the three menu-retired per-market ones answer
    * an unknown code and an empty range with `{total: 0, list: []}` too (probed
-   * 2026-09-05 on all three), so a legal empty answer always has its `list`. */
-  expects?: "list"
+   * 2026-09-05 on all three), so a legal empty answer always has its `list`.
+   *
+   * "array": every successful answer is a bare JSON array — an ID with nothing to
+   * return is simply absent, so the empty answer is `[]` (probed 2026-09-24 on both
+   * opinion detail endpoints). Anything else is a changed layout, and the caller must
+   * not read it as "no rows": on the detail endpoints that would report every paid-for
+   * body as missing. */
+  expects?: "list" | "array"
   /** Irreversible once it lands: require an explicit `--yes` before the request goes
    * out, on EVERY entry point. Marking it here rather than in the command handler is
    * what makes `raw call` honour it too — a guard that only the dedicated command
@@ -131,6 +137,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     // 30 credits per returned opinion, up to 20 per call: a replayed batch re-bills
     // every body the first attempt already delivered.
     retry: "no-replay",
+    expects: "array",
   },
   "insight.summary.list": {
     method: "POST",
@@ -295,6 +302,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "Get foreign opinion bodies by ID (max 20 IDs per call)",
     retry: "no-replay",
+    expects: "array",
   },
   "insight.independent-opinion.list": {
     method: "POST",
@@ -540,6 +548,11 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/valuation-analysis",
     kind: "json",
     description: "Query valuation analysis",
+    // Always `{indicator, fieldList, list}` — also for a future range, a range before
+    // listing and a --field that leaves one column (probed 2026-09-24). The command's
+    // truncation flag and --skip-null read their rows from `list`, so a layout without one
+    // must fail here rather than pass through unflagged and unfiltered.
+    expects: "list",
   },
   "fundamental.top-holders": {
     method: "POST",

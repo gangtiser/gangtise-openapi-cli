@@ -335,6 +335,52 @@ describe("runInOrder", () => {
     expect(maxAhead).toBeLessThanOrEqual(3 + 3)
   })
 
+  it("a slow head item stalls the others once `window` later results are waiting — not before", async () => {
+    // Item 0 hangs until released; everything else is instant. Two workers: one sits on
+    // item 0, the other keeps taking items until `window` results are parked behind it.
+    const run = async (window?: number) => {
+      let release!: () => void
+      const head = new Promise<void>((r) => { release = r })
+      const started: number[] = []
+      const consumed: number[] = []
+      const done = runInOrder(Array.from({ length: 20 }, (_, i) => i), 2, async (i) => {
+        started.push(i)
+        if (i === 0) await head
+        return i
+      }, (i) => { consumed.push(i) }, window)
+      await new Promise((r) => setTimeout(r, 20))
+      const startedWhileStalled = started.length
+      release()
+      await done
+      return { startedWhileStalled, consumed }
+    }
+    const narrow = await run()
+    expect(narrow.startedWhileStalled).toBe(1 + 2)
+    const wide = await run(8)
+    expect(wide.startedWhileStalled).toBe(1 + 8)
+    // Order is kept either way.
+    expect(wide.consumed).toEqual(Array.from({ length: 20 }, (_, i) => i))
+  })
+
+  it("a window narrower than the concurrency is widened to it", async () => {
+    // Three workers, item 0 hangs. Widened to 3, the two free workers park three results
+    // (plus one more in flight) before stalling; left at 1 they would stop after one.
+    let release!: () => void
+    const head = new Promise<void>((r) => { release = r })
+    const started: number[] = []
+    const consumed: number[] = []
+    const done = runInOrder(Array.from({ length: 10 }, (_, i) => i), 3, async (i) => {
+      started.push(i)
+      if (i === 0) await head
+      return i
+    }, (i) => { consumed.push(i) }, 1)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(started.length).toBe(1 + 3 + 1)
+    release()
+    await done
+    expect(consumed).toEqual(Array.from({ length: 10 }, (_, i) => i))
+  })
+
   it("stops starting items and rethrows once consume fails", async () => {
     const started: number[] = []
     await expect(runInOrder([1, 2, 3, 4, 5, 6], 2, async (i) => {

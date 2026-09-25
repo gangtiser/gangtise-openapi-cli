@@ -21,6 +21,27 @@ describe("callKlineWithSharding", () => {
     expect(result).toEqual({ list: [{ id: 1 }] })
   })
 
+  it("keeps the default window: a stuck first shard holds the rest to about twice the concurrency", async () => {
+    // A shard can run to thousands of rows, so shards keep runInOrder's default window
+    // (= concurrency). Widening it like the page fan-out does would multiply what waits in
+    // memory behind one slow shard; at the default, at most window + concurrency - 1 start.
+    let release!: () => void
+    const stuck = new Promise<void>((resolve) => { release = resolve })
+    let started = 0
+    const call = vi.fn().mockImplementation(async (_key: string, b: { startDate: string }) => {
+      started++
+      if (b.startDate === "2026-01-01") await stuck
+      return { fieldList: ["tradeDate"], list: [[b.startDate]] }
+    })
+    const concurrency = 3
+    const result = callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["all"], startDate: "2026-01-01", endDate: "2026-03-31" }, { shardDays: 2, concurrency })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(started).toBeLessThanOrEqual(2 * concurrency)
+    release()
+    await result
+    expect(started).toBeGreaterThan(2 * concurrency)
+  })
+
   it("passes through when --security all but date range fits in one shard", async () => {
     const call = vi.fn().mockResolvedValue({ list: [{ id: 1 }] })
     await callKlineWithSharding({ call }, "quote.day-kline", {
@@ -352,7 +373,7 @@ describe("callKlineWithSharding", () => {
       seen.push(body.startDate)
       return { list: [] }
     })
-    // day-kline --security all shards one day at a time (cli.ts), so weekend-skip
+    // day-kline --security all shards one day at a time (src/commands/quote.ts), so weekend-skip
     // applies to it too. A-shares are closed weekends, so this is correct, not a bug.
     await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],

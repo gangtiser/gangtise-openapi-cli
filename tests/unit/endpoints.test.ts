@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import path from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -672,14 +672,16 @@ describe("ENDPOINTS", () => {
     }
   })
 
-  // Endpoint keys appear as bare string literals throughout cli.ts
+  // Endpoint keys appear as bare string literals throughout src/cli.ts and src/commands/
   // (client.call("..."), addDownloadCommand({ endpointKey: "..." }), addKlineCommand(...)).
   // A typo only surfaces at runtime as "Unknown endpoint key"; this catches it at
   // test time. The regex matches a whole literal that is a lowercase dotted key
   // like "insight.research.list"; import paths ("./core/x.js") and code samples
   // ("000001.SZ") begin with "." or a digit and are excluded.
-  it("every endpoint key referenced in cli.ts is registered", () => {
-    const src = readFileSync(path.resolve(process.cwd(), "src/cli.ts"), "utf8")
+  it("every endpoint key referenced by a command is registered", () => {
+    const commandsDir = path.resolve(process.cwd(), "src/commands")
+    const src = [path.resolve(process.cwd(), "src/cli.ts"), ...readdirSync(commandsDir).map((file) => path.join(commandsDir, file))]
+      .map((file) => readFileSync(file, "utf8")).join("\n")
     const groups = new Set(Object.keys(ENDPOINTS).map((key) => key.split(".")[0]))
     const KEY = /^[a-z][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+$/
     const referenced = new Set<string>()

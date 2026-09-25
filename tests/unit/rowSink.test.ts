@@ -115,6 +115,26 @@ describe("ExportSink", () => {
     expect(getRowSink({ ...result })).toBeUndefined()
   })
 
+  it("writes in chunks without losing or doubling a line at a chunk edge (jsonl and csv, both write paths)", async () => {
+    // Batches of 1500 and 1700 cross the write-chunk size inside a batch and leave a
+    // remainder at each batch end; 3200 csv lines cross it in the second pass too. The
+    // expectation is spelled out by hand, not taken from another chunked writer.
+    const rows = Array.from({ length: 3200 }, (_, i) => ({ a: i, b: `x,${i}` }))
+    const jsonl = rows.map((row) => JSON.stringify(row)).join("\n") + "\n"
+    const csv = "\ufeffa,b\n" + rows.map((row) => `${row.a},"${row.b}"`).join("\n") + "\n"
+    for (const [format, expected] of [["jsonl", jsonl], ["csv", csv]] as const) {
+      const target = path.join(dir, `chunks.${format}`)
+      const sink = new ExportSink(target, format)
+      await sink.push(rows.slice(0, 1500))
+      await sink.push(rows.slice(1500))
+      await sink.finish()
+      expect(await fs.readFile(target, "utf8"), `sink ${format}`).toBe(expected)
+      const direct = path.join(dir, `direct.${format}`)
+      await streamOutputToFile({ total: rows.length, list: rows }, format, direct)
+      expect(await fs.readFile(direct, "utf8"), `streamOutputToFile ${format}`).toBe(expected)
+    }
+  })
+
   it("csv: streams rows to a temp file and assembles header + rows on finish, byte-identical to the in-memory csv path", async () => {
     // Column union in first-appearance order, later columns padded on earlier rows, BOM up front.
     const rows = Array.from({ length: 1000 }, (_, i) => (i < 500 ? { a: i, b: `x,${i}` } : { a: i, c: true }))

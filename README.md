@@ -73,7 +73,7 @@ export GANGTISE_TOKEN="Bearer xxx"
 # 性能/调试可选项
 export GANGTISE_PAGE_CONCURRENCY=5     # 翻页/分片并发数（默认 5，上限 32；非法值回退默认）
 export GANGTISE_VERBOSE=1              # 打印每个请求的耗时与字节数
-export GANGTISE_TIMEOUT_MS=30000       # 请求超时（默认 30s）
+export GANGTISE_TIMEOUT_MS=30000       # 请求超时，整数毫秒（默认 30s；上限 1 小时；低于 1 秒或写法非法时用默认值；未按所写数值生效时在 stderr 提示）
 export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.config/gangtise/token.json）
 ```
 
@@ -282,7 +282,7 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 ## 性能特性
 
 - **并发翻页**：自动翻页接口的首页拿到 `total` 后，剩余页用 `Promise.all` 并发拉取（默认并发数 5，可通过 `GANGTISE_PAGE_CONCURRENCY` 调整）。20 页查询从串行 ~10s 降到 ~2s。
-- **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池 16），避免重复 TLS 握手。
+- **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池不少于 16，且不少于翻页并发数），避免重复 TLS 握手。
 - **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
 - **流式输出**：`--format jsonl` 或 `csv` 加 `--output <file>` 时，翻页 / 全市场分片 / 逐只请求的行**按到达顺序逐批写盘**，取数阶段不再持有整份结果，内存不随行数增长（80 万行导出常驻约 150 MB）；csv 先落临时行文件、收尾时按列并集写表头再转成 csv（磁盘两遍、内存不变）。不足 1000 行的结果仍走原来的整体写出，文件字节与之前一致。任一只 / 页 / 片失败，命令退出时后台已无取数与写盘，不留 `.part`。
 - **导出元信息**：`csv` / `jsonl` 落盘时旁边生成 `<文件>.meta.json`——命令行、数据行数、列名、`complete`（与退出码一致：退出 3 即 `false`）、`total` / `partial` / `failedPages` / `failedShards` / `truncatedShards` / `droppedColumns` / `missingFields` 等全部完整性标记、抓取时间与时区、CLI 版本，以及数据文件的字节数 `bytes` 与内容哈希 `sha256`。命令行与结果里的 key / secret / token 类字段写成 `[redacted]`。元信息在数据文件发布之后才就位，导出失败不会留下新数据配旧元信息。**转交或归档前建议核一次**：`shasum -a 256 <文件>` 与元信息里的 `sha256` 相等，才说明这份元信息描述的就是旁边这份数据——两个进程同时导出到**同一个 `--output`** 时，最终文件一定是其中某一次的完整产物，但旁边的元信息有可能来自另一次，核哈希就能发现。**输的那一次自己也会报**：收尾时回读一次 `--output`，与本次写出的哈希不符就在 stderr 说明「这个文件不是本次命令的产物」并**退出码 4**。这两种格式的文件本身只有数据行，转交之后靠它核验是否完整；`json` 自带标记，不生成。
@@ -898,7 +898,8 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 
 - `--from`：非负整数
 - `--size` / `--limit` / `--top`：正整数
-- `--file-type` / `--resource-type` 以及数值型列表参数：有限数字
+- `--file-type` / `--resource-type` 以及数值型列表参数：整数
+- 数值一律按十进制写法解析：`0x10`、`1e3`、`5.0` 这类写法在发请求前拒绝，不会被悄悄换算成别的数
 - 所有 date 参数（`--start-date`/`--end-date`/`--date`/`--report-date`，含 Quote/Fundamental/AI/Alternative/Indicator）：`YYYY-MM-DD`、`YYYY/MM/DD` 或 `YYYYMMDD`，统一归一成 `YYYY-MM-DD` 发出（年在后等歧义写法在发请求前拒绝，见下节）
 - 所有 `--start-time` / `--end-time`（Insight/Vault/AI 透传、`quote minute-kline`，以及 A 股公告 / `knowledge-batch` 两个转换端点）：上述三种日期写法 + 可选的 `[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔），或 10/13 位 Unix 时间戳（同样归一日期部分、拒绝年在后写法）。两个转换端点把日期与时刻按**北京时间**换算成毫秒，与运行机器的时区无关
 

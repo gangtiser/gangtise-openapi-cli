@@ -95,7 +95,7 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 - 🔴 **序列按自然日逐日一行（含周末）**，行数超过 `--limit` 时接口**保留最近的行、丢掉区间开头**。CLI 撞满即标 `partial`、退出码 3 并在 stderr 说明（首行恰好就是 `--start-date` 时说明没丢，不标）。取长区间把 `--limit` 设到不小于区间天数（账号权限窗口内的十年约 3700 行，可设 `--limit 4000`）
 - 🔴 **`--start-date` 早于账号回溯下界时，接口从下界起返回、不报错**（整段都在界外才报 `110003`）。首行晚于 `--start-date` 时 CLI 在 stderr 提示——可能是该证券上市较晚，也可能是撞了权限窗口，看首行日期判断
 - `--skip-null`：丢弃 `value`/`percentileRank` 为 null 的行（最新交易日可能未入库）
-- **返回字段只有 7 个**：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`，**没有 `securityCode`**。🔴 `--field` 里**至少要有一个数值列**（`tradeDate` 以外的 6 个）：只传 `tradeDate`、只传不存在的名字（含 `securityCode`）时接口返回 0 行、**不报错**，读起来像「这只票没有估值数据」；数值列与不存在的名字混传时，回显的字段比每行的值多，CLI 直接报错退出 1。`tradeDate` 总在第一列返回，不用写进 `--field`（写了 CLI 会在发请求前去掉；同一字段写两次也只发一次）。**建议不传 `--field`**，证券代码本来就是你自己传进去的
+- **返回字段只有 7 个**：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`，**没有 `securityCode`**。🔴 `--field` 里**至少要有一个数值列**（`tradeDate` 以外的 6 个）：只传 `tradeDate`、只传不存在的名字（含 `securityCode`）时接口返回 0 行、**不报错**，读起来像「这只票没有估值数据」（CLI 会在 stderr 提示原因）；数值列与不存在的名字混传时，回显的字段比每行的值多，CLI 直接报错退出 1。`tradeDate` 总在第一列返回，不用写进 `--field`（写了 CLI 会在发请求前去掉；同一字段写两次也只发一次）。**建议不传 `--field`**，证券代码本来就是你自己传进去的
 
 ## A股盈利预测 `fundamental earning-forecast`
 

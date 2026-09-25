@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
-import { checkAsyncContent, pollAsyncContent } from "../../src/core/asyncContent.js"
+import { checkAsyncContent, nextPollDelayMs, POLL_MAX_ATTEMPTS, pollAsyncContent } from "../../src/core/asyncContent.js"
 import { ApiError } from "../../src/core/errors.js"
 
 describe("asyncContent", () => {
@@ -134,11 +134,15 @@ describe("asyncContent", () => {
       // Regression guard for the poll budget: a loop-bound slip here turns --wait
       // into an indefinite hang instead of a ~316s give-up.
       vi.useFakeTimers()
+      const t0 = Date.now()
       const client = { call: vi.fn().mockRejectedValue(new ApiError("generating", "410110")) }
       const p = pollAsyncContent(client, "ep", "d1", "json")
       await vi.runAllTimersAsync()
       expect(await p).toBe("timeout")
       expect(client.call).toHaveBeenCalledTimes(14)
+      // A wait between attempts, none after the last: that one would only delay "timeout".
+      const waits = Array.from({ length: POLL_MAX_ATTEMPTS - 1 }, (_, i) => nextPollDelayMs(i + 1))
+      expect(Date.now() - t0).toBe(waits.reduce((a, b) => a + b, 0))
     })
   })
 

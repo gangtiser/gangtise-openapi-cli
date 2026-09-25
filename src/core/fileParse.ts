@@ -1,10 +1,9 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 
-import { isAsyncPending, nextPollDelayMs, POLL_MAX_ATTEMPTS } from "./asyncContent.js"
+import { isAsyncPending, pollUntilDone } from "./asyncContent.js"
 import { saveDownloadResult } from "./download.js"
 import { ApiError, ValidationError } from "./errors.js"
-import { isTransientError } from "./transport.js"
 
 /** Server-side upload cap (spec: ≤100MB, ≤500 pages). Checked locally so a
  * doomed 100MB+ upload fails instantly instead of after a long transfer. */
@@ -70,21 +69,6 @@ export async function fetchFileParseResult(client: FileParseClient, taskId: stri
 /** Poll until the ZIP is ready. Same backoff budget as the AI async endpoints
  * (≈316s), which covers the documented ~3 min parse time. */
 export async function pollFileParseResult(client: FileParseClient, taskId: string, output?: string): Promise<"ok" | "timeout"> {
-  for (let attempt = 1; attempt <= POLL_MAX_ATTEMPTS; attempt++) {
-    try {
-      if (await fetchFileParseResult(client, taskId, output) === "ok") return "ok"
-    } catch (error) {
-      // The task is already paid for: a blip must not void the wait. Transient
-      // errors consume the attempt, anything else (bad taskId, no permission) aborts.
-      if (!isTransientError(error)) throw error
-      const msg = error instanceof Error ? error.message : String(error)
-      process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: transient error (${msg.slice(0, 80)}), continuing to wait...\n`)
-    }
-    if (attempt < POLL_MAX_ATTEMPTS) {
-      const delay = nextPollDelayMs(attempt)
-      process.stderr.write(`Attempt ${attempt}/${POLL_MAX_ATTEMPTS}: parse result not ready, retrying in ${Math.round(delay / 1000)}s...\n`)
-      await new Promise(resolve => setTimeout(resolve, delay))
-    }
-  }
-  return "timeout"
+  const outcome = await pollUntilDone(async () => await fetchFileParseResult(client, taskId, output), "parse result not ready")
+  return outcome === "ok" ? "ok" : "timeout"
 }

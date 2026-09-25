@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectNumberList, collectText, dateArg, datetimeArg, isVersionNewer, localDateString, maybeArray, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectText, dateArg, datetimeArg, isVersionNewer, localDateString, maybeArray, numberListArg, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -56,17 +56,18 @@ describe("collectText", () => {
   })
 })
 
-describe("collectNumberList", () => {
-  it("parses numbers from comma-separated input", () => {
-    expect(collectNumberList("1,2,3")).toEqual([1, 2, 3])
+describe("numberListArg", () => {
+  const parse = numberListArg("--source")
+  it("splits, parses and appends integer codes", () => {
+    expect(parse("1,2,3")).toEqual([1, 2, 3])
+    expect(parse("5", [1, 2])).toEqual([1, 2, 5])
   })
 
-  it("throws on invalid numeric values", () => {
-    expect(() => collectNumberList("1,abc,3")).toThrow(ValidationError)
-  })
-
-  it("accumulates with previous", () => {
-    expect(collectNumberList("5", [1, 2])).toEqual([1, 2, 5])
+  it("rejects a non-integer item and names the option", () => {
+    for (const bad of ["1,abc,3", "1.5", "0x10", "1e3"]) {
+      expect(() => parse(bad), bad).toThrow(ValidationError)
+      expect(() => parse(bad), bad).toThrow("--source")
+    }
   })
 })
 
@@ -82,6 +83,22 @@ describe("parseNumberOption", () => {
   it("enforces integer and minimum constraints", () => {
     expect(() => parseNumberOption("1.5", "--size", { integer: true })).toThrow(ValidationError)
     expect(() => parseNumberOption("0", "--size", { min: 1 })).toThrow(ValidationError)
+  })
+
+  it("takes plain decimal only: hex, exponent and decimal-point spellings of an integer are refused", () => {
+    for (const bad of ["0x10", "1e3", "1e21", "5.0", "+5", "0b11", " 12a"]) {
+      expect(() => parseNumberOption(bad, "--size", { integer: true, min: 1 }), bad).toThrow("plain decimal")
+    }
+    expect(parseNumberOption(" 12 ", "--size", { integer: true })).toBe(12)
+    expect(parseNumberOption("007", "--size", { integer: true })).toBe(7)
+    expect(parseNumberOption("-3", "--offset", { integer: true })).toBe(-3)
+    // Non-integer options still take a decimal fraction, but not an exponent or hex.
+    expect(parseNumberOption("2.5", "--ratio")).toBe(2.5)
+    expect(() => parseNumberOption("2e1", "--ratio")).toThrow("plain decimal")
+  })
+
+  it("refuses an integer past the safe range instead of sending a rounded one", () => {
+    expect(() => parseNumberOption("100000000000000000000000", "--from", { integer: true, min: 0 })).toThrow("expected an integer")
   })
 })
 

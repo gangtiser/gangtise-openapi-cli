@@ -3,7 +3,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 
 import { assertColumnarHeader, zipFieldRow } from "./normalize.js"
-import { csvEscape, digestFile, type ExportDigest, formatScalar, stagingPath, writeLine } from "./output.js"
+import { csvEscape, digestFile, type ExportDigest, formatScalar, stagingPath, writeLine, writeLines, LINES_PER_WRITE } from "./output.js"
 import { extractTitles, MAX_TITLES_PER_ENDPOINT, type TitleCacheConfig } from "./titleCache.js"
 
 /** Non-enumerable key under which a producer hangs the sink it streamed into on the result
@@ -148,6 +148,7 @@ export class ExportSink {
 
   private async write(rows: unknown[]): Promise<void> {
     const stream = this.stream as WriteStream
+    let chunk: string[] = []
     for (const row of rows) {
       let item = row
       if (Array.isArray(row)) {
@@ -168,7 +169,8 @@ export class ExportSink {
           }
         }
       }
-      await writeLine(stream, JSON.stringify(item))
+      chunk.push(JSON.stringify(item))
+      if (chunk.length >= LINES_PER_WRITE) { await writeLines(stream, chunk); chunk = [] }
       this.rows++
       if (this.cache && this.titleCount < MAX_TITLES_PER_ENDPOINT) {
         for (const [id, title] of Object.entries(extractTitles([item], this.cache))) {
@@ -177,6 +179,7 @@ export class ExportSink {
         }
       }
     }
+    await writeLines(stream, chunk)
   }
 
   /** Second pass for csv: the buffered jsonl rows become the csv, header first. The writer
@@ -203,14 +206,15 @@ export class ExportSink {
     const input = createReadStream(this.rowsPath, { encoding: "utf8" })
     try {
       let index = 0
-      const emit = async (line: string): Promise<void> => {
+      let csvLines: string[] = []
+      const emit = (line: string): void => {
         if (!line) return
         const item = JSON.parse(line) as unknown
         if (objectMode) {
           if (!isObjectRow(item)) return
-          await writeLine(out, columns.map((column) => csvEscape(formatScalar(item[column]))).join(","))
+          csvLines.push(columns.map((column) => csvEscape(formatScalar(item[column]))).join(","))
         } else {
-          await writeLine(out, `${csvEscape(String(index++))},${csvEscape(formatScalar(item))}`)
+          csvLines.push(`${csvEscape(String(index++))},${csvEscape(formatScalar(item))}`)
         }
       }
       // JSON.stringify never emits a raw newline, so splitting on "\n" is exact.
@@ -218,9 +222,11 @@ export class ExportSink {
       for await (const chunk of input) {
         const lines = (rest + String(chunk)).split("\n")
         rest = lines.pop() ?? ""
-        for (const line of lines) await emit(line)
+        for (const line of lines) emit(line)
+        if (csvLines.length >= LINES_PER_WRITE) { await writeLines(out, csvLines); csvLines = [] }
       }
-      await emit(rest)
+      emit(rest)
+      await writeLines(out, csvLines)
       await endStream(out)
     } catch (error) {
       input.destroy()

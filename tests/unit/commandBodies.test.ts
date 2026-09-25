@@ -466,7 +466,7 @@ describe("command request body builders", () => {
   })
 })
 
-// Drives a real Commander command wired exactly as cli.ts wires
+// Drives a real Commander command wired exactly as src/commands/vault.ts wires
 // `vault stock-pool-stocks`, so the test covers the collectList option default
 // interaction (Commander passes the option default in as `previous` on the
 // first collect — a non-empty default would leak into every explicit value).

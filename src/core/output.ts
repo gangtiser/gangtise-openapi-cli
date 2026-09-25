@@ -287,16 +287,20 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
     if (format === "jsonl") {
       // Same record selection as renderOutput, so crossing the 1000-row threshold never
       // changes which rows a bare array yields.
+      let chunk: string[] = []
       for (const item of jsonlItems(value)) {
-        await writeLine(stream, JSON.stringify(item))
+        chunk.push(JSON.stringify(item))
+        if (chunk.length >= LINES_PER_WRITE) { await writeLines(stream, chunk); chunk = [] }
       }
+      await writeLines(stream, chunk)
     } else {
       // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK.
-      await writeLine(stream, "\ufeff" + csvColumns.map(csvEscape).join(","))
+      let chunk = ["\ufeff" + csvColumns.map(csvEscape).join(",")]
       for (const row of csvRows) {
-        const cells = csvColumns.map((column) => csvEscape(formatScalar(row[column])))
-        await writeLine(stream, cells.join(","))
+        chunk.push(csvColumns.map((column) => csvEscape(formatScalar(row[column]))).join(","))
+        if (chunk.length >= LINES_PER_WRITE) { await writeLines(stream, chunk); chunk = [] }
       }
+      await writeLines(stream, chunk)
     }
     await new Promise<void>((resolve, reject) => {
       stream.end((err?: Error | null) => err ? reject(err) : resolve())
@@ -345,6 +349,16 @@ export interface LineSink {
   write(chunk: string, cb?: (err?: Error | null) => void): boolean
   once(event: "drain" | "error", cb: (err?: unknown) => void): unknown
   off(event: "drain" | "error", cb: (err?: unknown) => void): unknown
+}
+
+/** How many lines a loop hands to one write. One write means one callback, one promise
+ * and at most one drain wait per chunk instead of per row — per-row awaits were most of
+ * the time a large export spent writing. */
+export const LINES_PER_WRITE = 1000
+
+/** writeLine for several lines at once (each still newline-terminated). */
+export function writeLines(stream: LineSink, lines: string[]): Promise<void> {
+  return lines.length === 0 ? Promise.resolve() : writeLine(stream, lines.join("\n"))
 }
 
 export function writeLine(stream: LineSink, line: string): Promise<void> {

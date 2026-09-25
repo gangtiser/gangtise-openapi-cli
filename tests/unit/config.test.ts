@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, loadConfig } from "../../src/core/config.js"
+import { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, loadConfig, MAX_TIMEOUT_MS } from "../../src/core/config.js"
 
 const ENV_KEYS = [
   "GANGTISE_BASE_URL",
@@ -58,6 +58,42 @@ describe("loadConfig", () => {
     expect(config.secretKey).toBe("sk")
     expect(config.token).toBe("tok")
     expect(config.tokenCachePath).toBe("/custom/token.json")
+  })
+
+  it("takes whole milliseconds only, falls back below a second, and caps at the upper bound", () => {
+    for (const raw of ["0.5", "1e12", "30s", "-5000", "30"]) {
+      process.env.GANGTISE_TIMEOUT_MS = raw
+      expect(loadConfig().timeoutMs, raw).toBe(DEFAULT_TIMEOUT_MS)
+    }
+    process.env.GANGTISE_TIMEOUT_MS = "1000"
+    expect(loadConfig().timeoutMs).toBe(1000)
+    process.env.GANGTISE_TIMEOUT_MS = "99999999"
+    expect(loadConfig().timeoutMs).toBe(MAX_TIMEOUT_MS)
+  })
+
+  it("says once on stderr when the timeout that was set is not the one in effect", async () => {
+    // A fresh module per case: the warning is once per process, kept in module state.
+    const warningsFor = async (raw: string): Promise<string[]> => {
+      vi.resetModules()
+      const fresh = await import("../../src/core/config.js")
+      const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+      try {
+        process.env.GANGTISE_TIMEOUT_MS = raw
+        fresh.loadConfig()
+        fresh.loadConfig()
+        return errSpy.mock.calls.map((c) => String(c[0]))
+      } finally {
+        errSpy.mockRestore()
+      }
+    }
+    for (const raw of ["1.2e5", "120000.0", "120s", "30", "99999999"]) {
+      const lines = await warningsFor(raw)
+      expect(lines, raw).toHaveLength(1)
+      expect(lines[0], raw).toContain(`GANGTISE_TIMEOUT_MS=${raw} is not in effect`)
+    }
+    for (const raw of ["120000", "0120000", " 5000 "]) {
+      expect(await warningsFor(raw), raw).toEqual([])
+    }
   })
 
   it("ignores a non-positive or non-numeric timeout", () => {

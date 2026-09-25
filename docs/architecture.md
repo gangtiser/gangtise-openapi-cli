@@ -25,10 +25,12 @@
 
 ## Layer 2 — CLI Framework
 
-| Commander.js | Argument Parsers |
-|:--|:--|
-| `src/cli.ts` | `src/core/args.ts` |
-| All commands, options, action handlers | splitCsv / collectList / collectKeyValue / parseTimestamp13 / parseIndicatorParams |
+| Entry | Command groups | Argument Parsers |
+|:--|:--|:--|
+| `src/cli.ts` | `src/commands/<group>.ts` | `src/core/args.ts` |
+| Program, group registration order (= `--help` order), fatal / EPIPE handling, `--version` | One module per group (insight / quote / fundamental / bond / reference / vault / ai / alternative / indicator / tool / raw / auth+lookup). `shared.ts`: client acquisition, print pipeline, downloads, and `query()` — a one-request command declared as a list of fields, each an option together with the request-body key it feeds | splitCsv / collectList / collectKeyValue / parseTimestamp13 / parseIndicatorParams |
+
+`tests/unit/cliSurface.test.ts` pins the whole command surface: every node's help text, and for every leaf one bare and one fully-optioned invocation against a local stub (exit code, request bodies, output). A structural change must leave it unchanged; an intended change to a command updates it with `-u` and a reviewed diff.
 
 ↓
 

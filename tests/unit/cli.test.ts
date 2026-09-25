@@ -408,7 +408,7 @@ describe("cli smoke", () => {
  *
  * `resolveTitle` itself is unit-tested in download.test.ts, and that is not the same
  * thing: those tests hand it `{ allowLookup: true }` directly, so every one of them
- * stays green while `cli.ts` passes a constant. The half a user actually touches —
+ * stays green while the command wiring (`addDownloadCommand`) passes a constant. The half a user actually touches —
  * the flag reaching the function — had no guard at all, which is why this file (the
  * only one that runs the real command wiring) is where it belongs.
  *

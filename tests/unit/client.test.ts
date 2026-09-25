@@ -1762,6 +1762,14 @@ describe("GangtiseClient expects: list", () => {
     }
   })
 
+  it("applies the check to valuation-analysis, whose truncation flag and --skip-null read `list`", async () => {
+    requestMock.mockReset()
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", traceId: "t-va", data: [["2026-09-01", 1]] }))
+    await expect(createClient().call("fundamental.valuation-analysis", {})).rejects.toThrow("returned no list payload (got an array)")
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: { indicator: "peTtm", fieldList: ["tradeDate"], list: [] } }))
+    await expect(createClient().call("fundamental.valuation-analysis", {})).resolves.toEqual({ indicator: "peTtm", fieldList: ["tradeDate"], list: [] })
+  })
+
   it("accepts the legal empty answer {total: 0, list: []} and leaves unflagged endpoints alone", async () => {
     requestMock.mockReset()
     requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
@@ -1770,6 +1778,53 @@ describe("GangtiseClient expects: list", () => {
     // ai.one-pager legitimately answers null for a security with no generated content.
     requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: null }))
     await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).resolves.toBeNull()
+  })
+})
+
+describe("GangtiseClient expects: array", () => {
+  it("passes a bare array, including the empty one, and fails any other layout structurally with its traceId", async () => {
+    for (const key of ["insight.opinion.detail", "insight.foreign-opinion.detail"]) {
+      requestMock.mockReset()
+      requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", data: [] }))
+      await expect(createClient().call(key, { x: ["1"] })).resolves.toEqual([])
+      requestMock.mockResolvedValue(rawJsonResponse({ code: "000000", msg: "ok", traceId: `t-${key}`, data: { list: [{ id: "1" }] } }))
+      let caught: unknown
+      try {
+        await createClient().call(key, { x: ["1"] })
+      } catch (error) {
+        caught = error
+      }
+      expect((caught as ApiError).message, key).toContain("returned no array payload (got object)")
+      expect((caught as ApiError).traceId, key).toBe(`t-${key}`)
+      expect(isStructuralError(caught), key).toBe(true)
+    }
+  })
+})
+
+describe("GangtiseClient pagination while one page is slow", () => {
+  it("keeps fetching later pages behind a stalled one, up to a window of several pages per worker", async () => {
+    requestMock.mockReset()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const seen: number[] = []
+    requestMock.mockImplementation(async (_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      seen.push(from)
+      if (from === 50) await gate // the first follow-up page hangs, like a request riding out a timeout
+      const total = 2000
+      const count = Math.max(0, Math.min(body.size ?? 50, total - from))
+      return jsonResponse({ total, list: Array.from({ length: count }, (_, i) => ({ id: from + i })) })
+    })
+    const pending = createClient().call("insight.research.list", { from: 0 }) as Promise<{ list: unknown[] }>
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    const requestedWhileStalled = seen.length
+    release()
+    expect((await pending).list).toHaveLength(2000)
+    // First page, the stalled page, 20 pages parked behind it (4 per worker at the default
+    // concurrency of 5), and one more in flight for each of the other 4 workers at the
+    // moment the window filled. A window of one page per worker stops at 1 + 1 + 5 + 3.
+    expect(requestedWhileStalled).toBe(1 + 1 + 20 + 3)
   })
 })
 

@@ -231,7 +231,7 @@ describe("renderOutput", () => {
     // (e.g. `quote day-kline --security all`), so this must not throw.
     const rows = Array.from({ length: 200_000 }, (_, i) => ({ id: i, name: `n${i}` }))
     expect(() => renderOutput(rows, "table")).not.toThrow()
-  })
+  }, 30_000) // what is pinned is "does not throw", not speed; the suite's spawn-heavy files share the CPU
 
   it("collapses newlines in table cells so multi-line fields keep alignment", () => {
     const result = renderOutput([{ brief: "line1\nline2\rline3" }], "table")

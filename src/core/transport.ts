@@ -64,7 +64,9 @@ export function getDispatcher(): Dispatcher {
     cachedDispatcher = new Agent({
       keepAliveTimeout: 60_000,
       keepAliveMaxTimeout: 600_000,
-      connections: 16,
+      // Never fewer sockets than the fan-out width, or GANGTISE_PAGE_CONCURRENCY above the
+      // pool size would only queue requests inside undici.
+      connections: Math.max(16, PAGE_CONCURRENCY),
       pipelining: 1,
     })
   }
@@ -100,11 +102,17 @@ export async function runWithConcurrency<T, R>(
  *
  * Memory stays bounded from both sides: a result waits in `pending` only while an earlier
  * item is unfinished, and a worker that has finished its item waits before taking the
- * next one whenever `concurrency` results are already waiting — otherwise a fast producer
+ * next one whenever `window` results are already waiting — otherwise a fast producer
  * (many small pages) runs arbitrarily far ahead of a slower consumer (a disk write per
  * row) and the whole result ends up in `pending` anyway. That wait cannot deadlock: the
  * lowest unconsumed index is always held by a worker still fetching it, never by one
  * waiting (a worker waits only after its own result is in `pending`).
+ *
+ * `window` trades memory for throughput. At the default (= concurrency), one slow item at
+ * the head — a retry backing off, a request riding out its timeout — stops every worker
+ * as soon as `concurrency` later results are waiting. Callers whose items are small (a
+ * page of a list) pass a wider window so the others keep fetching meanwhile; callers
+ * whose items are large (a whole-market shard) keep the default.
  *
  * A failure of either `fn` or `consume` stops the fan-out: no further items are started,
  * waiters are woken, results still arriving are dropped, and the first error is rethrown
@@ -116,8 +124,10 @@ export async function runInOrder<T, R>(
   concurrency: number,
   fn: (item: T, index: number) => Promise<R>,
   consume: (result: R, index: number) => Promise<void> | void,
+  window = concurrency,
 ): Promise<void> {
   const width = Math.max(1, concurrency)
+  const maxPending = Math.max(width, window)
   const pending = new Map<number, R>()
   let next = 0
   let failure: { error: unknown } | null = null
@@ -154,7 +164,7 @@ export async function runInOrder<T, R>(
     if (failure) return
     pending.set(index, result)
     drain()
-    while (!failure && pending.size >= width) {
+    while (!failure && pending.size >= maxPending) {
       await new Promise<void>((resolve) => waiters.push(resolve))
     }
   })
