@@ -4,7 +4,7 @@ import { collectList, dateArg, maybeArray, parseChoiceList, parseFrom, parseSize
 import { ValidationError } from "../core/errors.js"
 import { fetchOpinionDetails } from "../core/opinionDetail.js"
 import { rowCount } from "../core/rowSink.js"
-import { emit, addDownloadCommand, value, required, list, numberList, choiceList, count, rankType, searchType, top, flag, format, output, from, size, startTime, endTime, timeFilters, query } from "./shared.js"
+import { emit, addDownloadCommand, confirmCostly, multiChoice, value, required, list, numberList, choiceList, count, rankType, searchType, top, flag, format, output, from, size, startTime, endTime, timeFilters, query } from "./shared.js"
 import type { Field } from "./shared.js"
 
 export const insight = new Command("insight").description("Insight APIs")
@@ -181,9 +181,10 @@ performanceCalendar.command("list").description("Earnings calendar (业绩预告
   .option("--start-date <date>", "Start date (yyyy-MM-dd), filters publishDate", dateArg("--start-date"))
   .option("--end-date <date>", "End date (yyyy-MM-dd), filters publishDate", dateArg("--end-date"))
   .option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, [])
-  .option("--market <name>", `Market: ${PERFORMANCE_MARKETS.join("/")}`, collectList, [])
-  .option("--category <name>", `Event type: ${PERFORMANCE_CATEGORIES.join("/")}`, collectList, [])
+  .addOption(multiChoice("--market <name>", `Market: ${PERFORMANCE_MARKETS.join("/")}`, PERFORMANCE_MARKETS))
+  .addOption(multiChoice("--category <name>", `Event type: ${PERFORMANCE_CATEGORIES.join("/")}`, PERFORMANCE_CATEGORIES))
   .option("--format <format>", "Output format", "table").option("--output <path>", "Output path")
+  .addOption(confirmCostly().option)
   .action((options) => {
     // Enum typos first: a misspelled --category is the likelier mistake, and its
     // message is the more useful one when both checks would fire.
@@ -195,7 +196,7 @@ performanceCalendar.command("list").description("Earnings calendar (业绩预告
     // Require a bound: a full date range, an explicit --size, or a security filter.
     const explicitlyBounded = Boolean(options.size) || Boolean(options.startDate && options.endDate)
     if (!explicitlyBounded && !options.security.length) {
-      throw new ValidationError("insight performance-calendar list without a bound would auto-paginate the whole calendar (>120k rows at 0.1 credits each): pass --start-date and --end-date, or --security, or an explicit --size")
+      throw new ValidationError("insight performance-calendar list without a bound would auto-paginate the whole calendar (over a hundred thousand rows at 0.1 credits each): pass --start-date and --end-date, or --security, or an explicit --size")
     }
     // --security is only a real bound while the server honors securityList. It does
     // today (probed 2026-07-25: an unknown or malformed code returns total 0, it is

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
+import { rmSync, statSync } from "node:fs"
 import fs from "node:fs/promises"
 
 import type { OutputFormat } from "./config.js"
@@ -20,7 +21,40 @@ const OUTPUT_FORMATS = ["table", "json", "jsonl", "csv", "markdown"] as const
  * Stays well inside the 255-byte filename limit: download names are truncated to 200.
  */
 export function stagingPath(target: string, suffix = "part"): string {
-  return `${target}.${randomBytes(4).toString("hex")}.${suffix}`
+  const staging = `${target}.${randomBytes(4).toString("hex")}.${suffix}`
+  handedOut.add(staging)
+  return staging
+}
+
+/** Every staging name this process has handed out. */
+const handedOut = new Set<string>()
+
+/** Final names this process claimed with an empty placeholder (download.ts `uniquePath`). */
+const claimed = new Set<string>()
+
+export function trackClaim(name: string): void {
+  claimed.add(name)
+}
+
+/** Remove whichever of this process's staging files still exist, and any claimed name that
+ * is still an empty placeholder, for an exit that skips the normal cleanup (SIGINT / SIGTERM
+ * / SIGHUP, see cli.ts). Each name belongs to one write of this process, so nothing another
+ * process is writing is touched; one already published by rename or removed is simply gone.
+ * A placeholder is only removed while empty: it carries the final name, and left behind it
+ * looks like a finished download. (A rename landing between the size check and the unlink
+ * would lose that download — acceptable for a command being interrupted, whose exit already
+ * says it did not finish.) Synchronous, because the process leaves right after. */
+export function removeStagingFiles(): void {
+  for (const staging of handedOut) {
+    try {
+      rmSync(staging, { force: true })
+    } catch { /* best effort: the process is leaving either way */ }
+  }
+  for (const name of claimed) {
+    try {
+      if (statSync(name).size === 0) rmSync(name, { force: true })
+    } catch { /* gone already, or not ours to judge */ }
+  }
 }
 
 /** What a finished export actually wrote: byte count and content hash. */
@@ -82,6 +116,8 @@ export function parseOutputFormat(value?: string): OutputFormat {
  * terminal escape sequences into the user's terminal (U+009B is a one-byte CSI
  * that 8-bit-control terminals treat exactly like ESC[). */
 function sanitizeCell(value: string): string {
+  // Most cells hold no control character at all: skip both passes for them.
+  if (!/[\u0000-\u001f\u007f-\u009f]/.test(value)) return value
   return value.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001f\u007f\u0080-\u009f]/g, "")
 }
 
@@ -89,6 +125,8 @@ function sanitizeCell(value: string): string {
  * counts UTF-16 code units and misaligns every table containing Chinese text or emoji
  * (e.g. WeChat group names). */
 function displayWidth(value: string): number {
+  // Printable ASCII is one column per char — the common case (codes, dates, numbers).
+  if (/^[\x20-\x7e]*$/.test(value)) return value.length
   let width = 0
   for (const ch of value) {
     const cp = ch.codePointAt(0)!
@@ -179,13 +217,16 @@ function renderTable(rows: Array<Record<string, unknown>>): string {
   // use displayWidth so CJK cells stay aligned.
   const headerCells = columns.map((column) => clampCell(sanitizeCell(column)))
   const matrix = rows.map((row) => columns.map((column) => clampCell(sanitizeCell(formatScalar(row[column])))))
-  const widths = columns.map((_, c) => matrix.reduce((max, cells) => Math.max(max, displayWidth(cells[c])), displayWidth(headerCells[c])))
+  // Each cell's width once, reused for the column widths and for the padding.
+  const cellWidths = matrix.map((cells) => cells.map(displayWidth))
+  const headerWidths = headerCells.map(displayWidth)
+  const widths = columns.map((_, c) => cellWidths.reduce((max, cells) => Math.max(max, cells[c]), headerWidths[c]))
 
-  const renderLine = (values: string[]) => values.map((value, index) => value + " ".repeat(Math.max(0, widths[index] - displayWidth(value)))).join("  ")
+  const renderLine = (values: string[], valueWidths: number[]) => values.map((value, index) => value + " ".repeat(Math.max(0, widths[index] - valueWidths[index]))).join("  ")
 
-  const header = renderLine(headerCells)
-  const divider = renderLine(widths.map((width) => "-".repeat(width)))
-  const body = matrix.map((cells) => renderLine(cells))
+  const header = renderLine(headerCells, headerWidths)
+  const divider = renderLine(widths.map((width) => "-".repeat(width)), widths)
+  const body = matrix.map((cells, r) => renderLine(cells, cellWidths[r]))
 
   return [header, divider, ...body].join("\n")
 }
@@ -377,7 +418,7 @@ export function writeLine(stream: LineSink, line: string): Promise<void> {
   })
 }
 
-export async function saveOutputIfNeeded(content: string | Uint8Array, outputPath?: string): Promise<ExportDigest | undefined> {
+export async function saveOutputIfNeeded(content: string | Uint8Array, outputPath?: string, withDigest = true): Promise<ExportDigest | undefined> {
   if (!outputPath) {
     return
   }
@@ -394,9 +435,9 @@ export async function saveOutputIfNeeded(content: string | Uint8Array, outputPat
     } else {
       await fs.writeFile(partPath, content)
     }
-    // Digested from `content`, not from the file: these are the bytes just written, and a
-    // read-back would cost a full pass over every saved download for a value only exports use.
-    const digest = digestBuffer(content)
+    // Digested from `content`, not from the file: these are the bytes just written. Only an
+    // export's sidecar uses it, so downloads pass `withDigest = false` and skip the hash.
+    const digest = withDigest ? digestBuffer(content) : undefined
     await fs.rename(partPath, outputPath)
     return digest
   } catch (error) {

@@ -62,7 +62,7 @@ describe("callKlineWithSharding", () => {
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2 }) as { fieldList: unknown[]; list: unknown[] }
 
     expect(call).toHaveBeenCalledTimes(3)
@@ -232,33 +232,38 @@ describe("callKlineWithSharding", () => {
     errSpy.mockRestore()
   })
 
-  it("emits non-overlapping shards covering the whole range", async () => {
+  it("emits non-overlapping shards that cover every weekday of the range, shardDays weekdays each", async () => {
     const seenRanges: Array<{ startDate: string; endDate: string }> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string; endDate: string }) => {
       seenRanges.push({ startDate: body.startDate, endDate: body.endDate })
       return { list: [] }
     })
 
+    // 2026-04-01 (Wed) .. 04-19 (Sun): 13 weekdays across two weekends.
     await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-10",
+      endDate: "2026-04-19",
     }, { shardDays: 3 })
 
-    seenRanges.sort((a, b) => a.startDate.localeCompare(b.startDate))
-    expect(seenRanges[0].startDate).toBe("2026-04-01")
-    expect(seenRanges.at(-1)!.endDate).toBe("2026-04-10")
-    // Every adjacent pair should be exactly 1 day apart with no gaps or overlap
-    for (let i = 1; i < seenRanges.length; i++) {
-      const prevEnd = new Date(`${seenRanges[i - 1].endDate}T00:00:00Z`).getTime()
-      const currStart = new Date(`${seenRanges[i].startDate}T00:00:00Z`).getTime()
-      expect(currStart - prevEnd).toBe(86_400_000)
+    const weekdaysIn = (from: string, to: string): string[] => {
+      const days: string[] = []
+      for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000) {
+        if (![0, 6].includes(new Date(t).getUTCDay())) days.push(new Date(t).toISOString().slice(0, 10))
+      }
+      return days
     }
+    seenRanges.sort((a, b) => a.startDate.localeCompare(b.startDate))
+    const covered = seenRanges.flatMap((r) => weekdaysIn(r.startDate, r.endDate))
+    expect(covered).toEqual(weekdaysIn("2026-04-01", "2026-04-19")) // every weekday once, in order
+    expect(seenRanges.map((r) => weekdaysIn(r.startDate, r.endDate).length)).toEqual([3, 3, 3, 3, 1])
+    // A shard starts and ends on a weekday: none is a weekend-only request.
+    for (const r of seenRanges) expect(weekdaysIn(r.startDate, r.startDate).length + weekdaysIn(r.endDate, r.endDate).length).toBe(2)
   })
 
   it("tolerates a failed shard: returns surviving data with partial/failedShards markers", async () => {
     const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
-    // shards (shardDays 2): [04-01..04-02], [04-03..04-04], [04-05..04-06]; fail the middle one
+    // shards (shardDays 2, weekdays only): [04-01..04-02], [04-03..04-06], [04-07..04-08]; fail the middle one
     const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string; endDate: string }) => {
       if (body.startDate === "2026-04-03") throw new Error("shard boom")
       return { fieldList: ["securityCode", "tradeDate"], list: [[`SH-${body.startDate}`, body.startDate]] }
@@ -267,12 +272,12 @@ describe("callKlineWithSharding", () => {
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2 }) as { list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
 
     expect(call).toHaveBeenCalledTimes(3)
     expect(result.partial).toBe(true)
-    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-04" }])
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-06" }])
     expect(result.list).toHaveLength(2) // 2 surviving shards × 1 row each
     expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("partial")
     errSpy.mockRestore()
@@ -283,7 +288,7 @@ describe("callKlineWithSharding", () => {
     await expect(callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2 })).rejects.toThrow("all down")
   })
 
@@ -300,12 +305,12 @@ describe("callKlineWithSharding", () => {
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2 }) as { list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
 
     expect(call).toHaveBeenCalledTimes(3) // a shape-broken shard does NOT abort the rest
     expect(result.partial).toBe(true)
-    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-04" }])
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-06" }])
     expect(result.list).toHaveLength(2) // 2 surviving shards × 1 row each
     errSpy.mockRestore()
   })
@@ -323,10 +328,10 @@ describe("callKlineWithSharding", () => {
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2, concurrency: 1 }) as { list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
 
-    expect(call).toHaveBeenCalledTimes(2) // the 04-05 shard is never dispatched
+    expect(call).toHaveBeenCalledTimes(2) // the 04-07 shard is never dispatched
     expect(result.partial).toBe(true)
     expect(result.failedShards).toHaveLength(2) // the thrown shard + the skipped one
     expect(result.list).toHaveLength(1) // only the first shard survived
@@ -350,21 +355,21 @@ describe("callKlineWithSharding", () => {
     expect(seen.sort()).toEqual(["2026-07-03", "2026-07-06"])
   })
 
-  it("does not skip weekends for multi-day shards (e.g. day-kline-hk, shardDays 2)", async () => {
-    const seen: string[] = []
-    const call = vi.fn().mockImplementation(async (_k: string, body: { startDate: string }) => {
-      seen.push(body.startDate)
+  it("groups weekdays for multi-day shards, so no request covers only a weekend (e.g. hkStocks, shardDays 2)", async () => {
+    const seen: Array<[string, string]> = []
+    const call = vi.fn().mockImplementation(async (_k: string, body: { startDate: string; endDate: string }) => {
+      seen.push([body.startDate, body.endDate])
       return { list: [] }
     })
-    // shards [07-03..07-04],[07-05..07-06],[07-07..07-08]: the middle one starts on a
-    // Sunday but contains Monday 07-06 — dropping it would lose a trading day.
+    // 07-03 Fri .. 07-08 Wed: weekdays 03, 06, 07, 08 → [07-03..07-06] (Fri + Mon, straddling
+    // the weekend) and [07-07..07-08]. Calendar-day shards sent three, one of them Sat + Sun.
     await callKlineWithSharding({ call }, "quote.day-kline-hk", {
       securityList: ["all"],
       startDate: "2026-07-03",
       endDate: "2026-07-08",
     }, { shardDays: 2 })
 
-    expect(seen).toHaveLength(3)
+    expect(seen.sort()).toEqual([["2026-07-03", "2026-07-06"], ["2026-07-07", "2026-07-08"]])
   })
 
   it("skips weekends for ANY per-day sharding, not just fund-flow — day-kline/day-kline-us are shardDays 1", async () => {
@@ -412,7 +417,7 @@ describe("callKlineWithSharding column alignment", () => {
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2 }) as { fieldList: unknown[]; list: unknown[][]; partial?: boolean }
 
     expect(result.fieldList).toEqual(["close", "volume"])
@@ -435,7 +440,7 @@ describe("callKlineWithSharding column alignment", () => {
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2 }) as { fieldList: unknown[]; list: unknown[][]; partial?: boolean; droppedColumns?: string[] }
 
     // The shard's rows still merge under the header's columns — only `amount` is lost.
@@ -457,12 +462,12 @@ describe("callKlineWithSharding column alignment", () => {
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
       startDate: "2026-04-01",
-      endDate: "2026-04-06",
+      endDate: "2026-04-08",
     }, { shardDays: 2 }) as { list: unknown[][]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
 
     expect(result.list).toEqual([[10, 100], [10, 100]])
     expect(result.partial).toBe(true)
-    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-04" }])
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-03", endDate: "2026-04-06" }])
     expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("cannot be aligned")
     errSpy.mockRestore()
   })
@@ -470,10 +475,10 @@ describe("callKlineWithSharding column alignment", () => {
 
 describe("callKlineWithSharding shard schema validation", () => {
   // Three 2-day shards over 04-01..04-06; the middle one (04-03) is the odd one out.
-  const range = { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-06" }
+  const range = { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-08" }
   const good = { fieldList: ["close", "volume"], list: [[10, 100]] }
   type Merged = { fieldList?: unknown[]; list: unknown[]; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
-  const middle = { startDate: "2026-04-03", endDate: "2026-04-04" }
+  const middle = { startDate: "2026-04-03", endDate: "2026-04-06" }
   const withMiddle = (odd: unknown) => vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => (body.startDate === "2026-04-03" ? odd : good))
 
   it("drops a shard whose array rows are narrower than its own fieldList instead of padding them", async () => {
@@ -536,9 +541,9 @@ describe("callKlineWithSharding shard schema validation", () => {
 })
 
 describe("callKlineWithSharding header provenance and empty-shard contradictions", () => {
-  const range = { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-06" }
+  const range = { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-08" }
   type Merged = { fieldList?: unknown[]; list: unknown[]; total?: number; partial?: boolean; failedShards?: Array<{ startDate: string; endDate: string }> }
-  const middle = { startDate: "2026-04-03", endDate: "2026-04-04" }
+  const middle = { startDate: "2026-04-03", endDate: "2026-04-06" }
   const byStart = (map: Record<string, unknown>, fallback: unknown) => vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => map[body.startDate] ?? fallback)
 
   it("never lets an object-row shard's unvalidated fieldList become the header for later array rows", async () => {
@@ -563,7 +568,7 @@ describe("callKlineWithSharding header provenance and empty-shard contradictions
   })
 
   it("keeps an empty shard with total 0 (or no total) as a plain holiday", async () => {
-    const call = byStart({ "2026-04-03": { total: 0, fieldList: [], list: [] }, "2026-04-05": { list: [] } }, { fieldList: ["close", "volume"], list: [[10, 100]] })
+    const call = byStart({ "2026-04-03": { total: 0, fieldList: [], list: [] }, "2026-04-07": { list: [] } }, { fieldList: ["close", "volume"], list: [[10, 100]] })
     const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
     expect(result.list).toEqual([[10, 100]])
     expect(result.partial).toBeUndefined()
@@ -628,10 +633,10 @@ describe("callKlineWithSharding header provenance and empty-shard contradictions
       expect(result.partial).toBe(true)
     }
     // Same with the failed shard LAST: order must not change the verdict.
-    const call = byStart({ "2026-04-05": { total: 1, fieldList: [], list: [] } }, { total: 0, fieldList: ["close"], list: [] })
+    const call = byStart({ "2026-04-07": { total: 1, fieldList: [], list: [] } }, { total: 0, fieldList: ["close"], list: [] })
     const result = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 2 }) as Merged
     expect(result.fieldList).toEqual(["close"])
-    expect(result.failedShards).toEqual([{ startDate: "2026-04-05", endDate: "2026-04-06" }])
+    expect(result.failedShards).toEqual([{ startDate: "2026-04-07", endDate: "2026-04-08" }])
     errSpy.mockRestore()
   })
 

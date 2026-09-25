@@ -1,6 +1,6 @@
 # Vault 命令详细参数（私域数据）
 
-通用：`--keyword` `--start-time` `--end-time` `--from` `--size`（list 类）。
+列表类命令大多有 `--keyword` `--start-time` `--end-time` `--from` `--size`；`wechat-chatroom-list` 只有 `--from` / `--size`，股票池的查询命令都没有这些选项。`my-conference-list` 按条计费，省略 `--size` 时估算全量超过 1000 积分会报错退出 1，确认后加 `--yes` 或改传 `--size N`。
 
 ---
 
@@ -8,7 +8,7 @@
 
 ```bash
 gangtise vault drive-list [--keyword <text>] [--file-type <n>] [--space-type <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
-gangtise vault drive-download --file-id <id> [--output <path>]
+gangtise vault drive-download --file-id <id> [--output <path>] [--resolve-title]
 ```
 
 - `--file-type`：`1` 文档（含 PDF/Word/PPT）| `2` 图片 | `3` 音视频 | `4` 公众号文章 | `5` 其他
@@ -44,12 +44,12 @@ gangtise vault drive-delete-folder --folder-id <id> --yes
 
 ```bash
 gangtise vault record-list [--keyword <text>] [--category <name>] [--space-type <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
-gangtise vault record-download --record-id <id> --content-type <type> [--output <path>]
+gangtise vault record-download --record-id <id> --content-type <type> [--output <path>] [--resolve-title]
 ```
 
 - `--category`：`upload` | `link` | `mobile` | `gtNote` | `pc` | `share`（可重复）
 - `--space-type`：`1` 我的速记 | `2` 租户速记
-- `--content-type`（download **必选**）：`original` 原始文件 | `asr` 语音识别 | `summary` AI 速记
+- `--content-type`（download **必选**）：`original` 原始文件 | `asr` 语音识别 | `summary` AI 速记（其他取值 CLI 在本地拒绝：接口对错值报的是「没有文件可供下载」，容易误读成这条记录没附件）
   - 口语映射：「原始文件/原文件」→`original`、「语音识别/转写文本/ASR」→`asr`、「AI速记/智能摘要/会议纪要」→`summary`
   - 「与我分享」类型录音无法下载原始文件
 - 返回字段：`recordId` / `title` / `createTime` / `category` / `recordDuration`（秒） / `recordSize`（Byte）/ `url` / `spaceType` / `uploader`
@@ -58,12 +58,14 @@ gangtise vault record-download --record-id <id> --content-type <type> [--output 
 
 ```bash
 gangtise vault my-conference-list [--keyword <text>] [--research-area <id>] [--security <code>] [--institution <id>] [--category <name>] [--source <n>] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>]
-gangtise vault my-conference-download --conference-id <id> --content-type <type> [--output <path>]
+gangtise vault my-conference-download --conference-id <id> --content-type <type> [--output <path>] [--resolve-title]
 ```
+
+- **积分**：列表 0.1/条；下载 50/篇（超时不自动重发）
 
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`（可重复）
 - `--source`：录制来源 `1`=企微会议助理 | `2`=会议服务微信群（可重复；不传返回全部）
-- `--keyword` vs `--research-area`：用户说"关于AI的"用 `--keyword AI`；说"电子行业的会议"用 `--research-area 100800126`（行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**不要用申万码 `104xx0000`**——本端点传申万码一律返 0 且不报错，食饮 / 电子 / 医药三个行业交叉验证过，换中信码即正常过滤）
+- `--keyword` vs `--research-area`：用户说"关于AI的"用 `--keyword AI`；说"电子行业的会议"用 `--research-area 100800126`（行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**不要用申万码 `104xx0000`**——本端点传申万码一律返 0 且不报错，换中信码即正常过滤）
 - `--content-type`（download **必选**）：`asr` 语音识别 | `summary` AI 速记
 - 返回字段：`conferenceId` / `title` / `publishTime` / `category` / `institution{...}` / `security{...}` / `researchArea{...}` / `guest` / `sourceList`（录制来源，`1`/`2`）
 
@@ -76,8 +78,9 @@ gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wec
 - 数据权限：仅用户已绑定并激活群消息助理、且助理已入群的群消息
 - `--security`：按证券代码过滤（如 `000001.SZ`），可重复
 - `--industry`：**只认中信码**（`1008001xx`，见 `reference constant-list --category citicIndustry`）。⚠️ 申万码（`104xx0000`）与任何不认识的值都报 `100005 枚举值非法`——**换中信码即可**。返回行里不含行业标签字段，过滤在服务端完成
-- 🔴 **`--industry` 是收窄工具，不是全量召回**：行业标签由服务端标注，**同一条消息可能挂多个行业，也可能一个都没挂**。同一个关键词加上「本行业」过滤后，命中数只剩三到四成——**少掉的既有没打标签的，也有被标到相邻行业去的**（如半导体相关的消息在计算机 / 机械 / 通信下同样查得到）。所以「按行业筛出 N 条」不能读成「该行业只有 N 条」；要尽量全，用 `--keyword` 取回后本地判断，或把相邻行业码一起查再去重
+- 🔴 **`--industry` 是收窄工具，不是全量召回**：行业标签由服务端标注，**同一条消息可能挂多个行业，也可能一个都没挂**。同一个关键词加上「本行业」过滤后，命中数会明显少于只用关键词——**少掉的既有没打标签的，也有被标到相邻行业去的**（如半导体相关的消息在计算机 / 机械 / 通信下同样查得到）。所以「按行业筛出 N 条」不能读成「该行业只有 N 条」；要尽量全，用 `--keyword` 取回后本地判断，或把相邻行业码一起查再去重
 - `--wechat-group-id`：先用 `vault wechat-chatroom-list` 查；可重复
+- 按偏移量**最多取到第 10000 条**（`--from` + 条数不能超过 10000），且 `total` 最多也只报到 10000——正好报 10000 时实际条数可能更多，CLI 按封顶处理：标 `partial` + `totalCapped`、退出码 3。要更多请缩短时间范围分段取，每段的 `total` 低于 10000 才说明取全了
 - `--category`：`text` | `image` | `documents` | `url`（可重复）
 - `--tag`：`roadShow` | `research` | `strategyMeeting` | `meetingSummary` | `industryComment` | `companyComment` | `earningsReview`（可重复）
 - 返回字段：`msgId` / **`content`**（正文）/ **`url`**（链接）/ `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList[]{tagCode, tagName}` / `securityList[]{securityCode, securityName}` / `quoteMsg{quoteMsgId, quoteContent, quoteUrl}`。正文取 `content`、链接取 `url`（不是 `msgContent` / `contentUrl`）

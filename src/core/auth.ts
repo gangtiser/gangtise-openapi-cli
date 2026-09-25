@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from "node:crypto"
+import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
 
 import { ConfigError } from "./errors.js"
+import { stagingPath } from "./output.js"
 
 export interface TokenCache {
   accessToken: string
@@ -65,7 +66,7 @@ export async function writeTokenCache(filePath: string, cache: TokenCache): Prom
   // `mode` option only applies on creation, so a follow-up chmod still leaves a brief
   // world-readable window — and (b) risk a truncated file on crash. A temp file is
   // 0600 from the first byte and rename is atomic, carrying the 0600 perms over.
-  const tmp = `${filePath}.tmp-${randomUUID()}`
+  const tmp = stagingPath(filePath, "tmp")
   await fs.writeFile(tmp, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 0o600 })
   try {
     await fs.rename(tmp, filePath)

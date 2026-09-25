@@ -53,6 +53,8 @@ export class ExportSink {
   private readonly columns: string[] = []
   private readonly columnSet = new Set<string>()
   private objectRows = 0
+  /** Earliest date seen per watched column (see watchEarliest). */
+  private readonly earliestDates = new Map<string, string | undefined>()
   /** Fixed once per sink, not derived from outputPath on every access: both staging files
    * must belong to THIS export (see stagingPath) and must still be the same two paths when
    * abort() comes to remove them. */
@@ -86,7 +88,28 @@ export class ExportSink {
     this.fields = fields
   }
 
+  /** Keep the earliest `YYYY-MM-DD` of `field` over every row pushed from now on, for a
+   * check that reads the dates after the rows have gone to disk (noteLateStart). */
+  watchEarliest(field: string): void {
+    if (!this.earliestDates.has(field)) this.earliestDates.set(field, undefined)
+  }
+
+  earliest(field: string): string | undefined {
+    return this.earliestDates.get(field)
+  }
+
   async push(rows: unknown[]): Promise<void> {
+    for (const [field, current] of this.earliestDates) {
+      const index = this.fields ? this.fields.indexOf(field) : -1
+      let earliest = current
+      for (const row of rows) {
+        const value = Array.isArray(row) ? (index >= 0 ? row[index] : undefined) : row && typeof row === "object" ? (row as Record<string, unknown>)[field] : undefined
+        if (typeof value !== "string") continue
+        const day = value.slice(0, 10)
+        if (earliest === undefined || day < earliest) earliest = day
+      }
+      this.earliestDates.set(field, earliest)
+    }
     if (this.stream) {
       await this.write(rows)
       return

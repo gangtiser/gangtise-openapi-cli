@@ -24,7 +24,7 @@ gangtise alternative edb-search --keyword 空调 --limit 50 --format table
 gangtise alternative edb-data --indicator-id <id> [--indicator-id <id2>] --start-date <date> --end-date <date>
 ```
 
-- `--indicator-id`（**至少 1 个**，最多 10 个）：指标 ID，来自 `edb-search` 返回的 `indicatorId`，可重复传
+- `--indicator-id`（**至少 1 个**，最多 10 个——上限由接口校验，CLI 不拦）：指标 ID，来自 `edb-search` 返回的 `indicatorId`，可重复传
 - `--start-date`（**必选**）：开始日期，格式 `yyyy-MM-dd`
 - `--end-date`（**必选**）：结束日期，格式 `yyyy-MM-dd`
 - 返回格式：列表，每行为 `{date, <indicatorId1>: value, <indicatorId2>: value, ...}`
@@ -84,7 +84,7 @@ gangtise alternative concept-info --concept-id 121000130 --format json
 gangtise alternative concept-securities --concept-id <id> [--full]
 ```
 
-- **积分**：**50/次**，题材无成分股时不扣；加 `--full` 走旧版接口，**500/次**，每只成分股多两列 `isKey`（重点个股）与 `inclusionReason`（纳入理由）
+- **积分**：**50/次**（按次计费；没有内容与报错不扣）；加 `--full` 走旧版接口，**500/次**，每只成分股多两列 `isKey`（重点个股）与 `inclusionReason`（纳入理由）
 
 - `--concept-id`（**必选**）：题材指数 ID，同上（`reference concept-search` 查）
 - 返回当前成分股，**按分组结构**组织（题材深度 F8）；仅最新截面，不支持历史回溯

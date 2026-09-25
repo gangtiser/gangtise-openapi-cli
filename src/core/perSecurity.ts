@@ -29,12 +29,12 @@ export function estimateTradingDays(startDate: string | undefined, endDate: stri
 }
 
 /**
- * Fan a query out one request per security (`PAGE_CONCURRENCY` wide) and merge the
- * columnar answers in input order.
+ * Fan a query out one request per group of `groupSize` securities (`PAGE_CONCURRENCY`
+ * wide) and merge the columnar answers in input order.
  *
- * Used where the API takes a single security per request (minute-kline), and where one
- * request naming N securities would exceed the per-request row cap (day-kline over a long
- * range). Every part is the same endpoint with the same fieldList request, so the column
+ * Used where the API takes a single security per request (minute-kline, groups of one),
+ * and where one request naming N securities would exceed the per-request row cap (day-kline
+ * over a long range, groups sized to fit the cap). Every part is the same endpoint with the same fieldList request, so the column
  * layout must agree exactly: a part whose fieldList differs is a broken response and fails
  * the whole command rather than being merged under the wrong names. The per-day sharder
  * tolerates a bad shard because the surviving windows are still useful; here the caller
@@ -55,10 +55,13 @@ export async function callPerSecurity(
   client: PartClient,
   endpointKey: string,
   securities: string[],
-  makeBody: (code: string) => Record<string, unknown>,
+  makeBody: (codes: string[]) => Record<string, unknown>,
   cap: number,
   label: string,
+  groupSize = 1,
 ): Promise<Record<string, unknown>> {
+  const groups: string[][] = []
+  for (let i = 0; i < securities.length; i += groupSize) groups.push(securities.slice(i, i + groupSize))
   // A large jsonl export streams rows out part by part (ExportSink); parts are merged
   // in input order as they complete (runInOrder).
   const sink = client.claimRowSink?.()
@@ -74,7 +77,7 @@ export async function callPerSecurity(
   const mergePart = async (part: unknown, i: number): Promise<void> => {
     const rec = part as Record<string, unknown> | null
     if (!(rec && typeof rec === "object" && Array.isArray(rec.list))) {
-      throw markStructural(new ApiError(`${label}: ${securities[i]} returned no list payload — the response layout may have changed`, undefined, undefined, rec))
+      throw markStructural(new ApiError(`${label}: ${groups[i].join(", ")} returned no list payload — the response layout may have changed`, undefined, undefined, rec))
     }
     if (rec.partial === true) partial = true
     if (rec.list.length === 0) {
@@ -83,29 +86,30 @@ export async function callPerSecurity(
       // so its rows going missing is exactly what the exit code exists to surface.
       if ((typeof rec.total === "number" && rec.total > 0) || rec.partial === true) {
         const claim = typeof rec.total === "number" && rec.total > 0 ? `reported total=${rec.total}` : "carried a partial marker"
-        throw markStructural(new ApiError(`${label}: ${securities[i]} ${claim} but delivered no rows — the response is inconsistent`, undefined, undefined, rec))
+        throw markStructural(new ApiError(`${label}: ${groups[i].join(", ")} ${claim} but delivered no rows — the response is inconsistent`, undefined, undefined, rec))
       }
       if (!emptyFields && Array.isArray(rec.fieldList)) emptyFields = rec.fieldList
       return
     }
     const fields = Array.isArray(rec.fieldList) && rec.fieldList.length > 0 ? rec.fieldList : undefined
     if (rec.list.some(Array.isArray) && !columnarSchemaValid(fields, rec.list)) {
-      throw markStructural(new ApiError(`${label}: ${securities[i]} returned columnar rows without a usable fieldList (missing, duplicated or mis-sized) — they cannot be read by position`, undefined, undefined, rec))
+      throw markStructural(new ApiError(`${label}: ${groups[i].join(", ")} returned columnar rows without a usable fieldList (missing, duplicated or mis-sized) — they cannot be read by position`, undefined, undefined, rec))
     }
     if (fields && !fieldList) {
       fieldList = fields
-      headerSecurity = securities[i]
+      headerSecurity = groups[i].join(", ")
       sink?.setFieldList(fieldList)
     }
     if ((fields ?? fieldList) && !sameColumns(fieldList, fields)) {
-      throw markStructural(new ApiError(`${label}: ${securities[i]} answered with columns ${JSON.stringify(fields)} while ${headerSecurity} answered ${JSON.stringify(fieldList)} — the parts cannot be merged`, undefined, undefined, rec))
+      throw markStructural(new ApiError(`${label}: ${groups[i].join(", ")} answered with columns ${JSON.stringify(fields)} while ${headerSecurity} answered ${JSON.stringify(fieldList)} — the parts cannot be merged`, undefined, undefined, rec))
     }
-    if (rec.list.length >= cap) truncated.push(securities[i])
-    count += rec.list.length
-    if (sink) await sink.push(rec.list)
-    else for (const row of rec.list) merged.push(row)
+    if (rec.list.length >= cap) truncated.push(...groups[i])
+    const rows = inInputOrder(rec.list, fields ?? fieldList, groups[i], label)
+    count += rows.length
+    if (sink) await sink.push(rows)
+    else for (const row of rows) merged.push(row)
   }
-  await runInOrder(securities, PAGE_CONCURRENCY, (code) => client.call(endpointKey, makeBody(code)), mergePart)
+  await runInOrder(groups, PAGE_CONCURRENCY, (codes) => client.call(endpointKey, makeBody(codes)), mergePart)
   const out: Record<string, unknown> = { total: count, list: merged }
   if (sink) attachRowSink(out, sink)
   if (fieldList) out.fieldList = fieldList
@@ -117,6 +121,24 @@ export async function callPerSecurity(
     process.stderr.write(`[gangtise] warning: ${label}: ${truncated.join(", ")} returned ${cap} rows = the per-request limit; those securities are likely truncated (see truncatedSecurities). Narrow the date range for them or raise --limit (max 10000).\n`)
   }
   return out
+}
+
+/** A part that named several securities, put back in the order the caller listed them: the
+ * server answers such a request sorted by securityCode (probed 2026-09-25), and the merge
+ * promises input order. The sort is stable, so each security keeps its date order. */
+function inInputOrder(rows: unknown[], fields: unknown[] | undefined, group: string[], label: string): unknown[] {
+  if (group.length < 2) return rows
+  const column = fields?.indexOf("securityCode") ?? -1
+  if (rows.some(Array.isArray) && column < 0) {
+    throw markStructural(new ApiError(`${label}: ${group.join(", ")} answered without a securityCode column — rows of several securities cannot be told apart`))
+  }
+  // Codes compared case-blind: the server takes `600519.sh` and answers `600519.SH`.
+  const rank = new Map(group.map((code, i) => [code.toUpperCase(), i]))
+  const codeOf = (row: unknown): unknown => Array.isArray(row) ? row[column] : (row as Record<string, unknown> | null)?.securityCode
+  return rows
+    .map((row, i) => ({ row, i, at: rank.get(String(codeOf(row)).toUpperCase()) ?? group.length }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map(({ row }) => row)
 }
 
 function sameColumns(a: unknown[] | undefined, b: unknown[] | undefined): boolean {

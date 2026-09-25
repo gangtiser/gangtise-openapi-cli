@@ -48,24 +48,25 @@
 | Endpoint Registry | Error Hierarchy | Normalization | Output Renderer |
 |:--|:--|:--|:--|
 | `endpoints.ts` | `errors.ts` | `normalize.ts` | `output.ts` |
-| O(1) endpoint lookup · per-endpoint contract flags: `pagination` / `retry` / `expects` / `destructive` (requires `--yes` on every entry point) / `itemFailures` (judge `failList` inside a `000000`) | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
+| O(1) endpoint lookup · per-endpoint contract flags: `pagination` (with `maxWindow`, the offset window a list serves) / `retry` / `expects` / `destructive` (requires `--yes` on every entry point) / `itemFailures` (judge `failList` inside a `000000`) / `rowId` (the field that identifies a row, for de-duplicating across pages; `rowIdUnverified` where it comes from the response description only, so a repeat with different content is not counted) / `billing` (unit, price, `maxUnits` per request — drives the no-replay line and the credit guard) | CliError → Config / Validation / Download / Api | fieldList/list + chatRoomList + constants → flat objects · preserves total/meta | table / json / jsonl / csv / markdown · CSV formula injection protection |
 
 ### Request & Content Helpers
 
 | Module | Responsibility |
 |:--|:--|
-| `transport.ts` | Shared `undici.Agent` (keep-alive pool of `max(16, page concurrency)` sockets) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for replay-unsafe endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control · `runInOrder` ordered fan-out: results are consumed in input order while later items are still in flight, bounded by a window (default = concurrency; auto-pagination passes 4×, since a page is small and a shard or per-security part is not) |
+| `transport.ts` | Shared `undici.Agent` (keep-alive pool of `max(16, page concurrency)` sockets; undici is loaded on the first request, so `--help` and local validation never pay for it) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for replay-unsafe endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control · `runInOrder` ordered fan-out: results are consumed in input order while later items are still in flight, bounded by a window (default = concurrency; auto-pagination passes 4×, since a page is small and a shard or per-security part is not) |
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
-| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`aShares` / `hkStocks` / `usStocks`; the retired HK / US endpoints still take `all`, the retired index endpoint takes codes only) & fund-flow (`aShares`), each market at its own shard size · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
+| `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`aShares` / `hkStocks` / `usStocks`; the deprecated HK / US endpoints still take `all`, the deprecated index endpoint takes codes only) & fund-flow (`aShares`), each market at its own shard size counted in weekdays (a shard spans its first to last weekday; weekends never get a request of their own) · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
 | `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / screener / time-series `values` matrix flattened into a wide table |
 | `printer.ts` | `printData`: normalize + render + title-cache writeback · stages the `<file>.meta.json` sidecar (row/column counts, completeness flags, `bytes` + `sha256`) and re-reads the published path to detect a file replaced by a concurrent export (exit 4) |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |
-| `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) on the shared `pollUntilDone` loop (attempt budget, backoff between attempts and none after the last, transient errors wait on, anything else aborts) · pending 140001 (legacy 410110) / terminal 140002 (legacy 410111) · both the ready and pending results go through `printData`, so `--output` / `--format` hold either way |
+| `updateCheck.ts` | `--version` at a terminal: latest published version from the npm registry, the answer cached for 24h (`~/.config/gangtise/update-check.json`); a failed lookup is not cached |
+| `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) on the shared `pollUntilDone` loop (attempt budget, backoff between attempts and none after the last, transient errors wait on, anything else aborts) · pending / terminal codes in `PENDING_CODES` / `FAILED_CODES` (current and legacy codes side by side) · both the ready and pending results go through `printData`, so `--output` / `--format` hold either way |
 | `fileParse.ts` | `tool file-parse`: pre-upload validation (PDF / non-empty / ≤100MB) · multipart submit → taskId · poll through `pollUntilDone` + stream the result ZIP (140001 = still generating) |
 | `driveUpload.ts` | `vault drive-upload`: pre-upload validation (non-empty / ≤100MB / name ≤200 UTF-16 units) · multipart upload with `spaceType` / `folderId` / `title` form fields |
-| `perSecurity.ts` | Splits one command into per-security requests — endpoints that accept a single code (minute-kline), or many codes × a long range that would hit the row cap — then merges in request order. Stricter than date sharding: the caller named every security, so any shard with a mismatched `fieldList` fails the whole command |
-| `rowSink.ts` | `ExportSink`: ordered batched writes to disk for large `jsonl` / `csv` exports (1000-row threshold · written in 1000-row chunks · staging file + rename · csv goes through a temp row file in two passes) |
-| `exitStatus.ts` | The one place that sets the process exit code: `1` failed > `3` incomplete > `4` output replaced; a lighter verdict never overwrites a heavier one. A closed stdout (`\| head`) leaves with the verdict reached so far, not 0 |
+| `perSecurity.ts` | Splits one command into requests of one or several securities — one each where the endpoint accepts a single code (minute-kline), groups sized to the row cap where many codes × a long range would not fit one request (day-kline) — then merges in the caller's order (the server sorts a multi-security answer by code, so each group is put back in input order). Stricter than date sharding: the caller named every security, so any shard with a mismatched `fieldList` fails the whole command |
+| `rowSink.ts` | `ExportSink`: ordered batched writes to disk for large `jsonl` / `csv` exports (1000-row threshold · written in 1000-row chunks · staging file + rename · csv goes through a temp row file in two passes) · `watchEarliest` keeps a date column's earliest value for checks that run after the rows have gone to disk |
+| `exitStatus.ts` | The one place that sets the process exit code: `1` failed > `3` incomplete > `4` output replaced; a lighter verdict never overwrites a heavier one. A closed stdout (`\| head`) leaves with the verdict reached so far, not 0. SIGINT / SIGTERM / SIGHUP (`cli.ts`): the staging files this process named (`output.ts` `stagingPath`) are removed, then the process dies of the same signal, so a calling shell stops its script |
 | `opinionDetail.ts` | Opinion `detail`: de-duplicated IDs fetched 20 per request; IDs with no body → `missingIds`, IDs after a failed batch → `unfetchedIds` (both exit 3); a first-batch failure fails the command |
 | `calendarType.ts` | `resolveCalendarType`: picks the time-series date axis when `--calendar-type` is absent. Probes each distinct indicator's `parameterList` via the free `indicator search`; asks for `TD` only when every indicator is trading-day typed, and falls back to the server's `ND` on anything else — an unknown code, an empty `parameterList`, a failed probe. The asymmetry is deliberate: a wrong `ND` costs cells, a wrong `TD` silently empties report-period rows |
 
@@ -78,7 +79,7 @@
 1. `client.call(key, params)`
 2. `ENDPOINT_REGISTRY` lookup
 3. `kind="json"` + pagination
-4. `requestPaginated()` total-driven fan-out · MAX_PAGES=1000 safety limit
+4. `requestPaginated()` total-driven fan-out · MAX_PAGES=1000 safety limit · a `total: 0` page with `list: null` read as empty · per-row billed list without `--size`: total read from the first page, or from a one-row probe when a full page costs over 50 credits (the probe is the result when it holds every row, or when its shape is unexpected), and refused past the credit guard unless `--yes` · rows repeated across pages dropped by `rowId` (`duplicateRows`); an id back on a later page with different content kept twice (`changedRows`) · `total` checked against a server-side cap by probing one row past it, or against the declared offset window (`totalCapped`)
 5. HTTP 5xx check → `unwrapEnvelope()` → `.data`
 6. `normalizeRows()` flatten fieldList/list + chatRoomList + constants · preserves total/meta
 7. `renderOutput()` → stdout · `Total: N, showing: M` → stderr
@@ -100,10 +101,10 @@
 1. `client.call(get-id endpoint, params)` → `{ dataId }`
 2. Non-blocking: return dataId + hint
 3. Blocking (`--wait`): shared `pollAsyncContent()` helper · exponential backoff 5s→30s · up to 14 attempts (~316s budget)
-4. Handle 410110 ("generating") as pending, continue retrying
-5. On 410111 ("generation failed") — terminal state, report error
-5. On success: `printData()` → stdout
-6. On timeout: return dataId for manual `*-check` command
+4. A pending code (`PENDING_CODES`, "generating") → keep polling
+5. A terminal code (`FAILED_CODES`, "generation failed") → report the error
+6. On success: `printData()` → stdout
+7. On timeout: return dataId for manual `*-check` command
 
 ### LOCAL LOOKUP `┈┈┈`
 
@@ -115,7 +116,7 @@
 - 100+ broker orgs
 - 100+ meeting orgs
 
-(industries / regions / announcement categories / research areas / theme IDs / Shenwan industry codes moved to the `reference constant-*` / `concept-search` / `sector-*` APIs in v0.16.0)
+(industries / regions / announcement categories / research areas / theme IDs / Shenwan industry codes come from the `reference constant-*` / `concept-search` / `sector-*` APIs)
 
 ↓
 
@@ -166,12 +167,13 @@ Step 2 compares the cache's `issuedFor` fingerprint against the configured `acce
 |:--|:--|
 | **Endpoint Registry** | Declarative · O(1) key lookup · keys derived from `ENDPOINT_DEFS` record keys via `Object.fromEntries` (key drift impossible) |
 | **Auto Pagination** | Transparent multi-page · maxPageSize per endpoint · MAX_PAGES=1000 safety limit |
-| **Partial-Result Tolerance** | Pagination (`requestPaginated`) and sharding (`quoteSharding`) return already-fetched rows + `partial` / `failedPages` / `failedShards` / `truncatedShards` markers on a non-retryable error and stop, instead of discarding everything · process exit code 3 |
+| **Partial-Result Tolerance** | Pagination (`requestPaginated`) and sharding (`quoteSharding`) return already-fetched rows + `partial` / `failedPages` / `failedShards` / `truncatedShards` / `duplicateRows` / `changedRows` / `totalCapped` markers on a non-retryable error and stop, instead of discarding everything · process exit code 3 |
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **EDE Double-Envelope + Matrix Flatten** | Indicator endpoints double-wrap (`unwrapIndicatorData` peels the inner envelope); `values` matrices flattened by `indicatorMatrix` into wide rows — `{security, name, indicator:value}` for cross-section / screener (`values` is `[security][indicator]`), `{date, series:value}` for time-series |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
 | **Async Task Polling** | One `pollUntilDone()` loop behind AI async content and file-parse · `checkAsyncContent()` for a single check · `--wait` flag · pending / terminal codes, legacy and current |
 | **Response-Shape Contract** | An endpoint declares the layout it must return (`expects: "list"` / `"array"`); the client checks it once for every command and fails with a structural error carrying the traceId, instead of each command guessing |
+| **Billing-Derived Guards** | The registry's `billing` feeds three checks: per-call / per-page billed endpoints are `no-replay`; so is a per-row / per-document endpoint whose single request can bill past `NO_REPLAY_ABOVE_CREDITS` (`worstRequestCredits`); a per-row list fetched without `--size` is priced from its first page and refused past `COSTLY_FETCH_CREDITS` |
 | **Token Refresh Dedup** | Single in-flight refresh promise · concurrent calls coalesce |
 | **Token Validation** | `isTokenCacheValid()` — single source of truth for cache/expiry check (client-time based) |
 
@@ -181,9 +183,10 @@ Step 2 compares the cache's `issuedFor` fingerprint against the configured `acce
 
 **Runtime:**
 - `commander` ^14.0.0
-- `undici` ^7.28.0
+- `undici` ^7.29.1
 
 **Dev:**
 - `typescript` ^5.9.2
 - `vitest` ^3.2.6
+- `@types/node` ^20.19.43
 - `tsx` ^4.20.5

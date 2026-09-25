@@ -33,7 +33,7 @@ function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[]
   // would list everything as "omitted", which says nothing about which axis is
   // at fault. Exit 0, but say why it is ambiguous.
   if (isEmptyMatrix(data)) {
-    process.stderr.write("[gangtise] note: the query returned no data at all. Since a real coverage gap now comes back as a null cell rather than an empty table, this usually means NOTHING in the request resolved — every security code or every indicator code was unrecognised — or a parameter name is wrong. Cross-check codes against 'gangtise indicator search --format json' and 'gangtise reference securities-search'.\n")
+    process.stderr.write("[gangtise] note: the query returned no data at all. A missing value comes back as a null cell and an unrecognised code or parameter name as an error (100003), so an empty answer is neither. Cross-check the codes against 'gangtise indicator search --format json' and 'gangtise reference securities-search'; if they are right, report it with the command.\n")
     return
   }
   const { securities, indicators } = droppedFromMatrix(data, requestedSecurities, requestedIndicators)
@@ -140,7 +140,7 @@ indicator.command("screener")
   .option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, [])
   .option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, [])
   .requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators")
-  .requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one — omitting it leaves date-bearing indicators unfiltered and silently yields an empty screen. Report-period indicators (is_*) reject tradeDate: give them --indicator-param 'F1:reportDate=yyyy-MM-dd'", dateArg("--date"))
+  .requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one. Report-period indicators (is_*) reject tradeDate: give them --indicator-param 'F1:reportDate=yyyy-MM-dd'", dateArg("--date"))
   .option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'. Bare 'F1:' (nothing after the colon) declares that the indicator takes NO date — required by any indicator whose parameterList has no date key at all, which otherwise rejects the tradeDate --date injects: the pty_* / scr_* static-attribute families (pty_op_scope, scr_exchg_sctr, scr_isin …), plus div_cash_paid_ratio / div_cash_yr (add 'F1:fiscalYear=YYYY' too) and pty_shr_reg. It composes with real params, so 'F1:' + 'F1:scale=8' keeps the scale", collectList, [])
   .addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name"))
   .option("--format <format>", "Output format", "table")
@@ -172,15 +172,16 @@ indicator.command("screener")
   const rows = flattenCrossSection(data, options.keyBy)
   const filteredOn = screenerExpressionFields(options.expression)
   const unbound = checkScreenerBindings(data, bindings, options.expression)
-  // Same ambiguity as the other matrix commands: an empty screen is a normal
-  // answer AND what a wrong parameter name produces. Keyed on "nothing matched"
+  // An empty screen is a normal answer AND what a report-period indicator gives on a
+  // date off the period end (all null, so nothing passes) or an indicator that does
+  // not cover these securities. Keyed on "nothing matched"
   // rather than the strict canonical-empty shape — a response that returns zero
   // securities while still echoing `indicatorList` is just as empty to the
   // caller, and just as ambiguous, but would slip past isEmptyMatrix.
   // flattenCrossSection above already asserted this is an array of non-empty
   // strings, so only its length is left to read.
   if ((data as { securityCodeList: unknown[] }).securityCodeList.length === 0) {
-    process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but an empty result is ALSO what an unrecognised code or a wrong parameter name produces. Cross-check the indicator codes and parameters against 'gangtise indicator search --format json'.\n")
+    process.stderr.write("[gangtise] note: nothing matched the expression. That is a normal answer — but it is ALSO what a report-period indicator (is_* etc.) gives on a date that is not a period end (every value null, so nothing passes), or an indicator that does not cover these securities. Check the date (reportDate for report-period indicators) and the coverage (scopeList) in 'gangtise indicator search --format json'.\n")
   }
   if (unbound.length > 0) {
     // Whatever reached here still leaves the expression evaluable (or was never

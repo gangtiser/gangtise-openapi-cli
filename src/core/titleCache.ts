@@ -2,6 +2,8 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
+import { stagingPath } from "./output.js"
+
 export const DEFAULT_TITLE_CACHE_PATH = path.join(os.homedir(), ".config", "gangtise", "title-cache.json")
 export const TITLE_LOOKUP_SIZE = 200
 const TITLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
@@ -28,10 +30,9 @@ export interface TitleCacheConfig {
   titleField?: string
 }
 
-// Per-process in-memory snapshot of the cache. We read the file at most once,
-// merge subsequent writes in memory, and flush atomically. This avoids the
-// "read whole file → modify → write whole file" pattern firing on every list
-// command (which got expensive once dozens of endpoints accumulated).
+// Per-process in-memory snapshot of the cache. Lookups read the file at most once;
+// writes merge in memory and flush atomically, each flush first folding in what other
+// processes wrote meanwhile (mergeFromDisk).
 let memoryCache: TitleCacheData | null = null
 let memoryCachePath: string | null = null
 let pendingWrite: Promise<void> | null = null
@@ -82,6 +83,33 @@ export async function readTitleCache(filePath = DEFAULT_TITLE_CACHE_PATH): Promi
   return loadInto(filePath)
 }
 
+/** Fold in what other processes wrote since this one loaded the file, so a flush does not
+ * overwrite their titles with a stale snapshot. No lock: two flushes that overlap still
+ * race, but only over the moment between this read and the rename rather than a whole
+ * run. This process's titles win a clash and are the ones the per-endpoint cap keeps
+ * first. (Insertion order cannot carry that: integer-like ids, such as the vault lists',
+ * enumerate in numeric order whatever order they were added in.) */
+async function mergeFromDisk(filePath: string, data: TitleCacheData): Promise<void> {
+  let disk: unknown
+  try {
+    disk = JSON.parse(await fs.readFile(filePath, "utf8"))
+  } catch {
+    return
+  }
+  if (!disk || typeof disk !== "object" || Array.isArray(disk)) return
+  for (const [key, entry] of Object.entries(disk as Record<string, Partial<TitleCacheEntry> | null>)) {
+    if (!entry?.titles || typeof entry.titles !== "object" || typeof entry.ts !== "number") continue
+    const mine = data[key]
+    if (!mine) {
+      data[key] = { titles: entry.titles, ts: entry.ts }
+      continue
+    }
+    const titles: Record<string, string> = { ...entry.titles, ...mine.titles }
+    data[key] = { titles: capTitles(titles, Object.keys(mine.titles), MAX_TITLES_PER_ENDPOINT), ts: Math.max(entry.ts, mine.ts) }
+  }
+  pruneCache(data, "", [])
+}
+
 async function flush(filePath: string): Promise<void> {
   // Loop rather than snapshot once. `dirty` is cleared before the snapshot, so an
   // entry added while we await the rename sets it again — and `writeTitleCache`
@@ -96,10 +124,12 @@ async function flush(filePath: string): Promise<void> {
       return
     }
     dirty = false
-    const snapshot = JSON.stringify(memoryCache)
+    const data = memoryCache
+    await mergeFromDisk(filePath, data)
+    const snapshot = JSON.stringify(data)
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     // Atomic-ish: write to temp file then rename (rename is atomic within a fs).
-    const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`
+    const tmp = stagingPath(filePath, "tmp")
     await fs.writeFile(tmp, snapshot, { encoding: "utf8", mode: 0o600 })
     try {
       await fs.rename(tmp, filePath)

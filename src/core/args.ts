@@ -124,10 +124,19 @@ export function isVersionNewer(latest: string, current: string): boolean {
 export function parseChoiceList(values: string[], optionName: string, allowed: readonly string[]): string[] | undefined {
   for (const value of values) {
     if (!allowed.includes(value)) {
-      throw new ValidationError(`Invalid ${optionName}: "${value}" is not one of ${allowed.join("/")}`)
+      throw new ValidationError(`Invalid ${optionName}: "${value}". ${unknownChoiceMessage(allowed)}`)
     }
   }
   return maybeArray(values)
+}
+
+/** Refusal for a value outside an enum the server defines. The list is the one this CLI
+ * version knows, and the platform can add a value before the CLI does — so the message
+ * says so. It does not point at a way around the check: several of these options come
+ * back unfiltered or empty for an unknown value instead of an error (probed 2026-09-25),
+ * so a misspelling sent anyway is a silent wrong result, on a billed list a paid one. */
+export function unknownChoiceMessage(known: readonly string[]): string {
+  return `This CLI version knows ${known.join(", ")}. Check the spelling; if the platform has added a new value, report it so the CLI can be updated.`
 }
 
 /** The three year-first date layouts, all normalized to `YYYY-MM-DD` before the
@@ -311,15 +320,13 @@ export function datetimeArg(optionName: string): (value: string) => string {
   return (value: string) => parseDatetimeOption(value, optionName)
 }
 
-/** Machine-local calendar date as `yyyy-MM-dd`, for CLI "default: today" options.
- * `new Date().toISOString().slice(0,10)` renders the UTC day — for CST users a
- * pre-08:00 "today" resolves to yesterday, so the machine's own calendar day is used.
- * (toTimestamp13 is different: it converts an explicit input, and anchors it to
- * Beijing time regardless of the machine.) */
-export function localDateString(d: Date): string {
-  const month = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${d.getFullYear()}-${month}-${day}`
+/** Beijing calendar date as `yyyy-MM-dd`, for CLI "default: today" options. The data
+ * is published on Beijing dates, so "today" is Beijing's today whatever the machine's
+ * zone: the UTC day (`toISOString`) lags it before 08:00 Beijing, and so did the
+ * machine-local day on a UTC host (CI, cloud servers) — the day's new rows went missing.
+ * toTimestamp13 anchors explicit inputs to Beijing time for the same reason. */
+export function beijingDateString(d: Date): string {
+  return new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
 export interface IndicatorParam {

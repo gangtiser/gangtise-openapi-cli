@@ -14,6 +14,37 @@ export interface EndpointDefinition {
      * would need rows past it is returned partial instead of failing on the last page. */
     maxWindow?: number
   }
+  /** The row field that identifies a record of a paginated list. Auto-pagination drops a
+   * row whose id it has already kept when the two rows are identical: lists sorted on a
+   * non-unique key (`msgTime`, `publishTime`) reorder a same-timestamp group between two
+   * page requests, so the neighbouring pages both return some of it and miss the rest —
+   * the row count still equals `total` (probed 2026-09-25, server-side P2-26). Dropping the
+   * duplicate makes the count fall short, which marks the result partial. A row without
+   * the field, or with the id of a DIFFERENT row, is always kept. An id that comes back on
+   * a later page with different content marks the result partial too (`changedRows`) —
+   * unless one page carries it twice, which shows the field is no row key for this list.
+   * A field that is not unique yet never shows that on one page would still flag every
+   * fetch whose repeated pair straddles a page boundary, so a field not seen in real
+   * responses as the record's id is declared with `rowIdUnverified`. */
+  rowId?: string
+  /** `rowId` comes from the response description only. Whole-row repeats are still
+   * dropped; a repeat with different content is not counted (see `rowId`). */
+  rowIdUnverified?: true
+  /** Published price (the platform's price list; the client cannot measure billing — there
+   * is no usage API). `per`: "call" — each request; "page" — each page of the submitted
+   * document; "row" — each row returned (a paginated list bills every page's rows);
+   * "document" — each file downloaded. Absent for free endpoints and for those without a
+   * published price, so its absence never means "free" by itself.
+   *
+   * It drives three guards (endpoints.test.ts / client.ts): an endpoint billed per call
+   * or per page must carry `retry: "no-replay"`, since a replayed request can bill again;
+   * a per-row / per-document endpoint must too once one request can bill more than
+   * NO_REPLAY_ABOVE_CREDITS (see worstRequestCredits) — below that line, replaying a
+   * page or a document stays the default; and a per-row paginated list fetched without
+   * --size is refused past COSTLY_FETCH_CREDITS unless the caller confirmed with --yes.
+   * `maxUnits` is how many units one request can be billed for when the endpoint is not
+   * paginated (a paginated one is bounded by its page size). */
+  billing?: { per: "call" | "page" | "row" | "document"; price: number; maxUnits?: number }
   /** Per-endpoint timeout floor in ms. Synchronous AI generation blocks well past
    * the 30s default; without a floor it times out and retries, and a retry can
    * re-bill the generation. `resolveTimeoutMs` lifts the request timeout to this
@@ -118,13 +149,16 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/chief-opinion/v2/getList",
     kind: "json",
     description: "List domestic institution chief opinions (brief only; body via detail)",
+    billing: { per: "row", price: 1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "chiefOpinionId",
   },
   "insight.opinion.list-with-content": {
     method: "POST",
     path: "/application/open-insight/chief-opinion/getList",
     kind: "json",
     description: "List domestic institution chief opinions with the full body (v1 list)",
+    billing: { per: "row", price: 30 },
     pagination: { enabled: true, maxPageSize: 50 },
     // Same 30 credits per body as getDetail, so the same replay rule.
     retry: "no-replay",
@@ -134,6 +168,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/chief-opinion/getDetail",
     kind: "json",
     description: "Get domestic chief opinion bodies by ID (max 20 IDs per call)",
+    billing: { per: "row", price: 30, maxUnits: 20 },
     // 30 credits per returned opinion, up to 20 per call: a replayed batch re-bills
     // every body the first attempt already delivered.
     retry: "no-replay",
@@ -144,13 +179,16 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/summary/v2/getList",
     kind: "json",
     description: "List summaries",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "summaryId",
   },
   "insight.summary.download": {
     method: "GET",
     path: "/application/open-insight/summary/v2/download/file",
     kind: "download",
     description: "Download summary file",
+    billing: { per: "document", price: 50 },
     // 50/篇 — same price tier as the AI Agent calls; billing probed non-idempotent.
     retry: "no-replay",
   },
@@ -160,6 +198,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "List Pamirs expert summaries (requires the expert-summary database)",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "summaryId",
   },
   "insight.pamirs-summary.download": {
     method: "GET",
@@ -177,67 +216,88 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/schedule/roadshow/getList",
     kind: "json",
     description: "List roadshows",
+    billing: { per: "row", price: 20 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.site-visit.list": {
     method: "POST",
     path: "/application/open-insight/schedule/site-visit/getList",
     kind: "json",
     description: "List site visits",
+    billing: { per: "row", price: 20 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.strategy.list": {
     method: "POST",
     path: "/application/open-insight/schedule/strategy-meeting/getList",
     kind: "json",
     description: "List strategy meetings",
+    billing: { per: "row", price: 20 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.forum.list": {
     method: "POST",
     path: "/application/open-insight/schedule/forum/getList",
     kind: "json",
     description: "List forums",
+    billing: { per: "row", price: 20 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.performance-calendar.list": {
     method: "POST",
     path: "/application/open-insight/schedule/performance-calendar/getList",
     kind: "json",
     description: "List earnings calendar events (forecast / express / announcement)",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "performanceReportId",
   },
   "insight.performance-calendar.download": {
     method: "GET",
     path: "/application/open-insight/schedule/performance-calendar/download/file",
     kind: "download",
     description: "Download an earnings report file (A-share 10 credits, HK/US 20)",
+    billing: { per: "document", price: 20 },
   },
   "insight.research.list": {
     method: "POST",
     path: "/application/open-insight/broker-report/getList",
     kind: "json",
     description: "List broker research reports",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "reportId",
   },
   "insight.research.download": {
     method: "GET",
     path: "/application/open-insight/broker-report/download/file",
     kind: "download",
     description: "Download broker research report",
+    billing: { per: "document", price: 10 },
   },
   "insight.foreign-report.list": {
     method: "POST",
     path: "/application/open-insight/foreign-report/getList",
     kind: "json",
     description: "List foreign reports",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "reportId",
   },
   "insight.foreign-report.download": {
     method: "GET",
     path: "/application/open-insight/foreign-report/download/file",
     kind: "download",
     description: "Download foreign report",
+    billing: { per: "document", price: 50 },
     retry: "no-replay",
   },
   "insight.announcement.list": {
@@ -245,39 +305,48 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/announcement/getList",
     kind: "json",
     description: "List A-share announcements",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "announcementId",
   },
   "insight.announcement.download": {
     method: "GET",
     path: "/application/open-insight/announcement/download/file",
     kind: "download",
     description: "Download A-share announcement file",
+    billing: { per: "document", price: 10 },
   },
   "insight.announcement-hk.list": {
     method: "POST",
     path: "/application/open-insight/announcement-hk/getList",
     kind: "json",
     description: "List HK announcements",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "announcementId",
   },
   "insight.announcement-hk.download": {
     method: "GET",
     path: "/application/open-insight/announcement-hk/download/file",
     kind: "download",
     description: "Download HK announcement file",
+    billing: { per: "document", price: 20 },
   },
   "insight.announcement-us.list": {
     method: "POST",
     path: "/application/open-insight/announcement-us/getList",
     kind: "json",
     description: "List US announcements",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "announcementId",
   },
   "insight.announcement-us.download": {
     method: "GET",
     path: "/application/open-insight/announcement-us/download/file",
     kind: "download",
     description: "Download US announcement file",
+    billing: { per: "document", price: 20 },
   },
   // Same v2 split as insight.opinion: brief / briefTranslate in the list, content /
   // contentTranslate via getDetail.
@@ -286,13 +355,16 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/foreign-opinion/v2/getList",
     kind: "json",
     description: "List foreign institution opinions (brief only; body via detail)",
+    billing: { per: "row", price: 1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "foreignOpinionId",
   },
   "insight.foreign-opinion.list-with-content": {
     method: "POST",
     path: "/application/open-insight/foreign-opinion/getList",
     kind: "json",
     description: "List foreign institution opinions with the full body (v1 list)",
+    billing: { per: "row", price: 30 },
     pagination: { enabled: true, maxPageSize: 50 },
     retry: "no-replay",
   },
@@ -301,6 +373,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/foreign-opinion/getDetail",
     kind: "json",
     description: "Get foreign opinion bodies by ID (max 20 IDs per call)",
+    billing: { per: "row", price: 30, maxUnits: 20 },
     retry: "no-replay",
     expects: "array",
   },
@@ -309,26 +382,33 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/independent-opinion/getList",
     kind: "json",
     description: "List foreign independent analyst opinions",
+    billing: { per: "row", price: 5 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "independentOpinionId",
+    rowIdUnverified: true,
   },
   "insight.independent-opinion.download": {
     method: "GET",
     path: "/application/open-insight/independent-opinion/download/file",
     kind: "download",
     description: "Download foreign independent opinion file",
+    billing: { per: "document", price: 30 },
   },
   "insight.official-account.list": {
     method: "POST",
     path: "/application/open-insight/officialAccount/getList",
     kind: "json",
     description: "List WeChat official account articles",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "articleId",
   },
   "insight.official-account.download": {
     method: "GET",
     path: "/application/open-insight/officialAccount/download/file",
     kind: "download",
     description: "Download WeChat official account article (txt/HTML)",
+    billing: { per: "document", price: 10 },
   },
   "insight.qa.list": {
     method: "POST",
@@ -336,6 +416,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/Q&A-data/getList",
     kind: "json",
     description: "List investor Q&A (conference/interactive/survey) for a security",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 500 },
   },
   "insight.report-image.list": {
@@ -349,8 +430,10 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/summary/highlight/getList",
     kind: "json",
     description: "List meeting highlights (核心要点信息流; content is an HTML fragment)",
+    billing: { per: "row", price: 5 },
     // from=10000,size=1 → 100006 (probed 2026-09-21).
     pagination: { enabled: true, maxPageSize: 50, maxWindow: 10000 },
+    rowId: "highlightId",
     // 5 credits per ROW: replaying a page re-bills rows the server already
     // delivered, same reasoning as `ai.hot-topic`.
     retry: "no-replay",
@@ -361,6 +444,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-insight/report-image/download/file",
     kind: "download",
     description: "Download a research report image by chunkId",
+    billing: { per: "document", price: 0.1 },
   },
 
   // ─── reference ───
@@ -565,6 +649,13 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/earning-forecast",
     kind: "json",
     description: "Query earning forecast (consensus estimates)",
+    // Rows grow with the date range: one date per weekday, three forecast years each
+    // (probed 2026-09-25), and the range is bounded only by the account's history window,
+    // which is set per account and can reach back a decade — past ~2000 weekdays one call
+    // bills more than NO_REPLAY_ABOVE_CREDITS. No bound the client can rely on, so none is
+    // claimed, and the call is not replayed.
+    billing: { per: "row", price: 0.5, maxUnits: Number.POSITIVE_INFINITY },
+    retry: "no-replay",
   },
 
   // ─── bond ───
@@ -578,6 +669,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/basic-info",
     kind: "json",
     description: "Query bond static profiles (issuance, term, coupon, rating, options)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -586,6 +678,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/issuer-info",
     kind: "json",
     description: "Query bond issuer profiles (by bond code or issuer name)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -594,6 +687,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-quote/bond/daily-quote-exchange-cfets",
     kind: "json",
     description: "Query bond daily close quotes (exchange + CFETS; dirty/clean price, YTM, duration)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -602,6 +696,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/valuation-shclearing",
     kind: "json",
     description: "Query Shanghai Clearing House bond valuations (price, yield, risk measures)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -610,6 +705,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/cash-flow",
     kind: "json",
     description: "Query bond interest payment and redemption schedule",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -618,6 +714,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/announcement",
     kind: "json",
     description: "Query bond announcements (pageNo/pageSize; the only paged endpoint of the family)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -626,6 +723,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/issuance-detail",
     kind: "json",
     description: "Query bond issuance and re-issuance records (bidding, pricing, cover ratios)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -634,6 +732,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/rating-overview",
     kind: "json",
     description: "Query bond / issuer / guarantor ratings side by side (max 10 bonds per call)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -642,6 +741,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/rating-change",
     kind: "json",
     description: "Query bond rating change history (max 10 bonds per call)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -650,6 +750,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/issuer-rating-change",
     kind: "json",
     description: "Query issuer rating change history (by bond code or issuer name)",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -658,6 +759,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/issuance-plan",
     kind: "json",
     description: "Query the rate-bond issuance calendar over a date range",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -666,6 +768,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/exercise-notice",
     kind: "json",
     description: "Query put/call exercise schedules and results for option-embedded bonds",
+    billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
   },
@@ -676,12 +779,20 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/stock-summary/getList",
     kind: "json",
     description: "Stock highlights (refined research summary per security)",
+    // 6000 = the documented codes-per-call limit (STOCK_SUMMARY_MAX_SECURITIES in
+    // commands/ai.ts): one call can bill 18000, past NO_REPLAY_ABOVE_CREDITS. Not replayed,
+    // so it gets the generation endpoints' timeout floor: a large batch runs past the 30s
+    // default, and a timed-out call may already be billed.
+    billing: { per: "row", price: 3, maxUnits: 6000 },
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.knowledge-batch": {
     method: "POST",
     path: "/application/open-data/ai/search/knowledge/batch",
     kind: "json",
     description: "Batch knowledge search",
+    billing: { per: "call", price: 10 },
     retry: "no-replay",
   },
   "ai.knowledge-resource.download": {
@@ -695,6 +806,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/security-clue/getList",
     kind: "json",
     description: "List security clues",
+    billing: { per: "row", price: 5 },
     pagination: { enabled: true, maxPageSize: 500 },
   },
   "ai.one-pager": {
@@ -702,6 +814,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/one-pager",
     kind: "json",
     description: "Generate one pager",
+    billing: { per: "call", price: 50 },
     timeoutMs: 120_000,
     retry: "no-replay",
   },
@@ -710,6 +823,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/investment-logic",
     kind: "json",
     description: "Generate investment logic",
+    billing: { per: "call", price: 50 },
     timeoutMs: 120_000,
     retry: "no-replay",
   },
@@ -718,6 +832,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/peer-comparison",
     kind: "json",
     description: "Generate peer comparison",
+    billing: { per: "call", price: 50 },
     timeoutMs: 120_000,
     retry: "no-replay",
   },
@@ -726,6 +841,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/earnings-review-getid",
     kind: "json",
     description: "Get earnings review ID",
+    billing: { per: "call", price: 50 },
     retry: "no-replay",
   },
   "ai.earnings-review.get-content": {
@@ -739,6 +855,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/theme-tracking",
     kind: "json",
     description: "Get theme tracking daily report",
+    billing: { per: "call", price: 50 },
     timeoutMs: 120_000,
     retry: "no-replay",
   },
@@ -747,6 +864,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/research-outline",
     kind: "json",
     description: "Get company research outline",
+    billing: { per: "call", price: 50 },
     timeoutMs: 120_000,
     retry: "no-replay",
   },
@@ -755,6 +873,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/hot-topic/getList",
     kind: "json",
     description: "List hot topic reports",
+    billing: { per: "row", price: 50 },
     pagination: { enabled: true, maxPageSize: 20 },
     retry: "no-replay",
   },
@@ -763,6 +882,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/management-discuss/from-announcement",
     kind: "json",
     description: "Management discussion from financial reports (half-year/annual)",
+    billing: { per: "call", price: 10 },
     timeoutMs: 120_000,
     retry: "no-replay",
   },
@@ -771,6 +891,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/management-discuss/from-earningsCall",
     kind: "json",
     description: "Management discussion from earnings calls",
+    billing: { per: "call", price: 10 },
     timeoutMs: 120_000,
     retry: "no-replay",
   },
@@ -779,6 +900,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-ai/agent/viewpoint-debate-getid",
     kind: "json",
     description: "Get viewpoint debate ID",
+    billing: { per: "call", price: 50 },
     retry: "no-replay",
   },
   "ai.viewpoint-debate.get-content": {
@@ -795,6 +917,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "List vault drive files",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "fileId",
   },
   "vault.drive.download": {
     method: "GET",
@@ -883,6 +1006,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     description: "List voice recording transcriptions",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "recordId",
   },
   "vault.record.download": {
     method: "GET",
@@ -895,13 +1019,16 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-vault/my-conference/getList",
     kind: "json",
     description: "List my conferences",
+    billing: { per: "row", price: 0.1 },
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "conferenceId",
   },
   "vault.my-conference.download": {
     method: "GET",
     path: "/application/open-vault/my-conference/download/file",
     kind: "download",
     description: "Download my conference resource",
+    billing: { per: "document", price: 50 },
     retry: "no-replay",
   },
   "vault.wechat-message.list": {
@@ -909,7 +1036,10 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-vault/wechatgroupmsg/list",
     kind: "json",
     description: "List WeChat group messages",
-    pagination: { enabled: true, maxPageSize: 50 },
+    // `total` stops at 10000 while narrower windows add up to more, and an offset at or
+    // past 10000 is refused (140002) — the same offset window highlight.list declares.
+    pagination: { enabled: true, maxPageSize: 50, maxWindow: 10000 },
+    rowId: "msgId",
   },
   "vault.wechat-chatroom.list": {
     method: "POST",
@@ -918,6 +1048,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     description: "List WeChat group chatroom IDs",
     // Response is `{ total, list }` (server caps size at 50); auto-paginate by total.
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "chatroomId",
   },
   "vault.stock-pool.list": {
     method: "POST",
@@ -998,6 +1129,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-alternative/concept/v2/info",
     kind: "json",
     description: "Query latest concept (theme index) profile by conceptId",
+    billing: { per: "call", price: 50 },
     retry: "no-replay",
   },
   "alternative.concept-info-full": {
@@ -1005,6 +1137,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-alternative/concept/info",
     kind: "json",
     description: "Query latest concept profile incl. catalyst events (keyEvents; v1)",
+    billing: { per: "call", price: 500 },
     retry: "no-replay",
   },
   "alternative.concept-securities": {
@@ -1012,6 +1145,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-alternative/concept/v2/securities",
     kind: "json",
     description: "Query concept (theme index) constituent securities, grouped",
+    billing: { per: "call", price: 50 },
     retry: "no-replay",
   },
   "alternative.concept-securities-full": {
@@ -1019,6 +1153,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-alternative/concept/securities",
     kind: "json",
     description: "Query concept constituents incl. isKey / inclusionReason (v1)",
+    billing: { per: "call", price: 500 },
     retry: "no-replay",
   },
 
@@ -1060,6 +1195,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-tool/file-parse/submit",
     kind: "upload",
     description: "Submit a PDF for parsing (multipart upload), returns taskId",
+    billing: { per: "page", price: 0.8 },
     // Billed per page (0.8/页) at submit time, and the upload itself can take
     // minutes on a 100MB file — never replay it, and don't let the default 30s
     // headers timeout kill an in-flight upload.
@@ -1080,10 +1216,26 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-tool/web-search/search",
     kind: "json",
     description: "Search the public web for research (tiered sources, optional page content)",
+    billing: { per: "call", price: 1 },
     // 1 credit per call, charged on a successful answer — a replayed timeout bills twice.
     retry: "no-replay",
     expects: "list",
   },
+}
+
+/** Credits one request of a per-row / per-document endpoint may bill before a 5xx or
+ * timeout replay is judged too costly (decided 2026-09-25): above it the endpoint is
+ * `no-replay`, at or below it a replay is left to the default policy. */
+export const NO_REPLAY_ABOVE_CREDITS = 3000
+
+/** The most one request can bill: a page of a paginated list, `maxUnits` of a batch
+ * endpoint, one unit otherwise — a download is one document; a per-row endpoint that is
+ * not paginated must declare `maxUnits` (endpoints.test.ts), so 1 never stands in for an
+ * unknown bound. */
+export function worstRequestCredits(endpoint: EndpointDefinition): number {
+  if (!endpoint.billing) return 0
+  const units = endpoint.pagination?.maxPageSize ?? endpoint.billing.maxUnits ?? 1
+  return units * endpoint.billing.price
 }
 
 export const ENDPOINTS: Record<string, EndpointDefinition> = Object.fromEntries(

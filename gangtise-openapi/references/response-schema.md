@@ -4,7 +4,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 
 > 例外：`indicator`（EDE）四个接口（`search` / `cross-section` / `time-series` / `screener`）成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`）。内层字段名为 `securityCodeList` / `securityNameList` / `indicatorList[{code,name,dataType}]`（screener 另带 `field`），`values` 是 2D 矩阵：**截面与 screener 为 `[证券][指标]`**、时序为 `[序列][日期]`。
 >
-> **缺数据 vs 代码写错**：无数据 / 无覆盖一律保留行列并给占位单元格——**占位值统一为 `null`**；⚠️ 报告期类指标（`is_*`）的时序只有报告期末那几行是真值，其余全是 `null`，详见 `commands/indicator.md`。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；`partial` + `omittedIndicators`/`omittedSecurities` + 退出码 3 的差集检测仍保留作兜底，但当前服务端行为下基本收不到样本。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
+> **缺数据 vs 代码写错**：无数据 / 无覆盖一律保留行列并给占位单元格——**占位值统一为 `null`**；⚠️ 报告期类指标（`is_*`）的时序只有报告期末那几行是真值，其余全是 `null`，详见 `commands/indicator.md`。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；服务端没有返回请求里的某个指标或证券时标 `partial` + `omittedIndicators` / `omittedSecurities`、退出码 3（写错的 code 会直接报 `100003`，所以这种情况很少出现）。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
 
 ## 通用模式（5 类）
 
@@ -14,7 +14,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | 下载 | stdout = 文件路径字符串 | 直接读取整行 |
 | AI 内容 | `{content: "markdown文本"}` | 直接呈现 `content` |
 | 列式 K 线 | `{fieldList: [...], list: [[...], ...]}` 或 `{list: [{...}]}` | CLI 已规范化为对象 list |
-| 异步任务 | 提交：`{dataId}`；轮询：`{status:"pending"}` 或 `{date, content}` | 详见 `commands/ai.md` |
+| 异步任务 | 提交：`{dataId, status, hint}`；查询：仍在生成 `{dataId, status:"pending", hint}`（退出 0），完成 `{date, content}`，终态失败 stderr 报错、退出 1 | 详见 `commands/ai.md` |
 
 ## 全命令字段对照
 
@@ -61,23 +61,23 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
 | reference sector-search | `{returnedCount, list}` | `list[].sectorId` / `list[].sectorName` / `list[].hierarchy`（层级路径） / `list[].matchScore` |
 | reference sector-constituents | `{total, list}` | `list[].gtsCode` / `list[].gtsName`；total=0 说明 sectorId 不对（先 sector-search 确认） |
-| quote day-kline（及已下线的 day-kline-hk / day-kline-us / index-day-kline） | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume` / `amount`（全球指数为 `null`）/ `adjustFactor`（指数为 `null`，ETF 有值）；四者字段相同，均不含指数名称 |
+| quote day-kline（及已弃用的 day-kline-hk / day-kline-us / index-day-kline） | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume` / `amount`（全球指数为 `null`）/ `adjustFactor`（指数为 `null`，ETF 有值）；四者字段相同，均不含指数名称 |
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `tradeStatus` / `open` / `high` / `low` / `latestPrice` / `preClose` / `change` / `pctChange` / `volume` / `amount` / `amplitude`（共 15 个，**无 `close`、无市值、无 `turnoverRate` / `volumeRatio`**；美股 `amount`、全球指数 `volume` / `amount` / `amplitude` 为 `null`） |
 | quote fund-flow | `{fieldList, list, total}` 列式 → 规范化后 `{list: [{...}], total}` 宽表 | `securityCode` / `tradeDate` + 请求的字段（`mainNetInflow` / `largeInflow` / `xlargeOutflow` / …） |
 | fundamental income-statement / balance-sheet / cash-flow（含 quarterly / -hk / -us） | `{total, list: [{...}]}` | `fiscalYear` / `period` / `endDate` / `companyName` / `companyType` / `currency` / `unit` + 各 `--field` 字段；港股/美股另含 `timeCovered`（不规则跨度）。⚠️ A 股 `*-quarterly` 单季表的 `companyType` 返回未映射的数字码（如 `102119999`），`currency` 正常；累计口径的三张表两列均正确。科目数字不受影响 |
 | fundamental main-business | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | 前 3 列恒定：`periodName` / `periodEndDate` / `categoryName`（分项名，随 `--breakdown` 变）+ `opRevenue` / `opRevenueYoy` / `opRevenueRatio` / `opCost` / `opCostYoy` / `opCostRatio` / `grossProfit` / `grossProfitYoy` / `grossProfitRatio` / `grossMargin` / `grossMarginYoy` / `grossMarginRatio`（共 15 个）。`--field` 只能从后 12 个里选 |
-| fundamental valuation-analysis（仅 A 股） | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | `tradeDate` / `value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`（共 7 个）；**无 `securityCode`**——误传会拿到一列重复的 `tradeDate` |
+| fundamental valuation-analysis（仅 A 股） | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | `tradeDate` / `value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`（共 7 个）；**无 `securityCode`**——`--field` 只传不存在的名字（含 `securityCode`）时接口返回 0 行、不报错，与数值列混传时 CLI 报错退出 1 |
 | fundamental earning-forecast（仅 A 股） | `{securityCode, securityName, updateList: [...]}` | `updateList[].date` / `updateList[].fieldList[].forecastYear` + 各 consensus 指标 |
-| fundamental top-holders | `{holderType, list: [{...}]}` | `reportPeriod` / `rank` / `shareholderName` / `holdingNum` / `holdingPct` / `chgNum` / `chgPct` |
+| fundamental top-holders | `{holderType, list: [{...}]}` | `reportPeriod` / `rank` / `shareholderName` / `shareholderType` / `holdingNum` / `holdingPct` / `chgNum` / `chgPct` / `shareCategory` |
 | ai knowledge-batch | `{list: [{...}]}` | `list[].resourceType` / `list[].sourceId` / `list[].title` / `list[].summary` |
 | ai security-clue | `{list, total}` | `list[].securityCode` / `list[].title` / `list[].clueType` / `list[].clueDate` |
 | ai stock-summary | `{list, total}` | `list[].securityCode` / `list[].securityName` / `list[].summary` / `list[].date`；无看点的证券不在 list 中 |
-| ai one-pager / investment-logic / peer-comparison / research-outline | `{content}` | `content` 直接呈现（Markdown） |
+| ai one-pager / investment-logic / peer-comparison / research-outline | `{content}`（one-pager 另带 `date`：生成日期 `yyyy-MM-dd`） | `content` 直接呈现（Markdown） |
 | ai theme-tracking | `[{type, date, content}, ...]`（列表，每元素一份报告） | 遍历筛选 `type === "morning" / "night"`；某主题在该日期可能只有一种类型，或两种都没（空列表） |
 | ai hot-topic | `{list, total}` | `list[].title` / `list[].reportDate` / `list[].category` / `list[].topics[].topicTitle` / `list[].topics[].driverEvent` / `list[].topics[].investLogic` |
 | ai management-discuss-* | `{securityCode, reportDate, discussionDimension, content}` | `content` 为字符串（业绩会）或字符串数组（财报） |
-| ai earnings-review | `{dataId}`（提交）/ `{status:"pending"}` 或 `{date, content}`（check） | `dataId` 用于轮询；最终 `content` 直接呈现 |
+| ai earnings-review | `{dataId, status, hint}`（提交）/ `{dataId, status:"pending", hint}` 或 `{date, content}`（check） | `dataId` 用于轮询；最终 `content` 直接呈现 |
 | ai viewpoint-debate | 同 earnings-review | — |
 | vault drive-list | `{list, total}` | `list[].fileId`（下载用 `--file-id`）/ `list[].title` / `list[].fileType` / `list[].uploadTime` |
 | vault drive-download | 文件路径（stdout） | — |

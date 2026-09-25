@@ -6,7 +6,7 @@
 
 ## 中信行业分类（--industry 参数）
 
-完整列表用 `reference constant-list --category citicIndustry`（30 条）。**`--industry` 全命令通用首选用这套（`1008001xx`）**——opinion / research / foreign-report / official-account 都正确过滤，`vault wechat-message-list` 也认这一套（⚠️ 两个例外：`insight foreign-opinion` / `independent-opinion` 的 `--industry` **只认申万码 `104xx0000`，传中信码报 `100005`**）；这套 ID 同时也是 `--research-area` **行业维度唯一全端点通吃的一套**（见下方研究方向）。
+完整列表用 `reference constant-list --category citicIndustry`。**`--industry` 全命令通用首选用这套（`1008001xx`）**——opinion / research / foreign-report / official-account 都正确过滤，`vault wechat-message-list` 也认这一套（⚠️ 两个例外：`insight foreign-opinion` / `independent-opinion` 的 `--industry` **只认申万码 `104xx0000`，传中信码报 `100005`**）；这套 ID 同时也是 `--research-area` **行业维度唯一全端点通吃的一套**（见下方研究方向）。
 
 | ID | 行业 | ID | 行业 |
 |----|------|----|------|
@@ -30,7 +30,7 @@
 
 ## 申万行业（--industry 参数）
 
-完整列表用 `reference constant-list --category swIndustry`（31 条）。⚠️ 申万码（`104xx0000`）只在**部分** insight list 上可作 `--industry` 使用，且**与中信码不等效**——两套码行业成分不同，opinion 与 official-account 上取回的结果集就对不上（同一行业约相差 2%–5%），别混用；用于 `--research-area` 时**只有 `summary` / `pamirs-summary` 认，其余端点返 0**（不报错，与传乱码表现一致）。`vault wechat-message-list` 的 `--industry` **只认中信码**，传申万码报 `100005`——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**（含逐端点对照矩阵），勿在此重复枚举。拿不准就统一用上方中信码。
+完整列表用 `reference constant-list --category swIndustry`。⚠️ 申万码（`104xx0000`）只在**部分** insight list 上可作 `--industry` 使用，且**与中信码不等效**——两套码行业成分不同，opinion 与 official-account 上取回的结果集就对不上，别混用；用于 `--research-area` 时**只有 `summary` / `pamirs-summary` 认，其余端点返 0**（不报错，与传乱码表现一致）。`vault wechat-message-list` 的 `--industry` **只认中信码**，传申万码报 `100005`——哪套码用于哪些命令的**权威口径见 `references/commands/reference-and-lookup.md`「行业 / 研究方向过滤——选哪套 category」**（含逐端点对照矩阵）。拿不准就统一用上方中信码。
 
 | ID | 行业 | ID | 行业 | ID | 行业 |
 |----|------|----|------|----|------|
@@ -105,15 +105,17 @@
 | C800022831 | 里昂证券 | C800096075 | 海通国际 |
 | C801303042 | 杰富瑞集团 | C800044779 | 加拿大皇家银行 |
 
+同一家机构可能对应多个 ID（如高盛有三个）。拿不准用哪个时，用 `reference institution-search --keyword <名称>` 查，按返回的 `usageScopes` 选能喂给目标参数的那个。
+
 ---
 
 ## 常用研究方向（--research-area 参数）
 
-`--research-area` 吃两个维度：**行业**用上方「中信行业分类」表的 `1008001xx`（category `citicIndustry`），**方向**用下表的 `122000xxx`（category `gangtiseIndustry`）。适用 opinion / summary / pamirs-summary / roadshow / site-visit / forum / my-conference（strategy 无此参数）。
+`--research-area` 吃两个维度：**行业**用上方「中信行业分类」表的 `1008001xx`（category `citicIndustry`），**方向**用下表的 `122000xxx`（category `gangtiseIndustry`）。适用 opinion / summary / pamirs-summary / roadshow / site-visit / forum / my-conference / highlight（strategy 无此参数；highlight 不接受申万码）。
 
-⚠️ **`gangtiseIndustry` 里只有下面这 6 条方向码，不含任何行业码**——`constant-list --category gangtiseIndustry` 返回的就是 6 条，去它那里找「食品饮料」找不到，行业码要查 `citicIndustry`。
+⚠️ **`gangtiseIndustry` 里只有下表这些方向码，不含任何行业码**——去它那里找「食品饮料」找不到，行业码要查 `citicIndustry`。
 
-**6 个研究方向（citicIndustry 没有）：**
+**研究方向（citicIndustry 没有）：**
 
 | ID | 方向 | ID | 方向 |
 |----|------|----|------|
@@ -121,7 +123,7 @@
 | 122000003 | 固收 | 122000004 | 金工 |
 | 122000005 | 海外 | 122000007 | 其他 |
 
-行业维度的 ID 直接用上方「中信行业分类」表（`1008001xx`），这是唯一在全部 7 个端点上都生效的一套。⚠️ **申万码 `104xx0000` 用于 `--research-area` 只有 `summary` / `pamirs-summary` 认**，opinion / roadshow / site-visit / forum / my-conference 一律返 0（与传乱码表现一致，不报错）。反过来方向码 `122000xxx` 在 `pamirs-summary` 上返 0。完整对照矩阵见 `commands/reference-and-lookup.md`。
+行业维度的 ID 直接用上方「中信行业分类」表（`1008001xx`），这是在所有带 `--research-area` 的端点上都生效的一套。⚠️ **申万码 `104xx0000` 用于 `--research-area` 只有 `summary` / `pamirs-summary` 认**，opinion / roadshow / site-visit / forum / my-conference 一律返 0（与传乱码表现一致，不报错）。反过来方向码 `122000xxx` 在 `pamirs-summary` 上返 0。完整对照矩阵见 `commands/reference-and-lookup.md`。
 
 ---
 
@@ -149,7 +151,7 @@
 
 ## 外资研报区域（--region 参数）
 
-完整列表用 `reference constant-list --category regionCategory`
+完整列表用 `reference constant-list --category regionCategory`。⚠️ `insight foreign-opinion list --region` 只收其中 6 个：`cn` / `cnHk` / `cnTw` / `us` / `jp` / `uk`
 
 | ID | 区域 | ID | 区域 | ID | 区域 |
 |----|------|----|------|----|------|
@@ -165,7 +167,7 @@
 
 ## 公告分类
 
-完整列表用 `reference constant-list --category aShareAnnouncementCategory`（港股用 `hkShareAnnouncementCategory`，美股用 `usShareAnnouncementCategory`，`103980xxx` 段），树形结构含一级和二级分类。
+用于 `insight announcement list` / `announcement-hk list` 的 `--category`。完整列表用 `reference constant-list --category aShareAnnouncementCategory`（港股用 `hkShareAnnouncementCategory`，美股用 `usShareAnnouncementCategory`，`103980xxx` 段），树形结构含一级和二级分类。
 
 ### 一级分类
 

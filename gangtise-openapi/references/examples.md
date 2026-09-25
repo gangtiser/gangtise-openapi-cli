@@ -2,6 +2,8 @@
 
 每个示例展示从用户语句到完整命令的全流程。示例集中在这里，Skill 主文件只放规则；遇到不确定的场景时来这里查同类。
 
+**日期占位**：`<今天>`、`<今天-7天>`、`<最新交易日>` 这类写法按实跑当天换算成 `YYYY-MM-DD`；写成具体日期的（如报告期末 `2025-12-31`）照抄即可。回溯窗口有限（研报、观点等约 3 个月），别把旧日期原样照抄。
+
 ---
 
 ## 例 1：研报检索 ＋ 下载（list→download 多步编排）
@@ -16,11 +18,11 @@
 3. Pre-flight：
    - 认证 OK
    - 结果可能 >200 条 → 🔴 询问"先看前 20 还是导出全量？"
-   - 下载格式 → 🔴 询问 PDF 还是 Markdown
+   - 下载格式：研报下载默认 PDF（`--file-type 2` 为 Markdown），用户没指定就不必问
 4. gangtise insight research list \
      --broker C100000026 \
      --category macro --category strategy \
-     --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" \
+     --start-time "<今天-7天> 00:00:00" --end-time "<今天> 23:59:59" \
      --rank-type 2 --format json
    （选"导出全量"分支：改 `--format jsonl --output cicc_macro.jsonl` 落盘，再 `wc -l` / `head` 采样，别把全量塞进上下文）
 5. 提取 reportId + title 展示，让用户选择具体一篇 → 确认 file-type
@@ -37,7 +39,7 @@
 3. Pre-flight：模糊时间已映射，认证 OK，无歧义
 4. gangtise insight opinion list \
      --keyword AI \
-     --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" \
+     --start-time "<今天-7天> 00:00:00" --end-time "<今天> 23:59:59" \
      --rank-type 2 --size 20 --format json
 5. 提取 list[].title / author.chiefName / author.brokerName / publishTime / brief，按时间倒序列表
 6. 用户要看某几条全文 → 取对应 chiefOpinionId：
@@ -81,7 +83,7 @@
 2. 比亚迪 A 股 002594.SZ，港股 01211.HK
    "最近" → K 线默认今日往前 45 天（保证含最近 10 个交易日）
 3. Pre-flight：认证 OK
-4. gangtise quote day-kline --security 002594.SZ --security 01211.HK --start-date 2026-03-19 --end-date 2026-05-03 --format json
+4. gangtise quote day-kline --security 002594.SZ --security 01211.HK --start-date <今天-45天> --end-date <今天> --format json
 5. 按 securityCode 分组，各自按 tradeDate 取尾部最近 10 个交易日
    注意：两地交易日历不同（A 股与港股假期不重合），同一日期未必两边都有行——按 securityCode 分组后再取尾部，别按行下标对齐
 ```
@@ -91,10 +93,10 @@
 **用户**："查上证综指最近的指数"
 
 ```
-1. 路由 → quote day-kline（指数已并入，index-day-kline 已下线）
+1. 路由 → quote day-kline（指数已并入，index-day-kline 已弃用）
 2. 上证综指 → 000001.SH；"最近" → 今日往前 45 天
 3. Pre-flight：认证 OK；今天若周末 end-date 仍填当天，API 返回最近交易日
-4. gangtise quote day-kline --security 000001.SH --start-date 2026-03-19 --end-date 2026-05-03 --format json
+4. gangtise quote day-kline --security 000001.SH --start-date <今天-45天> --end-date <今天> --format json
 5. 按 tradeDate 取尾部最近 10 个交易日。**不要用 --limit 20**（截取的是窗口开头）
 ```
 
@@ -138,7 +140,7 @@
    返回 list[0].gtsCode = "603739.SH"
 3. 拼正式查询：
      gangtise insight research list --security 603739.SH --rank-type 2 \
-       --start-time "2026-04-08 00:00:00" --end-time "2026-04-15 23:59:59" --format json
+       --start-time "<今天-7天> 00:00:00" --end-time "<今天> 23:59:59" --format json
 ```
 
 ## 例 10：实时行情（盘中快照，跨市场）
@@ -155,7 +157,7 @@
      --format json
 5. 返回最新时刻快照；非交易时间返回最近一个交易日的收盘快照
    注意：日 K 线（day-kline）不返回盘中数据，问"现在/此刻"必须走 realtime
-   沪深 ETF（512800.SH）与 20 个全球指数（SPX.SPI 标普500 / N225.NKI 日经225 / HSI.HI 恒生…）同样走 realtime，
+   沪深 ETF（512800.SH）与全球指数（SPX.SPI 标普500 / N225.NKI 日经225 / HSI.HI 恒生…）同样走 realtime，
    代码清单见 references/commands/quote.md；全球指数 volume/amount/amplitude 为 null，tradeTime 是交易所当地时间
 ```
 
@@ -164,11 +166,11 @@
 **用户**："苹果过去一个月的日 K 线"
 
 ```
-1. 路由 → quote day-kline（仅历史；盘中数据走 realtime。day-kline-us 已下线，不校验代码）
+1. 路由 → quote day-kline（仅历史；盘中数据走 realtime。day-kline-us 已弃用，不校验代码）
 2. 苹果 AAPL.O；"过去一个月" → 今日往前 30 天
 3. Pre-flight：认证 OK；当日数据约 07:00（北京时间）入库
 4. gangtise quote day-kline --security AAPL.O \
-     --start-date 2026-04-22 --end-date 2026-05-22 \
+     --start-date <今天-30天> --end-date <今天> \
      --field tradeDate --field open --field close --field volume --field pctChange --format json
 5. 按 tradeDate 排序展示
 ```
@@ -181,11 +183,12 @@
 1. 路由 → ai earnings-review（异步）
 2. 茅台 600519.SH；--period 2025q3
 3. Pre-flight：异步任务，告知用户"提交后需等待，期间可以做别的"
-4. gangtise ai earnings-review --security-code 600519.SH --period 2025q3 --format json
-   → 返回 {dataId: "xxx"}
-5. 等 30s-1min 后调 check：
+4. gangtise ai earnings-review --security-code 600519.SH --period 2025q3 --wait --format json
+   （--wait 在 CLI 内轮询约 5 分钟，外层工具超时给足 360 秒以上；完成即输出 {date, content}）
+   → 取 content 呈现
+5. 不能等那么久时去掉 --wait：提交返回 {dataId, status, hint}，之后手动查：
      gangtise ai earnings-review-check --data-id xxx --format json
-   - 若 {status: "pending"} → 再等再 check（最多 3 次）
+   - 若 {dataId, status: "pending", hint} → 过两分钟再查；**仍在生成时别重新提交**（重提再扣 50 积分），把 dataId 交给用户稍后查
    - 若 {date, content} → 取 content 呈现
    - 若 410111（新码 140002）→ 终态失败，**不要重提同一任务**（会再扣 50 积分且结果相同）；改参数后再提交，或直接告知用户该期数据暂不可用
 ```
@@ -223,7 +226,7 @@
      → 同名板块可能出现在多个层级，用 hierarchy 区分：
        中国内地股票-概念类-科技-半导体设备 → sectorId 1000001005
 3. gangtise reference sector-constituents --sector-id 1000001005 --format json
-     → {total: 59, list: [{gtsCode, gtsName}, ...]}
+     → {total, list: [{gtsCode, gtsName}, ...]}
 4. 陷阱：sectorId 必须来自 sector-search；拿题材 conceptId（如 121000130）来查会返回 0 条
 5. 呈现：total + 前 20 只列表
 ```
@@ -232,7 +235,7 @@
 
 **用户**："把茅台、五粮液、宁德时代 2025 年营收和已实现 EPS，与最新 PE/PB 做成一张表"
 
-> 示例里的 `2026-07-31` 是写作时的最新交易日，实跑时替换为当下的最新交易日即可；PE 与 PB 同为日频。
+> PE 与 PB 同为日频，用 `<最新交易日>` 即可。
 
 ```
 1. 路由 → indicator：多证券批量取一组已实现财务 / 估值指标；不是逐只 fundamental，也不是 EDB。
@@ -247,27 +250,29 @@
    - scopeList：覆盖全部三只 A 股；缺失/null/空也视为不通过
    - parameterList：补 required 参数并核对枚举
    任一不符 → 回退相应专用接口。
-3. 两类指标日期语义不同 → 拆两次截面，均加 `--key-by code`（列头用 indicatorCode，跨表按 code 稳定合并、免受同名/服务端重排干扰；省略 reportType 即取合并口径，label 与取数已一致：1=合并 2=合并(调整) 3=母公司 4=母公司(调整)）：
+3. 两类指标日期语义不同 → 拆两次截面，均加 `--key-by code`（列头用 indicatorCode，跨表按 code 稳定合并、免受同名/服务端重排干扰；省略 reportType 即取合并口径：1=合并 2=合并(调整) 3=母公司 4=母公司(调整)）：
    a) 财务（营收/EPS）用报告期末 2025-12-31：
      gangtise indicator cross-section \
        --indicator is_op_rev --indicator is_eps_bas \
+       --indicator-param "is_op_rev:reportDate=2025-12-31" --indicator-param "is_eps_bas:reportDate=2025-12-31" \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
        --date 2025-12-31 --key-by code --format json
+     （报告期类指标必须显式给 reportDate；--date 对已带 reportDate 的指标不生效）
    b) 估值 PE + PB 同为日频，用同一个最新交易日即可（finc_pb_mrq 在任意交易日都有数；
       用季末日期会拿到几个月前的陈值）。
       ⚠️ 要估值指标的历史序列做分位/回测，两个接口都拉一遍交叉核：EDE 按正式财报
       披露日切换财报口径且历史期用含重述后的最新数据回算，fundamental valuation-analysis
-      按业绩快报切、保留当时披露的原始数据，同一天取到的值可能不同（PE TTM 已核对；
-      PB 是 MRQ 口径，切换规则未单独核对）。详见 indicator.md：
+      按业绩快报切、保留当时披露的原始数据，同一天取到的值可能不同（PB 是
+      MRQ 口径，切换规则以实际取数为准）。详见 indicator.md：
      gangtise indicator cross-section --indicator finc_pe_ttm --indicator finc_pb_mrq \
        --security 600519.SH --security 000858.SZ --security 300750.SZ \
-       --date 2026-07-31 --key-by code --format json
+       --date <最新交易日> --key-by code --format json
 4. 按 security 合并两张宽表（列头即 indicatorCode，各取所需日期的值）；不要把不同日期语义的指标塞进同一个 --date。
 5. 计费：search 免费；两次取数各按请求单元格数量计费，每次不足 100 单元格按 100 计。
 6. 无数据（无覆盖 / 非交易日 / 未来日期）一律保留行列并给占位单元格，退出码 0——占位值统一是 null（见 commands/indicator.md）；⚠️ 报告期类指标（is_*）的时序只有报告期末那几行是真值，别对整列手工求均值。代码写错或参数名写错则直接报 100003 并点名是哪个（指标码拼错、证券后缀错如美股写成 .US、参数名写错、同 code 重复配置），按报错改即可。
 ```
 
-## 例 15b：帕米尔专家纪要（新库，筛选项与踩坑都和 summary 不同）
+## 例 15b：帕米尔专家纪要（独立库，筛选项与踩坑都和 summary 不同）
 
 **用户**："看看帕米尔最近有什么 PCB 相关的纪要" / "帕米尔纪要下载一篇"
 
@@ -275,15 +280,12 @@
 1. 确认走的是帕米尔而不是普通纪要——两者是不同的库，pamirs 需单独购买专家纪要数据库。
    用户没点名"帕米尔/Pamirs"就走 insight summary。
 2. 检索（全文 + 按相关度）：
-     gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 1 \
-       --size 20 --format json
-   - --search-type 2 = 全文（标题搜索是 1，命中少很多）
-   - --rank-type 1 在有 keyword 时按相关度挑条目；要最新就用 2。差别多大取决于关键词本身，
-     --search-type 不影响 rank-type 1 挑哪些条目（这里加 2 是为了扩大命中面，不是为了排序）
+     gangtise insight pamirs-summary list --keyword PCB --rank-type 1 --size 20 --format json
+   - --rank-type 1 在有 keyword 时按相关度挑条目；要最新就用 --rank-type 2 --search-type 2
+     （--search-type 2 = 全文，只扩大 --rank-type 2 的候选池，不改变 --rank-type 1 取回哪些条目）
    - 筛选项比 summary 少：没有 --source / --institution / --participant-role
-3. 🔴 别拉全量再本地按类别/市场分组——服务端只在你用该字段过滤时才回填标签：
-   不带 --category 查，categoryList 100% 是空数组；conceptList 任何查法都是空。
-   要分组就让服务端筛：
+3. 🔴 别拉全量再本地按类别/市场分组——categoryList / conceptList / marketList 这几个标签字段稀疏，
+   是否有值随记录和查法而变（用该字段过滤时回填率更高，详见 insight.md）。要分组就让服务端筛：
      gangtise insight pamirs-summary list --category industryAnalysis --market aShares --size 50
 4. 下载（省略 --output 自动用标题命名）：
      gangtise insight pamirs-summary download --summary-id 5863771 --file-type 2
@@ -300,15 +302,15 @@
 1. 路由 → quote fund-flow（A 股日频资金流向，免费；仅历史，约 16:30 入库）
 2. 个股：宁德时代 300750.SZ；"最近一个月" → 今日往前 30 天
    gangtise quote fund-flow --security 300750.SZ \
-     --start-date 2026-06-06 --end-date 2026-07-06 \
+     --start-date <今天-30天> --end-date <今天> \
      --field tradeDate --field mainNetInflow --field mainInflowRatio --format json
    → 主力 = 大单 + 特大单；字段族 {small|medium|large|xlarge}{Inflow|Outflow|NetInflow|InflowRatio}
    单只无翻页：撞 --limit（默认 6000/上限 10000）会标 partial + 退出码 3 → 缩小日期区间
 3. 全市场：--security aShares
    ⚠️ aShares 必须显式传 --start-date/--end-date（缺日期本地报错）
-   单日约 5500 行，CLI 按日自动分片并发合并、无需手动分批（宽区间落盘再采样）：
+   单日数千行，CLI 按日自动分片并发合并、无需手动分批（宽区间落盘再采样）：
    gangtise quote fund-flow --security aShares \
-     --start-date 2026-07-06 --end-date 2026-07-06 --format jsonl --output aShares_flow.jsonl
+     --start-date <最新交易日> --end-date <最新交易日> --format jsonl --output aShares_flow.jsonl
 ```
 
 ## 例 17：机构 ID 搜索（名称 → institutionId，喂给 --broker/--institution）
@@ -323,7 +325,7 @@
    可选 --category 缩类：domesticBroker / foreignInstitution / leadInstitution / opinionInstitution / foreignOpinionInstitution
 3. 研报按券商筛选走 --broker：
    gangtise insight research list --broker C100000001 --rank-type 2 \
-     --start-time "2026-06-06 00:00:00" --end-time "2026-07-06 23:59:59" --format json
+     --start-time "<今天-30天> 00:00:00" --end-time "<今天> 23:59:59" --format json
 4. 只有要「全量枚举」券商/机构表时才用本地 lookup broker-org/meeting-org list（institution-search 是搜索、非全量）
 ```
 
@@ -337,7 +339,7 @@
    "这周" → 本周一至今天
 3. Pre-flight：不加筛选 total 十万量级（含未来排期）→ 必须带日期范围；0.1 积分/条，先 --size 探量
 4. gangtise insight performance-calendar list \
-     --start-date 2026-07-20 --end-date 2026-07-25 \
+     --start-date <本周一> --end-date <今天> \
      --market aShares --category performanceForecast \
      --size 50 --format json
    → list[].securityName / title / publishDate / performanceReportId / hasAttachment

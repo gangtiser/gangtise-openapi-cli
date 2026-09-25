@@ -1,6 +1,7 @@
+import { createRequire } from "node:module"
 import { gunzipSync } from "node:zlib"
 
-import { Agent, type Dispatcher } from "undici"
+import type { Dispatcher } from "undici"
 
 import { ApiError } from "./errors.js"
 
@@ -59,8 +60,15 @@ function retryAfterFromError(error: unknown): number | undefined {
 
 let cachedDispatcher: Dispatcher | null = null
 
+/** undici is loaded on the first request, not at startup: this module is imported by every
+ * command, and `--help` or a local validation error never touches the network — the load
+ * was most of their startup time. `client.ts` imports undici statically, so it must itself
+ * stay behind a dynamic import (commands/shared.ts); `cli.test.ts` "startup cost" checks it. */
+const requireLazily = createRequire(import.meta.url)
+
 export function getDispatcher(): Dispatcher {
   if (!cachedDispatcher) {
+    const { Agent } = requireLazily("undici") as typeof import("undici")
     cachedDispatcher = new Agent({
       keepAliveTimeout: 60_000,
       keepAliveMaxTimeout: 600_000,
@@ -184,6 +192,10 @@ export function resolvePageConcurrency(raw: string | undefined, fallback = 5, ma
 }
 
 /** Fan-out width for pagination and kline shards — one env knob tunes both. */
+// Default 5: measured against 1 / 10 / 16 on a sharded full-market kline pull and a long
+// paginated listing, 5 took most of the speed-up over serial, while wider fan-outs gained
+// little more, doubled the per-request latency and made listing times swing. Re-measure
+// before changing it (numbers in bug/cli-backlog.md K63).
 export const PAGE_CONCURRENCY = resolvePageConcurrency(process.env.GANGTISE_PAGE_CONCURRENCY)
 
 const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])

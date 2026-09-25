@@ -246,6 +246,37 @@ describe("readTitleCache / writeTitleCache", () => {
     expect(data.ep.titles.old0).toBeUndefined() // oldest entries are the ones evicted
   })
 
+  it("keeps the titles another process wrote after this one loaded the file", async () => {
+    await writeTitleCache("ep", { "1": "one" }, file)
+    // Another CLI process, started earlier and finishing now, rewrites the file from its
+    // own snapshot: a title this one already has, one it lacks, and an endpoint it never
+    // listed. This process's next flush must not put its older snapshot back over them.
+    await fs.writeFile(file, JSON.stringify({
+      ep: { ts: Date.now(), titles: { "1": "another title", "2": "two" } },
+      other: { ts: Date.now(), titles: { a: "A" } },
+    }))
+    await writeTitleCache("ep", { "3": "three" }, file)
+
+    __resetTitleCacheForTests()
+    const data = await readTitleCache(file)
+    expect(data.ep.titles).toEqual({ "1": "one", "2": "two", "3": "three" })
+    expect(data.other.titles).toEqual({ a: "A" })
+  })
+
+  it("keeps this process's titles when a merge with another process's goes over the cap, whatever the id form", async () => {
+    // Integer-like keys enumerate in numeric order, not insertion order, so small ids
+    // written here sort ahead of the other process's larger ones.
+    await writeTitleCache("ep", { "1": "mine one", "2": "mine two" }, file)
+    const others = Object.fromEntries(Array.from({ length: MAX_TITLES_PER_ENDPOINT }, (_, i) => [String(1000 + i), `other ${i}`]))
+    await fs.writeFile(file, JSON.stringify({ ep: { ts: Date.now(), titles: others } }))
+    await writeTitleCache("ep", { "3": "mine three" }, file)
+
+    __resetTitleCacheForTests()
+    const data = await readTitleCache(file)
+    expect(Object.keys(data.ep.titles)).toHaveLength(MAX_TITLES_PER_ENDPOINT)
+    expect([data.ep.titles["1"], data.ep.titles["2"], data.ep.titles["3"]]).toEqual(["mine one", "mine two", "mine three"])
+  })
+
   it("drops endpoint entries past the TTL on the next write", async () => {
     await fs.mkdir(dir, { recursive: true })
     const stale: TitleCacheData = { stale: { titles: { "1": "x" }, ts: Date.now() - 25 * 60 * 60 * 1000 } }

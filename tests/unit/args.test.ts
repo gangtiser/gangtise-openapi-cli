@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectText, dateArg, datetimeArg, isVersionNewer, localDateString, maybeArray, numberListArg, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectText, dateArg, datetimeArg, isVersionNewer, beijingDateString, maybeArray, numberListArg, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -463,22 +463,25 @@ describe("parseChoiceList", () => {
     expect(parseChoiceList(["broker", "media"], "--category", ["listedCompany", "broker", "government", "media"])).toEqual(["broker", "media"])
   })
 
-  it("throws ValidationError naming the bad value and the allowed set", () => {
+  it("throws ValidationError naming the bad value and the known set, without a way around the check", () => {
     expect(() => parseChoiceList(["brokers"], "--category", ["broker", "media"])).toThrow(ValidationError)
-    expect(() => parseChoiceList(["brokers"], "--category", ["broker", "media"])).toThrow(/--category.*brokers.*broker\/media/)
+    expect(() => parseChoiceList(["brokers"], "--category", ["broker", "media"])).toThrow(/--category.*brokers.*knows broker, media\. Check the spelling/)
+    expect(() => parseChoiceList(["brokers"], "--category", ["broker", "media"])).not.toThrow(/raw call/)
   })
 })
 
-describe("localDateString", () => {
-  it("formats a Date as its LOCAL yyyy-MM-dd, not UTC", () => {
-    // Built from local components and read back as local → deterministic regardless
-    // of the machine timezone. `toISOString().slice(0,10)` renders the UTC day, which
-    // for CST users flips a pre-08:00 "today" back to yesterday.
-    expect(localDateString(new Date(2026, 6, 6, 3, 30))).toBe("2026-07-06")
+describe("beijingDateString", () => {
+  it("gives Beijing's calendar day, whatever the machine's zone", () => {
+    // Built from absolute instants, so the answer cannot depend on the machine: 2026-07-05
+    // 23:30 UTC is already 07-06 07:30 in Beijing — the UTC day, and the machine-local day on
+    // a UTC host, both say 07-05 there.
+    expect(beijingDateString(new Date(Date.UTC(2026, 6, 5, 23, 30)))).toBe("2026-07-06")
+    expect(beijingDateString(new Date(Date.UTC(2026, 6, 5, 15, 59)))).toBe("2026-07-05")
+    expect(beijingDateString(new Date(Date.UTC(2026, 6, 5, 16, 0)))).toBe("2026-07-06")
   })
 
   it("zero-pads single-digit months and days", () => {
-    expect(localDateString(new Date(2026, 0, 3))).toBe("2026-01-03")
+    expect(beijingDateString(new Date(Date.UTC(2026, 0, 3, 4, 0)))).toBe("2026-01-03")
   })
 })
 

@@ -1,12 +1,12 @@
 import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "../core/asyncContent.js"
-import { collectList, numberListArg, collectText, dateArg, datetimeArg, maybeArray, parseFrom, parseNumberOption, parseSize, parseTimestamp13 } from "../core/args.js"
+import { collectList, numberListArg, collectText, dateArg, datetimeArg, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseSize, parseTimestamp13 } from "../core/args.js"
 import { ValidationError } from "../core/errors.js"
 import { markFailed } from "../core/exitStatus.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
-import { emit, withClient, runDownload, field, required, date, list, flag, format, output, from, size, requestBody, query } from "./shared.js"
+import { emit, withClient, runDownload, confirmCostly, multiChoice, field, required, date, list, choiceList, flag, format, output, from, size, requestBody, query } from "./shared.js"
 import { checkMarketKeywords } from "./quote.js"
 import type { Field } from "./shared.js"
 
@@ -78,7 +78,10 @@ query(ai, "security-clue", {
     field(new Option("--end-time <datetime>", "End time").argParser(datetimeArg("--end-time")).makeOptionMandatory(), (v) => ({ endTime: v })),
     field(new Option("--query-mode <mode>").choices(["bySecurity", "byIndustry"]).makeOptionMandatory(), (v) => ({ queryMode: v })),
     list("--gts-code <code>", "GTS code", "gtsCodeList"),
-    list("--source <name>", "Source", "source"),
+    // Checked locally: an unknown value is not refused but ignored — the answer is the
+    // unfiltered set (probed 2026-09-25: no source and "bogusSource" both total 8,
+    // "announcement" 0), so a misspelling reads as an ordinary, fully billed answer.
+    choiceList("--source <name>", "Source: researchReport/conference/announcement/view (repeat)", "source", ["researchReport", "conference", "announcement", "view"]),
     format(), output(),
   ],
 })
@@ -102,26 +105,31 @@ query(ai, "theme-tracking", {
   ],
 })
 query(ai, "research-outline", { endpoint: "ai.research-outline", fields: [required("--security-code <code>", undefined, "securityCode"), format("json"), output()] })
+/** Hot-topic report types. Checked locally: an unknown category is not refused (probed
+ * 2026-09-25, on a window with no data — whether it is ignored or filters to nothing was not
+ * measured), so a misspelling reads as an ordinary answer. */
+const HOT_TOPIC_CATEGORIES = ["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"]
+
 ai.command("hot-topic")
   .option("--from <number>", "Starting offset", "0")
   .option("--size <number>", "Total rows to return; omit to fetch all")
   .option("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date"))
   .option("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date"))
-  .option("--category <name>", "Report type: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing", collectList, [])
+  .addOption(multiChoice("--category <name>", "Report type: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing", HOT_TOPIC_CATEGORIES))
   .option("--with-related-securities", "Include related securities info")
   .option("--no-with-related-securities", "Exclude related securities info")
   .option("--with-close-reading", "Include close reading content")
   .option("--no-with-close-reading", "Exclude close reading content")
   .option("--format <format>", "Output format", "json")
   .option("--output <path>")
+  .addOption(confirmCostly().option)
   .action((options) => emit(options, (client) => {
-  const ALL_CATEGORIES = ["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"]
   return client.call("ai.hot-topic", {
     from: parseFrom(options.from),
     size: parseSize(options.size),
     startDate: options.startDate,
     endDate: options.endDate,
-    categoryList: options.category.length > 0 ? options.category : ALL_CATEGORIES,
+    categoryList: parseChoiceList(options.category, "--category", HOT_TOPIC_CATEGORIES) ?? HOT_TOPIC_CATEGORIES,
     withRelatedSecurities: options.withRelatedSecurities !== false,
     withCloseReading: options.withCloseReading !== false,
   })

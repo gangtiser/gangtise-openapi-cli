@@ -154,10 +154,9 @@ const CROSS_SECTION_COLUMNS = ["security", "name"]
  *
  * What it MEANS changed on 2026-08-07: a genuine no-data answer (non-trading
  * date, uncovered market, future date) now comes back as a null cell with its
- * row and column intact, so an all-empty matrix no longer means "no data". It
- * now means nothing in the request RESOLVED — every security code or every
- * indicator code was unrecognised — or a parameter name is wrong. The caller's
- * stderr note says exactly that.
+ * row and column intact, and an unrecognised code or parameter name as an error
+ * (100003, re-probed 2026-09-25), so an all-empty matrix is neither — it is not a
+ * known answer. The caller's stderr note says so.
  *
  * The check covers every STRUCTURAL array, not just the two axis lists, because
  * accepting anything looser would let a malformed payload — `values: null`, a

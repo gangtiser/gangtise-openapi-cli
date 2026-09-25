@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { Command } from "commander"
+import { Command, InvalidArgumentError } from "commander"
 
-import { isVersionNewer } from "./core/args.js"
+import { unknownChoiceMessage } from "./core/args.js"
 import { ApiError } from "./core/errors.js"
+import { removeStagingFiles } from "./core/output.js"
 import { isVerbose, setVerbose } from "./core/transport.js"
+import { checkForUpdate } from "./core/updateCheck.js"
 import { CLI_VERSION } from "./version.js"
 import { ai } from "./commands/ai.js"
 import { alternative } from "./commands/alternative.js"
@@ -35,17 +37,26 @@ for (const group of [auth, lookup, insight, quote, fundamental, bond, reference,
   program.addCommand(group)
 }
 
-async function checkForUpdate(timeoutMs = 2000): Promise<void> {
-  try {
-    const response = await fetch("https://registry.npmjs.org/gangtise-openapi-cli/latest", { signal: AbortSignal.timeout(timeoutMs) })
-    const latest = (await response.json() as { version?: string }).version
-    // Ordered compare, not inequality: during the just-published window the
-    // registry still serves the PREVIOUS version — don't suggest a "downgrade".
-    if (latest && isVersionNewer(latest, CLI_VERSION)) {
-      process.stderr.write(`Update available: ${CLI_VERSION} → ${latest}\nRun: npm update -g gangtise-openapi-cli\n`)
-    }
-  } catch { /* best-effort: offline or a slow registry must not break --version */ }
+/** Options whose value set is the CLI's own (an output switch), so the list is complete. */
+const CLI_OWN_CHOICES = new Set(["--key-by"])
+
+/** Every other `.choices()` option mirrors an enum the server owns. Commander's refusal
+ * ("Allowed choices are …") reads as if the value were wrong; swap in one that says the list
+ * is what this version knows. Help keeps listing the choices — only the parser changes. */
+function relabelServerChoices(command: Command): void {
+  for (const option of command.options) {
+    const known = option.argChoices
+    // A variadic option's parser accumulates values; a plain replacement would keep only
+    // the last one, so such an option keeps commander's own parser and wording.
+    if (!known || option.variadic || CLI_OWN_CHOICES.has(option.long ?? "")) continue
+    option.argParser((value: string) => {
+      if (!known.includes(value)) throw new InvalidArgumentError(unknownChoiceMessage(known))
+      return value
+    })
+  }
+  command.commands.forEach(relabelServerChoices)
 }
+relabelServerChoices(program)
 
 /** Last-resort reporting for anything that escapes main()'s try/catch: an error
  * thrown inside an event callback or a rejected promise nobody awaited. Node's
@@ -95,6 +106,24 @@ function reportFatal(error: unknown): void {
 process.on("uncaughtException", reportFatal)
 process.on("unhandledRejection", reportFatal)
 
+/** Ctrl-C / kill: first remove this process's own staging files — each write names its own,
+ * so no later run would ever overwrite or clean them up — then die of the same signal, as Node
+ * does by default (SIGHUP: the terminal closed or the ssh session dropped). Dying of it, not
+ * exiting with 128 + n, is what the caller acts on: bash and sh stop a script whose foreground
+ * command was killed by SIGINT, and carry on after one that exited, even with 130 — so an exit
+ * here would let a loop of commands keep sending requests after Ctrl-C. `once` has already removed this listener, so the re-sent signal takes the
+ * default action before `kill` returns; the exit after it runs only where that action is
+ * ignored (a container's PID 1), and then leaves at once with the shell's 128 + n. */
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
+  process.once(signal, () => {
+    removeStagingFiles()
+    // Windows has no signal to die of (process.kill terminates with exit code 1 there, and
+    // throws for SIGHUP), so it exits with the shell's number instead.
+    if (process.platform !== "win32") process.kill(process.pid, signal)
+    process.exit(code)
+  })
+}
+
 /** Teardown races on a closed stdout: the reader went away, which is not this
  * process's failure. `gangtise ... | head` is the everyday case — it truncates
  * the output, so a same-class race has no principled reason to exit 1. It must not
@@ -115,7 +144,15 @@ async function main() {
   const firstArg = process.argv[2]
   if (firstArg === "--version" || firstArg === "-V") {
     process.stdout.write(`${CLI_VERSION}\n`)
-    await checkForUpdate()
+    // Only for a person at a terminal: scripts and agents call --version to check an install
+    // and should not wait on the registry (1–5 s measured); a terminal reuses the answer for a
+    // day (updateCheck.ts). The check is bounded as a whole,
+    // then the process leaves — an aborted fetch could otherwise keep a socket or a DNS lookup
+    // holding it open past the fetch's own timeout.
+    if (process.stdout.isTTY) {
+      await Promise.race([checkForUpdate(CLI_VERSION), new Promise((resolve) => setTimeout(resolve, 2500))])
+      process.exit(0)
+    }
     return
   }
   try {

@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import { dirname, extname } from "node:path"
 
 import { DownloadError } from "./errors.js"
-import { saveOutputIfNeeded, stagingPath } from "./output.js"
+import { saveOutputIfNeeded, stagingPath, trackClaim } from "./output.js"
 import { extractTitles, lookupTitleCache, readTitleCache, TITLE_LOOKUP_SIZE, writeTitleCache } from "./titleCache.js"
 
 /** Replace filesystem-unsafe characters (path separators, wildcards, and control
@@ -25,6 +25,12 @@ function truncateFilename(name: string, maxBytes = 200): string {
   const stem = [...name.slice(0, name.length - ext.length)]
   while (stem.length > 1 && Buffer.byteLength(stem.join("") + ext, "utf8") > maxBytes) stem.pop()
   return stem.join("") + ext
+}
+
+/** A claimed name, registered so an interrupted run can drop it while still empty (output.ts). */
+function trackedClaim(p: string): string {
+  trackClaim(p)
+  return p
 }
 
 /** Pick a non-existing path by suffixing -1, -2, … before the extension, so batch
@@ -55,12 +61,12 @@ export async function uniquePath(p: string): Promise<string> {
     }
   }
   await fs.mkdir(dirname(p) || ".", { recursive: true })
-  if (await claim(p)) return p
+  if (await claim(p)) return trackedClaim(p)
   const ext = extname(p)
   const stem = p.slice(0, p.length - ext.length)
   for (let i = 1; i <= 99; i++) {
     const candidate = `${stem}-${i}${ext}`
-    if (await claim(candidate)) return candidate
+    if (await claim(candidate)) return trackedClaim(candidate)
   }
   throw new DownloadError(`Refusing to overwrite: 100 files already share the name "${p}" — pass --output or clean up the directory`)
 }
@@ -291,7 +297,7 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
     const autoName = (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (safeFallback + extFromContentType(file.contentType))
     const outputPath = output ?? await uniquePath(truncateFilename(autoName))
     try {
-      await saveOutputIfNeeded(file.data, outputPath)
+      await saveOutputIfNeeded(file.data, outputPath, false)
     } catch (error) {
       if (!output) await releaseClaim(outputPath)
       throw error
@@ -303,7 +309,7 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   if (typeof file.text === "string") {
     const outputPath = output ?? await uniquePath(truncateFilename(`${safeFallback}.txt`))
     try {
-      await saveOutputIfNeeded(file.text, outputPath)
+      await saveOutputIfNeeded(file.text, outputPath, false)
     } catch (error) {
       if (!output) await releaseClaim(outputPath)
       throw error

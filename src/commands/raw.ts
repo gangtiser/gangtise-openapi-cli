@@ -8,7 +8,7 @@ import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
 import { createClient, runDownload, assertConfirmed } from "./shared.js"
 
-export const raw = new Command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--yes", "Confirm an irreversible endpoint (required for the ones marked destructive)").option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
+export const raw = new Command("raw").description("Raw API calls").addCommand(new Command("call").argument("<endpointKey>").option("--body <json>").option("--query <key=value>", "Query string pair", collectKeyValue, {}).option("--yes", "Confirm an irreversible endpoint (required for the ones marked destructive), or fetch every row of a per-row billed list past the credit guard").option("--format <format>", "Output format", "json").option("--output <path>").action(async (endpointKey, options) => {
   const endpoint = ENDPOINTS[endpointKey]
   if (!endpoint) {
     throw new ConfigError(`Unknown endpoint key: ${endpointKey}`)
@@ -18,7 +18,8 @@ export const raw = new Command("raw").description("Raw API calls").addCommand(ne
   // that nothing restores. Checked before the client is acquired.
   assertConfirmed(endpointKey, Boolean(options.yes), endpointKey)
   const format = parseOutputFormat(options.format)
-  const client = await createClient({ format, output: options.output })
+  // --yes also confirms a costly fetch without --size on a list billed per row.
+  const client = await createClient({ format, output: options.output, yes: Boolean(options.yes) })
   let body: unknown
   if (options.body) {
     try {

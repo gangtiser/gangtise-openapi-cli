@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import fsp from "node:fs/promises"
 import http from "node:http"
 import type { AddressInfo } from "node:net"
@@ -554,5 +554,123 @@ describe("download title lookup wiring", () => {
     expect(code, out).toBe(0)
     expect(out).toContain("unexpected shape") // the warning still reaches stderr
     expect(await listed()).toEqual(["announcement-us-12345.pdf"])
+  }, 30_000)
+})
+
+describe("interrupted export", () => {
+  // Pages below offset 1500 answer at once, so an export streams past 1000 rows and opens its
+  // staging file; later pages never answer, so the command is still running when the signal
+  // comes.
+  let server: http.Server
+  let baseUrl = ""
+  let dir = ""
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      let raw = ""
+      req.on("data", (chunk) => { raw += chunk })
+      req.on("end", () => {
+        const body = JSON.parse(raw || "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        if (from >= 1500) return
+        const list = Array.from({ length: body.size ?? 50 }, (_, i) => ({ msgId: String(from + i + 1) }))
+        res.setHeader("content-type", "application/json")
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 5000, list } }))
+      })
+    })
+    await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", resolve) })
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+  afterAll(() => {
+    server.closeAllConnections()
+    server.close()
+  })
+  beforeEach(async () => { dir = await fsp.mkdtemp(path.join(os.tmpdir(), "gangtise-signal-")) })
+  afterEach(async () => { await fsp.rm(dir, { recursive: true, force: true }) })
+
+  const env = (): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: dir, GANGTISE_TOKEN: "Bearer signal-test", GANGTISE_BASE_URL: baseUrl })
+  const untilStaging = async (prefix: string): Promise<void> => {
+    const deadline = Date.now() + 15_000
+    while (!(await fsp.readdir(dir)).some((name) => name.startsWith(prefix) && name.endsWith(".part"))) {
+      if (Date.now() > deadline) throw new Error(`${prefix}: the export never opened its staging file`)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+  }
+
+  it("removes its own staging file and dies of the signal it got", async () => {
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+      const child = spawn(process.execPath, [CLI, "vault", "wechat-message-list", "--format", "jsonl", "--output", path.join(dir, "m.jsonl")], { env: env(), stdio: "ignore" })
+      const exited = new Promise<NodeJS.Signals | null>((resolve) => { child.on("exit", (_code, got) => resolve(got)) })
+      await untilStaging("m.jsonl")
+      child.kill(signal)
+      expect(await exited, signal).toBe(signal)
+      expect((await fsp.readdir(dir)).filter((name) => name.startsWith("m.jsonl")), signal).toEqual([])
+    }
+  }, 60_000)
+
+  it.skipIf(process.platform === "win32")("stops a shell loop at Ctrl-C instead of letting the next command start", async () => {
+    // bash stops a script whose foreground command was KILLED by SIGINT, and carries on after
+    // one that exited — even with 130. Ctrl-C reaches the whole process group.
+    const script = 'for i in 1 2 3; do "$NODE" "$CLI" vault wechat-message-list --format jsonl --output "$DIR/m$i.jsonl"; echo "rc=$?" >> "$DIR/log"; done'
+    const shell = spawn("bash", ["-c", script], { env: { ...env(), NODE: process.execPath, CLI, DIR: dir }, stdio: "ignore", detached: true })
+    const exited = new Promise<void>((resolve) => { shell.on("exit", () => resolve()) })
+    try {
+      await untilStaging("m1.jsonl")
+      process.kill(-(shell.pid as number), "SIGINT")
+      // A loop that went on hangs in its second export, so wait a bounded time, then judge.
+      const stopped = await Promise.race([exited.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))])
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      expect(stopped, "the shell was still running after Ctrl-C").toBe(true)
+      const left = await fsp.readdir(dir)
+      expect(left.filter((name) => name.startsWith("m2")), "the loop went on to a second export").toEqual([])
+      expect(left.filter((name) => name.startsWith("m1")), "the first export's staging file").toEqual([])
+    } finally {
+      try { process.kill(-(shell.pid as number), "SIGKILL") } catch { /* already gone */ }
+    }
+  }, 60_000)
+})
+
+describe("enum refusals", () => {
+  it("says a server enum's list is what this version knows; the CLI's own --key-by keeps commander's wording", async () => {
+    const server = await cli(["fundamental", "main-business", "--security-code", "600519.SH", "--breakdown", "segment"])
+    expect(server.code).toBe(1)
+    expect(server.out).toMatch(/'segment' is invalid\. This CLI version knows product, industry, region\. Check the spelling/)
+    expect(server.out).not.toContain("raw call")
+    const own = await cli(["indicator", "cross-section", "--security", "600519.SH", "--indicator", "x", "--key-by", "id"])
+    expect(own.code).toBe(1)
+    expect(own.out).toContain("Allowed choices are name, code.")
+  }, 30_000)
+})
+
+describe("startup cost", () => {
+  // `--help` and a local validation error never touch the network, so they must not pay
+  // for loading the HTTP stack (undici was most of their startup time). The probe needs
+  // module.registerHooks (Node 22.15+ / 23.5+); on an older runtime the check is skipped.
+  const PROBE = path.resolve(process.cwd(), "tests/fixtures/undici-load-probe.mjs")
+  const hooksAvailable = typeof (require("node:module") as { registerHooks?: unknown }).registerHooks === "function"
+
+  it.skipIf(!hooksAvailable)("does not load undici for --help or a local validation error, and loads it for a request", async () => {
+    const probe = async (args: string[]): Promise<boolean> => {
+      try {
+        const { stderr } = await run(process.execPath, ["--import", PROBE, CLI, ...args], {
+          timeout: 25_000,
+          env: { ...process.env, GANGTISE_TOKEN: "Bearer probe", GANGTISE_BASE_URL: "http://127.0.0.1:1", GANGTISE_ACCESS_KEY: "", GANGTISE_SECRET_KEY: "" },
+        })
+        return stderr.includes("UNDICI_LOADED")
+      } catch (error) {
+        return String((error as { stderr?: string }).stderr ?? "").includes("UNDICI_LOADED")
+      }
+    }
+    expect(await probe(["--help"])).toBe(false)
+    expect(await probe(["quote", "day-kline", "--security", "aShares", "--start-date", "2026-09-01"])).toBe(false)
+    expect(await probe(["quote", "realtime", "--security", "600519.SH"])).toBe(true)
+  }, 60_000)
+
+  it("--version prints the version in package.json", async () => {
+    // The version is read at run time from the package.json above the built module, so a
+    // build that never ran `prepare` still reports the right number.
+    const pkg = JSON.parse(await fsp.readFile(path.resolve(process.cwd(), "package.json"), "utf8")) as { version: string }
+    const { code, out } = await cli(["--version"])
+    expect(code).toBe(0)
+    expect(out).toBe(`${pkg.version}\n`)
   }, 30_000)
 })

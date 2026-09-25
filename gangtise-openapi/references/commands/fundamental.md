@@ -80,7 +80,7 @@ gangtise fundamental main-business --security-code <code> [--breakdown <type>] [
 - `--breakdown`（默认 `product`）：`product` 按产品 | `industry` 按行业 | `region` 按地区
 - `--period`：`interim` 中报 | `annual` 年报（可重复）
 - 默认时间窗：`endDate` 当前日期、`startDate` 三年前
-- **不支持 `--fiscal-year`**（误传触发 `100001`/`100003`，旧 `900001`）；按年份筛选用 `--start-date`/`--end-date`
+- **没有 `--fiscal-year`**（误传报 unknown option）；按年份筛选用 `--start-date`/`--end-date`
 - `--field` 只认 `references/fields.md` 「主营业务」小节的字段（`opRevenue` / `grossProfit` 等）；`securityCode`、`itemName` 这类**不是**该接口字段，传了会报「响应字段数与 fieldList 不匹配」（前 3 列 `periodName` / `periodEndDate` / `categoryName` 恒定返回）
 
 ## A股估值分析 `fundamental valuation-analysis`
@@ -92,7 +92,7 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 - **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股单证券估值序列与估值历史分位始终优先本命令；多证券批量取一组已实现估值点值，且 `indicator search` 三项校验都通过时，才优先 EDE `cross-section` / `time-series`。港 / 美股估值历史分位当前 CLI 不支持，不能用普通 EDE 点值冒充
 - `--indicator`（**必选**）：`peTtm` 滚动PE | `pbMrq` PB | `peg` PEG | `psTtm` 滚动PS | `pcfTtm` 滚动PCF | `em` 企业倍数
 - `--limit` 默认 2000，省略 `--start-date` 时自动查近一年
-- 🔴 **序列按自然日逐日一行（含周末）**，行数超过 `--limit` 时接口**保留最近的行、丢掉区间开头**。CLI 撞满即标 `partial`、退出码 3 并在 stderr 说明（首行恰好就是 `--start-date` 时说明没丢，不标）。取长区间把 `--limit` 设到不小于区间天数（账号权限窗口内的十年约 3700 行，可设 `--limit 4000`）
+- 🔴 **序列按自然日逐日一行（含周末）**，行数超过 `--limit` 时接口**保留最近的行、丢掉区间开头**。CLI 撞满即标 `partial`、退出码 3 并在 stderr 说明（首行恰好就是 `--start-date` 时说明没丢，不标）。取长区间把 `--limit` 设到不小于区间天数：取 N 年就设 `--limit` ≥ 366 × N（且不早于账号权限窗口的起点）
 - 🔴 **`--start-date` 早于账号回溯下界时，接口从下界起返回、不报错**（整段都在界外才报 `110003`）。首行晚于 `--start-date` 时 CLI 在 stderr 提示——可能是该证券上市较晚，也可能是撞了权限窗口，看首行日期判断
 - `--skip-null`：丢弃 `value`/`percentileRank` 为 null 的行（最新交易日可能未入库）
 - **返回字段只有 7 个**：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`，**没有 `securityCode`**。🔴 `--field` 里**至少要有一个数值列**（`tradeDate` 以外的 6 个）：只传 `tradeDate`、只传不存在的名字（含 `securityCode`）时接口返回 0 行、**不报错**，读起来像「这只票没有估值数据」（CLI 会在 stderr 提示原因）；数值列与不存在的名字混传时，回显的字段比每行的值多，CLI 直接报错退出 1。`tradeDate` 总在第一列返回，不用写进 `--field`（写了 CLI 会在发请求前去掉；同一字段写两次也只发一次）。**建议不传 `--field`**，证券代码本来就是你自己传进去的
@@ -104,11 +104,11 @@ gangtise fundamental earning-forecast --security-code <code> [--start-date <date
 ```
 
 - **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股盈利预测 / 一致预期始终走本命令，不走 EDE；EDE 搜索目前没有一致预期语义，搜到的基本 / 稀释 EPS 是已实现值，不能冒充预测 EPS。港 / 美股盈利预测当前 CLI 不支持
-- `--start-date` / `--end-date`：默认近一年
+- `--start-date` / `--end-date`：默认截至北京时间的今天、向前一年
 - `--consensus` 可重复：`netIncome` 归母净利润 | `netIncomeYoy` 同比增速 | `eps` 每股收益 | `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG | `roe` 净资产收益率 | `ps` 市销率
 - **`roe` 的单位是百分比（%）**：`35.6` 即 35.6%，**不要再做 ÷100 之类的单位换算**——换算后的数字看着仍像个 ROE，不会报错
 - 返回结构：`{securityCode, securityName, updateList: [{date, fieldList: [{forecastYear, ...consensus}]}]}` — 每个日期固定返回 3 年预测（如 `2026E` / `2027E` / `2028E`）
-- **积分**：`0.5`/条（盈利预测是 `fundamental` 里唯一收费项，其余报表/主营/估值/股东均免费）
+- **积分**：`0.5`/条（盈利预测是 `fundamental` 里唯一收费项，其余报表/主营/估值/股东均免费）。行数随日期区间增长（每个交易日一组、每组 3 年预测），长区间一次可达数千积分，所以超时 / 5xx **不自动重试**；长区间按年分段拉
 
 ## 前十大股东 `fundamental top-holders`
 

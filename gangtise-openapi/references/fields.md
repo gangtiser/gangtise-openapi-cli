@@ -1,10 +1,10 @@
 # CLI 可选字段速查
 
-> 按命令分组，`--field` 参数可重复传入。不传 `--field` 时返回全部字段。`quote` 系传了 `--field` 就只回点名的列、不自动附带身份列（`fund-flow` 除外，它自动带 `securityCode` / `tradeDate`）：日 K 要一起写进 `securityCode` / `tradeDate`，分钟 K 是 `securityCode` / `tradeTime`，实时行情是 `securityCode`。
+> 按命令分组，`--field` 参数可重复传入。不传 `--field` 时返回全部字段。`quote` 系多只证券或全市场时传了 `--field` 而缺身份列，CLI 会把它补到最前并在 stderr 说明：日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、实时行情补 `securityCode`；单只证券不补（`fund-flow` 本就自带 `securityCode` / `tradeDate`）。
 
 ## 🔴 字段名写错时，两族接口的表现完全不同
 
-`--field` 里写了一个不存在的字段名（拼错、或该字段已下线），**没有任何接口会报错**，但丢的东西不一样——这决定了你能不能按位置拍平结果：
+`--field` 里写了一个不存在的字段名（拼错、或该字段已下线），**行情与 fundamental 这两族接口都不会报错**（`bond` 的 `--field` 写错会整批报 `100003`），但丢的东西不一样——这决定了你能不能按位置拍平结果：
 
 | 接口 | 响应里发生什么 | CLI 怎么处理 |
 | :-- | :-- | :-- |
@@ -34,15 +34,15 @@
 >
 > 1. **指数不适用**。指数的 OHLC 是**点位**，而 `amount` / `volume` 是成分股合计，两者量纲不同——比值算出来是成分股均价（上证 / 深成 ≈ 20 元），永远落不进四千点的区间，**数据本身是对的**。
 > 2. 🔴 **美股的 `quote realtime`**。它的 `amount` 是 **`null`**（接口不提供该字段，见下方 realtime 字段表），自检算不出来。**要美股的实时成交额，只能用别的口径**（收盘后用 `day-kline`，或 EDE `qte_amt`）。
-> 3. **全球指数**（`SPX.SPI` 等 20 个）：realtime 与分钟 K 的 `volume` / `amount` 都是 `null`，日 K 只有 `amount` 是 `null`。
+> 3. **全球指数**（如 `SPX.SPI`，清单见 `references/commands/quote.md`）：realtime 与分钟 K 的 `volume` / `amount` 都是 `null`，日 K 只有 `amount` 是 `null`。
 >
-> 🔴 **分钟线加总不等于日线，别把它当校验条件**。正常交易日 241 根，多数证券多数日子里 Σ分钟 `volume` 与日线逐位相等、`amount` 只差末位舍入；但**个别历史交易日的分钟数据口径与日线不一致**，那几天怎么加都对不上，两条序列各自稳定、都不报错，历史数据也不会回改。
+> 🔴 **分钟线加总不等于日线，别把它当校验条件**。正常交易日 241 根，多数证券多数日子里 Σ分钟 `volume` 与日线逐位相等、`amount` 只差末位舍入；但**个别历史交易日的分钟数据口径与日线不一致**，那几天怎么加都对不上，两条序列各自稳定、都不报错。
 >
 > **口径**：成交量 / 成交额的统计一律**以日线为准**，分钟线用于日内分布。撞到对不上时，那是那一天的数据，不是你的加总代码有问题——**更不要用分钟加总去反推或"修正"日线**。
 >
 > （`14:58` / `14:59` 恒为 0 是**正常的**：14:57 后进入收盘集合竞价，只申报不撮合，成交在 `15:00` 那一根一次性发生——**收盘那根在序列里**，241 根的末根就是它。）
 
-### 日K线 `quote day-kline`（A股 / 港股 / 美股 / ETF / 各类指数含全球指数；旧的 `day-kline-hk` / `day-kline-us` 已下线，字段相同）
+### 日K线 `quote day-kline`（A股 / 港股 / 美股 / ETF / 各类指数含全球指数；旧的 `day-kline-hk` / `day-kline-us` 已弃用，字段相同）
 
 各市场字段相同（货币单位随市场：A股=元、港股=港元、美股=美元、ETF=元且 `volume` 为「份」；**指数为点位、无货币单位，且 `adjustFactor` 恒为 `null`**——ETF 有 `adjustFactor`；**全球指数 `amount` 恒为 `null`**，`volume` 正常）：
 
@@ -72,7 +72,9 @@
 
 **以上 15 个就是全部**：**无 `close`**（用 `latestPrice`）、**无市值**（走 `indicator cross-section --indicator qte_mkt_cptl`）、**无 `turnoverRate` / `volumeRatio`**（传了会连字段名一起被静默丢掉，不报错、结果里就是没这两列；换手率走 EDE `qte_turn`，A 股）。realtime 对不存在的字段名是名和值一起丢：CLI 比对请求与返回的列名，**缺列标 `partial` + `missingFields`、退出码 3**（字段名写错或已下线）。
 
-### 指数日K线（沪深京 `quote index-day-kline`）
+### 指数日K线（沪深京 `quote index-day-kline`，已弃用）
+
+新代码用 `quote day-kline` 传指数代码即可，字段与上方日 K 相同；本节只为已有脚本保留。分钟 K 与资金流向的字段见 `references/commands/quote.md`。
 
 | 字段 | 含义 | 字段 | 含义 |
 |------|------|------|------|

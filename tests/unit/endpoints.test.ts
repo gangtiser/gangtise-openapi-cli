@@ -3,7 +3,7 @@ import path from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { ENDPOINTS, listEndpoints, resolveTimeoutMs } from "../../src/core/endpoints.js"
+import { ENDPOINTS, listEndpoints, NO_REPLAY_ABOVE_CREDITS, resolveTimeoutMs, worstRequestCredits } from "../../src/core/endpoints.js"
 
 describe("ENDPOINTS", () => {
   it("all entries have valid keys, methods, paths, kinds, and descriptions", () => {
@@ -14,6 +14,14 @@ describe("ENDPOINTS", () => {
       expect(["json", "download", "upload"], `${name}.kind`).toContain(ep.kind)
       expect(ep.description, `${name}.description`).toBeTruthy()
     }
+  })
+
+  it("marks as unverified exactly the row ids known only from the response description", () => {
+    // An unverified id is not trusted to flag a changed row (client.ts), so dropping the
+    // mark from one of these lists would let a non-unique id mark every fetch partial.
+    const unverified = Object.values(ENDPOINTS).filter((ep) => ep.rowIdUnverified).map((ep) => ep.key).sort()
+    expect(unverified).toEqual(["insight.forum.list", "insight.independent-opinion.list", "insight.roadshow.list", "insight.site-visit.list", "insight.strategy.list"])
+    for (const ep of Object.values(ENDPOINTS)) if (ep.rowIdUnverified) expect(ep.rowId, ep.key).toBeDefined()
   })
 
   it("pagination entries have enabled:true and maxPageSize > 0", () => {
@@ -343,7 +351,8 @@ describe("ENDPOINTS", () => {
     const message = ENDPOINTS["vault.wechat-message.list"]
     expect(message.key).toBe("vault.wechat-message.list")
     expect(message.path).toBe("/application/open-vault/wechatgroupmsg/list")
-    expect(message.pagination).toEqual({ enabled: true, maxPageSize: 50 })
+    // maxWindow: `total` stops at 10000 and an offset past it is refused (140002), probed 2026-09-25.
+    expect(message.pagination).toEqual({ enabled: true, maxPageSize: 50, maxWindow: 10000 })
 
     const chatroom = ENDPOINTS["vault.wechat-chatroom.list"]
     expect(chatroom.key).toBe("vault.wechat-chatroom.list")
@@ -547,6 +556,10 @@ describe("ENDPOINTS", () => {
       "tool.web-search",
       // 5 credits per ROW: replaying a page re-bills rows already delivered.
       "insight.highlight.list",
+      // 3 per row and up to 6000 codes per call: one replay can re-bill 18000 credits.
+      "ai.stock-summary.list",
+      // 0.5 per row with rows bounded only by the account's history window.
+      "fundamental.earning-forecast",
       // The whole bond family is metered (0.4 per call, or per row / bond /
       // issuer on three of them) — metered plus replayable is what double-bills.
       "bond.basic-info",
@@ -581,8 +594,8 @@ describe("ENDPOINTS", () => {
     // unguarded, one registry edit away from silently losing the marker.
     const actual = Object.values(ENDPOINTS).filter((ep) => ep.retry === "no-replay").map((ep) => ep.key)
     expect([...actual].sort(), "registry no-replay set must match this list exactly — add new ones here deliberately").toEqual([...NO_REPLAY_KEYS].sort())
-    // Per-row billed / read-only endpoints keep the default full-retry policy.
-    expect(ENDPOINTS["ai.stock-summary.list"].retry).toBeUndefined()
+    // Read-only endpoints and cheap per-row lists keep the default full-retry policy.
+    expect(ENDPOINTS["ai.security-clue.list"].retry).toBeUndefined()
     expect(ENDPOINTS["ai.earnings-review.get-content"].retry).toBeUndefined()
     expect(ENDPOINTS["ai.viewpoint-debate.get-content"].retry).toBeUndefined()
     expect(ENDPOINTS["insight.qa.list"].retry).toBeUndefined()
@@ -593,6 +606,42 @@ describe("ENDPOINTS", () => {
     for (const key of ["vault.stock-pool.delete", "vault.stock-pool.rename", "vault.stock-pool.add-stock", "vault.stock-pool.remove-stock", "vault.drive.rename", "vault.drive.move-file", "vault.drive.move-folder"]) {
       expect(ENDPOINTS[key], key).toBeDefined()
       expect(ENDPOINTS[key].retry, key).toBeUndefined()
+    }
+  })
+
+  it("keeps every endpoint whose single request can bill past the line on no-replay", () => {
+    // A per-row / per-document endpoint re-bills what a replayed request delivers again.
+    // Past NO_REPLAY_ABOVE_CREDITS for one request, that risk outweighs the retry.
+    const costly = Object.values(ENDPOINTS).filter((ep) => ep.billing && (ep.billing.per === "row" || ep.billing.per === "document") && worstRequestCredits(ep) > NO_REPLAY_ABOVE_CREDITS)
+    expect(costly.map((ep) => ep.key)).toContain("ai.stock-summary.list") // guards the guard: not vacuous
+    expect(costly.filter((ep) => ep.retry !== "no-replay").map((ep) => ep.key)).toEqual([])
+    // The line is strict: ai.security-clue.list (500 × 5 = 2500) stays under it.
+    expect(worstRequestCredits(ENDPOINTS["ai.security-clue.list"])).toBe(2500)
+  })
+
+  it("declares a per-request bound on every per-row endpoint that is not paginated", () => {
+    // Without one, worstRequestCredits would price a batch or a date-range endpoint as a
+    // single row and the no-replay line above could never see it.
+    const unbounded = Object.values(ENDPOINTS)
+      .filter((ep) => ep.billing?.per === "row" && !ep.pagination?.enabled && ep.billing.maxUnits === undefined)
+      .map((ep) => ep.key)
+    expect(unbounded).toEqual([])
+  })
+
+  it("keeps every endpoint billed per call or per submitted page on no-replay", () => {
+    // A replay after a timeout the server already answered runs — and bills — the call
+    // again.
+    const replayBillable = Object.values(ENDPOINTS).filter((ep) => ep.billing && (ep.billing.per === "call" || ep.billing.per === "page"))
+    expect(replayBillable.length).toBeGreaterThan(0)
+    const offenders = replayBillable.filter((ep) => ep.retry !== "no-replay").map((ep) => ep.key)
+    expect(offenders).toEqual([])
+  })
+
+  it("prices every billed endpoint above zero, in a known unit", () => {
+    for (const ep of Object.values(ENDPOINTS)) {
+      if (!ep.billing) continue
+      expect(["call", "page", "row", "document"], ep.key).toContain(ep.billing.per)
+      expect(ep.billing.price, ep.key).toBeGreaterThan(0)
     }
   })
 
@@ -719,6 +768,9 @@ describe("AI generation endpoint timeouts", () => {
       "ai.one-pager", "ai.investment-logic", "ai.peer-comparison",
       "ai.theme-tracking", "ai.research-outline",
       "ai.management-discuss-announcement", "ai.management-discuss-earnings-call",
+      // Not a generation, but not replayed either (up to 18000 credits a call), so a
+      // large batch must not fail on the 30s default.
+      "ai.stock-summary.list",
     ]) {
       expect(ENDPOINTS[key].timeoutMs, `${key}.timeoutMs`).toBe(120_000)
     }
@@ -726,7 +778,7 @@ describe("AI generation endpoint timeouts", () => {
 
   it("leaves fast list and async-polling AI endpoints on the default timeout", () => {
     for (const key of [
-      "ai.hot-topic", "ai.stock-summary.list",
+      "ai.hot-topic",
       "ai.earnings-review.get-id", "ai.earnings-review.get-content",
       "ai.viewpoint-debate.get-id", "ai.viewpoint-debate.get-content",
     ]) {

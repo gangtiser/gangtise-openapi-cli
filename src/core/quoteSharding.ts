@@ -13,7 +13,7 @@ export interface KlineBody {
 }
 
 interface ShardConfig {
-  /** Days per shard. Picked so each request stays under the 10K-row API cap. */
+  /** Weekdays per shard. Picked so each request stays under the 10K-row API cap. */
   shardDays: number
   concurrency?: number
   /** securityList value that means "whole market" for this endpoint and triggers
@@ -31,10 +31,13 @@ interface KlineClient {
 }
 
 const DAY_MS = 86_400_000
-/** API-side row cap (per docs). Used to lift the default 6000-row cap on whole-market
- * queries so a 2-day A-share shard (~11K rows) isn't silently truncated. Single-security
- * queries are untouched. */
-const ALL_MARKET_LIMIT = 10_000
+/** The quote endpoints' per-request row ceiling (per docs) — the one definition of it;
+ * `--limit` is validated to it. */
+export const QUOTE_MAX_LIMIT = 10_000
+
+/** Whole-market requests are sent at the ceiling rather than the 6000-row default, so a
+ * shard is never cut short by the default. Single-security queries are untouched. */
+const ALL_MARKET_LIMIT = QUOTE_MAX_LIMIT
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
@@ -83,29 +86,25 @@ function isWeekendUtc(d: Date): boolean {
 }
 
 function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDate: string; endDate: string }> {
+  // Each shard holds `shardDays` WEEKDAYS: a weekend day never has rows (A/HK/US markets
+  // closed), so counting calendar days spent requests on windows that could only come back
+  // empty or half empty (2-day hkStocks shards: every Sat + Sun pair, and every Fri + Sat).
+  // A shard runs from its first weekday to its last, so one straddling a weekend (Fri + Mon)
+  // still holds `shardDays` trading days at most and stays inside the row cap its size was
+  // chosen for. With shardDays 1 this is one request per weekday.
   const shards: Array<{ startDate: string; endDate: string }> = []
-  let cursor = start.getTime()
-  const endTime = end.getTime()
-  while (cursor <= endTime) {
-    const shardEnd = Math.min(cursor + (shardDays - 1) * DAY_MS, endTime)
-    // Per-day sharding (shardDays===1): a lone weekend day always returns empty (A/HK/US
-    // markets closed) — skip it to save ~28% of requests and daily quota. This covers
-    // every 1-day-sharded full-market query: fund-flow AND day-kline (aShares/usStocks)
-    // / day-kline-us.
-    //
-    // Multi-day shards (day-kline hkStocks=2, day-kline-hk=2) are NOT filtered. Note
-    // this is a deliberate simplification, not a claim that they always contain a weekday:
-    // a 2-day shard starting on a Saturday is Sat+Sun and returns nothing. That costs one
-    // wasted request at a range boundary and never drops a trading day, whereas filtering
-    // multi-day windows correctly would mean walking each window's days.
-    if (!(shardDays === 1 && isWeekendUtc(new Date(cursor)))) {
-      shards.push({
-        startDate: formatDate(new Date(cursor)),
-        endDate: formatDate(new Date(shardEnd)),
-      })
-    }
-    cursor = shardEnd + DAY_MS
+  let group: number[] = []
+  const flush = (): void => {
+    if (group.length === 0) return
+    shards.push({ startDate: formatDate(new Date(group[0])), endDate: formatDate(new Date(group[group.length - 1])) })
+    group = []
   }
+  for (let day = start.getTime(); day <= end.getTime(); day += DAY_MS) {
+    if (isWeekendUtc(new Date(day))) continue
+    group.push(day)
+    if (group.length === shardDays) flush()
+  }
+  flush()
   return shards
 }
 
@@ -122,9 +121,11 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   // `--security all` returns thousands of rows per day; lift the default 6000-row
-  // cap to the API max so single-shard requests aren't silently truncated. This
-  // must apply even when a date is missing (no sharding possible then, but the
-  // single request still needs the lifted cap).
+  // cap to the API max so single-shard requests aren't silently truncated. The
+  // missing-date fallback below (one unsharded request) is kept for callers that
+  // bypass the CLI's own check: the quote commands require both dates for a
+  // whole-market keyword, because the server answers an unbounded whole-market
+  // request with 100003 查询规模过大 rather than a truncated page (probed 2026-09-25).
   const allMarketBody: KlineBody = { ...body, limit: body.limit ?? ALL_MARKET_LIMIT }
   const perShardLimit = allMarketBody.limit ?? ALL_MARKET_LIMIT
   // A shard maxes out for two reasons with different fixes: a user-set low --limit is
@@ -132,7 +133,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // would help). Word the truncation warning accordingly.
   const truncationHint = perShardLimit < ALL_MARKET_LIMIT
     ? "raise or omit --limit to fetch the full market"
-    : `a single ${config.shardDays}-day window exceeds the ${ALL_MARKET_LIMIT}-row API cap`
+    : `a single ${config.shardDays}-weekday window exceeds the ${ALL_MARKET_LIMIT}-row API cap`
 
   // A full-market response whose row count reaches the per-request limit was itself
   // capped (a low user --limit, or a single day exceeding the API row cap) — its slice
@@ -175,7 +176,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // isVerbose() (not a direct env read) so the global --verbose flag reaches
   // shard logging too — cli.ts enables it via setVerbose in a preAction hook.
   if (isVerbose()) {
-    process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
+    process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} weekday(s) each)\n`)
   }
 
   // Per-shard fault tolerance: a failing shard is recorded and skipped (returns a

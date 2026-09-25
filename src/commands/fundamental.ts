@@ -1,6 +1,6 @@
 import { Command, Option } from "commander"
 
-import { collectList, dateArg, localDateString, maybeArray, parseOptionalNumberOption } from "../core/args.js"
+import { beijingDateString, collectList, dateArg, maybeArray, parseOptionalNumberOption } from "../core/args.js"
 import { normalizeRows } from "../core/normalize.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
@@ -115,7 +115,7 @@ fundamental.command("valuation-analysis")
   // 2026-09-24: 2015-01-01..2016-03-31 starts at the 2016-01-01 bound, exit 0).
   const firstDate = firstRowTradeDate(data)
   if (!(options.startDate && firstDate === options.startDate)) {
-    flagIfLimitTruncated(data, limit, "fundamental valuation-analysis", "--start-date", `The API keeps the most recent rows, so it is the START of the range that is missing. The series has one row per calendar day (weekends included): raise --limit to at least the number of days in the range (e.g. --limit 4000 for ten years within your account's history window), or move --start-date later.`)
+    flagIfLimitTruncated(data, limit, "fundamental valuation-analysis", "--start-date", `The API keeps the most recent rows, so it is the START of the range that is missing. The series has one row per calendar day (weekends included): raise --limit to at least the number of days in the range (366 per year covers it, e.g. --limit 1830 for five years), or move --start-date later.`)
   }
   if (options.startDate && firstDate && firstDate > options.startDate && !(data as { partial?: boolean }).partial) {
     process.stderr.write(`[gangtise] note: the series starts at ${firstDate}, later than --start-date ${options.startDate}. Either the security listed later, or the range reaches past your account's history window — this endpoint returns what lies inside the window without an error.\n`)
@@ -163,7 +163,7 @@ fundamental.command("earning-forecast")
   .option("--format <format>", "Output format", "table")
   .option("--output <path>")
   .action((options) => emit(options, (client) => {
-  const endDate = options.endDate ?? localDateString(new Date())
+  const endDate = options.endDate ?? beijingDateString(new Date())
   // Anchor the default window to endDate (as the help text promises), not to today —
   // a historical --end-date without --start-date should mean "the year before it".
   const startDate = options.startDate ?? new Date(new Date(`${endDate}T00:00:00Z`).getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)

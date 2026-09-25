@@ -184,6 +184,58 @@ describe("GangtiseClient pagination", () => {
     expect(result.list.at(-1)).toEqual(["s52", "T52"])
   })
 
+  it("reads a first page of total 0 with list null as an empty result, and nothing looser", async () => {
+    // ai.hot-topic answers "nothing matched" with list: null (probed 2026-09-25). That is an
+    // empty result, not a broken one; a null list under any other total, or a string 0, is.
+    const previousExit = process.exitCode
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      process.exitCode = undefined
+      requestMock.mockResolvedValue(jsonResponse({ total: 0, list: null }))
+      const empty = await createClient().call("ai.hot-topic", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
+      expect(empty).toMatchObject({ total: 0, list: [] })
+      expect(empty.partial).toBeUndefined()
+      expect(process.exitCode).toBeUndefined()
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).not.toContain("unexpected shape")
+
+      for (const broken of [{ total: 3, list: null }, { total: "0", list: null }, { total: 0 }]) {
+        errSpy.mockClear()
+        process.exitCode = undefined
+        requestMock.mockResolvedValue(jsonResponse(broken))
+        await createClient().call("ai.hot-topic", { from: 0 })
+        expect(process.exitCode, JSON.stringify(broken)).toBe(3)
+        expect(errSpy.mock.calls.map((c) => String(c[0])).join(""), JSON.stringify(broken)).toContain("unexpected shape")
+      }
+    } finally {
+      process.exitCode = previousExit
+      errSpy.mockRestore()
+    }
+  })
+
+  it("reads a later page of total 0 with list null as a total that drifted, not a failed page", async () => {
+    // The page carries no rows to refetch: marking it failed would send the caller to
+    // re-pull a page that is empty by the server's own count.
+    const previousExit = process.exitCode
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const from = (JSON.parse(opts?.body ?? "{}") as { from?: number }).from ?? 0
+        if (from === 0) return Promise.resolve(jsonResponse({ total: 100, list: Array.from({ length: 50 }, (_, i) => ({ id: i + 1 })) }))
+        return Promise.resolve(jsonResponse({ total: 0, list: null }))
+      })
+      const result = await createClient().call("vault.drive.list", { from: 0 }) as { list: unknown[]; partial?: boolean; failedPages?: unknown }
+      expect(result.list).toHaveLength(50)
+      expect(result.partial).toBe(true)
+      expect(result.failedPages).toBeUndefined()
+      const warnings = errSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(warnings).toContain("'total' changed across pages")
+      expect(warnings).not.toContain("unexpected shape")
+    } finally {
+      process.exitCode = previousExit
+      errSpy.mockRestore()
+    }
+  })
+
   it("warns on verbose when a paginated endpoint's first page loses the {total,list} shape", async () => {
     // Shape drift (e.g. total arriving as a string) silently degrades fetch-all
     // to a single page with no partial marker — at least make it visible.
@@ -237,6 +289,267 @@ describe("GangtiseClient pagination", () => {
     }
   })
 
+  describe("credit guard on a per-row billed fetch without --size", () => {
+    // insight.research.list is priced 0.1 per row, so the 1000-credit guard sits at 10000 rows.
+    it("fetches everything at exactly the guard, and refuses after the first page just past it", async () => {
+      paginatedMock({ total: 10000, itemFor: (id) => ({ id }) })
+      const atGuard = await createClient().call("insight.research.list", { from: 0 }) as { list: unknown[] }
+      expect(atGuard.list).toHaveLength(10000)
+
+      requestMock.mockReset()
+      paginatedMock({ total: 10001, itemFor: (id) => ({ id }) })
+      const refused = await createClient().call("insight.research.list", { from: 0 }).catch((error: unknown) => error)
+      expect(refused).toBeInstanceOf(ValidationError)
+      expect(String(refused)).toMatch(/1000\.1 credits.*--size N.*--yes/)
+      expect(requestMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("learns the total of a list with a costly first page from one row, then pages from the start", async () => {
+      // ai.security-clue: 5 per row and pages of up to 500 — a full first page would be 2500.
+      // Refused: one row paid.
+      paginatedMock({ total: 3000, itemFor: (id) => ({ id }) })
+      await createClient().call("ai.security-clue.list", { from: 0 }).catch(() => undefined)
+      const sent = () => requestMock.mock.calls.map((c) => JSON.parse((c[1] as { body: string }).body) as { from: number; size: number })
+      expect(sent()).toEqual([expect.objectContaining({ from: 0, size: 1 })])
+      // Within the guard (40 rows at 20 = 800): the fetch starts over on the usual page
+      // boundaries rather than continuing from offset 1.
+      requestMock.mockReset()
+      paginatedMock({ total: 40, itemFor: (id) => ({ id }) })
+      const rows = await createClient().call("insight.roadshow.list", { from: 0 }) as { list: unknown[] }
+      expect(rows.list).toHaveLength(40)
+      expect(sent().map(({ from, size }) => [from, size])).toEqual([[0, 1], [0, 50]])
+    })
+
+    it("answers from the probe alone when it holds every row, or when its shape is unexpected", async () => {
+      // ai.hot-topic: 50 per report, pages of 20 — probed first. A one-row result is the
+      // commonest query and must not be paid for twice; an odd probe must not buy a full
+      // page just to show the same oddity again.
+      const sent = () => requestMock.mock.calls.map((c) => { const b = JSON.parse((c[1] as { body: string }).body) as { from: number; size: number }; return [b.from, b.size] })
+      for (const total of [1, 0]) {
+        requestMock.mockReset()
+        paginatedMock({ total, itemFor: (id) => ({ id }) })
+        const result = await createClient().call("ai.hot-topic", { from: 0 }) as { list: unknown[]; partial?: boolean }
+        expect(result.list).toHaveLength(total)
+        expect(result.partial).toBeUndefined()
+        expect(sent()).toEqual([[0, 1]])
+      }
+      // A probe with more rows than its total leaves contradicts itself: not the result.
+      requestMock.mockReset()
+      requestMock.mockImplementation(() => Promise.resolve(jsonResponse({ total: 0, list: [{ id: 1 }] })))
+      await createClient().call("ai.hot-topic", { from: 0 })
+      expect(sent()).toEqual([[0, 1], [0, 20]])
+      requestMock.mockReset()
+      requestMock.mockResolvedValue(jsonResponse(null))
+      const previousExit = process.exitCode
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      try {
+        await createClient().call("ai.hot-topic", { from: 0 })
+        expect(sent()).toEqual([[0, 1]])
+        expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("unexpected shape")
+        expect(process.exitCode).toBe(3)
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    it("prices only the rows left to fetch after --from", async () => {
+      // 20000 rows from offset 10500: 9500 to fetch = 950 credits, under the guard — though
+      // the whole list (2000 credits) is over it.
+      paginatedMock({ total: 20000, itemFor: (id) => ({ id }) })
+      const tail = await createClient().call("insight.research.list", { from: 10500 }) as { list: unknown[] }
+      expect(tail.list).toHaveLength(9500)
+    })
+
+    it("leaves a bounded fetch, a confirmed one and a free list alone", async () => {
+      paginatedMock({ total: 20000, itemFor: (id) => ({ id }) })
+      const bounded = await createClient().call("insight.research.list", { from: 0, size: 120 }) as { list: unknown[] }
+      expect(bounded.list).toHaveLength(120)
+
+      const confirmedClient = createClient()
+      confirmedClient.allowCostlyFetch = true
+      const confirmed = await confirmedClient.call("insight.research.list", { from: 0 }) as { list: unknown[] }
+      expect(confirmed.list).toHaveLength(20000)
+
+      const free = await createClient().call("vault.drive.list", { from: 0 }) as { list: unknown[] }
+      expect(free.list).toHaveLength(20000)
+    })
+  })
+
+  describe("rows repeated across page boundaries", () => {
+    // Page 2 (from 50) starts with page 1's last row again and skips row 51: a
+    // same-timestamp group reordered between the two requests (server-side P2-26).
+    const shiftedPages = (secondPageHead: (i: number) => Record<string, unknown>) =>
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        const size = body.size ?? 50
+        const ids = Array.from({ length: Math.max(0, Math.min(size, 100 - from)) }, (_, i) => from + i + 1)
+        const list: Array<Record<string, unknown>> = ids.map((i) => ({ chiefOpinionId: String(i), title: `t${i}` }))
+        if (from === 50) list[0] = secondPageHead(50)
+        return Promise.resolve(jsonResponse({ total: 100, list }))
+      })
+
+    it("drops a whole-row repeat and marks the result partial with duplicateRows", async () => {
+      shiftedPages((last) => ({ chiefOpinionId: String(last), title: `t${last}` }))
+      const previousExit = process.exitCode
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      try {
+        const result = await createClient().call("insight.opinion.list", { from: 0 }) as { list: Array<{ chiefOpinionId: string }>; partial?: boolean; duplicateRows?: number }
+        expect(result.list).toHaveLength(99)
+        expect(new Set(result.list.map((r) => r.chiefOpinionId)).size).toBe(99)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.partial).toBe(true)
+        const warnings = errSpy.mock.calls.map((c) => String(c[0])).join("")
+        expect(warnings).toContain("more than once")
+        // Every row arrived, so no page came back short, and the total is still checked.
+        expect(warnings).not.toContain("came back short")
+        expect(requestMock.mock.calls.some((c) => (JSON.parse((c[1] as { body: string }).body) as { from: number }).from === 100)).toBe(true)
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    it("still marks a total on the declared offset window as capped when repeats made the fetch short", async () => {
+      // vault.wechat-message.list declares a 10000-row window. A repeat drops the row count
+      // below total; the cap on total is the larger loss and must not be hidden by it.
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        const ids = Array.from({ length: Math.max(0, Math.min(body.size ?? 50, 10000 - from)) }, (_, i) => from + i + 1)
+        const list: Array<Record<string, unknown>> = ids.map((i) => ({ msgId: String(i) }))
+        if (from === 50) list[0] = { msgId: "50" }
+        return Promise.resolve(jsonResponse({ total: 10000, list }))
+      })
+      const previousExit = process.exitCode
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      try {
+        const result = await createClient().call("vault.wechat-message.list", { from: 0 }) as { list: unknown[]; duplicateRows?: number; totalCapped?: boolean; partial?: boolean }
+        expect(result.list).toHaveLength(9999)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.totalCapped).toBe(true)
+        expect(result.partial).toBe(true)
+        expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("equals its 10000-row offset window")
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    it("keeps both versions of an id that changed between pages, and marks the result partial with changedRows", async () => {
+      shiftedPages((last) => ({ chiefOpinionId: String(last), title: "the same row, edited in between" }))
+      const previousExit = process.exitCode
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      try {
+        const result = await createClient().call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean; duplicateRows?: number; changedRows?: number }
+        expect(result.list).toHaveLength(100)
+        expect(result.duplicateRows).toBeUndefined()
+        expect(result.changedRows).toBe(1)
+        expect(result.partial).toBe(true)
+        expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).toContain("came back on a later page with different content")
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    it("reads an id that one page carries twice with different content as no row key, and marks nothing", async () => {
+      // One response is a consistent snapshot, so two different rows under one id there
+      // mean the declared field does not identify a row on this list.
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        const ids = Array.from({ length: Math.max(0, Math.min(body.size ?? 50, 100 - from)) }, (_, i) => from + i + 1)
+        const list: Array<Record<string, unknown>> = ids.map((i) => ({ chiefOpinionId: String(i), title: `t${i}` }))
+        if (from === 0) list[1] = { chiefOpinionId: "1", title: "another row under id 1" }
+        if (from === 50) list[0] = { chiefOpinionId: "50", title: "another row under id 50" }
+        return Promise.resolve(jsonResponse({ total: 100, list }))
+      })
+      const result = await createClient().call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean; changedRows?: number }
+      expect(result.list).toHaveLength(100)
+      expect(result.changedRows).toBeUndefined()
+      expect(result.partial).toBeUndefined()
+    })
+
+    it("counts no changed row on a list whose id field is not verified", async () => {
+      // insight.roadshow.list declares `id` from the response description only: a pair of
+      // records sharing it across a page boundary must not mark every run partial.
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        const ids = Array.from({ length: Math.max(0, Math.min(body.size ?? 50, 100 - from)) }, (_, i) => from + i + 1)
+        const list: Array<Record<string, unknown>> = ids.map((i) => ({ id: String(i), title: `t${i}` }))
+        if (from === 50) list[0] = { id: "50", title: "another record under id 50" }
+        return Promise.resolve(jsonResponse({ total: 100, list }))
+      })
+      const client = createClient()
+      client.allowCostlyFetch = true
+      const result = await client.call("insight.roadshow.list", { from: 0 }) as { list: unknown[]; partial?: boolean; changedRows?: number }
+      expect(result.list).toHaveLength(100)
+      expect(result.changedRows).toBeUndefined()
+      expect(result.partial).toBeUndefined()
+    })
+
+    it("leaves a list without a declared row id untouched", async () => {
+      // insight.qa.list rows carry no id field, so nothing is declared and nothing dropped.
+      requestMock.mockImplementation(() => Promise.resolve(jsonResponse({ total: 2, list: [{ question: "q" }, { question: "q" }] })))
+      const result = await createClient().call("insight.qa.list", { from: 0 }) as { list: unknown[]; duplicateRows?: number }
+      expect(result.list).toHaveLength(2)
+      expect(result.duplicateRows).toBeUndefined()
+    })
+  })
+
+  it("treats a total the server refuses to probe past as a capped total, and stays silent on a probe that never got through", async () => {
+    const CAP = 100
+    let probeMode: "refuse" | "unavailable" | "network" = "refuse"
+    requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+      const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+      const from = body.from ?? 0
+      const size = body.size ?? 20
+      if (from >= CAP) {
+        // An offset at the reported total: a window the endpoint does not declare. The
+        // server refuses it with a terminal code (no retry), or the request never lands.
+        if (probeMode === "refuse") return Promise.resolve(rawJsonResponse({ code: "140002", msg: "业务处理失败" }, 500))
+        // A plain 5xx that outlives its retries says nothing about an offset window.
+        if (probeMode === "unavailable") return Promise.resolve(rawJsonResponse({ code: "999999", msg: "系统错误" }, 503))
+        return Promise.reject(new Error("socket hang up"))
+      }
+      return Promise.resolve(jsonResponse({ total: CAP, list: Array.from({ length: Math.min(size, CAP - from) }, (_, i) => ({ id: from + i + 1 })) }))
+    })
+    const previousExit = process.exitCode
+    const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    try {
+      const client = createClient()
+      const refused = await client.call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean; totalCapped?: boolean }
+      expect(refused.list).toHaveLength(CAP)
+      // The row at `total` was refused while every row before it was served: total equals
+      // an offset window, and rows past it can be neither fetched nor counted.
+      expect(refused.partial).toBe(true)
+      expect(refused.totalCapped).toBe(true)
+      const notes = errSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(notes).toContain("TRUNCATED")
+      expect(notes).toContain("140002")
+
+      errSpy.mockClear()
+      probeMode = "unavailable"
+      const unavailable = await client.call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean }
+      expect(unavailable.list).toHaveLength(CAP)
+      expect(unavailable.partial).toBeUndefined()
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).not.toContain("TRUNCATED")
+
+      errSpy.mockClear()
+      probeMode = "network"
+      const unreached = await client.call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean }
+      expect(unreached.list).toHaveLength(CAP)
+      expect(unreached.partial).toBeUndefined()
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join("")).not.toContain("TRUNCATED")
+    } finally {
+      process.exitCode = previousExit
+      errSpy.mockRestore()
+    }
+  })
+
   it("still probes past the end on a no-replay endpoint", async () => {
     // `ai.hot-topic` is the only endpoint that is both paginated and `no-replay`, and it
     // MUST still be probed. An earlier build skipped it, reading `no-replay` as a
@@ -247,6 +560,8 @@ describe("GangtiseClient pagination", () => {
     // credits while costing this endpoint its only truncation check.
     paginatedMock({ total: 40, itemFor: (id) => ({ id }) })
     const client = createClient()
+    // Fetching everything is the point here, not the credit guard (40 reports × 50).
+    client.allowCostlyFetch = true
     const result = await client.call("ai.hot-topic", { from: 0 }) as { list: unknown[]; totalCapped?: boolean }
     expect(result.list).toHaveLength(40)
     expect(result.totalCapped).toBeUndefined()
@@ -276,6 +591,8 @@ describe("GangtiseClient pagination", () => {
     const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
     try {
       const client = createClient()
+    // Fetching everything is the point here, not the credit guard (40 reports × 50).
+    client.allowCostlyFetch = true
       const result = await client.call("ai.hot-topic", { from: 0 }) as { list: unknown[]; partial?: boolean; totalCapped?: boolean }
       expect(result.list).toHaveLength(CAP)
       expect(result.totalCapped).toBe(true)
@@ -601,6 +918,8 @@ describe("GangtiseClient pagination", () => {
     try {
       paginatedMock({ total: 50001, itemFor: (id) => ({ id }) })
       const client = createClient()
+      // The page cap is under test, not the credit guard (50001 rows × 0.1).
+      client.allowCostlyFetch = true
       const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[]; partial?: boolean }
 
       expect(requestMock).toHaveBeenCalledTimes(1000)
@@ -1563,6 +1882,8 @@ describe("GangtiseClient pagination cap", () => {
 
     try {
       const client = createClient()
+      // The page cap is under test, not the credit guard (50001 rows × 0.1).
+      client.allowCostlyFetch = true
       const result = await client.call("insight.research.list", { from: 0 }) as { total: number; list: unknown[] }
 
       expect(result.total).toBe(50_001)

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 
 import { stagingSiblings } from "../fixtures/staging.js"
 import { extFromContentType, releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
-import { saveOutputIfNeeded } from "../../src/core/output.js"
+import { removeStagingFiles, saveOutputIfNeeded } from "../../src/core/output.js"
 import { DownloadError } from "../../src/core/errors.js"
 import { readTitleCache, writeTitleCache } from "../../src/core/titleCache.js"
 
@@ -404,6 +404,22 @@ describe("saveDownloadResult", () => {
       expect(await uniquePath(base)).toBe(claimed[1])
       await releaseClaim(claimed[0])
       expect(await fs.readFile(claimed[0])).toEqual(Buffer.from([1, 2, 3]))
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("an interrupt removes a claim still empty and keeps a published download", async () => {
+    // The signal handler (cli.ts) calls removeStagingFiles. An empty claim carries the final
+    // name, so left behind it would read as a finished download.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-claim-"))
+    try {
+      const base = path.join(dir, "report.pdf")
+      const [published, unfinished] = await Promise.all([uniquePath(base), uniquePath(base)])
+      await saveOutputIfNeeded(new Uint8Array([1, 2, 3]), published)
+      removeStagingFiles()
+      expect(await fs.readFile(published)).toEqual(Buffer.from([1, 2, 3]))
+      await expect(fs.access(unfinished)).rejects.toThrow()
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }

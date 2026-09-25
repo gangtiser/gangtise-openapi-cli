@@ -130,7 +130,7 @@ query(vault, "record-list", {
     format(), output(),
   ],
 })
-addDownloadCommand(vault, { endpointKey: "vault.record.download", name: "record-download", idOption: "--record-id", idField: "recordId", fallbackPrefix: "record", contentTypeDescription: "Content type: original/asr/summary", titleListEndpoint: "vault.record.list" })
+addDownloadCommand(vault, { endpointKey: "vault.record.download", name: "record-download", idOption: "--record-id", idField: "recordId", fallbackPrefix: "record", contentTypeDescription: "Content type: original/asr/summary", contentTypeChoices: ["original", "asr", "summary"], titleListEndpoint: "vault.record.list" })
 query(vault, "my-conference-list", {
   endpoint: "vault.my-conference.list",
   cache: { endpointKey: "vault.my-conference.list", idField: "conferenceId" },
@@ -144,7 +144,7 @@ query(vault, "my-conference-list", {
     format(), output(),
   ],
 })
-addDownloadCommand(vault, { endpointKey: "vault.my-conference.download", name: "my-conference-download", idOption: "--conference-id", idField: "conferenceId", fallbackPrefix: "conference", contentTypeDescription: "Content type: asr/summary", titleListEndpoint: "vault.my-conference.list" })
+addDownloadCommand(vault, { endpointKey: "vault.my-conference.download", name: "my-conference-download", idOption: "--conference-id", idField: "conferenceId", fallbackPrefix: "conference", contentTypeDescription: "Content type: asr/summary", contentTypeChoices: ["asr", "summary"], titleListEndpoint: "vault.my-conference.list" })
 vault.command("wechat-message-list")
   .option("--from <number>", "Starting offset", "0")
   .option("--size <number>", "Total rows to return; omit to fetch all")

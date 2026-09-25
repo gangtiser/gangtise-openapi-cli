@@ -273,6 +273,9 @@ Options:
   --no-with-close-reading       Exclude close reading content
   --format <format>             Output format (default: "json")
   --output <path>
+  --yes                         Fetch every row even when a fetch without --size
+                                is estimated above the credit guard (the list is
+                                billed per row)
   -h, --help                    display help for command
 "
 `;
@@ -392,9 +395,13 @@ Options:
   --end-time <datetime>    End time
   --query-mode <mode>      (choices: "bySecurity", "byIndustry")
   --gts-code <code>        GTS code (default: [])
-  --source <name>          Source (default: [])
+  --source <name>          Source: researchReport/conference/announcement/view
+                           (repeat) (default: [])
   --format <format>        Output format (default: "table")
   --output <path>
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1214,9 +1221,7 @@ Options:
                             (F2 >= 20 && F2 <= 30)'; also supports
                             contains/notcontains on string indicators
   --date <date>             Data date (yyyy-MM-dd); sent as every indicator's
-                            tradeDate unless it already has one — omitting it
-                            leaves date-bearing indicators unfiltered and
-                            silently yields an empty screen. Report-period
+                            tradeDate unless it already has one. Report-period
                             indicators (is_*) reject tradeDate: give them
                             --indicator-param 'F1:reportDate=yyyy-MM-dd'
   --indicator-param <spec>  Per-variable param 'F1:key=value', e.g. F1:scale=8
@@ -1367,6 +1372,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1418,6 +1426,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1470,6 +1481,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1532,6 +1546,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1590,6 +1607,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1623,6 +1643,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1658,6 +1681,9 @@ Options:
                            codes are NOT accepted here (default: [])
   --format <format>        Output format (default: "table")
   --output <path>
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1706,6 +1732,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1761,6 +1790,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1822,6 +1854,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -1933,6 +1968,9 @@ Options:
                        (default: [])
   --format <format>    Output format (default: "table")
   --output <path>      Output path
+  --yes                Fetch every row even when a fetch without --size is
+                       estimated above the credit guard (the list is billed per
+                       row)
   -h, --help           display help for command
 "
 `;
@@ -1968,6 +2006,9 @@ Options:
                               for all) (default: [])
   --format <format>           Output format (default: "table")
   --output <path>
+  --yes                       Fetch every row even when a fetch without --size
+                              is estimated above the credit guard (the list is
+                              billed per row)
   -h, --help                  display help for command
 "
 `;
@@ -2067,6 +2108,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -2111,6 +2155,9 @@ Options:
   --start-time <datetime>    Start time
   --end-time <datetime>      End time
   --keyword <keyword>        Keyword
+  --yes                      Fetch every row even when a fetch without --size is
+                             estimated above the credit guard (the list is
+                             billed per row)
   -h, --help                 display help for command
 "
 `;
@@ -2150,6 +2197,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -2180,6 +2230,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -2238,6 +2291,9 @@ Options:
   --start-time <datetime>    Start time
   --end-time <datetime>      End time
   --keyword <keyword>        Keyword
+  --yes                      Fetch every row even when a fetch without --size is
+                             estimated above the credit guard (the list is
+                             billed per row)
   -h, --help                 display help for command
 "
 `;
@@ -2314,7 +2370,7 @@ Commands:
   index-day-kline [options]
   minute-kline [options]
   realtime [options]         Realtime quote snapshot (A-share / HK / US stocks,
-                             ETFs, and indices incl. 20 global indices)
+                             ETFs, and indices incl. global indices)
   fund-flow [options]        A-share daily fund flow (SH/SZ/BJ)
   help [command]             display help for command
 "
@@ -2334,7 +2390,10 @@ Options:
                        code) (default: [])
   --start-date <date>  Start date (default: 1 year before end-date)
   --end-date <date>    End date (default: latest)
-  --limit <number>     Max rows per request (default: 6000, max: 10000)
+  --limit <number>     Max rows per request (default: 6000, max: 10000). With
+                       several securities it also sizes the groups they are
+                       fetched in, so a small value fetches one security per
+                       request
   --field <field>      Field (default: [])
   --format <format>    Output format (default: "table")
   --output <path>
@@ -2350,7 +2409,10 @@ Options:
                        .HK, or 'all' for full market) (default: [])
   --start-date <date>  Start date (default: 1 year before end-date)
   --end-date <date>    End date (default: latest)
-  --limit <number>     Max rows per request (default: 6000, max: 10000)
+  --limit <number>     Max rows per request (default: 6000, max: 10000). With
+                       several securities it also sizes the groups they are
+                       fetched in, so a small value fetches one security per
+                       request
   --field <field>      Field (default: [])
   --format <format>    Output format (default: "table")
   --output <path>
@@ -2366,7 +2428,10 @@ Options:
                        e.g. AAPL.O, or 'all' for full market) (default: [])
   --start-date <date>  Start date (default: 1 year before end-date)
   --end-date <date>    End date (default: latest)
-  --limit <number>     Max rows per request (default: 6000, max: 10000)
+  --limit <number>     Max rows per request (default: 6000, max: 10000). With
+                       several securities it also sizes the groups they are
+                       fetched in, so a small value fetches one security per
+                       request
   --field <field>      Field (default: [])
   --format <format>    Output format (default: "table")
   --output <path>
@@ -2405,7 +2470,10 @@ Options:
                        result (default: [])
   --start-date <date>  Start date (default: 1 year before end-date)
   --end-date <date>    End date (default: latest)
-  --limit <number>     Max rows per request (default: 6000, max: 10000)
+  --limit <number>     Max rows per request (default: 6000, max: 10000). With
+                       several securities it also sizes the groups they are
+                       fetched in, so a small value fetches one security per
+                       request
   --field <field>      Field (default: [])
   --format <format>    Output format (default: "table")
   --output <path>
@@ -2436,7 +2504,7 @@ Options:
 exports[`CLI surface > help > help: gangtise quote realtime 1`] = `
 "Usage: gangtise quote realtime [options]
 
-Realtime quote snapshot (A-share / HK / US stocks, ETFs, and indices incl. 20
+Realtime quote snapshot (A-share / HK / US stocks, ETFs, and indices incl.
 global indices)
 
 Options:
@@ -2477,7 +2545,8 @@ Options:
   --body <json>
   --query <key=value>  Query string pair (default: {})
   --yes                Confirm an irreversible endpoint (required for the ones
-                       marked destructive)
+                       marked destructive), or fetch every row of a per-row
+                       billed list past the credit guard
   --format <format>    Output format (default: "json")
   --output <path>
   -h, --help           display help for command
@@ -2937,7 +3006,7 @@ exports[`CLI surface > help > help: gangtise vault my-conference-download 1`] = 
 
 Options:
   --conference-id <id>
-  --content-type <type>  Content type: asr/summary
+  --content-type <type>  Content type: asr/summary (choices: "asr", "summary")
   --resolve-title        On a title-cache miss, query the list endpoint for a
                          friendly filename (4 extra requests; most of these list
                          endpoints bill per row). Without it the server filename
@@ -2970,6 +3039,9 @@ Options:
                            (default: [])
   --format <format>        Output format (default: "table")
   --output <path>
+  --yes                    Fetch every row even when a fetch without --size is
+                           estimated above the credit guard (the list is billed
+                           per row)
   -h, --help               display help for command
 "
 `;
@@ -2979,7 +3051,8 @@ exports[`CLI surface > help > help: gangtise vault record-download 1`] = `
 
 Options:
   --record-id <id>
-  --content-type <type>  Content type: original/asr/summary
+  --content-type <type>  Content type: original/asr/summary (choices:
+                         "original", "asr", "summary")
   --resolve-title        On a title-cache miss, query the list endpoint for a
                          friendly filename (4 extra requests; most of these list
                          endpoints bill per row). Without it the server filename
@@ -3177,7 +3250,7 @@ exports[`CLI surface > invocations > bare: ai hot-topic 1`] = `
           "eveningBriefing",
         ],
         "from": 0,
-        "size": 20,
+        "size": 1,
         "withCloseReading": true,
         "withRelatedSecurities": true,
       },
@@ -4140,7 +4213,7 @@ exports[`CLI surface > invocations > bare: insight forum list 1`] = `
     {
       "body": {
         "from": 0,
-        "size": 50,
+        "size": 1,
       },
       "method": "POST",
       "path": "/application/open-insight/schedule/forum/getList",
@@ -4167,7 +4240,7 @@ exports[`CLI surface > invocations > bare: insight highlight list 1`] = `
     {
       "body": {
         "from": 0,
-        "size": 50,
+        "size": 1,
       },
       "method": "POST",
       "path": "/application/open-insight/summary/highlight/getList",
@@ -4210,7 +4283,7 @@ exports[`CLI surface > invocations > bare: insight independent-opinion list 1`] 
       "body": {
         "from": 0,
         "rankType": 1,
-        "size": 50,
+        "size": 1,
       },
       "method": "POST",
       "path": "/application/open-insight/independent-opinion/getList",
@@ -4380,7 +4453,7 @@ exports[`CLI surface > invocations > bare: insight performance-calendar list 1`]
   ],
   "exit": 1,
   "requests": [],
-  "stderr": "ValidationError: insight performance-calendar list without a bound would auto-paginate the whole calendar (>120k rows at 0.1 credits each): pass --start-date and --end-date, or --security, or an explicit --size
+  "stderr": "ValidationError: insight performance-calendar list without a bound would auto-paginate the whole calendar (over a hundred thousand rows at 0.1 credits each): pass --start-date and --end-date, or --security, or an explicit --size
 ",
   "stdout": "",
 }
@@ -4487,7 +4560,7 @@ exports[`CLI surface > invocations > bare: insight roadshow list 1`] = `
     {
       "body": {
         "from": 0,
-        "size": 50,
+        "size": 1,
       },
       "method": "POST",
       "path": "/application/open-insight/schedule/roadshow/getList",
@@ -4514,7 +4587,7 @@ exports[`CLI surface > invocations > bare: insight site-visit list 1`] = `
     {
       "body": {
         "from": 0,
-        "size": 50,
+        "size": 1,
       },
       "method": "POST",
       "path": "/application/open-insight/schedule/site-visit/getList",
@@ -4541,7 +4614,7 @@ exports[`CLI surface > invocations > bare: insight strategy list 1`] = `
     {
       "body": {
         "from": 0,
-        "size": 50,
+        "size": 1,
       },
       "method": "POST",
       "path": "/application/open-insight/schedule/strategy-meeting/getList",
@@ -5958,9 +6031,10 @@ exports[`CLI surface > invocations > full: ai hot-topic 1`] = `
     "--end-date",
     "2026-06-03",
     "--category",
-    "category-v",
+    "noonBriefing",
     "--with-related-securities",
     "--with-close-reading",
+    "--yes",
     "--format",
     "json",
   ],
@@ -5969,7 +6043,7 @@ exports[`CLI surface > invocations > full: ai hot-topic 1`] = `
     {
       "body": {
         "categoryList": [
-          "category-v",
+          "noonBriefing",
         ],
         "endDate": "2026-06-03",
         "from": 2,
@@ -6319,7 +6393,8 @@ exports[`CLI surface > invocations > full: ai security-clue 1`] = `
     "--gts-code",
     "gts-code-v",
     "--source",
-    "source-v",
+    "conference",
+    "--yes",
     "--format",
     "json",
   ],
@@ -6335,7 +6410,7 @@ exports[`CLI surface > invocations > full: ai security-clue 1`] = `
         "queryMode": "byIndustry",
         "size": 3,
         "source": [
-          "source-v",
+          "conference",
         ],
         "startTime": "2026-06-01 09:30:00",
       },
@@ -8435,6 +8510,7 @@ exports[`CLI surface > invocations > full: insight announcement list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -8535,6 +8611,7 @@ exports[`CLI surface > invocations > full: insight announcement-hk list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -8635,6 +8712,7 @@ exports[`CLI surface > invocations > full: insight announcement-us list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -8744,6 +8822,7 @@ exports[`CLI surface > invocations > full: insight foreign-opinion list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -8871,6 +8950,7 @@ exports[`CLI surface > invocations > full: insight foreign-report list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -8951,6 +9031,7 @@ exports[`CLI surface > invocations > full: insight forum list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9007,6 +9088,7 @@ exports[`CLI surface > invocations > full: insight highlight list 1`] = `
     "600519.SH",
     "--research-area",
     "research-area-v",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9097,6 +9179,7 @@ exports[`CLI surface > invocations > full: insight independent-opinion list 1`] 
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9206,6 +9289,7 @@ exports[`CLI surface > invocations > full: insight official-account list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9325,6 +9409,7 @@ exports[`CLI surface > invocations > full: insight opinion list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9546,6 +9631,7 @@ exports[`CLI surface > invocations > full: insight performance-calendar list 1`]
     "hkStocks",
     "--category",
     "performanceExpress",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9608,6 +9694,7 @@ exports[`CLI surface > invocations > full: insight qa list 1`] = `
     "question-category-v",
     "--answer-important",
     "1",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9798,6 +9885,7 @@ exports[`CLI surface > invocations > full: insight research list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9892,6 +9980,7 @@ exports[`CLI surface > invocations > full: insight roadshow list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -9983,6 +10072,7 @@ exports[`CLI surface > invocations > full: insight site-visit list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -10059,6 +10149,7 @@ exports[`CLI surface > invocations > full: insight strategy list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -10167,6 +10258,7 @@ exports[`CLI surface > invocations > full: insight summary list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--yes",
     "--format",
     "json",
   ],
@@ -13552,7 +13644,7 @@ exports[`CLI surface > invocations > full: vault my-conference-download 1`] = `
     "--conference-id",
     "conference-id-v",
     "--content-type",
-    "content-type-v",
+    "summary",
     "--resolve-title",
   ],
   "exit": 0,
@@ -13562,7 +13654,7 @@ exports[`CLI surface > invocations > full: vault my-conference-download 1`] = `
   "requests": [
     {
       "method": "GET",
-      "path": "/application/open-vault/my-conference/download/file?conferenceId=conference-id-v&contentType=content-type-v",
+      "path": "/application/open-vault/my-conference/download/file?conferenceId=conference-id-v&contentType=summary",
     },
     {
       "body": {
@@ -13604,6 +13696,7 @@ exports[`CLI surface > invocations > full: vault my-conference-list 1`] = `
     "category-v",
     "--source",
     "2",
+    "--yes",
     "--format",
     "json",
   ],
@@ -13659,7 +13752,7 @@ exports[`CLI surface > invocations > full: vault record-download 1`] = `
     "--record-id",
     "record-id-v",
     "--content-type",
-    "content-type-v",
+    "summary",
     "--resolve-title",
   ],
   "exit": 0,
@@ -13669,7 +13762,7 @@ exports[`CLI surface > invocations > full: vault record-download 1`] = `
   "requests": [
     {
       "method": "GET",
-      "path": "/application/open-vault/record/download/file?recordId=record-id-v&contentType=content-type-v",
+      "path": "/application/open-vault/record/download/file?recordId=record-id-v&contentType=summary",
     },
     {
       "body": {

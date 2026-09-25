@@ -8,7 +8,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-const body = (code: string) => ({ securityCode: code })
+const body = ([code]: string[]) => ({ securityCode: code })
 
 describe("callPerSecurity", () => {
   it("keeps the default window: a stuck first security holds the rest to about twice the concurrency", async () => {
@@ -42,6 +42,43 @@ describe("callPerSecurity", () => {
     expect(result.total).toBe(6)
     expect((result.list as unknown[][]).map((r) => r[0])).toEqual(["600519.SH", "600519.SH", "000858.SZ", "000858.SZ", "300750.SZ", "300750.SZ"])
     expect(result.partial).toBeUndefined()
+  })
+
+  it("sends several securities per request when grouped, and puts each group back in input order", async () => {
+    // The server answers a multi-security request sorted by securityCode; the merge must
+    // still list securities in the order the caller gave them, each keeping its date order.
+    const call = vi.fn().mockImplementation(async (_key: string, b: { securityList: string[] }) => ({
+      fieldList: ["securityCode", "tradeDate"],
+      list: [...b.securityList].sort().flatMap((code) => [[code, "2026-06-01"], [code, "2026-06-02"]]),
+    }))
+    const result = await callPerSecurity({ call }, "quote.day-kline", ["B.SZ", "A.SZ", "D.SZ", "C.SZ", "E.SZ"], (codes) => ({ securityList: codes }), 6000, "quote day-kline", 2)
+    expect(call.mock.calls.map((c) => (c[1] as { securityList: string[] }).securityList)).toEqual([["B.SZ", "A.SZ"], ["D.SZ", "C.SZ"], ["E.SZ"]])
+    expect((result.list as unknown[][]).map((r) => r.join(" "))).toEqual([
+      "B.SZ 2026-06-01", "B.SZ 2026-06-02", "A.SZ 2026-06-01", "A.SZ 2026-06-02",
+      "D.SZ 2026-06-01", "D.SZ 2026-06-02", "C.SZ 2026-06-01", "C.SZ 2026-06-02",
+      "E.SZ 2026-06-01", "E.SZ 2026-06-02",
+    ])
+    expect(result.total).toBe(10)
+  })
+
+  it("names every security of a group that filled the row cap", async () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const call = vi.fn().mockImplementation(async (_key: string, b: { securityList: string[] }) => ({
+      fieldList: ["securityCode"], list: b.securityList.includes("A.SZ") ? [["A.SZ"], ["B.SZ"], ["B.SZ"]] : [["C.SZ"]],
+    }))
+    const result = await callPerSecurity({ call }, "quote.day-kline", ["A.SZ", "B.SZ", "C.SZ"], (codes) => ({ securityList: codes }), 3, "quote day-kline", 2)
+    expect(result.partial).toBe(true)
+    expect(result.truncatedSecurities).toEqual(["A.SZ", "B.SZ"])
+    errSpy.mockRestore()
+  })
+
+  it("fails a grouped part whose rows carry no securityCode, as a structural error", async () => {
+    // Several securities in one answer without the column that says whose row is whose
+    // cannot be merged in input order, or attributed at all.
+    const call = vi.fn().mockResolvedValue({ fieldList: ["close"], list: [[1], [2]] })
+    const error = await callPerSecurity({ call }, "quote.day-kline", ["A.SZ", "B.SZ"], (codes) => ({ securityList: codes }), 6000, "quote day-kline", 2).catch((e: unknown) => e)
+    expect(isStructuralError(error)).toBe(true)
+    expect(String(error)).toContain("securityCode")
   })
 
   it("marks the merge partial and names the securities that filled their row cap", async () => {

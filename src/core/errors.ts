@@ -305,8 +305,8 @@ export class ApiError extends CliError {
     readonly retryAfterMs?: number,
     /** Context-specific hint that beats the generic per-code table — e.g. the
      * EDE fetch endpoints replace 999999's generic "系统错误，请稍后重试" with a
-     * parameter checklist, because a wrong param name or date axis there yields
-     * an empty TABLE rather than this code. */
+     * parameter checklist: a wrong code or param name there comes back as its own
+     * error (100003), but a date on the wrong axis silently yields null cells. */
     hintOverride?: string,
   ) {
     super(message)

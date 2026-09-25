@@ -2,6 +2,7 @@
  * downloads, the time-filter option set, and the guards more than one group needs. */
 import { Command, Option } from "commander"
 
+import { QUOTE_MAX_LIMIT } from "../core/quoteSharding.js"
 import { collectList, dateArg, datetimeArg, maybeArray, numberListArg, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize } from "../core/args.js"
 import { loadConfig } from "../core/config.js"
 import { releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "../core/download.js"
@@ -9,20 +10,25 @@ import { ENDPOINTS } from "../core/endpoints.js"
 import { ValidationError } from "../core/errors.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
-import { ExportSink } from "../core/rowSink.js"
+import { ExportSink, getRowSink } from "../core/rowSink.js"
 import type { GangtiseClient } from "../core/client.js"
 import type { TitleCacheConfig } from "../core/titleCache.js"
 
 /** Output options of a query command, read up front so a large jsonl / csv export to a
  * file can stream rows out as they arrive (ExportSink) instead of collecting them first. */
-export interface StreamOptions { format?: string; output?: string; cache?: TitleCacheConfig }
+export interface StreamOptions { format?: string; output?: string; cache?: TitleCacheConfig; yes?: boolean }
 
 // --- Lazy-loaded modules (deferred to action handlers) ---
 export async function createClient(stream?: StreamOptions) {
+  // Keep this import dynamic, and client.ts out of any module's static imports: client.ts
+  // loads undici, which `--help` and local validation must not pay for (cli.test.ts "startup
+  // cost" checks it).
   const { GangtiseClient } = await import("../core/client.js")
   // Only a jsonl / csv export to a file streams; every other format collects in memory as before.
   const sink = stream?.output && (stream.format === "jsonl" || stream.format === "csv") ? new ExportSink(stream.output, stream.format, stream.cache) : undefined
-  return new GangtiseClient(loadConfig(), sink)
+  const client = new GangtiseClient(loadConfig(), sink)
+  client.allowCostlyFetch = Boolean(stream?.yes)
+  return client
 }
 
 /**
@@ -32,14 +38,14 @@ export async function createClient(stream?: StreamOptions) {
  * query command repeated.
  */
 export async function emit(
-  options: { format?: string; output?: string },
+  options: { format?: string; output?: string; yes?: boolean },
   produce: (client: GangtiseClient) => Promise<unknown>,
   cache?: TitleCacheConfig,
 ): Promise<void> {
   // Validate --format before fetching: a typo'd format must not burn a full
   // (possibly credit-metered) data pull only to fail at render time.
   const format = parseOutputFormat(options.format)
-  const client = await createClient({ format, output: options.output, cache })
+  const client = await createClient({ format, output: options.output, cache, yes: options.yes })
   try {
     await printData(await produce(client), format, options.output, cache)
   } finally {
@@ -71,6 +77,8 @@ export async function withClient(a: StreamOptions | ((client: GangtiseClient) =>
  * number — never a guess about the server's default that can drift out of sync.
  */
 export const DEFAULT_QUOTE_LIMIT = 6000
+/** The per-request row ceiling of the same endpoints; `--limit` is validated to it. */
+export const MAX_QUOTE_LIMIT = QUOTE_MAX_LIMIT
 
 /**
  * Limit-capped, non-paginated endpoints (fund-flow, kline) report `total` as the
@@ -89,6 +97,52 @@ export function flagIfLimitTruncated(data: unknown, cap: number, label: string, 
     rec.partial = true
     process.stderr.write(`[gangtise] warning: ${label} returned ${rec.list.length} rows = the ${cap}-row limit; results are likely truncated (this endpoint has no pagination). ${advice ?? `Narrow ${rangeFlags} or raise --limit (max 10000), fetching in date batches.`}\n`)
   }
+}
+
+/** A first row this many calendar days after the requested start is not a weekend or a
+ * holiday (the longest market closure runs about nine days) — the series itself starts late. */
+const LATE_START_DAYS = 14
+
+/** The earliest `field` date over all rows, read straight off the columnar or object
+ * layout (several securities merge one after another, so the first row is not the
+ * earliest). Rows streamed to an export sink are not in `list`: the sink keeps their
+ * earliest date when the command asked it to watch the column (ExportSink.watchEarliest). */
+export function earliestRowDate(data: unknown, field: string): string | undefined {
+  const sink = getRowSink(data)
+  if (sink) return sink.earliest(field)
+  if (!data || typeof data !== "object" || Array.isArray(data)) return undefined
+  const rec = data as { fieldList?: unknown; list?: unknown }
+  if (!Array.isArray(rec.list)) return undefined
+  const index = Array.isArray(rec.fieldList) ? rec.fieldList.indexOf(field) : -1
+  let earliest: string | undefined
+  for (const row of rec.list) {
+    const value = Array.isArray(row) ? (index >= 0 ? row[index] : undefined) : row && typeof row === "object" ? (row as Record<string, unknown>)[field] : undefined
+    if (typeof value !== "string") continue
+    const day = value.slice(0, 10)
+    if (earliest === undefined || day < earliest) earliest = day
+  }
+  return earliest
+}
+
+/** Says on stderr when a quote series starts well after the requested start. The quote
+ * endpoints answer a range that reaches past the account's history window with what lies
+ * inside it and no error (minute bars have a much shorter window than daily bars), so a
+ * clipped series otherwise looks like a complete one. A security that listed later reads
+ * the same, which is why this is a note and leaves the exit code alone. */
+export function noteLateStart(data: unknown, requestedStart: string | undefined, field: string, label: string): void {
+  // A failed date shard can make the series start late for that reason alone; its own
+  // warning already names the gap, so this note would only misattribute it. Other
+  // incomplete results (a missing column, a row cap) keep the note: they name a
+  // different gap.
+  const failedShards = (data as { failedShards?: unknown } | null)?.failedShards
+  if (Array.isArray(failedShards) && failedShards.length > 0) return
+  const start = requestedStart?.slice(0, 10)
+  if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return
+  const first = earliestRowDate(data, field)
+  if (!first || !/^\d{4}-\d{2}-\d{2}$/.test(first)) return
+  const lateDays = (Date.parse(`${first}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
+  if (lateDays <= LATE_START_DAYS) return
+  process.stderr.write(`[gangtise] note: ${label} starts at ${first}, ${lateDays} days after the requested start ${start}. The security may have listed or resumed trading later, or the range reaches past your account's history window for this data — the endpoint returns what lies inside the window without an error.\n`)
 }
 
 /**
@@ -140,6 +194,9 @@ export function addDownloadCommand(parent: Command, spec: {
   // as mandatory keeps a future download command from silently skipping the guard.
   fileType?: { description: string; choices: string[]; default?: string; required?: boolean }
   contentTypeDescription?: string
+  /** The platform's `contentType` values. Checked locally: an unknown value comes back as
+   * 130003 「没有文件可供下载」, which reads as "this record has no file" (probed 2026-09-25). */
+  contentTypeChoices?: string[]
   titleListEndpoint?: string
 }) {
   const cmd = parent.command(spec.name ?? "download").requiredOption(`${spec.idOption} <id>`)
@@ -147,7 +204,10 @@ export function addDownloadCommand(parent: Command, spec: {
     const option = new Option("--file-type <number>", spec.fileType.description).choices(spec.fileType.choices)
     cmd.addOption(spec.fileType.required ? option.makeOptionMandatory() : option.default(spec.fileType.default))
   }
-  if (spec.contentTypeDescription) cmd.requiredOption("--content-type <type>", spec.contentTypeDescription)
+  if (spec.contentTypeDescription) {
+    const option = new Option("--content-type <type>", spec.contentTypeDescription).makeOptionMandatory()
+    cmd.addOption(spec.contentTypeChoices ? option.choices(spec.contentTypeChoices) : option)
+  }
   // Opt-in because it is NOT free: on a title-cache miss the lookup pulls
   // TITLE_LOOKUP_SIZE rows (4 requests) from a list endpoint that is metered per row
   // on most of these commands. Running `... list` first caches the titles and makes
@@ -196,6 +256,11 @@ export interface Field {
 
 export const field = (option: Option, body?: Field["body"]): Field => ({ option, body })
 
+/** `--yes` on a list billed per row: lets a fetch without --size go past the credit guard
+ * (COSTLY_FETCH_CREDITS in client.ts). Not part of the request body. */
+export const confirmCostly = (): Field =>
+  field(new Option("--yes", "Fetch every row even when a fetch without --size is estimated above the credit guard (the list is billed per row)"))
+
 /** Sent as given. */
 export const value = (flags: string, description: string | undefined, key: string): Field =>
   field(new Option(flags, description), (v) => ({ [key]: v }))
@@ -222,9 +287,20 @@ export const numberList = (flags: string, description: string, key: string): Fie
   return field(option, (v: number[]) => ({ [key]: v.length ? v : undefined }))
 }
 
+/** The values a repeatable enum option accepts. Its check runs in the command (parseChoiceList),
+ * so commander does not know them; the docs guard reads them from here. */
+export const multiChoiceValues = new WeakMap<Option, readonly string[]>()
+
+/** A repeatable or comma-separated option whose values the command checks against `choices`. */
+export function multiChoice(flags: string, description: string, choices: readonly string[]): Option {
+  const option = new Option(flags, description).argParser(collectList).default([])
+  multiChoiceValues.set(option, choices)
+  return option
+}
+
 /** Repeatable, and every value checked against a known set before anything is sent. */
 export const choiceList = (flags: string, description: string, key: string, choices: readonly string[]): Field => {
-  const option = new Option(flags, description).argParser(collectList).default([])
+  const option = multiChoice(flags, description, choices)
   return field(option, (v: string[]) => ({ [key]: parseChoiceList(v, option.long as string, choices) }))
 }
 
@@ -278,9 +354,14 @@ export function query(parent: Command, name: string, spec: {
 }): Command {
   const command = parent.command(name)
   if (spec.description) command.description(spec.description)
-  for (const f of spec.fields) command.addOption(f.option)
+  // A list billed per row gets --yes for the credit guard, read off the registry so the
+  // option cannot go missing on a newly billed list (a variant endpoint chosen by a flag,
+  // like --with-content, is billed per row as well).
+  const defaultEndpoint = ENDPOINTS[typeof spec.endpoint === "string" ? spec.endpoint : spec.endpoint({})]
+  const fields = defaultEndpoint?.pagination?.enabled && defaultEndpoint.billing?.per === "row" ? [...spec.fields, confirmCostly()] : spec.fields
+  for (const f of fields) command.addOption(f.option)
   return command.action((options) => emit(options, (client) => client.call(
     typeof spec.endpoint === "string" ? spec.endpoint : spec.endpoint(options),
-    requestBody(spec.fields, options),
+    requestBody(fields, options),
   ), spec.cache))
 }

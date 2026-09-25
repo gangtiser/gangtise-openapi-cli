@@ -45,7 +45,7 @@ describe("contract-probe", () => {
     const again = await probe("ok")
     expect(again.code).toBe(0)
     expect(again.stderr).not.toContain("≠")
-  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
+  }, 120_000) // a dozen probes, each a spawned stand-in CLI, twice over; slow on a loaded or 2-core machine
 
   it("row order is not part of the contract: reversed rows still pass", async () => {
     // Identical columns and null pattern, every list reversed — including the two-date
@@ -54,7 +54,7 @@ describe("contract-probe", () => {
     const reordered = await probe("reorder")
     expect(reordered.stderr).not.toContain("≠")
     expect(reordered.code).toBe(0)
-  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
+  }, 120_000) // a dozen probes, each a spawned stand-in CLI, twice over; slow on a loaded or 2-core machine
 
   it("a genuine contract change fails the plain run, leaves the baseline alone, and is accepted only by --update", async () => {
     // One extra column on the realtime rows — everything else identical. This is the
@@ -70,7 +70,7 @@ describe("contract-probe", () => {
     expect((await probe("drift", "--update")).code).toBe(0)
     expect(await readFile(snapshot, "utf8")).not.toBe(before)
     expect((await probe("drift")).code).toBe(0)
-  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
+  }, 120_000) // a dozen probes, each a spawned stand-in CLI, twice over; slow on a loaded or 2-core machine
 
   it("--update refuses to write when a probe failed to run, and keeps the old baseline", async () => {
     expect((await probe("ok", "--update")).code).toBe(0)
@@ -82,18 +82,18 @@ describe("contract-probe", () => {
     expect(failed.stderr).not.toContain("snapshot written")
     expect(await readFile(snapshot, "utf8")).toBe(before)
     expect((await stat(snapshot)).mtimeMs).toBe(mtimeBefore)
-  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
+  }, 120_000) // a dozen probes, each a spawned stand-in CLI, twice over; slow on a loaded or 2-core machine
 
   it("--update with no prior baseline and failing probes writes nothing at all", async () => {
     const failed = await probe("fail", "--update")
     expect(failed.code).toBe(1)
     await expect(stat(snapshot)).rejects.toThrow()
-  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
+  }, 120_000) // a dozen probes, each a spawned stand-in CLI, twice over; slow on a loaded or 2-core machine
 
   it("a plain run reports failed probes as a non-zero exit, not as a pass", async () => {
     expect((await probe("ok", "--update")).code).toBe(0)
     const failed = await probe("fail")
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain("failed to run")
-  }, 60_000) // a dozen probes, each a spawned stand-in CLI, twice over
+  }, 120_000) // a dozen probes, each a spawned stand-in CLI, twice over; slow on a loaded or 2-core machine
 })

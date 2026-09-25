@@ -1,8 +1,10 @@
 # Insight 命令详细参数
 
-所有 `insight ... list` 共享：`--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`
+`insight ... list` 大多共享：`--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`。**例外**：`highlight list` 与 `qa list` 没有 `--keyword`；`report-image list` 用 `--top` 而不是 `--from` / `--size`；`performance-calendar list` 用 `--start-date` / `--end-date` 且没有 `--keyword`
 
-时间格式：`"YYYY-MM-DD HH:mm:ss"`（datetime，需引号）。
+按条计费的列表省略 `--size` 时，CLI 先估算全量积分，超过 1000 积分报错退出 1（报错写明估算值）；确认后加 `--yes` 拉全量，或改传 `--size N`。
+
+时间格式：`"YYYY-MM-DD HH:mm:ss"`（datetime，需引号）。**`--end-time` 写到当天末尾 `23:59:59`**——只写日期时，A 股公告按当日 00:00:00 处理，截止日当天的数据取不到。
 
 支持 `--rank-type` 的命令：opinion / summary / **pamirs-summary** / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。
 
@@ -13,33 +15,21 @@
 | 最相关的内容（可以是旧的） | `--rank-type 1` + `--keyword` |
 | 最新的内容（按时间铺） | `--rank-type 2` |
 
-🔴 **两档差别有多大取决于关键词，别拿一个关键词去判断这个参数有没有用**。同一命令、比较前 50 条的条目 ID：
+🔴 **两档差别有多大取决于关键词，别拿一个关键词去判断这个参数有没有用**：有的关键词下两档取回的条目完全相同（如 `机器人`、`固态电池`），有的几乎没有交集（如 `新能源汽车`、`人形机器人`）。
 
-| 关键词 | `research` 两档交集 | `summary` 两档交集 |
-| :--- | ---: | ---: |
-| `机器人` / `PCB` | 50/50（**完全相同**） | 50/50 |
-| `固态电池` / `半导体设备` | 50/50 | 50/50 |
-| `人形机器人` | 9/50 | 15/50 |
-| `新能源汽车` | 2/50 | 0/50 |
+**判据不是「词够不够具体」，而是看 `total` 与组成词的关系**——用 `--size 1` 各查一次即可（每次最多扣 1 条的积分，研报 / 纪要是 0.1）：
 
-**判据不是「词够不够具体」**（`固态电池` / `半导体设备` 都很具体，却毫无差别），而是**看 `total` 与组成词的关系**——用 `--size 1` 各查一次即可，免费：
+- `total` **比组成词单独查都大**（服务端把词拆开按 OR 找，近似并集）→ 候选里既有整词命中也有只中一半的，相关度拉得开，两档取的是不同的批
+- `total` **比组成词小**（按整个短语找，近似交集）→ 全是真命中、相关度并列，两档就是同一批
 
-| 关键词 | `total` | 与组成词比 | 两档 |
-| :--- | --: | :--- | --: |
-| `新能源汽车` | 79059 | **大于**「新能源」42406 与「汽车」48474 单独查 → 近似并集 | 差别大 |
-| `人形机器人` | 12165 | ≈ 最大组成词「机器人」12164 → 也是拆词 | 差别大 |
-| `固态电池` | 1156 | **小于**「固态」1541 与「电池」12569 → 近似交集 | 无差别 |
-
-`total` 比组成词大（服务端把词拆开按 OR 找）时，候选里既有整词命中也有只中一半的，相关度拉得开，两档取的自然是不同的批；`total` 比组成词小（按整个短语找）时全是真命中、相关度并列，两档就是同一批。**这属正常，不是参数没生效**。
-
-`新能源汽车` 那组里 `--rank-type 1` 前 50 有 47 条标题含「新能源」、22 条含完整词「新能源汽车」，`--rank-type 2` 分别是 28 条和 **0 条**——**综合排序确实在按相关度挑**。
+**这属正常，不是参数没生效**。拆词的关键词下，`--rank-type 1` 的结果里含完整关键词的条目明显多于 `--rank-type 2`——综合排序确实在按相关度挑。
 
 ⚠️ **`--search-type` 不影响 `--rank-type 1` 取回哪些条目**：同一关键词下，`--search-type 1` 与 `2` 的 `--rank-type 1` 结果相同——即使 `--search-type 2` 把 `total` 放大一个数量级，取回的条目仍是同一批。`--search-type 2`（全文）扩大的是命中总数和 `--rank-type 2` 的候选池。**所以「要最相关」不需要加 `--search-type 2`。**
 
 ⚠️ **没有 `--keyword` 时两档结果一致**，这不是参数失效——没有关键词就无从计算相关度。
 
 ⚠️ **别用「返回结果是不是按时间倒序」判断综合排序有没有生效** —— `--rank-type 1` **挑完之后仍按时间倒序排列**，所以两种取值下返回序列都是时间单调的。要看差别就**比条目 ID 集合**，不是比排序。
-**不支持** `--rank-type` 的命令：roadshow / site-visit / strategy / forum（API 无此参数）。
+**不支持** `--rank-type` 的命令：roadshow / site-visit / strategy / forum / performance-calendar / qa / highlight / report-image（API 无此参数）。
 
 `--rank-type`：`1` 综合排序（默认）| `2` 时间倒序
 
@@ -52,6 +42,8 @@ gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief
 gangtise insight opinion detail --chief-opinion-id <id> [--chief-opinion-id <id>...]
 ```
 
+- **积分**：列表 1/条（只含摘要）；`--with-content` 30/条；`detail` 30/条
+
 - 🔴 **列表只含摘要**：`brief` 是正文前 200 字的截断，**1 积分/条**。要正文用 `detail` 按 `chiefOpinionId` 取（`content`，**30 积分/条**，按返回条数计）；或 `list --with-content` 让列表直接带正文（30 积分/条）。只需判断相关性、做筛选时看 `brief` 就够，别默认加 `--with-content`
 - `detail` 与 `--with-content` 都按返回条数计费，**超时 / 5xx 不自动重发**（重发可能对已交付的正文再计一次费），偶发失败自行重跑
 - ⚠️ **`--with-content` 返回的是旧版结构**：标题与正文在 `contentList.title` / `contentList.content`（`contentList` 是对象，不是数组），顶层没有 `title` / `brief`。按 `content` 字段名取会取不到；要统一成 `detail` 的结构就走 `list` + `detail`
@@ -60,7 +52,7 @@ gangtise insight opinion detail --chief-opinion-id <id> [--chief-opinion-id <id>
 
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
 - `--source`：`realTime` 实时 | `openSource` 开放来源
-- `--industry`：用 `citicIndustry` 码 `1008001xx`；申万码 `104xx0000` 也生效，但**两套码的行业成分不同、取回的结果集不一致**（同一行业约相差 5%），同一批查询别混用。`--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**申万码在本端点返 0**。详见 `reference-and-lookup.md`
+- `--industry`：用 `citicIndustry` 码 `1008001xx`；申万码 `104xx0000` 也生效，但**两套码的行业成分不同、取回的结果集不一致**，同一批查询别混用。`--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**申万码在本端点返 0**。详见 `reference-and-lookup.md`
 
 ## 纪要 `insight summary list/download`
 
@@ -69,9 +61,11 @@ gangtise insight summary list [--search-type <n>] [--rank-type <n>] [--source <n
 gangtise insight summary download --summary-id <id> [--file-type <n>] [--output <path>]
 ```
 
+- **积分**：列表 0.1/条；下载 50/篇
+
 - `--search-type`：`1` 标题搜索（默认，速度快）| `2` 全文搜索
 - `--source`：`1` 实时 | `2` 开放来源
-- `--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`。summary 是少数**申万码 `104xx0000` 也生效**的端点，但两套行业码取到的集合略有出入（同一行业约相差 2%），同一批查询里别混用
+- `--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`。summary 是少数**申万码 `104xx0000` 也生效**的端点，但两套行业码取到的集合略有出入，同一批查询里别混用
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
 - `--participant-role`：`management` 管理层 | `expert` 专家
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`
@@ -85,7 +79,7 @@ gangtise insight highlight list [--from N] [--size N] [--start-time <t>] [--end-
 
 Gangtise 会议内容的核心要点信息流（官方名「会议线索」），固定按发布时间倒序，适合做每日会议跟踪看板。
 
-- 🔴 **5 积分/条**，按返回条数计。**必须带 `--size`**——省略会自动翻页拉全量（范围内常有数千条）。先 `--size 1` 看 stderr 的 `Total: N` 探量级，再决定取多少
+- 🔴 **5 积分/条**，按返回条数计。**务必带 `--size`**——省略时 CLI 先取 1 条拿到 `total` 估算，超过 1000 积分（约 200 条）报错退出 1，要全量须加 `--yes`。先 `--size 1` 看 stderr 的 `Total: N` 探量级，再决定取多少
 - `--size` 单页上限 50
 - 按偏移量**最多取到第 10000 条**（`--from` + 条数不能超过 10000）。命中更多时 CLI 取到第 10000 条为止、stderr 说明并**退出 3**；`--from` 本身 ≥10000 直接拒绝。要更多请缩短时间范围分段取
 - `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`，也接受 `yyyy-MM-dd`（自动补全）。超出账号数据权限窗口返回 `110003`
@@ -113,7 +107,7 @@ gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--
 - `--market`：`aShares` | `hkStocks` | `usChinaConcept` | `usStocks`
 - `--research-area`：**行业码两套都生效**——citic `1008001xx` 和申万 `104xx0000`。申万码这点与多数 insight list 不同（那些只有 summary 认申万码）。⚠️ 反过来，**方向码 `122000xxx` 在本端点返 0**，别在这里传方向
 - `--file-type`（download 可选）：`1` 原始文件（默认）| `2` HTML；**只有这两种**
-- 单页上限：spec 写 50，实际传更大的 `size` 也会照数返回。**CLI 仍按 50 翻页**——保守值在上限某天开始执行时不会被静默截断。省略 `--size` 自动翻页拉全量。翻页连续、无重复无缺口、`total` 不漂移
+- 单页上限 50，CLI 按 50 自动翻页；省略 `--size` 拉全量
 - 返回字段：`summaryId` / `title` / `brief`（摘要）/ `summaryTime`（纪要注明的生成时间）/ `publishTime`（发布时间）/ `categoryList` / `securityList[]{securityCode, securityName}` / `researchAreaList[]{researchAreaId, researchAreaName}` / `conceptList[]{conceptId, conceptName}` / `marketList`
 - ⚠️ **`conceptList` / `categoryList` / `marketList` 三个标签字段稀疏，且是否有值随记录和查法而变**：
   - **不带筛选时经常整条为空**，用 `--category` 或 `--market` 过滤时回填率明显更高（这两个字段是绑定的：用任一过滤，两个都会有值）。有值时给的是该记录的**全部**值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，不是"回显过滤值"）
@@ -123,7 +117,7 @@ gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--
 
 ```bash
 # 近一周的帕米尔纪要
-gangtise insight pamirs-summary list --start-time 2026-08-01 --end-time 2026-08-07 --format table
+gangtise insight pamirs-summary list --start-time "2026-08-01 00:00:00" --end-time "2026-08-07 23:59:59" --format table
 
 # 全文搜 + 时间倒序，只要前 20 条
 gangtise insight pamirs-summary list --keyword PCB --search-type 2 --rank-type 2 --size 20
@@ -142,8 +136,10 @@ gangtise insight strategy list   [--institution <id>] [--location <id>]
 gangtise insight forum list      [--research-area <id>] [--location <id>]
 ```
 
+- **积分**：列表 **20/条**——务必带 `--size`
+
 - 共用：`--keyword` `--start-time` `--end-time` `--from` `--size` `--location`
-- `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。按省份正确命中
+- `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。传省份 ID 会命中该省
 - 路演 `--category`：`earningsCall` | `strategyMeeting` | `companyAnalysis` | `industryAnalysis` | `fundRoadshow`
 - 调研 `--category`：`single` 单场 | `series` 系列
 - 调研 `--object`（仅调研）：`company` | `industry`
@@ -166,9 +162,9 @@ gangtise insight performance-calendar download --performance-report-id <id> [--o
 - `--market` / `--category` 拼错 CLI 本地直接报错（不是静默返全量）——这两个参数的枚举值不必猜
 - `--security`：证券代码，如 `000001.SZ`（可重复）
 - 自动翻页（`{total,list}`，单页上限 50）。**不加任何筛选时 total 十万量级**（含未来已排期的财报日程）——CLI 因此要求至少一个约束：`--start-date` + `--end-date`、或 `--security`、或显式 `--size`，裸跑直接报 `ValidationError`（不发请求、不扣分）
-- 只给 `--security`（不给日期/`--size`）时，CLI 额外套一个 **1000 行隐式上限**：单只证券的整段日历只有几十条，正常查询感知不到；万一服务端哪天不再按 `securityList` 过滤，结果会在 1000 行截断并标 `partial`（stderr 警告 + 退出码 3），而不是闷头翻完全表。判据是 `total`：只有「取满 1000 行且 total 显示还有更多」才告警——恰好 1000 行且 total=1000 是完整结果，退出码仍是 0。看到告警说明筛选**可能**没生效，改用日期范围重查
+- 只给 `--security`（不给日期/`--size`）时，CLI 额外套一个 **1000 行隐式上限**：单只证券的整段日历只有几十条，正常查询感知不到；筛选没有收窄时，结果会在 1000 行截断并标 `partial`（stderr 警告 + 退出码 3），而不是翻完全表。判据是 `total`：只有「取满 1000 行且 total 显示还有更多」才告警——恰好 1000 行且 total=1000 是完整结果，退出码仍是 0。看到告警说明筛选**可能**没生效，改用日期范围重查
 - 返回字段：`performanceReportId`（下载用）/ `securityCodeList[]`（A+H 同时上市会有多个代码）/ `securityName` / `category` / `publishDate` / `title` / `hasAttachment`
-- `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`（文档写 `yyyy-MM-dd`），取日期请截前 10 位
+- `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`，取日期请截前 10 位
 - download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用 title-cache 里的真实标题命名，**未命中不自动回查**，退回服务端文件名或 `<type>-<id>`。要回查加 `--resolve-title`——拉 200 条、按 0.1/条 约 20 积分，取回的标题会写回缓存供同批复用
 - **积分**：list 0.1/条；download A 股 10/篇、港美股 20/篇
 
@@ -195,7 +191,9 @@ gangtise insight foreign-report list [--search-type <n>] [--rank-type <n>] [--se
 gangtise insight foreign-report download --report-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- `--region`：`cn` 中国 | `cnHk` 香港 | `us` 美国 | `jp` 日本 | `sea` 东南亚 | `gl` 全球 | `uk` 英国 | `kr` 韩国 | `in` 印度（完整列表见 `references/lookup-ids.md`）
+- **积分**：列表 0.1/条；下载 50/篇
+
+- `--region`：`cn` 中国 | `cnHk` 香港 | `us` 美国 | `jp` 日本 | `sea` 东南亚 | `gl` 全球 | `uk` 英国 | `kr` 韩国 | `in` 印度（完整列表见 `references/lookup-ids.md`）。⚠️ 写错区域码不会报错，会返回不按区域筛选的全量结果——传之前核对取值
 - `--category` / `--llm-tag` / `--rating` / `--rating-change`：同研报
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown | `3` 中文翻译PDF | `4` 中文翻译Markdown
 
@@ -206,9 +204,11 @@ gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--secu
 gangtise insight announcement download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
 
+- **积分**：列表 0.1/条；下载 10/篇
+
 - `--category`：公告分类 ID，用 `reference constant-list --category aShareAnnouncementCategory` 查。常用：`103910200` 财务报告、`103910700` 股权股本、`103910201` 业绩预告、`103910703` 质押冻结、`103910803` 股权激励、`103910818` 股份增减持、`103910823` 问询函（完整列表见 `references/lookup-ids.md`）
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown
-- 时间过滤时区：本命令（A 股公告）会把 `--start-time`/`--end-time` 换算成毫秒时间戳发出，日期与时刻一律按**北京时间**解释，与运行机器的时区无关（UTC 云环境与本机结果相同）；10 / 13 位时间戳原样透传。其余 insight 列表把字符串直传服务端。
+- 时间过滤时区：本命令（A 股公告）会把 `--start-time`/`--end-time` 换算成毫秒时间戳发出，日期与时刻一律按**北京时间**解释，与运行机器的时区无关（UTC 云环境与本机结果相同）；13 位毫秒时间戳原样发出，10 位按秒换算成毫秒。其余 insight 列表把字符串直传服务端。
 
 ## 港股公告 `insight announcement-hk list/download`
 
@@ -216,6 +216,8 @@ gangtise insight announcement download --announcement-id <id> [--file-type <n>] 
 gangtise insight announcement-hk list [--search-type <n>] [--rank-type <n>] [--security <code>] [--category <id>]
 gangtise insight announcement-hk download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
+
+- **积分**：列表 0.1/条；下载 20/篇
 
 - `--security`：港股代码，如 `01913.HK`（两位数字前缀需补零）
 - `--category`：港股公告类型 ID（见 `references/lookup-ids.md`）
@@ -229,7 +231,7 @@ gangtise insight announcement-us download --announcement-id <id> [--file-type <n
 ```
 
 - `--security`：美股代码，如 `TSLA.O`（可重复）
-- `--category`：美股公告分类 ID，用 `reference constant-list --category usShareAnnouncementCategory` 查（美股独立的 `103980xxx` 段，7 个一级分类：财务报告 / 证券发行 / 重大事项 / 交易提示 / 股本股东 / 股东大会 / 一般公告）
+- `--category`：美股公告分类 ID，用 `reference constant-list --category usShareAnnouncementCategory` 查（美股独立的 `103980xxx` 段，一级分类：财务报告 / 证券发行 / 重大事项 / 交易提示 / 股本股东 / 股东大会 / 一般公告）
 - `--file-type`（download）：`1` 原始PDF（默认）| `2` Markdown
 - **积分**：list 0.1/条；download 20/篇
 - `--security TSLA.O` 的 `sourceName` 为「美国证券交易委员会」
@@ -240,6 +242,8 @@ gangtise insight announcement-us download --announcement-id <id> [--file-type <n
 gangtise insight foreign-opinion list [--rank-type <n>] [--security <code>] [--region <code>] [--industry <id>] [--broker <id>] [--rating <name>] [--rating-change <name>] [--with-content]
 gangtise insight foreign-opinion detail --foreign-opinion-id <id> [--foreign-opinion-id <id>...]
 ```
+
+- **积分**：列表 1/条（只含摘要）；`--with-content` 30/条；`detail` 30/条
 
 - 🔴 **列表只含摘要**：`brief`（英文）/ `briefTranslate`（中文），取正文前 200 字，**1 积分/条**。原文与译文（`content` / `contentTranslate`）用 `detail` 按 `foreignOpinionId` 取（**30 积分/条**），或 `list --with-content`（30 积分/条，`content` / `contentTranslate` 直接在顶层，不含 `brief`）。`detail` 的分批与缺失 ID 处理同内资 `opinion detail`
 
@@ -257,6 +261,8 @@ gangtise insight independent-opinion list [--rank-type <n>] [--security <code>] 
 gangtise insight independent-opinion download --independent-opinion-id <id> --file-type <n> [--output <path>]
 ```
 
+- **积分**：列表 **5/条**——务必带 `--size`；下载 30/篇
+
 - `--security`：境外证券代码，如 `GSK.N`
 - ⚠️ `--industry`：**只认申万码**（`104xx0000`），中信码报 `100005 枚举值非法`（同 `foreign-opinion`，见上）。返回记录的 `industryList[]` 两套码都带，回查挑申万那条
 - `--rating` / `--rating-change`：同外资观点
@@ -269,6 +275,8 @@ gangtise insight independent-opinion download --independent-opinion-id <id> --fi
 gangtise insight official-account list [--search-type <n>] [--rank-type <n>] [--account-id <id>] [--security <code>] [--category <type>] [--industry <id>]
 gangtise insight official-account download --article-id <id> [--file-type <n>] [--output <path>]
 ```
+
+- **积分**：列表 0.1/条；下载 10/篇
 
 - `--search-type`：`1` 标题搜索（默认）| `2` 全文搜索
 - `--account-id`：公众号 ID（取自 list 返回的 `accountId`），可多次传入限定账号

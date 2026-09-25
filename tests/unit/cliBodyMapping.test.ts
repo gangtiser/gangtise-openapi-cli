@@ -170,7 +170,15 @@ beforeAll(async () => {
           res.end(JSON.stringify({ code: "120001", msg: "非有效A股", status: false }))
           return
         }
-        const count = code.startsWith("SLOW") ? 1000 : 3
+        // LATEBAD.XX fails after a delay: a part that already streamed (FAST*.SH, 1200 rows
+        // at once, enough to open the export's staging file) is on disk by then.
+        if (code === "LATEBAD.XX") {
+          setTimeout(() => res.end(JSON.stringify({ code: "120001", msg: "非有效A股", status: false })), 400)
+          return
+        }
+        // EMPTY.SH: a range entirely before the account's minute-bar window — an empty
+        // success, not an error (probed 2026-09-25).
+        const count = code.startsWith("SLOW") ? 1000 : code.startsWith("FAST") ? 1200 : code === "EMPTY.SH" ? 0 : 3
         const list = Array.from({ length: count }, (_, i) => fieldList.map((f) => (f === "securityCode" ? code : f === "tradeTime" ? `2026-06-01 09:${String(30 + Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}` : i + 1)))
         const payload = JSON.stringify({ code: "000000", msg: "ok", data: { total: count, fieldList, list } })
         if (code.startsWith("SLOW")) setTimeout(() => res.end(payload), 400)
@@ -195,6 +203,11 @@ beforeAll(async () => {
         // fund-flow always prepends securityCode / tradeDate, then the requested fields it
         // recognises; an unknown name is dropped without an error (probed 2026-09-05).
         // Three fixed rows so a truncation test can drive rows-vs-limit with --limit 3.
+        // The whole-market shard for 2026-05-14 comes back without a list: a failed shard.
+        if ((body as { startDate?: string } | undefined)?.startDate === "2026-05-14") {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0 } }))
+          return
+        }
         const KNOWN = ["mainNetInflow", "largeInflow", "xlargeInflow", "mainInflow", "smallNetInflow"]
         const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
         const extra = requested ? requested.filter((f) => KNOWN.includes(f)) : ["mainNetInflow"]
@@ -229,6 +242,22 @@ beforeAll(async () => {
         const KNOWN = ["securityCode", "tradeDate", "open", "high", "low", "close", "preClose", "change", "pctChange", "volume", "amount", "adjustFactor"]
         const requested = (body as { fieldList?: string[] } | undefined)?.fieldList
         const fieldList = requested ? KNOWN.filter((f) => requested.includes(f)) : ["securityCode", "tradeDate", "close"]
+        // GRP* codes (any case): one row per security per weekday of the range, sorted by
+        // securityCode then date and cut at `limit` — the way the server answers a
+        // multi-security request (probed 2026-09-25), codes upper-cased.
+        const request = body as { securityList?: string[]; startDate?: string; endDate?: string; limit?: number } | undefined
+        const codes = request?.securityList ?? []
+        if (codes.length > 0 && codes.every((c) => c.toUpperCase().startsWith("GRP"))) {
+          const days: string[] = []
+          for (let t = Date.parse(`${request?.startDate}T00:00:00Z`); t <= Date.parse(`${request?.endDate}T00:00:00Z`); t += 86_400_000) {
+            if (![0, 6].includes(new Date(t).getUTCDay())) days.push(new Date(t).toISOString().slice(0, 10))
+          }
+          const rows = codes.map((c) => c.toUpperCase()).sort()
+            .flatMap((code) => days.map((day) => fieldList.map((f) => (f === "securityCode" ? code : f === "tradeDate" ? day : 1))))
+            .slice(0, request?.limit ?? 6000)
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: rows.length, fieldList, list: rows } }))
+          return
+        }
         const list = [["600519.SH", 1], ["000001.SZ", 2], ["000002.SZ", 3]].map(([code, n]) => fieldList.map((f) => (f === "securityCode" ? code : f === "tradeDate" ? "2026-06-03" : n)))
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 3, fieldList, list } }))
         return
@@ -512,6 +541,37 @@ beforeAll(async () => {
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { indicator: req?.indicator, fieldList, list } }))
         return
       }
+      if ((req.url ?? "").includes("/schedule/roadshow/getList") && (body as { keyword?: string } | undefined)?.keyword === "PRICEY") {
+        // 300 roadshows at 20 credits each: a fetch without --size is priced at 6000.
+        const b = body as { from?: number; size?: number }
+        const from = b.from ?? 0
+        const count = Math.max(0, Math.min(b.size ?? 50, 300 - from))
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 300, list: Array.from({ length: count }, (_, i) => ({ id: String(from + i), title: `r${from + i}` })) } }))
+        return
+      }
+      if ((req.url ?? "").includes("/wechatgroupmsg/list")) {
+        // Like the live endpoint: `total` never reports past 10000, and an offset at or
+        // past 10000 is refused with a terminal code rather than answered with an empty page.
+        const b = body as { from?: number; size?: number; keyword?: string } | undefined
+        const from = b?.from ?? 0
+        if (b?.keyword === "DUPS") {
+          // 1200 messages sharing one timestamp; the page at 500 repeats row 499 in place of
+          // row 500 — the boundary reorder a non-unique sort key allows (P2-26).
+          const size = Math.min(b.size ?? 50, 1200 - from)
+          const list = Array.from({ length: size }, (_, i) => ({ msgId: String(from + i), msgTime: "2026-08-17 15:41:07", content: `m${from + i}` }))
+          if (from === 500) list[0] = { msgId: "499", msgTime: "2026-08-17 15:41:07", content: "m499" }
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 1200, list } }))
+          return
+        }
+        if (from >= 10000) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ code: "140002", msg: "业务处理失败" }))
+          return
+        }
+        const count = Math.min(b?.size ?? 50, 10000 - from)
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 10000, list: Array.from({ length: count }, (_, i) => ({ msgId: String(from + i), msgTime: "2026-08-17 15:41:07" })) } }))
+        return
+      }
       res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
     })
   })
@@ -569,6 +629,8 @@ async function cli(args: string[], envOverride: Record<string, string | undefine
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
       timeout: 25_000,
+      // Large enough for the multi-request merges; the 1 MB default fails the child instead.
+      maxBuffer: 64 * 1024 * 1024,
       env,
     })
     return { code: 0, out: stdout + stderr, stdout, stderr }
@@ -853,14 +915,15 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect((await cli(["insight", "highlight", "list", "--from", "10000", "--size", "5"])).code).not.toBe(0)
     expect(captured).toHaveLength(0)
 
-    // total exactly on the window: every row is reachable, and the total-cap probe (which
-    // would ask for the row at offset 10000) cannot fit the window, so it is not sent.
+    // total exactly on the window: the total-cap probe (which would ask for the row at
+    // offset 10000) cannot fit the window, so it is not sent — and since rows past the
+    // window can be neither fetched nor counted, the result is treated as truncated.
     captured.length = 0
     const exact = await cli(["insight", "highlight", "list", "--from", "9990", "--security", "TOTAL10000.XX", "--format", "json"])
     expect(captured.map((r) => (r.body as { from: number; size: number }).from)).toEqual([9990])
-    // Not partial (nothing shows rows are missing), but the unchecked total is said aloud.
-    expect(exact.code).toBe(0)
-    expect(exact.stderr).toContain("cannot be checked")
+    expect(exact.code).toBe(3)
+    expect(exact.stderr).toContain("equals its 10000-row offset window")
+    expect((JSON.parse(exact.stdout) as { totalCapped?: boolean }).totalCapped).toBe(true)
   }, 30_000)
 
   it("bond mutually exclusive or missing selectors are refused locally, before any metered request", async () => {
@@ -1091,6 +1154,117 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured).toHaveLength(0)
   }, 30_000)
 
+  it("a per-row billed list without --size is refused after a one-row probe when the whole fetch passes the credit guard", async () => {
+    const pages = () => captured.filter((c) => c.path.includes("/schedule/roadshow/getList"))
+    // 300 rows at 20 credits: a full first page would cost 1000, so the total is learned from
+    // one row, then the 6000-credit fetch is refused with both ways on.
+    const refused = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--format", "json"])
+    expect(refused.code).toBe(1)
+    expect(pages().map((c) => (c.body as { size: number }).size)).toEqual([1])
+    expect(refused.stderr).toContain("about 6000 credits")
+    expect(refused.stderr).toContain("--yes")
+    expect(refused.stdout).toBe("")
+
+    // A streamed export refused the same way leaves no file behind.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-guard-"))
+    try {
+      captured.length = 0
+      const streamed = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--format", "jsonl", "--output", path.join(dir, "r.jsonl")])
+      expect(streamed.code).toBe(1)
+      expect(await fs.readdir(dir)).toEqual([])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+
+    // raw call's --yes confirms the same fetch.
+    captured.length = 0
+    const rawConfirmed = await cli(["raw", "call", "insight.roadshow.list", "--body", JSON.stringify({ keyword: "PRICEY" }), "--yes"])
+    expect(rawConfirmed.code).toBe(0)
+    expect((JSON.parse(rawConfirmed.stdout) as { list: unknown[] }).list).toHaveLength(300)
+
+    captured.length = 0
+    const confirmed = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--yes", "--format", "json"])
+    expect(confirmed.code).toBe(0)
+    expect((JSON.parse(confirmed.stdout) as { list: unknown[] }).list).toHaveLength(300)
+    expect((captured[0].body as Record<string, unknown>).yes).toBeUndefined()
+
+    captured.length = 0
+    const bounded = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", "60", "--format", "json"])
+    expect(bounded.code).toBe(0)
+    expect((JSON.parse(bounded.stdout) as { list: unknown[] }).list).toHaveLength(60)
+    expect(bounded.stderr).not.toContain("credit guard")
+  }, 30_000)
+
+  it("vault wechat-message-list drops a row repeated across a page boundary and exits 3, also on a streamed export", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-dups-"))
+    try {
+      const out = path.join(dir, "msgs.jsonl")
+      const { code, stderr } = await cli(["vault", "wechat-message-list", "--keyword", "DUPS", "--format", "jsonl", "--output", out])
+      expect(code).toBe(3)
+      expect(stderr).toContain("more than once")
+      expect(stderr).not.toContain("came back short")
+      const ids = (await readFile(out, "utf8")).trim().split("\n").map((l) => (JSON.parse(l) as { msgId: string }).msgId)
+      expect(ids).toHaveLength(1199)
+      expect(new Set(ids).size).toBe(1199)
+      const meta = JSON.parse(await readFile(`${out}.meta.json`, "utf8")) as { complete: boolean; result: { duplicateRows?: number; partial?: boolean } }
+      expect(meta.complete).toBe(false)
+      expect(meta.result.duplicateRows).toBe(1)
+      expect(meta.result.partial).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it("vault wechat-message-list treats a total at its offset window as capped, without probing past it", async () => {
+    // The endpoint declares the 10000-row window the server enforces, and its unfiltered
+    // total stops there: a total sitting exactly on it marks the result truncated instead
+    // of being probed — the probe would only be refused (140002).
+    const { code, stdout, stderr } = await cli(["vault", "wechat-message-list", "--from", "9990", "--format", "json"])
+    expect(code).toBe(3)
+    const out = JSON.parse(stdout) as { list: unknown[]; totalCapped?: boolean }
+    expect(out.list).toHaveLength(10)
+    expect(out.totalCapped).toBe(true)
+    expect(stderr).toContain("equals its 10000-row offset window")
+    expect(captured.some((c) => c.path.includes("/wechatgroupmsg/list") && ((c.body as { from?: number }).from ?? 0) >= 10000)).toBe(false)
+  }, 30_000)
+
+  it("refuses an unknown value for the enums the platform answers silently, before any request", async () => {
+    // Probed 2026-09-25: a wrong contentType comes back as 130003 「没有文件可供下载」, and a
+    // wrong hot-topic category / clue source is not refused — both read as real answers.
+    // --output into a temp dir: should the check ever lapse, the download lands there, not
+    // in the working directory (the repo root under vitest).
+    const stray = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-enum-"))
+    for (const args of [
+      ["vault", "record-download", "--record-id", "1", "--content-type", "summery", "--output", path.join(stray, "r.txt")],
+      ["vault", "my-conference-download", "--conference-id", "1", "--content-type", "original", "--output", path.join(stray, "c.txt")],
+      ["ai", "hot-topic", "--category", "morningBrief", "--size", "1"],
+      ["ai", "security-clue", "--start-time", "2026-09-01", "--end-time", "2026-09-02", "--query-mode", "bySecurity", "--source", "report", "--size", "1"],
+    ]) {
+      captured.length = 0
+      const { code, out } = await cli(args)
+      expect(code, args.join(" ")).toBe(1)
+      expect(out, args.join(" ")).toContain("This CLI version knows")
+      expect(captured, args.join(" ")).toHaveLength(0)
+    }
+    await rm(stray, { recursive: true, force: true })
+    // The values the docs list still go through.
+    captured.length = 0
+    await cli(["ai", "security-clue", "--start-time", "2026-09-01", "--end-time", "2026-09-02", "--query-mode", "bySecurity", "--source", "view", "--source", "conference", "--size", "1"])
+    expect((captured[0].body as { source: string[] }).source).toEqual(["view", "conference"])
+  }, 30_000)
+
+  it("quote day-kline refuses a whole-market keyword without both dates, before any request", async () => {
+    // The server answers an unbounded whole-market request with 100003 查询规模过大, and
+    // the hint on that code points at enum spelling — so the range is required up front.
+    for (const dates of [["--start-date", "2026-09-15"], ["--end-date", "2026-09-24"], []]) {
+      captured.length = 0
+      const { code, out } = await cli(["quote", "day-kline", "--security", "aShares", ...dates, "--format", "json"])
+      expect(code, dates.join(" ")).toBe(1)
+      expect(out, dates.join(" ")).toContain("requires both --start-date and --end-date")
+      expect(captured, dates.join(" ")).toHaveLength(0)
+    }
+  }, 30_000)
+
   it("quote day-kline shards each market keyword at its own granularity", async () => {
     // The unified day-kline covers three markets whose whole-market row counts differ
     // (measured 2026-08-13: A 5543 rows/trading day, US 5919, HK 2810), so one shard size
@@ -1111,12 +1285,12 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
 
   it("pins the shard granularity of the retired per-market endpoints that still take `all`", async () => {
     // Nothing else guards these numbers — change one and the rest of the suite stays green.
-    // 2026-08-03..09-16 is 45 days: 2->23 shards, 1->45 (33 once weekends are skipped).
+    // 2026-08-03..09-16 is 45 days, 33 of them weekdays; shards count weekdays only.
     const range = ["--start-date", "2026-08-03", "--end-date", "2026-09-16", "--format", "json"]
 
     for (const [command, expectedShards] of [
-      ["day-kline-hk", 23],
-      ["day-kline-us", 33], // 1 day/shard, weekends skipped: 45 days -> 33 weekdays
+      ["day-kline-hk", 17], // 2 weekdays/shard: 33 -> 17
+      ["day-kline-us", 33], // 1 weekday/shard
     ] as const) {
       captured.length = 0
       const { code } = await cli(["quote", command, "--security", "all", ...range])
@@ -1808,7 +1982,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(payload).not.toHaveProperty("omittedIndicators")
     expect(payload).not.toHaveProperty("omittedSecurities")
     expect(payload.total).toBe(0)
-    expect(stderr).toContain("no data at all") // still flags the ambiguity with a wrong param name
+    expect(stderr).toContain("no data at all") // an empty answer is neither a null cell nor a 100003, so it is called out
   }, 30_000)
 
   it("fails loudly with a traceId when a required axis is null instead of passing the payload through", async () => {
@@ -1931,7 +2105,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
 
   it("flags the empty-result ambiguity even when the response still echoes indicatorList", async () => {
     // Zero securities is empty to the caller whether or not the axis lists were
-    // cleared, and just as ambiguous with a wrong parameter name.
+    // cleared, and just as ambiguous with a date off the report-period end.
     const { code, stdout, stderr } = await cli([
       "indicator", "screener",
       "--indicator", "F1:NOMATCH.XX", "--security", "600519.SH",
@@ -2058,8 +2232,109 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(code).toBe(3)
     const parsed = JSON.parse(stdout) as { missingFields?: string[]; list: Record<string, unknown>[] }
     expect(parsed.missingFields).toEqual(["turnoverRate"])
-    // No implicit identity columns on kline: the caller has to ask for securityCode.
-    expect(parsed.list[0]).toEqual({ close: 1 })
+    // The kline endpoints return only the requested columns, so the CLI asks for the ones
+    // that tell rows apart; the dropped-column check still sees the caller's own names.
+    expect(parsed.list[0]).toEqual({ securityCode: "600519.SH", tradeDate: "2026-06-03", close: 1 })
+  }, 30_000)
+
+  it("quote commands add the columns a row needs when --field leaves them out, and say so", async () => {
+    const sentFields = () => captured.map((c) => (c.body as { fieldList?: string[] }).fieldList)
+    const twoDaily = await cli(["quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ", "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--field", "close", "--format", "json"])
+    expect(twoDaily.code).toBe(0)
+    expect(sentFields()).toEqual([["securityCode", "tradeDate", "close"]])
+    expect(twoDaily.stderr).toContain("adds securityCode, tradeDate to --field")
+
+    captured.length = 0
+    // One security: rows are one series in date order, so --field close stays just that.
+    const oneDaily = await cli(["quote", "day-kline", "--security", "600519.SH", "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--field", "close", "--format", "json"])
+    expect(sentFields()).toEqual([["close"]])
+    expect(oneDaily.stderr).not.toContain("to --field")
+
+    captured.length = 0
+    const named = await cli(["quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ", "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--field", "tradeDate", "--field", "securityCode", "--field", "close", "--format", "json"])
+    expect(sentFields()).toEqual([["tradeDate", "securityCode", "close"]])
+    expect(named.stderr).not.toContain("to --field")
+
+    captured.length = 0
+    await cli(["quote", "minute-kline", "--security", "600519.SH", "--security", "000858.SZ", "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 09:32:00", "--field", "close", "--format", "json"])
+    expect(sentFields()).toEqual([["securityCode", "tradeTime", "close"], ["securityCode", "tradeTime", "close"]])
+
+    captured.length = 0
+    await cli(["quote", "realtime", "--security", "600519.SH", "--security", "000858.SZ", "--field", "latestPrice", "--format", "json"])
+    expect(sentFields()).toEqual([["securityCode", "latestPrice"]])
+    captured.length = 0
+    await cli(["quote", "realtime", "--security", "600519.SH", "--field", "latestPrice", "--format", "json"])
+    expect(sentFields()).toEqual([["latestPrice"]])
+
+    // A whole-market keyword names many securities, so it gets securityCode too.
+    captured.length = 0
+    await cli(["quote", "day-kline", "--security", "aShares", "--start-date", "2026-06-01", "--end-date", "2026-06-02", "--field", "close", "--format", "json"])
+    expect(sentFields()).toEqual([["securityCode", "tradeDate", "close"], ["securityCode", "tradeDate", "close"]])
+    captured.length = 0
+    await cli(["quote", "realtime", "--security", "aShares", "--field", "latestPrice", "--format", "json"])
+    expect(sentFields()).toEqual([["securityCode", "latestPrice"]])
+  }, 30_000)
+
+  it("quote day-kline / minute-kline note a series that starts well after the requested start, and an empty minute range", async () => {
+    // The stub's daily rows are dated 2026-06-03 and its minute rows 2026-06-01.
+    const late = await cli(["quote", "day-kline", "--security", "600519.SH", "--start-date", "2026-05-01", "--end-date", "2026-06-05", "--format", "json"])
+    expect(late.code).toBe(0)
+    expect(late.stderr).toContain("starts at 2026-06-03, 33 days after the requested start 2026-05-01")
+    // A weekend or holiday before the first trading day is not a late start.
+    const onTime = await cli(["quote", "day-kline", "--security", "600519.SH", "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--format", "json"])
+    expect(onTime.stderr).not.toContain("after the requested start")
+
+    const lateMinute = await cli(["quote", "minute-kline", "--security", "600519.SH", "--start-time", "2026-05-01 09:30:00", "--end-time", "2026-06-01 15:00:00", "--format", "json"])
+    expect(lateMinute.stderr).toContain("starts at 2026-06-01, 31 days after the requested start 2026-05-01")
+    const empty = await cli(["quote", "minute-kline", "--security", "EMPTY.SH", "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 15:00:00", "--format", "json"])
+    expect(empty.code).toBe(0)
+    expect(empty.stderr).toContain("no minute bars came back")
+  }, 30_000)
+
+  it("the late-start note stays quiet after a failed shard, and holds for an unrelated incomplete result", async () => {
+    // A failed first shard moves the first row later for that reason alone, and its own
+    // warning names the gap. A missing column says nothing about where the series starts.
+    const failed = await cli(["quote", "fund-flow", "--security", "aShares", "--start-date", "2026-05-14", "--end-date", "2026-05-18", "--format", "json"])
+    expect(failed.code).toBe(3)
+    expect((JSON.parse(failed.stdout) as { failedShards?: unknown[] }).failedShards).toEqual([{ startDate: "2026-05-14", endDate: "2026-05-14" }])
+    expect(failed.stderr).not.toContain("after the requested start")
+    const missing = await cli(["quote", "fund-flow", "--security", "600519.SH", "--start-date", "2026-05-01", "--end-date", "2026-06-05", "--field", "bogus", "--format", "json"])
+    expect(missing.code).toBe(3)
+    expect((JSON.parse(missing.stdout) as { missingFields?: string[] }).missingFields).toEqual(["bogus"])
+    expect(missing.stderr).toContain("starts at 2026-06-03, 33 days after the requested start 2026-05-01")
+  }, 30_000)
+
+  it("the late-start note holds on every quote path, streamed to a file or not", async () => {
+    // Stub rows are dated 2026-06-03 (daily, fund-flow) and 2026-06-01 (minute). A streamed
+    // export holds no rows in memory, so the note must come from what the sink saw.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-late-"))
+    try {
+      const cases: Array<[string, string[]]> = [
+        ["day-kline split per security", ["quote", "day-kline", "--security", "600519.SH", "--security", "000858.SZ", "--start-date", "2026-05-01", "--end-date", "2026-06-05", "--limit", "10"]],
+        ["day-kline whole market", ["quote", "day-kline", "--security", "aShares", "--start-date", "2026-05-15", "--end-date", "2026-06-05"]],
+        ["fund-flow one request", ["quote", "fund-flow", "--security", "600519.SH", "--start-date", "2026-05-01", "--end-date", "2026-06-05"]],
+        ["fund-flow whole market", ["quote", "fund-flow", "--security", "aShares", "--start-date", "2026-05-15", "--end-date", "2026-06-05"]],
+        ["minute-kline several securities", ["quote", "minute-kline", "--security", "600519.SH", "--security", "000858.SZ", "--start-time", "2026-05-01 09:30:00", "--end-time", "2026-06-01 15:00:00"]],
+      ]
+      for (const [label, args] of cases) {
+        for (const tail of [["--format", "json"], ["--format", "jsonl", "--output", path.join(dir, "out.jsonl")]]) {
+          const { stderr } = await cli([...args, ...tail])
+          expect(stderr, `${label} ${tail[1]}`).toMatch(/starts at 2026-06-0[13], \d+ days after the requested start/)
+          expect(stderr, `${label} ${tail[1]}`).not.toContain("no minute bars came back")
+        }
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it("fundamental earning-forecast defaults the end date to Beijing's day, whatever the machine's zone", async () => {
+    // 2026-07-05 23:30 UTC is already 07-06 in Beijing; on a UTC machine both the UTC day
+    // and the local day say 07-05.
+    const clock = { NODE_OPTIONS: `--import ${path.resolve(process.cwd(), "tests/fixtures/fixed-clock.mjs")}`, GANGTISE_TEST_NOW: "2026-07-05T23:30:00Z", TZ: "UTC" }
+    const { code } = await cli(["fundamental", "earning-forecast", "--security-code", "600519.SH", "--format", "json"], clock)
+    expect(code).toBe(0)
+    expect(captured[0].body).toMatchObject({ endDate: "2026-07-06", startDate: "2025-07-06" })
   }, 30_000)
 
   it("quote day-kline (sharded aShares) flags a dropped --field column on the merged result", async () => {
@@ -2144,6 +2419,68 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured.map((c) => (c.body as { securityList: string[] }).securityList)).toEqual([["600519.SH"], ["000858.SZ"], ["300750.SZ"]])
     expect(captured.every((c) => (c.body as { limit: number }).limit === 500)).toBe(true)
     expect((JSON.parse(stdout) as { total: number }).total).toBe(9) // 3 parts × the stub's 3 rows
+  }, 30_000)
+
+  it("quote day-kline without --limit packs several securities per request up to the row ceiling, in input order", async () => {
+    // 30 securities × 3 years (~784 weekdays) cannot go out as one request; without --limit a
+    // request may carry floor(9999 / 784) = 12 of them, so 3 requests instead of 30.
+    const input = Array.from({ length: 30 }, (_, i) => `GRP${String((i * 7) % 30).padStart(2, "0")}.SZ`)
+    const { code, stdout, stderr } = await cli([
+      "quote", "day-kline", ...input.flatMap((c) => ["--security", c]),
+      "--start-date", "2024-01-01", "--end-date", "2026-12-31", "--format", "json",
+    ])
+    expect(code, stderr).toBe(0)
+    expect(captured.map((c) => (c.body as { securityList: string[] }).securityList.length)).toEqual([12, 12, 6])
+    expect(captured.every((c) => (c.body as { limit: number }).limit === 10000)).toBe(true)
+    const rows = (JSON.parse(stdout) as { list: Array<{ securityCode: string }> }).list
+    expect(rows).toHaveLength(30 * 784)
+    expect(rows.map((r) => r.securityCode).filter((c, i, all) => c !== all[i - 1])).toEqual(input)
+
+    // The same order when the rows stream straight to a file.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-groups-"))
+    try {
+      const out = path.join(dir, "k.jsonl")
+      const streamed = await cli([
+        "quote", "day-kline", ...input.flatMap((c) => ["--security", c]),
+        "--start-date", "2024-01-01", "--end-date", "2026-12-31", "--format", "jsonl", "--output", out,
+      ])
+      expect(streamed.code).toBe(0)
+      const codes = (await readFile(out, "utf8")).trim().split("\n").map((l) => (JSON.parse(l) as { securityCode: string }).securityCode)
+      expect(codes).toHaveLength(30 * 784)
+      expect(codes.filter((c, i, all) => c !== all[i - 1])).toEqual(input)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it("quote day-kline never plans a request to land exactly on its cap, so a full answer is not read as truncated", async () => {
+    // 2026-06-01..02 is two weekdays. 5 securities × 2 = 10 rows = --limit 10: one request
+    // would come back with exactly 10 rows, indistinguishable from a cut one.
+    const exact = await cli(["quote", "day-kline", ...["GRP01.SZ", "GRP02.SZ", "GRP03.SZ", "GRP04.SZ", "GRP05.SZ"].flatMap((c) => ["--security", c]),
+      "--start-date", "2026-06-01", "--end-date", "2026-06-02", "--limit", "10", "--format", "json"])
+    expect(exact.code).toBe(0)
+    expect((JSON.parse(exact.stdout) as { list: unknown[] }).list).toHaveLength(10)
+    expect(captured.every((c) => (c.body as { securityList: string[] }).securityList.length * 2 < 10)).toBe(true)
+
+    // 6 × 2 = 12 > 10: groups of 4 (8 rows), not of 5 (exactly 10).
+    captured.length = 0
+    const grouped = await cli(["quote", "day-kline", ...["GRP01.SZ", "GRP02.SZ", "GRP03.SZ", "GRP04.SZ", "GRP05.SZ", "GRP06.SZ"].flatMap((c) => ["--security", c]),
+      "--start-date", "2026-06-01", "--end-date", "2026-06-02", "--limit", "10", "--format", "json"])
+    expect(grouped.code).toBe(0)
+    expect(captured.map((c) => (c.body as { securityList: string[] }).securityList.length)).toEqual([4, 2])
+    expect((JSON.parse(grouped.stdout) as { list: unknown[] }).list).toHaveLength(12)
+  }, 30_000)
+
+  it("quote day-kline keeps input order when codes are typed in lower case", async () => {
+    // The server upper-cases codes in its answer; the merge must still find them. 3 × 2 = 6
+    // rows against --limit 6 goes out in groups of 2, and the first group's answer comes
+    // back sorted by code (GRP01 before GRP09).
+    const { code, stdout } = await cli(["quote", "day-kline", "--security", "grp09.sz", "--security", "GRP01.SZ", "--security", "GRP05.SZ",
+      "--start-date", "2026-06-01", "--end-date", "2026-06-02", "--limit", "6", "--format", "json"])
+    expect(code).toBe(0)
+    expect(captured.map((c) => (c.body as { securityList: string[] }).securityList)).toEqual([["grp09.sz", "GRP01.SZ"], ["GRP05.SZ"]])
+    const order = (JSON.parse(stdout) as { list: Array<{ securityCode: string }> }).list.map((r) => r.securityCode)
+    expect(order).toEqual(["GRP09.SZ", "GRP09.SZ", "GRP01.SZ", "GRP01.SZ", "GRP05.SZ", "GRP05.SZ"])
   }, 30_000)
 
   it("quote day-kline with only --start-date batches per security when the window up to today would not fit", async () => {
@@ -2294,7 +2631,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     })
   }, 30_000)
 
-  it("refuses an unbounded performance-calendar list (>120k rows at 0.1 credits each)", async () => {
+  it("refuses an unbounded performance-calendar list (over a hundred thousand rows at 0.1 credits each)", async () => {
     const bare = await cli(["insight", "performance-calendar", "list", "--format", "json"])
     expect(bare.code).toBe(1)
     expect(bare.out).toContain("without a bound")
@@ -2608,6 +2945,19 @@ describe("large jsonl export streams to disk with a metadata sidecar (real CLI a
     await expect(fs.access(out)).rejects.toThrow()
     expect(await stagingSiblings(out)).toEqual([])
     await expect(fs.access(`${out}.meta.json`)).rejects.toThrow()
+  }, 30_000)
+
+  it("a part failing after another has already streamed to disk leaves no staging file behind", async () => {
+    // FAST1200.SH answers first and its rows open the staging file; LATEBAD.XX fails after
+    // that, so the command has a half-written export to throw away on the way out.
+    const out = path.join(dir, "half.jsonl")
+    const { code } = await cli([
+      "quote", "minute-kline", "--security", "FAST1200.SH", "--security", "LATEBAD.XX",
+      "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 15:00:00", "--format", "jsonl", "--output", out,
+    ])
+    expect(code).toBe(1)
+    await expect(fs.access(out)).rejects.toThrow()
+    expect(await stagingSiblings(out)).toEqual([])
   }, 30_000)
 
   it("a first page of unexpected shape (data:null on a paginated endpoint) exits 3 and the sidecar says so", async () => {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { createWriteStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -42,7 +43,42 @@ function hasExpectedShape(expects: "list" | "array", payload: unknown): boolean 
   return Boolean(payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).list))
 }
 
+/** Credits above which a --size-less fetch of a per-row billed list is refused once its
+ * total is known (see `billing` in endpoints.ts). Omitting --size means "everything", and on
+ * a list priced per row everything can be tens of thousands of credits from one missing flag. */
+export const COSTLY_FETCH_CREDITS = 1000
+/** A guarded list whose full first page would cost more than this learns its total from a
+ * one-row probe first, so a refused fetch pays for one row rather than a page. */
+const PROBE_ABOVE_CREDITS = 50
+
+/** How a list endpoint refuses an offset past its window: 140002 (at HTTP 500) on the vault
+ * message list (probed 2026-09-25), 100006 on the insight lists that declare `maxWindow`. A
+ * total-cap probe answered with one of these sat on a window; any other failure (a 503 that
+ * outlived its retries, a dropped connection) says nothing about the total, so it stays silent. */
+const OFFSET_REFUSAL_CODES = new Set(["140002", "100006"])
+
+/** Several lists answer "nothing matched" with `list: null` instead of [] — hot-topic, summary,
+ * the A-share and HK announcement lists, performance-calendar (probed 2026-09-25, server
+ * P2-27). A numeric total of exactly 0 says what an empty list would, so it is read as one;
+ * a null list under any other total, a string total or a missing list is still a broken
+ * page and takes the unexpected-shape path. */
+function readEmptyListAsArray(page: unknown): void {
+  const rec = page as Record<string, unknown> | null
+  if (rec && typeof rec === "object" && rec.total === 0 && rec.list === null) rec.list = []
+}
+
+/** A fetch-all whose `total` is, or may be, a server-side cap: warn, and mark the result so a
+ * truncated export cannot pass as complete (partial → exit 3). */
+function markTotalCapped(out: Record<string, unknown>, why: string, collected: number, keepBelow: number): void {
+  process.stderr.write(`[gangtise] warning: ${why}. This export is TRUNCATED at ${collected} rows. Narrow the query (e.g. a shorter time range) until total stays below ${keepBelow}, and fetch in slices.\n`)
+  out.partial = true
+  out.totalCapped = true
+}
+
 export class GangtiseClient {
+  /** The caller confirmed (--yes) a --size-less fetch past COSTLY_FETCH_CREDITS. */
+  allowCostlyFetch = false
+
   private refreshPromise: Promise<string> | null = null
   private memoCache: TokenCache | null = null
   // After an injected env token (GANGTISE_TOKEN) is rejected and we self-heal via
@@ -260,14 +296,50 @@ export class GangtiseClient {
     }
     const windowRoom = maxWindow === undefined ? Infinity : maxWindow - startFrom
 
+    // A per-row billed list fetched without --size is priced from `total` before the fetch
+    // fans out, and refused past COSTLY_FETCH_CREDITS. A cheap list learns `total` from its
+    // first page. Where a full first page would itself cost more than PROBE_ABOVE_CREDITS,
+    // one row is asked for first, so a refused fetch pays for that row alone; the fetch then
+    // starts over from the same offset at the usual page size, keeping every page on the
+    // usual boundaries (the probe row is billed twice) rather than depending on how an
+    // endpoint reads an unaligned `from`.
+    const billing = endpoint.billing
+    const guarded = requestedSize === undefined && billing?.per === "row" && !this.allowCostlyFetch
+    const refuseIfCostly = (reportedTotal: number, fetched: number): void => {
+      if (!guarded || !billing) return
+      const rows = Math.min(Math.max(reportedTotal - startFrom, 0), windowRoom)
+      const estimatedCredits = Math.round(rows * billing.price * 100) / 100
+      if (estimatedCredits <= COSTLY_FETCH_CREDITS) return
+      throw new ValidationError(`fetching all ${rows} rows of ${endpoint.key} would cost about ${estimatedCredits} credits (${billing.price} per row), above the ${COSTLY_FETCH_CREDITS}-credit guard for a fetch without --size. Only ${fetched} row(s) were fetched, to learn the total. Pass --size N for a bounded subset, or --yes to fetch them all.`)
+    }
+    // The probe stands in as the first page when it already answers the fetch: when its
+    // shape is unexpected (reported below, without paying a full page to see it again) and
+    // when it holds exactly the rows left to fetch (a result of one row or none; more rows
+    // than `total` leaves contradicts itself, and the first page is fetched as usual).
+    let probe: Record<string, unknown> | undefined
+    let probed = false
+    let probeRows = 0
+    if (guarded && billing && Math.min(maxPageSize, windowRoom) * billing.price > PROBE_ABOVE_CREDITS) {
+      probe = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: startFrom, size: 1 })
+      readEmptyListAsArray(probe)
+      if (!this.isPaginatedListResponse(probe)) {
+        probed = true
+      } else {
+        refuseIfCostly(probe.total, probe.list.length)
+        probeRows = probe.list.length
+        probed = probe.list.length === Math.min(Math.max(probe.total - startFrom, 0), windowRoom)
+      }
+    }
+
     // First page: serial — we need total before deciding how many more requests to fan out.
-    const firstPageSize = Math.min(requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize), windowRoom)
-    const firstPage = await this.requestJson<Record<string, unknown>>(endpoint, {
+    const firstPageSize = probed ? 1 : Math.min(requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize), windowRoom)
+    const firstPage = probed ? probe as Record<string, unknown> : await this.requestJson<Record<string, unknown>>(endpoint, {
       ...initialBody,
       from: startFrom,
       size: firstPageSize,
     })
 
+    readEmptyListAsArray(firstPage)
     if (!this.isPaginatedListResponse(firstPage)) {
       // Shape drift (e.g. total arriving as a string) silently degrades fetch-all
       // to a single page with no partial marker. This is NOT hypothetical: passing
@@ -316,21 +388,72 @@ export class GangtiseClient {
     if (sink && Array.isArray(firstPage.fieldList)) sink.setFieldList(firstPage.fieldList)
     const collected: unknown[] = []
     let count = 0
-    const keep = async (rows: unknown[]): Promise<void> => {
+    // A row already kept, seen again whole on a neighbouring page (see `rowId` in
+    // endpoints.ts). Only the id and a digest are held per row, not the row itself.
+    const rowId = endpoint.rowId
+    const seen = rowId ? new Map<string, string>() : undefined
+    let duplicateRows = 0
+    // An id seen again with different content on a LATER page: a row that moved or
+    // changed while paging, so its neighbours may have shifted too. Both versions are
+    // kept. The same on ONE page — a single consistent response — means the id does not
+    // identify a row on this list, and the count is then disregarded, as it is for an
+    // id field not yet seen to be one (`rowIdUnverified`).
+    let changedRows = 0
+    let idIsRowKey = true
+    const dropRepeats = (rows: unknown[]): unknown[] => {
+      if (!seen || !rowId) return rows
+      const onThisPage = new Set<string>()
+      return rows.filter((row) => {
+        const id = row && typeof row === "object" ? (row as Record<string, unknown>)[rowId] : undefined
+        if (id === undefined || id === null) return true
+        const digest = createHash("sha1").update(JSON.stringify(row)).digest("base64")
+        const key = String(id)
+        const previous = seen.get(key)
+        const earlierOnThisPage = onThisPage.has(key)
+        onThisPage.add(key)
+        if (previous === undefined) {
+          seen.set(key, digest)
+          return true
+        }
+        if (previous !== digest) {
+          if (earlierOnThisPage) idIsRowKey = false
+          else changedRows++
+          return true
+        }
+        duplicateRows++
+        return false
+      })
+    }
+    const keep = async (fetched: unknown[]): Promise<void> => {
+      const rows = dropRepeats(fetched)
       const kept = requestedSize === undefined ? rows : rows.slice(0, Math.max(0, requestedSize - count))
       if (kept.length === 0) return
       count += kept.length
       if (sink) await sink.push(kept)
       else for (const row of kept) collected.push(row)
     }
-    // A `total` that reaches the window cannot be probed. Nothing shows the result is cut
-    // short, so it is not marked partial — the caller is only told it was not checked.
+    // A `total` that reaches the declared window cannot be probed: rows past it can be
+    // neither fetched nor counted, so the result is treated as truncated, as when a probe
+    // finds rows. (vault.wechat-message.list: the unfiltered total stops at 10000 while its
+    // monthly totals add up to more — probed 2026-09-25.)
     const checkTotalCap = async (out: Record<string, unknown>): Promise<void> => {
       if (probeFits) return this.flagIfTotalCapped(endpoint, initialBody, total, out, count)
-      process.stderr.write(`[gangtise] note: ${endpoint.key} reported total=${total}, which reaches its ${maxWindow}-row offset window, so whether that is the real count cannot be checked. Narrow the query (e.g. a shorter time range) to keep total below ${maxWindow} if you need to be sure.\n`)
+      markTotalCapped(out, `${endpoint.key} reported total=${total}, which equals its ${maxWindow}-row offset window: rows past it can be neither fetched nor counted`, count, maxWindow)
     }
     const result = (): Record<string, unknown> => {
       const out: Record<string, unknown> = { ...firstPage, total, list: collected }
+      if (duplicateRows > 0) {
+        // The count falls short by the same number, which every return path below already
+        // marks partial; this names the cause, since "short page" alone points elsewhere.
+        process.stderr.write(`[gangtise] warning: ${endpoint.key} returned ${duplicateRows} row(s) more than once — its sort order is not unique, so paging also missed as many rows. The duplicates were dropped and the result is partial. Re-run over a shorter time range to fetch the missing rows.\n`)
+        out.duplicateRows = duplicateRows
+        out.partial = true
+      }
+      if (changedRows > 0 && idIsRowKey && !endpoint.rowIdUnverified) {
+        process.stderr.write(`[gangtise] warning: ${endpoint.key} returned ${changedRows} row(s) whose ${rowId} came back on a later page with different content — the list changed while it was being paged, so rows may also have been missed. Both versions were kept (deduplicating by ${rowId} keeps one) and the result is partial. Re-run to fetch a consistent result.\n`)
+        out.changedRows = changedRows
+        out.partial = true
+      }
       return sink ? attachRowSink(out, sink) : out
     }
     await keep(firstPage.list)
@@ -361,6 +484,10 @@ export class GangtiseClient {
       if (requestedSize === undefined && total > firstPageSize && target === wanted) await checkTotalCap(out)
       return out
     }
+
+    // A cheap guarded list reaches here with its first page in hand; the probe path has
+    // already checked, and passes again unless `total` grew past the guard in between.
+    refuseIfCostly(total, count + (probed ? 0 : probeRows))
 
     // Build remaining page requests. The cap lives inside the loop: a corrupt
     // server `total` (e.g. 9e15) must not materialize millions of page objects —
@@ -408,6 +535,8 @@ export class GangtiseClient {
           from: req.from,
           size: req.size,
         })
+        // A later page that says total 0 is a total that drifted mid-fetch, not a broken page.
+        readEmptyListAsArray(page)
         if (!this.isPaginatedListResponse(page)) {
           // Treat a shape-broken page like a failed page: its rows are missing, so
           // the result must carry the partial marker instead of looking complete.
@@ -440,11 +569,14 @@ export class GangtiseClient {
     }
 
     const short = count < target
+    // Every row arrived and some were dropped as repeats: the fetch otherwise reached
+    // `total`, so it is still checked against a capped total, and no page came back short.
+    const shortByRepeatsOnly = short && count + duplicateRows >= target
 
     const out = result()
     flagWindowCut(out)
     // Only on a genuine fetch-all that otherwise looked complete — see flagIfTotalCapped.
-    if (requestedSize === undefined && total > 0 && target === wanted && !short && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
+    if (requestedSize === undefined && total > 0 && target === wanted && (!short || shortByRepeatsOnly) && !totalDrift && !truncatedByPageCap && failedPages.length === 0) {
       await checkTotalCap(out)
     }
     // Unified completeness backstop. Whatever the cause — a failed/shape-broken page,
@@ -468,7 +600,7 @@ export class GangtiseClient {
       const detail = firstError instanceof Error ? `: ${firstError.message}` : ""
       const skippedHint = aborted ? " A page hit a non-retryable error (e.g. rate limit); remaining pages were skipped." : ""
       process.stderr.write(`[gangtise] warning: ${failedPages.length}/${pageRequests.length} pages not fetched${detail}; results are partial — got ${count}/${total} rows (see failedPages).${skippedHint}\n`)
-    } else if (short && !truncatedByPageCap && !totalDrift) {
+    } else if (short && !shortByRepeatsOnly && !truncatedByPageCap && !totalDrift) {
       // A short later page with no failure, cap, or drift to explain it: the server
       // simply delivered fewer rows than `total` promised. Warn so an interactive run
       // sees why the result is partial (the other causes each warn on their own path).
@@ -513,14 +645,19 @@ export class GangtiseClient {
     try {
       const probe = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
       if (this.isPaginatedListResponse(probe) && probe.list.length > 0) totalCapped = true
-    } catch {
-      // A failed probe must never fail an otherwise-complete export: we simply do not
-      // learn whether the total was capped, which is the pre-existing behaviour.
+    } catch (error) {
+      // A failed probe must never fail an otherwise-complete export. But a probe the
+      // server REFUSED is not the same as one that never got through: the rows before
+      // `total` were served and the one at `total` was refused, which is how an offset
+      // window the endpoint did not declare answers (140002 is also the generic business
+      // failure, so this is the likely reading, not a proven one) — handled as the
+      // declared-window path is, the conservative way.
+      if (error instanceof ApiError && error.code !== undefined && OFFSET_REFUSAL_CODES.has(error.code)) {
+        markTotalCapped(out, `${endpoint.key} reported total=${total} and refused the row right after it (${error.code}) — most likely a server-side offset window at total, so rows past it may exist and can be neither fetched nor counted`, collectedLength, total)
+      }
     }
     if (!totalCapped) return
-    process.stderr.write(`[gangtise] warning: ${endpoint.key} reported total=${total} but rows exist past that offset — 'total' is a server-side cap, not the real count. This export is TRUNCATED at ${collectedLength} rows. Narrow the query (date range / filters) and fetch in slices.\n`)
-    out.partial = true
-    out.totalCapped = true
+    markTotalCapped(out, `${endpoint.key} reported total=${total} but rows exist past that offset — 'total' is a server-side cap, not the real count`, collectedLength, total)
   }
 
   /** `auth login` reports the identity requests will actually use, and says how it
@@ -655,15 +792,16 @@ export class GangtiseClient {
       // led with "多为查询无数据". No-data now comes back as a null CELL with its
       // row and column intact (re-probed 2026-08-08), which leaves 999999 meaning
       // an actual server fault — but the parameter checklist
-      // is still the right first move, because a wrong param name or date axis
-      // silently yields an EMPTY TABLE rather than this error. Only the data
+      // is still the right first move: a wrong code or param name comes back as its
+      // own error (100003), yet a date on the wrong axis silently yields null cells.
+      // Only the data
       // endpoints take a date/security/params; indicator.search shares the
       // no-999999 policy but has just a keyword, so it keeps the generic hint
       // instead of nonsensical date/scope/param guidance.
       const isIndicatorFetch = endpoint.key === 'indicator.cross-section' || endpoint.key === 'indicator.time-series' || endpoint.key === 'indicator.screener'
       if (isIndicatorFetch && error instanceof ApiError && error.code === '999999') {
         throw new ApiError(error.message, error.code, error.statusCode, error.details, error.retryAfterMs,
-          'EDE 取数故障。先核对参数再重试：参数名以 indicator search 的 parameterList 为准（传错名是静默失效）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意此码不表示无数据——有效 code 无数据现在返回保留行列的 null 单元格，空表则多半是整个轴的 code 都没被识别。')
+          'EDE 取数故障。先核对参数再重试：参数名以 indicator search 的 parameterList 为准（传错名会报 100003 并指名）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意此码不表示无数据——无数据返回保留行列的 null 单元格；code 或参数名写错报 100003、缺必填参数报 100001，都会指名。')
       }
       throw error
     })

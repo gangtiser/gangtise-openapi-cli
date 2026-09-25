@@ -2,7 +2,27 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
-> 🔴 **服务端问题的逐轮复核记录在 `bug/review-log.md`**，不在本文件。本文件只记版本变更。
+### v0.43.0 — 2026-09-26
+
+**按条计费列表的额度保护；翻页结果的重复与封顶检测；多证券日 K 合批；中断时清理暂存文件。**
+
+1. **按条计费列表的额度保护**：按条计费的分页列表（观点、路演 / 调研 / 策略会 / 论坛、会议线索、个股线索、热点话题、研报与公告等）省略 `--size` 时，先拿到 `total`，按 `total × 单价` 估算全量；超过 1000 积分就报错退出 1、不再往下拉，报错写明估算值。整页不超过 50 积分的列表用第一页拿 `total`；整页更贵的（路演 / 调研 / 策略会 / 论坛、独立观点、会议线索、个股线索、热点话题、`--with-content`）先只取 1 条：结果最多 1 条时它就是全部结果；否则放行后从头翻页，这 1 条会多计一次费。确认要全量加 `--yes`，只要一部分传 `--size N`；`raw call` 的 `--yes` 同样生效。免费列表不受影响。
+2. **翻页结果的完整性**：
+   - 按时间排序的列表跨页出现同一行两次时，去掉重复、标 `duplicateRows` 与 `partial`、退出码 3——重复了几行也就缺了几行，缩短时间范围重拉可补齐。
+   - 同一 ID 在后面的页以不同内容再次出现（翻页期间列表有变动）时，两版都保留、标 `changedRows` 与 `partial`、退出码 3，重拉即可。
+   - `total` 正好等于偏移窗口（`vault wechat-message-list`、`insight highlight list` 为 10000，窗口外的行取不到也数不到），或越过 `total` 的探测被接口以窗口类错误拒绝时，标 `totalCapped`、退出码 3，此前只在 stderr 提示、退出 0。
+   - 热点话题、纪要、A 股 / 港股公告、财报日历查不到内容时，此前被判为结构异常、退出 3，现在按空结果处理、退出 0。
+3. **`quote` 的 `--field` 在多只证券或全市场时自动补身份列**：缺的列补到最前并在 stderr 说明——日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、`realtime` 补 `securityCode`；单只证券不补。**多只证券只点一列的脚本，输出会多出这些列。**
+4. **多证券日 K 合批**：「证券数 × 交易日数」达到 `--limit` 时，按行数上限把尽量多的证券装进一个请求（未传 `--limit` 时按 10000 算），组内按传入顺序合并，请求数按组计而不是按证券计。每组都规划在行数上限以下，所以完整的一组不会因为行数恰好等于上限被判截断；单只证券的行数达到 `--limit` 时仍按截断处理。
+5. **全市场分片按工作日计**：A 股 / 美股 1 个工作日一片、港股 2 个工作日一片，周末不再单独发请求。全市场关键字（`aShares` / `hkStocks` / `usStocks`）必须同时给 `--start-date` 与 `--end-date`，缺一个在发请求前报错。
+6. **首行晚到提示**：`quote` 日 K、分钟 K、资金流向的首行比请求起点晚 14 天以上时，stderr 提示（上市较晚，或区间越过了账号的回溯窗口）；分钟 K 整段为空时提示分钟数据的窗口较短。导出到文件时同样提示。
+7. **不自动重发的端点**：`ai stock-summary` 与 `fundamental earning-forecast` 超时 / 5xx 不再自动重试——一次请求可能扣数千积分，重发可能重复扣费。`ai stock-summary` 有 120 秒超时下限。
+8. **枚举取值本地校验**：`vault record-download` / `my-conference-download` 的 `--content-type`、`ai hot-topic --category`、`ai security-clue --source` 写错时在本地报错、不发请求。其余本地校验的枚举，报错信息列出本版本已知的取值。
+9. **中断**：Ctrl-C、`kill` 或终端断开时，删除本次导出的暂存文件和还没写入内容的下载占位文件（它带着成品文件名，留下会被当成已下载），进程以该信号结束（shell 里 `$?` 为 130 / 143 / 129），脚本里的循环会随之停下。
+10. **`indicator` 的报错提示**：统一为「代码或参数名写错报 `100003` 并点名、缺必填参数报 `100001`；无数据是 `null` 占位」。
+11. **其他**：`fundamental earning-forecast` 的默认结束日按北京日期；`--version` 在管道与脚本里不再联网检查更新，终端里的检查结果一天内复用；`--help` 与本地参数校验启动更快；大结果的 `table` 输出更快。
+12. **文档**：Agent Skill 主文件精简，细节移到 `references/`；列表类命令按单价给出 `--size` 建议；两个日期都必填的 EDE 指标写法；预计很长的全市场导出按年或按季度分段拉。
+13. **维护者**：CLI 运行时从 `package.json` 读取版本号，不再依赖构建时生成的版本文件；新增文档守卫，校验 README 与 Skill 里写的选项与枚举值都存在于对应命令。
 
 ### v0.42.0 — 2026-09-25
 
@@ -22,7 +42,7 @@
 **修正三处静默取数问题；依赖安全更新。**
 
 1. **`quote index-day-kline` 不再接受 `--security all`**：该接口对 `all` 返回 `total: 0` 的空结果、不报错，与「当天无数据」无法区分，CLI 改为在发请求前报错，报错信息写明原因与替代写法。指数日 K 用 `quote day-kline` 逐个传代码（该接口的返回字段与 `day-kline` 相同，不含 `securityName`）；指数名称用 `reference securities-search --keyword <指数代码> --category index` 返回的 `gtsName`。**全部沪深京指数目前没有一次拿全的写法。** `quote.md` / `fields.md` / `response-schema.md` / `SKILL.md` / README 同步。
-2. **`fundamental valuation-analysis` 的长区间截断改为显式报出**：序列逐自然日一行（含周末），接口默认只返回最近 2000 行，区间更长时**开头**会缺失，此前退出 0。现在 CLI 显式发送默认 `limit`，行数撞满即标 `partial`、退出码 3，stderr 说明缺的是区间开头、`--limit` 至少设到区间天数（权限窗口内的十年约 3700 行，如 `--limit 4000`）；首行恰好就是 `--start-date` 时说明一行没丢，不标；`--skip-null` 同样保留该标记。`--limit` 补充帮助说明。
+2. **`fundamental valuation-analysis` 的长区间截断改为显式报出**：序列逐自然日一行（含周末），接口默认只返回最近 2000 行，区间更长时**开头**会缺失，此前退出 0。现在 CLI 显式发送默认 `limit`，行数撞满即标 `partial`、退出码 3，stderr 说明缺的是区间开头、`--limit` 至少设到区间天数（按 366 × 年数估算，如 5 年约 1830 行）；首行恰好就是 `--start-date` 时说明一行没丢，不标；`--skip-null` 同样保留该标记。`--limit` 补充帮助说明。
 3. **估值分析 `--field` 的字段组合不再可能错列**：CLI 发请求前对 `--field` 去重，并去掉 `tradeDate`（它总在第一列返回；只要了 `tradeDate` 一项时照常发送）。旧版在 `--field` 同时含 `tradeDate`（或同一字段写了两次）与不存在的字段名时，输出的每个值会整体右移一列且退出 0，`--skip-null` 与导出元信息也看不出来——**用过这类组合的估值结果请重跑**。只含 `tradeDate` 或重复字段、不含不存在的名字时，旧版退出 1，不会输出错列数据。
 4. **估值分析的起点被推迟时给出提示**：`--start-date` 早于账号回溯下界时，该接口从下界起返回、不报错（整段都在界外才报 `110003`）。首行晚于 `--start-date` 时 CLI 在 stderr 提示——可能是上市较晚，也可能是撞了权限窗口。`SKILL.md` / `errors.md` / `indicator.md` 同步写明：区间跨过下界时 `quote` 日 K 与估值分析不报错、`indicator` 与 `bond` 整批报 `110003`。
 5. **依赖**：`undici` 7.28.0 → 7.29.1（安全更新；本 CLI 未使用受影响的缓存与重试拦截器）。
@@ -42,7 +62,6 @@
    - 上传 / 新建 / 复制 / 两个删除标 `no-replay`：云盘允许同名，重发前三个会多出一份；重发一个已生效的删除会回「文件不存在」或 `130002`，把成功报成失败。重命名与两个移动重复执行结果不变，保留默认重试。
    - 云盘专有码 `230004`（名称超长）/ `230005`（文件夹移动目标非法）/ `230008`（试用账号当日上传超限）补处置提示；`130002` 的提示不再只针对下载。
    - `drive-upload` 本地先拦空文件、>100MB 与超长文件名（按 UTF-16 计 200）。
-   - `client.uploadFile` 支持附带表单字段。
 4. **新增 `bond` 族 12 个命令，0.4 积分起**：`basic-info` / `issuer-info` / `daily-quote` / `valuation`（上清所估值）/ `cash-flow` / `announcement` / `issuance-detail` / `rating-overview` / `rating-change`（债项评级变动）/ `issuer-rating-change` / `issuance-plan` / `exercise-notice`。多数按次计费；`rating-overview` 按条、`rating-change` 按有数据的债券只数、`issuer-rating-change` 按发行人计。`--security` 只收标准债券代码（简称与拼音整批 `120001`），返回是**列式**的，CLI 自动拍平成对象。
    - **整族标 `no-replay`**：计费 + 可重放正是会重复扣费的组合。
    - 🔴 **`bond announcement` 需要手动翻页**：唯一分页的接口且响应**不返回 `total`**，不能走自动翻页。`--page-no` 从 1 起逐页递增，翻过末页返回空数组即停；条件下一条都没有时任何页码都返回 `130001`。
@@ -52,7 +71,7 @@
 6. **`tool web-search` 联网搜索**：结果带信源等级 T0–T3、特征标与判定后的发布日期。`--site` 最多 10 个（**按去重后计**）、`--min-tier` / `--freshness` / `--include-content`（此时 `--size` 上限降为 5，CLI 本地拦截并说明原因）。1 积分/次，零结果与报错不扣，标 `no-replay`。
    - ⚠️ **排序是「信源等级 → 发布日期 → 相关性」，首条不等于最相关**；`publishTime` 判不出时为 `null`，`--freshness` 会把这批一并滤掉。
 7. **常量接口新增 9 个分类**：`fundType` / `fundBondType` / `bondType` / `interestRateType` / `interestFrequency` / `absUnderlyingAssetType` / `ratingType` / `exchange` / `nationalEconomicIndustry`。`reference-and-lookup.md` 的分类表不再写死条数，以 `reference constant-category` 的实际返回为准。
-8. **文档**：新增 `references/commands/bond.md`；`insight.md` 补观点 `detail` 与会议线索、`alternative.md` 补 `--full`、`vault.md` 补云盘管理、`tool.md` 补联网搜索。`no-replay` 清单由 19 条增至 44 条（README 与 SKILL.md 两处正文与注释块同步，有集合相等测试守着）。观点家族的 `total` 已是真实条数，文档里「恒为 10000」的例子撤掉（全量拉取后多探一行的封顶检查保留，是通用护栏）。
+8. **文档**：新增 `references/commands/bond.md`；`insight.md` 补观点 `detail` 与会议线索、`alternative.md` 补 `--full`、`vault.md` 补云盘管理、`tool.md` 补联网搜索。README 与 SKILL.md 的 `no-replay` 清单同步补上新增端点。观点家族的 `total` 已是真实条数，文档里「恒为 10000」的例子撤掉（全量拉取后多探一行的封顶检查保留，是通用护栏）。
 
 **取数前注意几处取值**（逐条见 `gangtise-openapi/references/commands/bond.md`）：
 
@@ -66,7 +85,7 @@
 
 1. **`--field` 写错字段名时，两族接口的表现完全不同——`references/fields.md` 顶部补上对照表**。实测：`quote realtime` / `day-kline` / `minute-kline` / `fund-flow` 把字段名和值一起丢掉，`fieldList` 里也没有它，列数与值数始终对得上；`fundamental main-business` / `valuation-analysis` 把字段名照请求回显在 `fieldList` 里、行里却少一个值。两族都不报错。
 2. **第二族是危险的那个**：`fieldList` 比行长，按下标对位会让缺口之后的每个值都贴到错误的字段名上——数字本身合理，肉眼看不出错。CLI 对它直接报错退出 1，不输出可能错位的数据；对第一族则标 `partial` + `missingFields`、退出码 3。
-3. **订正 `references/commands/fundamental.md` 的一处反向类比**：原文把 `main-business` / `valuation-analysis` 的「只丢值」写成「同 `quote realtime`」，而 `quote realtime` 恰恰是名值一起丢，与 `SKILL.md` 的记载相矛盾。
+3. **订正 `references/commands/fundamental.md` 的一处类比**：`main-business` / `valuation-analysis` 是「只丢值」，与名值一起丢的 `quote realtime` 不同，不能写成「同 `quote realtime`」。
 4. `fields.md` 的主营业务 / 估值分析两个小节各加一行指回顶部的对照表。
 
 ### v0.40.0 — 2026-09-19
@@ -78,7 +97,7 @@
 3. **逐条失败不再被吞掉**：`add-stock` / `remove-stock` / `delete` 是逐条处理的——证券代码不存在这类单条失败，服务端仍返回 `code: 000000` 的成功信封，明细放在 `failList`。现在检测到 `failList` 非空就在 stderr 列出失败项与原因、给结果标 `partial`、**退出码 3**；全部成功才是 0。批量脚本按退出码判断即可，不必自己解析 `failList`。
 4. **`stock-pool-create` 标为不重放**：池名不允许与已有池重复，所以重发一个其实已经建成的请求会拿到重名错误，把成功报成失败。5xx / 超时下不自动重发，超时后先跑 `stock-pool-list` 确认池建成没有。这是 `no-replay` 清单里唯一不是出于计费原因的条目。
 5. **规则**：池名上限 10 个字符（中文算 1 个，超出 `230007`）、不可与已有池重名（`230006`，判重是整串精确比较——首尾空格不 trim、大小写不归一），每账号最多 30 个池（`230003`）；证券代码要带市场后缀且大小写敏感，单池上限 10000 只。
-6. 🔴 **两道护栏挂在端点上，`raw call` 走同一套**：`endpoints.ts` 新增 `destructive`（要 `--yes`）与 `itemFailures`（判 `failList`）两个标记，专用命令与 `raw call` 都读它。此前 `--yes` 与 `failList` 判定只写在专用命令的 action 里，于是 `raw call vault.stock-pool.delete --body '{"poolIdList":[...]}'` 无需确认就发出不可恢复的删除，同一份部分失败响应也在专用命令退 3、raw 退 0。`raw call` 是**请求**的透传，不是绕开「这个请求会做什么」的路子——而它恰恰是被 `--yes` 拦住之后最顺手的下一步。两个标记各有一条集合相等测试，新增同类端点漏标即红。
+6. 🔴 **`raw call` 走同一套护栏**：`raw call vault.stock-pool.delete --body '{"poolIdList":[...]}'` 同样必须 `--yes`，同一份部分失败响应同样标 `partial`、退出 3。`raw call` 是**请求**的透传，不是绕开「这个请求会做什么」的路子——而它恰恰是被 `--yes` 拦住之后最顺手的下一步。
 
 **凭证与输出的三处修正**
 
@@ -164,7 +183,7 @@
 
 **工程（不影响使用）**
 
-17. `npm run contract`：线上契约探针，13 次免费调用比对三个行情接口的列名与 `null` 形态、指标参数与范围、常量分类（本机工具，不随包发布）。测试入口每次先干净重建 `dist`。测试 832 项。
+17. 新增 `npm run contract`：线上契约探针，比对行情接口的列名与 `null` 形态、指标参数与范围、常量分类（需凭证，不随包发布）。
 
 ### v0.37.1 — 2026-08-31
 
@@ -172,25 +191,25 @@
 
 **1. `screener` 用静态属性选股的示例补进 README**
 
-`pty_*` / `scr_*` 两族用 `--indicator-param "F1:"`（冒号后留空）声明不吃查询日期后可直接用于条件选股（服务端 2026-08-17 修复，CLI 侧绕行已于 v0.36.0 撤除），但 README 的 EDE 示例段仍写着「screener 上当前取不到；改用 `cross-section` 取回来再本地筛」——同一份 README 里 changelog 与示例段互相矛盾。撤绕行时只扫了 `references/`，漏了 README。
+`pty_*` / `scr_*` 两族用 `--indicator-param "F1:"`（冒号后留空）声明不吃查询日期后，可直接用于条件选股（v0.36.0 起）。README 的 EDE 示例同步补上这个写法，删去「screener 上取不到，改用 `cross-section` 取回再本地筛」的旧说法。
 
-**2. 数据权限时间范围的说明按实测更正（台账 P0-4 关闭）**
+**2. 数据权限时间范围的说明更正**
 
-`110003` 的可查窗口按**账号**配、不按接口配：EDE 三接口与 `quote day-kline` 逐日同界（实测 `2015-12-31` ❌ `110003` / `2016-01-04` ✅）。此前文档写的「三接口范围可能不一致，`screener` 撞界改用 `cross-section` 拉数再本地筛」已不成立——照做会多花一次全量取数的积分，且同样撞界。改为：换接口绕不过去，把日期移进权限范围或联系客户经理开通更长历史。
+`110003` 的可查窗口按**账号**配置、不按接口配：EDE 三个接口与 `quote day-kline` 的下界相同。此前文档写的「三个接口范围可能不一致，`screener` 撞界改用 `cross-section` 拉数再本地筛」不再适用——照做会多花一次全量取数的积分，且同样撞界。改为：换接口绕不过去，把日期移进权限范围，或联系客户经理开通更长历史。
 
 涉及 `README.md`、`gangtise-openapi/SKILL.md`（数据范围段 + `110003` 行）、`gangtise-openapi/references/commands/indicator.md`（错误码表 + 通用说明）。
 
 **3. EDE 文本筛选示例换成有区分度的条件**
 
-`pty_op_scope contains '酒'` 在中信白酒板块是 **19/19 全员命中**（该板块 universe 本身就是 19 只，`cross-section` 返 19 行 0 个 `null`），演示不出筛选在生效——与 `bug/README.md` 通则「全员命中的条件分不出『生效』与『条件被丢弃后返回全集』」是同一个坑。换成 `contains '葡萄酒'`（19 → 1，皇台酒业）。对外示例同时去掉写死的命中数：同一条命令 08-17 记 12 只、08-31 实测 19 只，而 `--date` 对静态属性无影响。
+`pty_op_scope contains '酒'` 在中信白酒板块会全员命中，分不出「筛选生效」与「条件被忽略、返回了全集」。示例换成 `contains '葡萄酒'`，并去掉写死的命中数（静态属性的命中数会随数据更新变化，`--date` 对它没有影响）。
 
 ### v0.37.0 — 2026-08-29
 
 **1. 🔴 下载的「智能文件命名」不再自动付费回查（行为变更）**
 
-省略 `--output` 时的文件名解析原本是两级：先读 `title-cache`，未命中就自动查 list 接口最近 200 条去匹配标题。第二级不是免费的：
+省略 `--output` 时的文件名解析原本是两级：先读标题缓存，未命中就自动查 list 接口最近 200 条去匹配标题。第二级不是免费的：
 
-- `TITLE_LOOKUP_SIZE = 200`，而 list 单页上限 50 → **每次未命中发 4 次请求**（实测；且目标常在第 1 页，后 3 页纯浪费）
+- list 单页上限 50 → **每次未命中发 4 次请求**（目标常在第 1 页，后 3 页多半用不上）
 - 12 个接了标题回查的下载命令里，**9 个的 list 按 0.1 积分/条计费** → 一次未命中 ≈ **20 积分**，而下载本身才 10–50
 - 取回的 200 条**没有写回缓存**，所以批量下 N 篇 = 4N 次请求、20N 积分
 
@@ -198,9 +217,9 @@
 
 先 `list` 再 `download` 的正常工作流**行为完全不变**（缓存命中，零额外调用）。
 
-**2. 下载成功却退出 3（`resolveTitle` 的退出码外溢）**
+**2. 下载成功却退出 3**
 
-标题回查走的是分页端点，`requestPaginated` 在首包异形时会写 `process.exitCode = 3`。回查本身是「尽力而为」的（失败就静默退回 ID 文件名），但这个副作用没人回滚——于是**文件完整下载成功、进程却退出 3**，而 3 的语义是「有数据但不完整」，按 `!= 0` 判失败的脚本会把成功的下载当失败。实测复现：
+标题回查走的是分页端点，遇到首页结构异常时会把进程退出码置为 3。回查本身是「尽力而为」的（失败就退回 ID 文件名），于是**文件完整下载成功、进程却退出 3**，而 3 的语义是「有数据但不完整」，按 `!= 0` 判失败的脚本会把成功的下载当失败：
 
 ```
 $ gangtise insight announcement-us download --announcement-id 12345
@@ -209,7 +228,7 @@ x.pdf
 EXIT=3        ← 文件是完整的
 ```
 
-`resolveTitle` 现在在回查前后保存/还原 `process.exitCode`。还原而不是清零——下载自身设的退出码必须原样存活。
+现在回查前后保存并还原退出码，下载自身设的退出码原样保留。
 
 **3. `--indicator-param` 引用未绑定的指标 code 不再静默发出**
 
@@ -222,14 +241,14 @@ EXIT=3        ← 文件是完整的
 
 `time-series` 上全程静默（那里不注入日期，没有冲突暴露它），用户以为设上的参数根本没生效。拼错**裸 `"<code>:"` 不要日期**那种写法更糟：真正的指标保留了被注入的 `tradeDate`，而那正是该写法要去掉的东西。现改为发请求前 `ValidationError`。
 
-**4. 下载路径不认端点声明的超时下限**
+**4. 下载同样遵守端点声明的超时下限**
 
-`requestJson` 一直走 `resolveTimeoutMs(config, endpoint)`，`download()` 直读全局 `config.timeoutMs`，端点声明的 `timeoutMs` 被静默忽略（重定向跳转同样）。当前没有 download 端点声明下限，所以是**潜伏缺陷而非现行 bug**——`tool.file-parse.result` 是最可能触发的那个（500 页解析结果 ZIP）。已改为与 `requestJson` 同一条路径，并加测试钉住。
+端点声明的超时下限此前只作用于普通请求，下载（含重定向跳转）直接用全局超时。当前没有下载端点声明下限，对现有命令无影响；两条路径已统一。
 
-**5. 两条测试/文档守卫补齐（`bug/closed.md` K15 / K16）**
+**5. 维护者：补测试与文档守卫**
 
-- **K15**：`totalCapped` 探针的 6 个 guard 里 `!totalDrift` 与 `failedPages.length === 0` 零覆盖——原有测试只断言最终 `partial`，而这两种情形本来就会由别的路径标 `partial`，删掉守卫测试照绿。新增两条测试直接断言**探针请求没有发出**（`{from: total, size: 1}`）。
-- **K16**：README 与 SKILL.md 里「共 18 个 `no-replay` 端点」的点名清单是注册表的第二份手抄件，没有守卫。两份文档各加一段 HTML 注释形式的 endpoint key 清单（读者不可见、机器可解析），`docsConsistency.test.ts` 对其做 set-equality，并另行校验正文里的「共 N 个」。判据实测：加第 19 个 `no-replay` 端点而不改文档 → 4 条测试红。
+- 补 `totalCapped` 封顶探针的测试，覆盖「探针请求不应发出」的情形。
+- README 与 SKILL.md 各加一段机器可解析的 `no-replay` 端点清单（HTML 注释，读者不可见），与端点注册表做一致性校验，并校验正文里写的端点总数。
 
 ### v0.36.0 — 2026-08-18
 
@@ -243,145 +262,78 @@ EXIT=3        ← 文件是完整的
 
 `parameterList` 里没有任何日期键的指标（`pty_*` / `scr_*` 静态属性两族，加 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`）现在可以直接用于条件选股：`--indicator-param "F1:"`（冒号后留空）声明该变量不要查询日期，与 `cross-section` 的 `"code:"` 是同一个写法，且可与真实参数共存（`"F1:" + "F1:fiscalYear=2025"`）。此前这类筛选只能先用 `cross-section` 取回再本地筛。
 
-`errors.ts` 里指向旧限制的那句提示同步改成给出 screener 的等价写法。
+EDE 报错提示里「screener 上这个写法用不了」的说法同步改为给出 screener 的等价写法 `--indicator-param "F1:"`。
 
-**3. 撤回 v0.35.0 的「`totalCapped` 探针跳过 `no-replay` 端点」**
+**3. `ai hot-topic` 恢复 `total` 封顶检测（撤回 v0.35.0 的排除）**
 
-v0.35.0 给全量拉取的封顶探针加了 `endpoint.retry !== "no-replay"` 排除，理由写成「`no-replay` 标的是按次计费的端点，那里空探针不免费」。**这个理由两层都不成立**，由 `gangtise-mcp` 提出、本仓复核后采纳：
+v0.35.0 让全量拉取的 `total` 封顶探针跳过 `no-replay` 端点，结果 `ai hot-topic` 成了唯一没有截断检测的分页端点。这个排除省不下费用：
 
-1. **`no-replay` 不是计费标记。** 它的定义是「never resend a request the server may already have executed」——**重放安全**：请求超时或 5xx 时你不知道服务端执行没执行，自动重发可能被扣两次。而探针是一个**从未发过的新请求**（`from = total`），不是重发，这个标记对它无话可说。
-2. **`ai.hot-topic` 不按次计费。** 它是 50/篇，一「篇」= 一整份报告（早报/午报/盘中快报/晚报），即**按返回条数计**；而按篇/按条计费的接口**查不到内容就不扣积分**。所以空探针本来就是 0 积分，那个排除**一分钱也没省**。
+1. **`no-replay` 是重放安全标记，不是计费标记**：请求超时或 5xx 时无法确认服务端是否已执行，自动重发可能重复扣费，所以不重发。探针是一个从未发过的新请求（`from = total`、`size = 1`），不是重发。
+2. **`ai hot-topic` 按篇计费**（50/篇，一篇 = 一整份早报 / 午报 / 盘中快报 / 晚报）。按篇 / 按条计费的接口查不到内容不扣积分，空探针本来就是 0 积分。
 
-代价却是实的：同时满足「分页」与 `no-replay` 的端点全库只有 `ai.hot-topic` 一个（24 ∩ 18 = 1），排除之后它就是**唯一没有截断检测的分页端点**——省不下钱，只丢检测。
+现已恢复：`ai hot-topic` 全量拉取后照常探一行，行数越过 `total` 时标 `totalCapped` + `partial`、退出码 3。
 
-现已撤掉排除项与那段错误注释，并补两条测试钉住：`ai.hot-topic` 上仍会发出 `from = total, size = 1` 的探针；rows 越过 `total` 时照常标 `totalCapped` + `partial`。变异验证：把排除项加回去 → **只有这两条红**，其余 686 条不受影响。同时订正了 `endpoints.ts` / `transport.ts` / `docs/architecture.md` 里把 `no-replay` 描述成「按次计费端点」的措辞——**那才是这次错误的源头**：它是重放安全标记，`ai.hot-topic` 带着它却是按篇计费。
+### v0.35.0 — 2026-08-16
 
-**另修一处文案**：EDE 报错提示里「screener 上这个写法用不了」那句已过期（服务端 2026-08-17 起接受该写法），改为给出 screener 的等价写法 `--indicator-param "F1:"`。
+**1. EDE 报错提示不再在只有半句时断言缺 `reportDate`**
 
-`gangtise-mcp` 已先行撤回同款改动；`gangtise-python`（该改动的最初提出方）已同步撤回。
+报错有时只有「不支持参数 tradeDate」半句，没有「缺少必填参数 reportDate」。这只说明 `tradeDate` 被拒，推不出要 `reportDate`——如 `scr_exchg_mkt` 的 `parameterList` 是空的，补 `reportDate` 同样被拒。现在这种情况的提示指向 `parameterList`，分「空 / 只有 `fiscalYear` / 有别的键」三种给出写法，并提示可改用 `indicator time-series`。另补「缺少必填参数 tradeDate」的专门提示（此前落在 `100001` 的通用提示上）。
 
-### v0.35.0 — 2026-08-16（跟进下游两仓的上游反馈）
+**2. 新增无日期写法 `--indicator-param "<code>:"`**
 
-逐条复核 `gangtise-mcp` 的 `bug/cli-upstream.md`（C5 / C6 / C7）与 `gangtise-python` 的 `bug/upstream-cli.md`（U1–U4）。**七条里六条成立**，其中一条（U2 的一半）**驳回并附反例**，并在追查过程中查出一条新的服务端问题。
+2026-08-14 起，`parameterList` 里没有日期键的指标在 `cross-section` 上取不到数：`--date` 必填且会给每个指标注入 `tradeDate`，这类指标收到后报 `100003`、整条请求被拒。受影响的如 `pty_*`（公司属性）、`scr_*`（证券属性）两族，以及 `div_cash_paid_ratio` / `div_cash_yr`（仅 `fiscalYear`）、`pty_shr_reg`（仅 `currency` / `scale`）。
 
-**1. 报错提示不再在「半句」上断言一个错误的键（MCP C7(2) / Python U1）**
+冒号后留空即声明「这个指标不要查询日期」，可与真实参数共存（`div_cash_paid_ratio` / `div_cash_yr` 要两条一起给：`"<code>:"` + `"<code>:fiscalYear=2025"`）。该写法此前本地报错，现有调用不受影响。
 
-v0.34.1 的 `MESSAGE_HINTS` 用一条 alternation 同时覆盖拼接句（`不支持 A; 缺少 B`）与半句（只有 `不支持 A`）。半句只证明 `tradeDate` 被拒，**推不出要 `reportDate`**——`scr_exchg_mkt` 的 `parameterList` 是空的，照提示补 `reportDate` 同样被拒，而 CLI 对那半句没有规则，用户就此卡住。
+- **判据（单向）**：`parameterList` 里有 `tradeDate` → 注入安全；没有 → 大概率被拒。也有空 `parameterList` 却接受注入的指标，且没有能列出全部指标的接口，受影响名单无法穷举——一律以 `indicator search` 的 `parameterList` 为准。
+- `frcst_*` 盈利预测这类 `tradeDate` 与 `fiscalYear` 都必填的指标，传了 `fiscalYear` 仍会注入 `tradeDate`，照常出数。
+- `indicator.md` 与 README 里 `contains '酒'`（`pty_op_scope`）的选股示例改为 `cross-section` 取回后本地筛（v0.36.0 起 screener 可直接用）。
 
-拆成三条规则，判别式用 `notMatch` 编码（「半句 = 有『不支持』但没有『缺少必填参数 reportDate』」），**不依赖数组顺序**。半句配不断言的提示：指向 `parameterList`，分「空 / 只有 fiscalYear / 有别的键」三种给法，并点名 `indicator time-series` 这条实测可行的路。另补一条「缺少必填参数 tradeDate」（K13 那条路，此前落在 `100001` 的通用提示上）。四种形态都对着线上复跑确认。
+**3. `total` 封顶探针跳过 `no-replay` 端点**
 
-**2. 新增无日期 opt-in 逃生口 `--indicator-param "<code>:"`（MCP C7(1) / Python U2）**
+全量拉取结束后的 `total` 封顶探针不再在 `no-replay` 端点（即 `ai hot-topic`）上发出。（v0.36.0 已撤回，见上）
 
-2026-08-14 服务端收紧参数校验后，**31 个指标在 `cross-section` 上彻底取不到数**：`--date` 必填且会给每个指标注入 `tradeDate`，而这些指标的 `parameterList` 里没有日期键，注入即 `100003` 拒绝整条请求。
+**4. `--rank-type 1`（综合排序）的效果取决于关键词区分度**
 
-- **28 个 `parameterList: []`**：`pty_*`（公司属性）18 个 + `scr_*`（证券属性）10 个，**整族**
-- **3 个有参数但无日期键**：`div_cash_paid_ratio` / `div_cash_yr`（仅 `fiscalYear`）、`pty_shr_reg`（仅 `currency`/`scale`）
+宽泛关键词（如 `机器人`、`PCB`）下相关度拉不开，综合排序与按时间倒序（`--rank-type 2`）的结果几乎相同；关键词区分度越高，差别越明显。这是排序机制本身，不是参数没生效。`--search-type` 不影响综合排序取回哪些条目，`insight.md` / `SKILL.md` 里「要最相关必须加 `--search-type 2`」的建议已撤掉。
 
-🔴 **这一条的判据前后错了三轮，值得完整留档**：
+**5. `indicator screener` 上暂不接受无日期写法**
 
-1. 下游报 8 个；我们用中文关键词扫 665 个指标得出 7+2 —— 都不到实际的三分之一。**改用 code 前缀能按族穷举**（`pty_` 19 / `scr_` 20 / `div_` 18 / `frcst_` 8，均未撞 100 上限）。
-2. 两边都用「`parameterList` 是不是 `[]`」当判据，于是都漏掉了 `pty_shr_reg`（非空、但没有日期键）。
-3. 改成「有没有 `tradeDate` / `reportDate`」后**仍是错的**——`gangtise-python` 的复核方指出：约 117 个 `is_*` 报告期指标声明 `[reportDate]`，**照样拒收注入的 `tradeDate`**，按这个判据会被判成不受影响，而那是最大的一族。它们操作上没出事，只是因为解法（自己传 `reportDate`）恰好触发了 `DATE_PARAM_KEYS` 的抑制——**判据不能靠这种巧合成立**。
-
-**最终判据（单向蕴含，不是当且仅当）：`parameterList` 里有 `tradeDate` → 注入安全；没有 → 大概率被拒。** 「当且仅当」那版也被证伪了——`cdr_conv_ratio` 空 `parameterList` 却接受注入（200 + null）。
-
-🔴 **而且这个集合结构上就不可穷举**（同一复核方的论证，本仓实测坐实）：`indicator search` 必须给关键词（空串报 `100001`）、`--limit` 上限 100、无 `--from`，泛化关键词 `_` 正好返 100 条即已截断。**没有列表端点，「扫完所有前缀」就没有终点**——你不可能先验地知道有哪些前缀。所以代码注释、help、对外文档一律写成**判据 + 重新生成的命令**，名单只标注「当前已知快照」，一个固定条数都不写死。
-
-名单里漏掉的 `pty_op_scope` 正是官方文档 `F3 contains '酒'` 示例用的指标——本仓 `indicator.md` 与 `README.md` 的同源示例因此都是坏的，已改走 `cross-section` + 本地筛。
-
-冒号后留空即声明「这个指标不要查询日期」。该拼法此前是 `ValidationError`，**没有任何既有调用会变行为**。标记走独立的 `noQueryDate` 集合而非「空参数表」，为的是能与真实参数共存（`fiscalYear` 那两个需要两条一起给）。
-
-🔴 **驳回 `gangtise-python` 的「把 `fiscalYear` 加进 `DATE_PARAM_KEYS`」**：`frcst_op_rev` / `frcst_op_rev_yoy` / `frcst_pe` / `frcst_shnp` / `frcst_shnp_yoy` 的 `tradeDate` 与 `fiscalYear` **都是 `required: true`**，今天正常出数（`frcst_pe` = 19.4055），抑制注入后全部变成 `100001 缺少必填参数 tradeDate`——**用 2 个换 5 个**，而逃生口一样能修那 2 个。已加测试钉住。他们那边已经这么改了，回执里附了反例。
-
-**3. `totalCapped` 探针不再在按次计费的端点上白花一次调用（Python U3）**
-
-探针原本无条件跑，注释写「these endpoints charge per row」（空探针不计费）。`ai.hot-topic` 是唯一同时带 `pagination` 与 `retry: "no-replay"` 的端点（24 ∩ 18 = 1），而 `no-replay` 标的正是「按次计费、无缓存豁免」。已加 `endpoint.retry !== "no-replay"` 排除；已观察到的 `total` 封顶只出现在三个 `insight.opinion*`（按行计费），跳过不损失覆盖面。
-
-**4. 🔴 P2-7 当天在 open / closed 之间搬了三次，归因错了两轮（MCP C5 + 跨 session 复核）**
-
-v0.34.0 把 P2-7（`rankType=1` 综合排序）判为已修复、**并撤掉了对外文案**。MCP 用 `searchType=1` + `PCB` 复跑，rank1 与 rank2 逐位相同 → 我们据此重开，并归因到 **`searchType`**（「标题档没修」）。跨 session 复核换了第三组关键词，证明**两次归因都不对**：
-
-| 关键词（同命令、同 `searchType=1`） | `research` rank1∩rank2 | `summary` |
-| :-- | --: | --: |
-| `机器人` / `PCB` | **50/50** | 50/50 |
-| `人形机器人` | 9/50 | 15/50 |
-| `新能源汽车` | 2/50 | 0/50 |
-
-**真正的变量是关键词区分度。** 宽泛词下相关度拉不开差距、退化成时间序，这不是缺陷。决定性证据是内容级的：`新能源汽车` 组 rank1 前 50 有 47 条标题含「新能源」，rank2 只有 28 条。P2-7 已按修正后的机制**重新归档为已修复**。
-
-🔴 **顺带纠正一条我们自己写错的建议**：`searchType` **完全不影响 `rankType=1` 取回哪些条目**（3 关键词 × 2 命令前 50 逐位相同，尽管 `total` 差 5–15 倍）。「要最相关必须加 `--search-type 2`」已从 `insight.md` / `SKILL.md` 撤掉。
-
-**判别要点**：前三轮每轮的证据在各自样本里都自洽，而三轮各自只动了一个变量（端点 / `searchType`），真正的变量始终没被动过。
-
-**5. 新发现：`screener` 静默丢弃 `parameters: []` 的指标（`server-open.md` P1-7）**
-
-追 C7(1) 时查出来的。同一个指标，`cross-section` 传空参数表正常出数，`screener` 上**整条被丢弃**——200、无错误码、`indicatorList` 里那一项直接消失；表达式筛的就是它时条件等于没加、返 0 行，而**真·无匹配的载荷逐字相同**。带任意参数则报 `100003`，两侧都堵。上面那 31 个指标在选股上因此完全不可用，`contains` 类文本筛选（筛主板 / 筛经营范围 / 筛注册地）一条都做不了。
-
-这是**回归**：2026-08-02 记过同样的丢弃行为，08-03 复测判已修，08-14 收紧后从另一侧堵了回来。**两个改动各自都讲得通，合起来把一整类查询变成不可达且不报错。** CLI 在本地拦下 screener 上的 opt-out（P1-7 修好后要撤）。
-
-**6. C6 已订正**：`closed.md` P2-8 整段的 `industryList` 改为 **`industryIdList`**（请求体真实字段名，`industryList` 是**返回行**里的同名不同物字段——名字写错的源头）。照旧名字做黑盒复核会得出与结论正好相反的判断，MCP 差点据此误报。
-
-**7. 台账**：`bug/` 新增 `python-downstream.md`（编号 `PY`，3 条）；`mcp-downstream.md` 关闭 D4、新开 D5/D6/D7；K13 扩写成「日期扇出的三种形态」；P2-7 先移回 `server-open.md` 又按修正后的机制移回 `closed.md`（当天三次）；新开 P1-7（screener 静默丢弃空参数指标）与 P1-8（年在后日期静默解析，从 P0-3 残留分出）；`bug/README.md` 补归档纪律的反面（关闭一条时残余必须独立立条）+ 三条零成本自检。
-
-**8. 跨 session 复核走了 6 轮**（`/cross-review`，另一个干净上下文 session），签字放行。它抓到的 16 条里，**只有少数是逻辑错，绝大多数是「我的验证方法在骗我」**：
-
-| 轮 | 抓到什么 | 类别 |
-| :-- | :-- | :-- |
-| 1 | 对外文案里的 rankType 绝对句被第三组关键词证伪；`P2-12` 悬空引用；`cdr_conv_ratio` 证伪 `iff` | 抽样下绝对结论 |
-| 2 | `SKILL.md` 的祈使句里仍留着已撤回的药方；规则② 在「键写反」形态上给出**死路**建议 | 清扫遗漏 / 新形态 |
-| 3 | 两条 nit「说改了其实没改」（批处理半途抛错）；**多指标批量报错时断言型 hint 指向错的指标** | 验证对象错 / 样本单一 |
-| 4 | 批量规则的「成因各不相同」是假断言且构成能力回退；**我的 N2b 变异全绿是假阳性**（规则④ 无守卫，靠数组顺序兜） | 假断言 / 变异无覆盖 |
-| 5 | 已撤回说法在 `README.md` 仍有残留 | 清扫遗漏 |
-| 6 | 无（我自己按「概念扫」又扫出 `examples.md` 第四处同义残留） | — |
-
-**这一轮真正的产出是 `bug/closed.md` K1 那条根因——「验证对象不是被验证的那个东西」，现在有八种面孔**：变异变错形态 / 拿陈旧 `dist` 跑 live / `N` 凭印象 / 用一个接口的字段校验另一个接口 / 转述只发半张配对表 / 批处理抛错却拿测试绿当验证 / 变异全绿当护栏有效 / 清扫范围按改动文件划。八种都会给出一个**很像成功的信号**，所以不会自己暴露。
-
+`screener` 对 `parameters` 为空的指标会整条忽略——HTTP 200、不报错，表达式筛的就是它时条件等于没加、返回 0 行，与真的无匹配无法区分；带任意参数则报 `100003`。所以上面第 2 条的指标在选股上暂时用不了，CLI 在本地拦下 screener 上的无日期写法。（v0.36.0 已放开）
 
 ---
 
 ### v0.34.1 — 2026-08-15
 
-发版后逐条复核 `bug/cli-backlog.md` 的遗留项，关掉 6 条、新开 1 条，过程中修了两处代码。**经四轮跨 session 对抗审查**，其中三条实质问题是审查方独立跑出来的。
-
 **1. EDE 报告期指标：报错里直接给出该改的 CLI 写法**
 
-服务端对 `is_*` 等报告期类指标拒收 `tradeDate`，报「缺少必填参数 reportDate」——但没说在 CLI 里怎么改。`errors.ts` 新增按**消息内容**匹配的提示层（`100003` 是 EDE 所有入参错误的兜底码，按码只能给通用建议），直接给出 `--indicator-param "<code>:reportDate=..."`。
+`is_*` 等报告期类指标收到 `tradeDate` 会报「缺少必填参数 reportDate」，但没说在 CLI 里怎么改。`100003` 是 EDE 所有入参错误共用的码，按码只能给通用建议，所以新增按**报错内容**匹配的提示，直接给出 `--indicator-param "<code>:reportDate=..."`。
 
-⚠️ **提示文案刻意不做归纳**：初版写成「报告期类＝`is_*`/`bs_*`/`cf_*`，`finc_*` 不受影响」，被 170 指标抽样证伪——7 个 `finc_*` 和 3 个 `div_*` 要 `reportDate`，8 个 `is_*` 和 4 个 `cf_*` 要 `tradeDate`。现在只说「以 `indicator search` 的 `parameterList` 为准」，并注明少数指标（`div_cash_yld`）两个日期都要、另有指标要 `fiscalYear`。同一句 msg 服务端会以 `100001` 或 `100003` 送达，两个码都收。
+⚠️ 哪些指标要 `reportDate` 不能按代码前缀判断：`finc_*` / `div_*` 里也有要 `reportDate` 的，`is_*` / `cf_*` 里也有要 `tradeDate` 的。一律以 `indicator search` 的 `parameterList` 为准；少数指标（如 `div_cash_yld`）两个日期都要，另有指标要 `fiscalYear`。同一句报错会以 `100001` 或 `100003` 返回，两个码都覆盖。
 
-**2. 下载文件名缓存的并发写丢数据（K1，从「有意不做」翻案）**
+**2. 下载文件名缓存的并发写入修正**
 
-两层：`flush` 取快照后到期的写会被接到已在 resolve 的 promise 上、永不落盘（两个 `await` 都正常返回）；`loadInto` 并发时各自建对象、后者覆盖前者。修法是 `flush` 循环 + 出口与释放 handle 同步化，`loadInto` 按**路径分键**的 promise coalescing。
-
-单进程 CLI 够不着这个场景（判断至今成立），改的理由是修法便宜、且把「正确性依赖调用方自律」变成「模块自身正确」。
-
-**3. 台账**：关闭 K1 / K3 / K4 / K5 / K8 / K12（其中 **K3 / K4 / K5 是早已做完、台账没回写**——反向检查一次抓到三条）；新开 **K13**（`DATE_PARAM_KEYS` 对「两个日期都必填」的指标会抑制 `tradeDate` 注入）。
-
-**审查中值得留档的三条**：
-
-- 修复本身引入了更糟的缺陷——`loadInto` 的 coalescing 没按路径分键，把「丢缓存」变成「返回别的文件的内容」
-- 用 10 个关键词的抽样下了「没有交叉、没有遗漏」的绝对量词，**且是在自己刚写完「别按 code 前缀硬编码」之后**
-- 🔴 **变异测试验错了对象**：变异让 handle 永不释放、连普通写都坏了，于是「3 条红」看起来像护栏有效；用正确的变异（退回旧形状但保留循环）一试，**全绿**——那处修复实际零覆盖。**变异要模拟「未来的人会怎么改回去」，不是「怎么把代码弄坏」**
+同一进程内并发写标题缓存时，部分条目可能没有落盘，并发加载也可能互相覆盖。单次 CLI 调用碰不到这种并发，对使用无影响；修正后由缓存模块自身保证正确。
 
 ---
 
 ### v0.34.0 — 2026-08-15
 
-跟进 2026-08-14 服务端更新。**有破坏性变更，但破坏来自服务端**——本版做的是让它们尽早、清楚地暴露，而不是让用户对着一个指向错误位置的报错排查。
+跟进 2026-08-14 接口更新。**有破坏性变更**——本版让受影响的写法尽早、清楚地报错，而不是让用户对着一个指向错误位置的报错排查。
 
 **1. 🔴 `quote day-kline` 的全市场关键字换了（破坏性）**
 
 服务端把「历史日K线（A）」升级为统一的「历史日K线」，**停止支持 `["all"]`**，改为 `aShares` / `hkStocks` / `usStocks`，且市场标识**只能单独传**（不能与证券代码或另一个标识混填）。
 
-CLI 侧：`--security all` 与混填都在**发请求前**报错，并直接给出该用哪个关键字。这一步是必要的——服务端对这两种输入都回 `120001「证券代码无效」`，提示是「用 securities-search 确认代码与后缀」，而代码本身完全正确，照着排查会一路走偏。
+CLI 侧：`--security all` 与混填都在**发请求前**报错，并直接给出该用哪个关键字。这一步是必要的——接口对这两种输入都回 `120001「证券代码无效」`，提示是「用 securities-search 确认代码与后缀」，而代码本身完全正确，照着排查会一路走偏。
 
-分片逻辑随之改为按市场取粒度（实测 2026-08-13 单交易日行数：A 股 5543 / 美股 5919 / 港股 2810）：`aShares` 与 `usStocks` 1 天/片、`hkStocks` 2 天/片，都保证单请求不撞 10000 行 API 上限。旧的三个命令仍用 `all`、粒度不变。
+分片逻辑随之改为按市场取粒度：`aShares` 与 `usStocks` 1 天/片、`hkStocks` 2 天/片，都保证单请求不撞 10000 行 API 上限。旧的三个命令仍用 `all`、粒度不变。
 
 **2. `day-kline` 覆盖面扩大，三个旧命令标记下线**
 
 `day-kline` 现在支持 A股/港股/美股个股 + 交易所指数（沪深京）、概念指数（`.GT`）、行业指数（中信 `.CI` / 申万 `.SWI`），**可在一次请求里混着传**。`day-kline-hk` / `day-kline-us` / `index-day-kline` 官方已从菜单下线（接口仍可调），help 与文档标注为 deprecated。
 
-⚠️ **没有直接删掉它们，有实测理由**：`index-day-kline` 仍有两处 `day-kline` 做不到的能力——`--security all` 一次取全部 531 条指数，以及返回 `securityName` 指数名称（`day-kline` 查指数只有代码没有名称）。删掉会让这两件事没有替代路径。反过来 `day-kline` 独有 `adjustFactor`（指数为 `null`）。
+⚠️ **没有直接删掉它们**：`index-day-kline` 仍有两处 `day-kline` 做不到的能力——`--security all` 一次取全部指数，以及返回 `securityName` 指数名称（`day-kline` 查指数只有代码没有名称）。删掉会让这两件事没有替代路径。反过来 `day-kline` 独有 `adjustFactor`（指数为 `null`）。
 
 `minute-kline` 同步扩展到交易所指数 / 概念指数 / 行业指数（仍是沪深，不含北交所，一次一只）。
 
@@ -391,29 +343,20 @@ CLI 侧：`--security all` 与混填都在**发请求前**报错，并直接给�
 
 **4. EDE 报告期类指标必须显式传 `reportDate`**
 
-服务端对 `is_*` 等报告期指标的 `tradeDate` 从「归一到所在报告期」改成了直接拒绝（`100003 不支持参数 tradeDate; 缺少必填参数 reportDate`）。CLI 的 `DATE_PARAM_KEYS` 机制本来就让用户传的 `reportDate` 顶掉注入的 `tradeDate`，所以补一个 `--indicator-param "code:reportDate=..."` 即可正常取数——但 `--date` 的 help 此前写着「服务端会 resolve 到报告期」，现在是假的，已改。
+服务端对 `is_*` 等报告期指标的 `tradeDate` 从「归一到所在报告期」改成了直接拒绝（`100003 不支持参数 tradeDate; 缺少必填参数 reportDate`）。用户传了 `reportDate` 时 CLI 本来就不再注入 `tradeDate`，所以补一个 `--indicator-param "code:reportDate=..."` 即可正常取数。`--date` 帮助里「会归一到报告期」的说法已删去。
 
 **5. 三大报表新增 `earliestAnncDate`**
 
-首次公告日。**做 point-in-time 对齐改用它**：实测存在个股的 `announcementDate` 把四个季度全填成年报披露日（五粮液 FY2025 四期都返 `20260430`），而 `earliestAnncDate` 分别是 `20250426` / `20250828` / `20251031` / `20260430`，与公告列表一致。盘后披露计次日，即永不早于真实披露时点。
+首次公告日。**做 point-in-time 对齐改用它**：`announcementDate` 是返回版本的公告日，个别个股会把各季度都填成年报披露日；`earliestAnncDate` 与公告列表一致。盘后披露计次日，即永不早于真实披露时点。
 
-**5.5 跨 session 对抗审查后补修的三项**
+**5.5 市场关键字与分片的补充修正**
 
-发版前把改动交给另一个 session 独立复核，抓到三处必修（它跑的探针与我不同，这是价值所在）：
+- 🔴 **`quote fund-flow` 混填「关键字 + 代码」不再静默降级成单只**：`--security aShares --security 600519.SH` 此前退出 0、只返回 600519.SH 一行、无告警——这个端点会忽略关键字，而统一 `day-kline` 对同样的输入直接报 `120001`。`fund-flow` 现已接上同一个本地校验。
+- 🔴 **`index-day-kline --security all` 分片由 30 天改为 15 天**：30 天一片会超出单请求 10000 行上限，结果被截断（标 `truncatedShards`）。
+- 🔴 **市场关键字不区分大小写**：`--security ashares` 此前不会被识别为市场关键字，既不走本地校验也不分片，落到单请求 6000 行上限——区间稍长就报 `100003 查询规模过大` 或被截断。现在关键字按小写比对，归一成标准写法再下发。`quote fund-flow` 只认逐字的 `aShares`（其余 quote 端点不区分大小写），归一后写成 `ashares` 同样可用。
+- **`--security ALL` 按全市场处理**：旧的三个命令里 `all` 关键字不区分大小写，与 Allstate 的代码根 `ALL` 撞名；查 Allstate 请写带后缀的 `ALL.N`。
 
-- 🔴 **`quote fund-flow` 把「关键字 + 代码」静默降级成单只**：`--security aShares --security 600519.SH` 此前 exit 0、只返 600519.SH 一行、无告警——服务端在这个端点上是**静默丢弃关键字**（统一 `day-kline` 则是硬报 `120001`）。同一个用户错误，两个端点一个硬失败一个给半个结果，后者正是 v0.33.0 要消灭的形态。`fund-flow` 现已接上同一个校验。
-- 🔴 **`index-day-kline --security all` 的 30 天/片必然截断**：531 行/交易日 × 一个 30 天窗口约 22 个交易日 ≈ 11.7K，超 10K 上限。虽有 `truncatedShards` 兜底（不是静默），但**分片本就不该切出必然超限的窗口**，而且本版还把「一次拿全部指数」当作保留旧命令的理由推荐给了客户。粒度改为 **15 天**：实测同一区间从「20000 行 + partial」变成 **22833 行、无 partial**，找回约 12%。
-- 🔴 **市场关键字大小写敏感**：API 本身不区分大小写（`ashares` 照常返全市场），而 CLI 精确匹配，于是 `--security ashares` 既过不了本地校验也匹配不上分片，落到单请求 6000 行——实测 12 天区间直接报 `100003 查询规模过大`、`hkstocks` 三天则被截断到 6000。关键字改为按小写比对并归一化后再下发。
-
-顺带修正了**三处已判定「已修复」但客户侧警告没撤干净**的文案（`indicator.md` 的 `adjustmentType`、`fundamental.md` 与 `response-schema.md` 的 `companyType`/`currency`）——其中 `adjustmentType` 那条本文件上一版**已声称撤过而实际没撤**，比漏改更危险，因为下轮复核会照 CHANGELOG 当已完成跳过。根因记进了 `bug/closed.md` P2-1：那条只写「CLI 侧无需改动」，把「CLI 侧」默认等同于代码，漏掉 skill 文案。
-
-还发现一个**测试在为 bug 背书**：`cliBodyMapping` 里的 fund-flow body 映射测试用的正是 `600519.SH` + `aShares`，等于把「混填照原样发出去」写成了期望值。已换成两个普通代码，混填交给新增的守卫测试。
-
-**5.6 第二 / 三轮复核补的三件**
-
-- **`index-day-kline --security all` 的 15 天粒度加了测试**：这一轮唯一的数值缺陷此前**零护栏**——把它改回 30 全套测试照样绿。现在 45 天区间 pin 了 index=3 片 / hk=23 / us=33。（写这条时我把工作日数算错一次，测试当场变红，正好证明它有效。）
-- **`quote fund-flow` 的关键字归一加了测试**：实测六个 quote 端点，**只有 `fund-flow` 不折叠大小写**（`ashares` 返 `120001 非有效A股`，只认逐字 `aShares`），其余五个都折叠。也就是说 `canonicalizeMarketKeywords` 在另外五处只是让分片查表对得上，**在 `fund-flow` 上却是「删掉就从能跑变报错」**——而那一路原本没有任何测试。相关注释也从「the API is case-insensitive here」改成按端点分档，服务端侧不一致立为 `bug/server-open.md` **P2-11**。
-- **`ALL` 被解析成全市场，澄清为「不是缺陷」**（`bug/closed.md` C4）：`all` 关键字与 Allstate 的 ticker 根固有碰撞，服务端在三个旧端点上对 `all` 一律大小写不敏感，正解是带后缀的 `ALL.N`。中途曾据此改成「对 `all` 大小写敏感」，实测反事实后**撤回**——那个改法保护不了任何人，反而把 `--security ALL` 跨 5 天的 29588 行完整结果换成 6000 行截断。
+文档：撤掉 `indicator.md`（`adjustmentType`）、`fundamental.md` 与 `response-schema.md`（`companyType` / `currency`）里已不再适用的警告。
 
 **6. 错误码提示更新**
 
@@ -432,63 +375,56 @@ CLI 侧：`--security all` 与混填都在**发请求前**报错，并直接给�
 **1. 分页端点的异形首包不再静默通过（退出码 0 → 3）**
 
 分页端点本该返回 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。此前只要形状不对就原样透传、退出 0：
-- `insight foreign-opinion` / `independent-opinion` 传 `--industry` 时服务端返 `data: null`，CLI 打印 `null` 退出 0——脚本无从区分「这个筛选确实没命中」和「这个筛选没生效」
+- `insight foreign-opinion` / `independent-opinion` 传 `--industry` 时接口返回 `data: null`，CLI 打印 `null` 退出 0——脚本无从区分「这个筛选确实没命中」和「这个筛选没生效」
 - `total` 变成字符串这类形状漂移会把 fetch-all **截断成第 1 页**，而结果看着完整——比明显为空更危险
 
-现在一律 stderr 告警 + **退出码 3**。全部 24 个分页端点都是真 `{total, list}` 列表（形状特殊的 `reference.constant-list` 没标分页，`null` 是合法答案的 `ai.one-pager` 也不分页），无误报空间。
+现在一律 stderr 告警 + **退出码 3**。所有自动翻页端点都返回 `{total, list}`（形状特殊的 `reference constant-list` 与 `null` 是合法答案的 `ai one-pager` 都不走自动翻页），不会误报。
 
-**2. `total` 被服务端封顶时标 `totalCapped` 并退出 3（新增检测）**
+**2. `total` 被封顶时标 `totalCapped` 并退出 3（新增检测）**
 
-`insight opinion` / `foreign-opinion` / `independent-opinion` 三个端点的 `total` **恒为 10000，而实际记录远不止**（把 `from` 加到远超该值仍能取到真实记录，`publishTime` 单调变老）。省略 `--size` 的全量拉取按 `total` 定目标，于是**正好取满 10000 条就停、`collected === total`**——短页、页失败、`total` 漂移三个完整性检查一个都不触发，导出的文件被截断却退出 0。`opinion` 按 30 积分/条计费，一次自以为完整的导出就是 30 万积分换一份截断数据。
+当时 `insight opinion` / `foreign-opinion` / `independent-opinion` 返回的 `total` **恒为 10000，而实际记录远不止**（把 `from` 加到远超该值仍能取到记录）。省略 `--size` 的全量拉取按 `total` 定目标，于是**正好取满 10000 条就停、`collected === total`**——短页、页失败、`total` 漂移三个完整性检查一个都不触发，导出的文件被截断却退出 0，而按条计费照扣。
 
-现在全量拉取结束后**探一行 `from = total`**：探到数据就标 `partial` + `totalCapped` + 退出 3。**判据不写死 10000**，服务端改配置仍然有效；`total` 诚实时探针返回空、按条计费下不产生费用；传了 `--size` 的有界请求不探（要多少给了多少，没有完整性可言）。
+现在全量拉取结束后**探一行 `from = total`**：探到数据就标 `partial` + `totalCapped` + 退出 3。**判据不写死 10000**，接口改配置仍然有效；`total` 诚实时探针返回空、按条计费下不产生费用；传了 `--size` 的有界请求不探（要多少给了多少，没有完整性可言）。
 
-代价是每次全量拉取多一个请求。实测非 opinion 端点全部通过（`summary` total 52 万、`research` 337 万，`from = total` 均返 0 行）。
+代价是每次全量拉取多一个请求。
 
 **3. 空结果不再在 stdout 留一个空行**
 
-`renderOutput` 返回空串时 `printData` 仍无条件补 `\n`，于是 jsonl / csv 的管道里躺着一个空行——`wc -l` 报 1、`while read` 读到一条空记录，正是「幻影记录」本身。现在空渲染**一个字节都不输出**；`table` / `markdown` 的 `(empty)` 标记和 `--format json` 的 `null` 保持不变。⚠️ 带 `--output` 时文件仍会创建：csv 写 3 字节 UTF-8 BOM、jsonl 为 0 字节。
+渲染结果为空时此前仍会补一个 `\n`，于是 jsonl / csv 的管道里躺着一个空行——`wc -l` 报 1、`while read` 读到一条空记录，正是「幻影记录」本身。现在空渲染**一个字节都不输出**；`table` / `markdown` 的 `(empty)` 标记和 `--format json` 的 `null` 保持不变。⚠️ 带 `--output` 时文件仍会创建：csv 写 3 字节 UTF-8 BOM、jsonl 为 0 字节。
 
 **4. `null` payload 不再被渲染成一条记录**
 
-`toRows(null)` 此前落到 `[{ value: null }]`，jsonl 输出 `{"value":null}`。现在 `null` / `undefined` 直接视为零行；`0` / `""` / `false` 不受影响（有回归测试钉住）。
+`null` 响应此前被渲染成 `[{ value: null }]`，jsonl 输出 `{"value":null}`。现在 `null` / `undefined` 直接视为零行；`0` / `""` / `false` 不受影响。
 
 **帮助文案与文档**
 
 - `insight foreign-opinion` / `independent-opinion` 的 `--industry`、`foreign-opinion` 的 `--region`、`vault wechat-message-list` 的 `--industry` 加上「本端点当前不生效 / 不可靠」的说明与规避方法
-- 7 个带 `--research-area` 的端点全部写明码系（`opinion` / `summary` / `my-conference` 此前是内联定义、漏在共享 helper 之外）
+- 7 个带 `--research-area` 的端点全部写明码系（`opinion` / `summary` / `my-conference` 此前漏写）
 - 🔴 **EDE 缺数据的占位值不统一**：多数指标填 `null`，但 `is_dnrpnp`（扣非归母净利润）填 **`0`**，且是**指标属性、与日期对不对无关**——日期落在报告期末时，覆盖不到的证券同样返 `0`。`0` 会穿过比较与聚合：`screener` 的 `F1 > 0` 可能筛出空集、时序整列求均值可能差几十倍。已写进 `SKILL.md` 必备规则 #11 与 `indicator.md`，并订正 v0.32.0 那段「一律返回 `null`」的说法
 - 新增：EDE 与 `valuation-analysis` **在非交易日行为不同**（前者返 `null`、后者顺延上一交易日），交叉核对时日期要落在交易日上
-- `999004` 的提示改为覆盖「整库未开通」与「单条记录不可见」两种；错误码表把它从「未构造出」挪进已实测
-- 对外措辞与数字清理：移除平台各库的绝对条数（含单独售卖库的总量与本机账号自有数据），改为 ✅/❌ 或相对幅度；描述服务端行为的措辞统一为「可观察结果 + 怎么办」
-
-**测试** 637 → 643：分页封顶探测 3 条、空渲染不输出 3 条、异形首包退出码 2 条。修了三个**测试替身对任意 `from` 无限吐行**的问题——其中 `cliBodyMapping` 的 stub 忽略 `from`，意味着该文件此前所有分页断言都是空的。
+- `999004` 的提示改为覆盖「整库未开通」与「单条记录不可见」两种情形
+- 文档不再写平台各库的条数，改为 ✅/❌ 或相对幅度；接口行为的描述统一为「可观察结果 + 怎么办」
 
 ### v0.32.0 — 2026-08-08
 
-跟进 2026-08-07 的服务端更新：新增帕米尔专家纪要两个接口，并按实测**推翻了 v0.30.1–v0.31.0 三个版本累积下来的 EDE 缺数据模型**——那套「四档」判据整个作废了。同时移除一个已经变成误报的告警（`unreliable`），对读取该字段的脚本是破坏性的，故走 minor。
+跟进 2026-08-07 的接口更新：新增帕米尔专家纪要两个接口；EDE 缺数据的表现变了，v0.30.1–v0.31.0 记录的「四档」判据不再适用。同时移除一个已经变成误报的告警（`unreliable`），对读取该字段的脚本是破坏性的，故走 minor。
 
 **新增**
 - **帕米尔专家纪要** `insight pamirs-summary list` / `download`（`/application/open-insight/pamirs-summary/*`）。这是一个独立的专家纪要库，不是 `summary list` 的筛选项，**需单独购买专家纪要数据库**，且不受历史数据范围限制。
-  - 筛选项是 `summary` 的**真子集**：只有 `--search-type` / `--rank-type` / `--keyword` / `--research-area` / `--security` / `--category` / `--market`，**没有** `--source` / `--institution` / `--participant-role`。没有复用 `summary` 的 body 构造：服务端会静默丢弃不认识的字段，照搬会让用户以为过滤生效、实际拿到全量（`insight roadshow` 那批命令当初就是栽在这上面）
-  - `download` 归入 `no-replay`：spec 只写了权限门槛、没写单次价格，按其 `summary` 同类处理——万一计费，一次 5xx 重放就是双倍扣分，而判错的代价只是少一次重试
-  - 实测（2026-08-08，账号有权限）：全量 2963 条；`--category` companyAnalysis 2673 / industryAnalysis 279；`--keyword PCB` 标题 36 / 全文 113；`--research-area` **citic 与申万码都生效**（食品饮料 citic `100800119` 143 / 申万 `104340000` 145）；⚠️ 方向码 `122000xxx` 在本端点返 0。翻页完整性干净（三页无重复无缺口、可重放、`total` 不漂移）
+  - 筛选项是 `summary` 的**真子集**：只有 `--search-type` / `--rank-type` / `--keyword` / `--research-area` / `--security` / `--category` / `--market`，**没有** `--source` / `--institution` / `--participant-role`。接口不认识的筛选字段不会报错、会被忽略并返回全量，所以本命令只暴露它支持的选项，不沿用 `summary` 的参数集
+  - `download` 归入 `no-replay`（超时 / 5xx 不自动重发）：单次价格未公布，按 `summary` 同类处理——若计费，一次重发就是双倍扣分
+  - `--research-area` 中信码与申万码都生效；方向码 `122000xxx` 在本端点返回 0 条
+  - ⚠️ **标签字段不一定回填**：`conceptList` 在所有查法下都为空，接口也没有题材过滤参数——目前取不到题材标签。`categoryList` 与 `marketList` 只在用 `--category` 或 `--market` 过滤时回填（回填的是该记录的全部值，如多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`），其余查法（无过滤 / `--security` / `--research-area` / `--keyword`）两者都为空。别拉全量再按这两个字段本地分组
+  - CLI 按单页上限 50 条翻页
+- 补 `230002`（微信账号未绑定）的错误提示：`vault wechat-*` 要求「已绑定并激活群消息助理」，会遇到这个码
 
-    > **订正（2026-08-08 晚）**：本条原写「食品饮料 373 / 145」——373 是用 `100800111` 测出来的，那是**电力设备及新能源**，不是食品饮料（食品饮料的中信码是 `100800119`）。同一个错码还写进了 `bug/` 报告的 P2-4 表和「帕米尔其他观察」，并由此推出一条错误结论，详见下面「申万码」那条的订正。
-    >
-    > ⚠️ **本条全部数字取自 2026-08-08 的权限窗口期**：同一账号 2026-08-09 复跑 `insight pamirs-summary list` 已报 `999004`（专家纪要库需单独购买），这批数字目前无法在本机复现。将来引用前先确认账号权限。
-  - 🔴 **服务端缺陷：标签字段大面积不回填**（6 种查法 × 30 条实测）。`conceptList` **在所有查法下恒为空**，而接口没有 concept 过滤参数——目前**拿不到主题概念标签，无变通办法**。`categoryList` 与 `marketList` **绑定在一起**：用 `--category` 或 `--market` 任一过滤时两者都回填（30/30），其余查法（无过滤 / `--security` / `--research-area` / `--keyword`）两者都空。回填的是该记录**全部**的值（多市场纪要按 `aShares` 过滤也回 `["aShares","hkStocks"]`，排除了「回显过滤值」）。文档已写明：别拉全量再本地分组
-  - 🟡 服务端未执行 spec 写的「单页最大 50」（传 100 返 100）。CLI 仍按 50 翻页——保守值在服务端某天开始执行上限时不会被静默截断
-  - ✅ 翻页完整性实测干净：`from=0/50/100` 三页 150 条零重复零缺口、同一页两次请求完全一致、`total` 不随分页漂移、`from` 越界返空列表；`--security` 过滤命中的 15 条逐条核对全部真含该证券
-- 补 `230002`（微信账号未绑定）的错误提示与测试。该码属私域模块，而 `vault wechat-*` 正在该模块下、明确要求「已绑定并激活群消息助理」——够得着，不能只登记不接提示
+**EDE 缺数据的表现变了（🔴 这是本版最重要的一条）**
 
-**EDE 缺数据模型作废重写（🔴 这是本版最重要的一条）**
+v0.30.1–v0.31.0 记录的判据是：接口不给缺数据补 `null`，某指标对全批证券无数据就**整列消失**、某证券对全批指标无数据就**整行消失**，要靠「同批里还查了什么」推断落进四档中的哪一档。
 
-v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补 `null`，某指标对全批证券无数据就**整列消失**、某证券对全批指标无数据就**整行消失**，还得靠「同批里还查了什么」推断落进四档中的哪一档。v0.31.0 甚至把它写成了「两个维度各自独立」的完整表格。
+**2026-08-08 起接口给缺数据补占位单元格，行列一律保留：**
 
-**2026-08-08 实测：整个模型没了。** 服务端现在给缺数据补占位单元格，行列一律保留：
-
-> 🔴 **订正（2026-08-09）**：本节原写「补 `null`」，**占位值其实不统一**——多数指标是 `null`，但 `is_dnrpnp` 等个别指标填 `0`，且是指标属性、与日期对不对无关。`0` 会穿过比较与聚合，比 `null` 危险得多。作为 `bug/server-open.md` **P0-5** 单独立条，`closed.md` F1 已标部分订正。下面表格里的「1 行 `null`」等具体观测仍成立（那三个指标确实是 `null` 一档），但**别把它读成通则**。
+> 🔴 **占位值不统一**：多数指标是 `null`，但 `is_dnrpnp` 等个别指标填 `0`，且是指标属性、与日期对不对无关。`0` 会穿过比较与聚合，比 `null` 危险得多（见 v0.33.0）。下表里的几个指标确实是 `null` 一档，但**别把它读成通则**。
 
 | 查法 | 旧行为 | 现行为（2026-08-08 实测） |
 | :--- | :--- | :--- |
@@ -506,70 +442,42 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 | `--security AAPL.US --security AAPL.O` | `AAPL.US` 整行消失，退出 3 + `omittedSecurities`（美股后缀是 `.O`/`.N`，`.US` 本身就是错代码） |
 | `--indicator not_a_real_code --security 999999.SH` | 全空表，退出 0（无从判断是哪一轴写错） |
 
-**所以 `partial` / 退出码 3 的语义反转了**：从「这批数据不完整，去查 scopeList 覆盖和日期语义」变成**「你有 code 写错了，去查拼写和证券后缀」**。这是净收益——拼错代码原本是完全静默的（退出 0、表看着正常、`--key-by code` 回填时 key 直接不存在），而真实的覆盖缺口现在也留在表里（就是那个占位单元格），多数情况不再需要「和一个已知有数的标的一起查」那套对照法。⚠️ **但只有 `null` 那一档一眼可见**——填 `0` 的指标（`is_dnrpnp`）无覆盖时与真值无法区分，对照法仍然必要，见 `bug/server-open.md` P0-5。检测代码本身没动（同一份 diff 逻辑），改的是它的**告警文案与文档解释**，以及 `flagDropped` / `droppedFromMatrix` 的注释。
+**所以 `partial` / 退出码 3 的语义反转了**：从「这批数据不完整，去查 scopeList 覆盖和日期语义」变成**「你有 code 写错了，去查拼写和证券后缀」**。这是净收益——拼错代码原本是完全静默的（退出 0、表看着正常、`--key-by code` 回填时 key 直接不存在），而真实的覆盖缺口现在也留在表里（就是那个占位单元格），多数情况不再需要「和一个已知有数的标的一起查」那套对照法。⚠️ **但只有 `null` 那一档一眼可见**——填 `0` 的指标（`is_dnrpnp`）无覆盖时与真值无法区分，对照法仍然必要。检测逻辑本身没变，改的是告警文案与文档解释。
 
 同步改写：`SKILL.md` 的缺数据段与退出码 3 说明、`indicator.md` 的「缺数据的四种形态」整节、`response-schema.md` 的 EDE 概述、`examples.md` 的例 15 第 6 条。
 
 **枚举参数改为本地白名单拦截（破坏性）**
 
-服务端对**非法枚举值**的处理和对**未知字段**一样——静默丢弃该条件、返回未过滤的全量、退出码 0。最坏的一例是非法 `searchType` 会**连带吞掉 `keyword`**：
+非法枚举值不会报错：该条件会被忽略，返回未过滤的全量、退出码 0。最坏的一例是非法 `searchType` 会**连带让 `keyword` 失效**——`insight summary list` / `insight research list` 加 `--keyword 茅台 --search-type 99`，返回的是全库而不是「茅台」的结果，自动化流程里几乎不可能发现。
 
-| 命令 | 正常 | 非法 `--search-type 99` |
-| :--- | ---: | ---: |
-| `insight summary list --keyword 茅台` | 135 | **196988（全库）** |
-| `insight research list --keyword 茅台` | 776 | **707847（全库）** |
+改动：`--search-type` / `--rank-type`、下载命令的 `--file-type`（含 `foreign-report` 的 1–4）、帕米尔的 `--category` / `--market` 全部在本地校验取值、**不发请求**；帮助文案里列出的取值与校验用的是同一份枚举。
 
-调用方读到的是「搜索茅台的结果」，实得全库转储，自动化流程里几乎不可能发现。
+**破坏性**：此前 `--rank-type 3`、`--file-type 99` 这类值能跑完（被忽略或照常下载），现在直接报错退出 1。合法值行为不变。
 
-改动：`--search-type` / `--rank-type`（共 19 处）改用 commander 原生 `.choices(["1","2"])`；`--file-type`（9 处 download，含 `foreign-report` 的 1–4）在 `addDownloadCommand` 的 spec 里新增**必填**的 `choices` 字段（类型上强制，防止将来新增下载命令漏掉）；帕米尔的 `--category` / `--market` 走既有的 `parseChoiceList`，枚举提成常量并反向拼进帮助文案，避免枚举与文案漂移。全部在本地拦截、**不发请求**。
-
-**破坏性**：此前 `--rank-type 3`、`--file-type 99` 这类值能跑完（服务端静默忽略或照常下载），现在直接报错退出 1。合法值行为不变（实测 `--search-type 2` → 2338、`--category companyAnalysis` → 2673、`foreign-report --file-type 4` 正常放行）。
-
-> ⚠️ **`--rank-type` 的行为查了三轮才收敛，结论写在 `insight.md` 开头**。中途两次误判都记在这里防止再犯：第一次判成「死参数」（只在无 `--keyword` 下测，那时综合排序无从计算，自然无差异）；第二次判成「只影响并列时间戳的 tie-break」（只在 `summary`/`research` 上测，那两个端点确实如此）。
->
-> 全量实测三端点 × 两种 `--search-type` 后的实际情况：`--rank-type 2` 永远严格按 `publishTime` 倒序；`1` 的强弱**按端点不同**——`pamirs-summary --search-type 2` 是**真正的相关度重排**（`rank1` 对两个时间字段都不单调，`rank2` 的首条掉到第 118 位，且该结果集**零并列时间戳**，排除 tie-break 解释），而 `summary`/`research` 的 `rank1` 仍严格时间倒序、只改变并列处的先后。教训：**排序类参数必须跨端点 × 跨 `searchType` × 全量取数验证**，任何一维取窄了都会得出自洽但错误的结论——这次三轮探测分别在 `keyword`、端点、`searchType` 三个维度上各取窄过一次，每次都得到内部一致的错误答案。**跨人复核这类结论时先对 `total` 再对内容**：本轮两边卡了很久，直到发现 `AI` 的 total 一个是 118、一个是 448，才定位到打的根本不是同一个查询（标题搜索 vs 全文搜索）。
+> `--rank-type` 的实际效果写在 `insight.md` 开头：`2` 严格按 `publishTime` 倒序；`1`（综合排序）的效果因端点与关键词而异（v0.35.0 有补充）。
 
 **移除已成误报的 `unreliable` 告警（破坏性）**
-- **screener 把同一 `indicatorCode` 绑到多个变量已被服务端修复**（2026-08-08 复测）。旧缺陷是所有绑定按其中最早的日期取数、值落到第一列其余置 `null`，还有约 1/3 概率返空集；现在 `F1@08-07 + F2@08-06` 各自返回 1309.22 / 1308.55，与 `time-series` 对照完全一致，连跑 5 次稳定。
-- 因此移除 `unreliable: true` + `duplicatedIndicators` 标记、对应 stderr 警告、`duplicateScreenerCodes()`，以及 `printData` 里 `unreliable` 触发退出码 3 的分支。继续保留只会把一个正确结果标成「整份不可信」并退出 3。
+- **screener 把同一 `indicatorCode` 绑到多个变量，现在各自取到正确的值**（2026-08-08 复测，与 `time-series` 对照一致）。此前所有绑定按其中最早的日期取数、值落到第一列其余置 `null`，还可能返回空集。
+- 因此移除 `unreliable` + `duplicatedIndicators` 标记与对应的 stderr 警告。继续保留只会把一个正确结果标成「整份不可信」并退出 3。
 - **破坏性**：读 `unreliable` / `duplicatedIndicators` 字段的脚本会拿到 `undefined`，这类查询的退出码从 3 变 0。退出码 3 现在只由 `partial` 触发。
-- 测试与本地 stub 一并改为镜像修复后的行为（stub 原先硬编码 `[1350.6, null]`）。
 
-**其余复测结论（服务端侧，本版只改文档不改代码）**
+**其余接口行为（本版只改文档、不改代码）**
 
-⚠️ **订正一条归因**：本版最初把官方 changelog 里「时序同一 `indicatorCode` 多套参数」那条记成了「我们验证的 screener 修复」，是错的——那条讲的是 `time-series`，两件事。经确认，**截面与时序在设计上就不支持同一 code 多套参数**（要拆两次调用），只有 `screener` 支持，因为它把指标绑到不同变量上。CLI 的 `parseIndicatorParams` 按 code 建 Map、同 code 参数合并成一组，**与该设计一致**，无需改动。🔴 需要注意的是服务端对这种输入是**静默处理**：raw 直发会取最后一组并丢弃其余（`adjustType` `[2,3]` 返 13609.6168=后复权、`[3,2]` 返 1531.225=前复权），不报错——已作为「不支持的输入应报错而非静默降级」反馈后台。
+- **截面与时序不支持同一指标多套参数**（要拆成两次调用），只有 `screener` 支持，因为它把指标绑到不同变量上。CLI 把同一指标的多组 `--indicator-param` 合并成一组，与此一致。⚠️ 直接发请求（如 `raw call`）给同一指标多套参数不会报错，只取最后一组、其余被忽略。
 
-已修复：
-- **根级 `--scale` 不再污染不支持 scale 的指标**：`qte_close` + `qte_mkt_cptl` 加 `--scale 8`，收盘价照旧 1309.22、市值正确缩到 16366.3183 亿（旧行为是把收盘价缩成 `0`）
-- **`contains` / `notcontains` 大小写不敏感**：`F1 CONTAINS '酒'` 与小写同为 19 命中（旧行为报表达式语法错）
-- **`indicatorList` / `securityCodeList` 顺序稳定**（旧行为随机重排）。⚠️ 但**两个轴排法不同**：`indicatorList` = 请求顺序；`securityCodeList` 是**按代码升序重排**、不是请求顺序（请求 `000858,600519,000001` → 回 `000001,000858,600519`，连跑 3 次一致）。行序不能按请求下标对位，一律按 `security` 字段取值
-- **吃 `reportDate` 的指标收到 `tradeDate` 不再静默返空**：服务端会归一到所在报告期，`is_op_rev_mom` 两种传法都返 33.4903（@2026-03-31）。CLI 的「已传 reportDate 就不注入 tradeDate」逻辑保留——发用户自己的日期字段是更诚实的请求，也扛回滚
+已恢复正常：
+- **根级 `--scale` 只作用于支持 `scale` 的指标**：`qte_close` + `qte_mkt_cptl` 加 `--scale 8`，收盘价不变、市值正确缩放（此前会把收盘价缩成 `0`）
+- **`contains` / `notcontains` 不区分大小写**（此前大写报表达式语法错）
+- **`indicatorList` / `securityCodeList` 顺序稳定**（此前随机重排）。⚠️ 但**两个轴排法不同**：`indicatorList` = 请求顺序；`securityCodeList` 是**按代码升序重排**、不是请求顺序（请求 `000858,600519,000001` → 回 `000001,000858,600519`）。行序不能按请求下标对位，一律按 `security` 字段取值
+- **吃 `reportDate` 的指标收到 `tradeDate` 不再返空**：会归一到所在报告期（v0.34.0 起改为报错，见上）。CLI 的「已传 `reportDate` 就不注入 `tradeDate`」逻辑保留
 
-仍未修复（文档里的警告继续有效）：
-- `adjustmentType` 错名仍**静默退回不复权**（1685.01 = 不复权，正确的 `adjustType=3` 是 13609.6168）
-- 日期「年在后」格式仍按分隔符翻转日月且静默误解析：`07/01/2026` 与 `01-07-2026` 都被读成 1 月 7 日（基准 `2026-07-01` 返 1749 条，两者均返 1551 条）。CLI v0.28.0 的本地拦截继续保留
-- Quote 系对非法证券代码仍静默返 `total: 0`
-- `fundamental balance-sheet` 的 `companyType` / `currency` 取值仍互换（茅台返 `companyType=人民币` / `currency=一般企业`）
-- ~~申万码仍不能用于 `--research-area`（用于 `--industry` 正常：食品饮料 research 4544 / opinion 2495）~~
-
-  > **订正（2026-08-08 晚，gangtise-mcp 侧交叉复核后复测）**：这条一刀切写法是错的，**申万码按端点区分**——`summary` 和 `pamirs-summary` 认，其余返 0。且不是服务端缺陷：`reference constant-category` 的 `usageScopes` 里 `swIndustry` 声明的就是「查询纪要列表 :: researchAreaList」，行为与声明一致。逐端点实测（食品饮料，中信 `100800119` / 申万 `104340000` / 方向宏观 `122000001`，各跑 3 次数值不漂）：
-  >
-  > | 端点 | 中信 | 申万 | 方向 |
-  > | :--- | ---: | ---: | ---: |
-  > | `summary` | 15678 | **16016 ✅** | 9446 |
-  > | `pamirs-summary` | 143 | **145 ✅** | 0 |
-  > | `opinion` | 5038 | 0 | 4752 |
-  > | `roadshow` | 11630 | 0 | 11892 |
-  > | `site-visit` | 2620 | 0 | 197 |
-  > | `forum` | 206 | 0 | 112 |
-  > | `vault my-conference-list` | 12 | 0 | 9 |
-  >
-  > 不只是 total 对上：用申万码查 `summary` 取回的 30 条记录，`researchAreaList` 全部是 `{100800119, 食品饮料}`——服务端确实把申万码映射到了内部行业，排除了「非零数字纯属巧合」。
-  >
-  > 唯一仍算服务端不一致的是 `my-conference`：`usageScopes` 声明 `swIndustry` 可用于「我的会议查询 :: researchAreaList」，实测食饮/电子/医药三个行业全返 0（中信码对应 12/17/16）。已记入 `bug/` P2-4。
-  >
-  > 引用的 `--industry` 数字（research 4544 / opinion 2495）也不复现，**已于 2026-08-09 全部重测**，结论一并订正：申万码在 `--industry` 上确实生效，但**与中信码不等效**——4 个端点里 2 个结果集对不上。食品饮料实测（中信 `100800119` / 申万 `104340000`）：research 22874/22874 相等、foreign-report 15507/15507 相等，**opinion 5195/4946、official-account 102776/100576 不等**。所以文档口径是「都能用，但别混用」，不再写「等效」。权威口径见 `gangtise-openapi/references/commands/reference-and-lookup.md`。
-- 未知 body 字段仍被静默丢弃（这正是帕米尔命令不复用 `summary` 参数集的原因）
+仍需注意（文档里的提示继续有效）：
+- 复权参数名是 `adjustType`；写成 `adjustmentType` 不会报错，会按默认值取不复权数据，结果看着正常但口径不对
+- 「年在后」日期（`07/01/2026`、`01-07-2026`）都会被读成 1 月 7 日，HTTP 200、不报错。CLI v0.28.0 起在本地拦截
+- `quote` 系传不存在的证券代码返回 `total: 0`、不报错——空结果先核对代码与后缀
+- `fundamental balance-sheet` 的 `companyType` / `currency` 两列取值互换（茅台返 `companyType=人民币` / `currency=一般企业`），按值判断语义，科目数字不受影响
+- **申万码用于 `--research-area` 按端点区分**：`summary` 与 `pamirs-summary` 认，其余端点返回 0 条，与 `reference constant-category` 的 `usageScopes` 声明一致（`swIndustry` 声明用于纪要列表的 `researchAreaList`）。`vault my-conference-list` 虽也声明可用，实际返回 0 条，改用中信码。用于 `--industry` 时申万码与中信码都生效，但**结果集不一定相同**（`opinion`、`official-account` 上两者条数不等），别混用。权威口径见 `gangtise-openapi/references/commands/reference-and-lookup.md`
+- 请求体里接口不认识的字段不报错、被忽略（所以帕米尔命令不沿用 `summary` 的参数集）
 
 **新增指标（服务端数据侧）**
 - 融资融券 21 个 `mgn_*`：`mgn_bal` 两融余额、`mgn_fin_*` 融资（余额/买入/偿还）、`mgn_sl_*` 融券（余额/余量/卖出额量/偿还额量）、各自的 `_intvl` 区间变体、`mgn_flag` 是否标的（字符串「是」/「否」）。**`scopeList` 与实测都只有 A 股**，港/美股返 `null`
@@ -580,11 +488,11 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 
 行情/财务/指标 3Y→**5Y**、投研线索 7D→**1M**、主题/热点/日程/纪要/观点/研报/公众号 1M→**3M**、管理层讨论/公告/行业 1Y→**3Y**。
 
-⚠️ **以上是官方公布的口径，不是实测边界**——本次验证账号被后台单独开通了 10 年扩展权限（其他客户仍按试用/正式档走），实测下界落在 **2016-01**：日 K 传 `--start-date 2010-01-01` 返 2574 条、最早 `2016-01-04`；`fundamental` FY2016 有数、FY2015 报 `110003`；EDE 截面 / 时序取到 `2016-01-04`（茅台 210.02）。**别把本仓库任何时间范围结论当作平台口径。**
+⚠️ 以上是平台公布的口径；实际可查窗口按账号配置，撞界时报 `110003`。
 
-🔴 **但 EDE 三个接口的放宽不一致**：`cross-section` / `time-series` 已放到 2016，**`screener` 仍卡 today−3 年滚动**。边界二分（今天 2026-08-08）：`2023-08-07` 报 `110003`、`2023-08-08` 通过；同一天 `@2020-01-02` 的对照很干净——同指标 `qte_close` 同证券 `600519.SH`，`cross-section` 正常出数、`time-series` 返 7 行、`screener` 直接 `110003`，排除了数据缺失的可能。撞界时改用 `cross-section` 拉数再本地筛。已写进服务端问题报告。
+当时文档写 `screener` 的可查窗口比 `cross-section` / `time-series` 短、撞界时改用 `cross-section` 拉数再本地筛。（v0.37.1 更正：三个接口按账号同界，换接口绕不过去。）
 
-顺带订正 `SKILL.md` 里「`110003` 未触发（1900 年至今仍正常返回）」的旧结论：**它是能触发的**，且本轮是触发最频繁的码。同时改掉了 `errors.ts` 里「缩短查询窗口后重试」这句提示——整个区间都早于权限下界时（如 `--fiscal-year 2015`）缩窗口没有用，应当把日期移进范围或联系客户经理。
+`110003` 是会触发的（此前 `SKILL.md` 写「未触发」）。它的提示不再说「缩短查询窗口后重试」——整个区间都早于权限下界时（如 `--fiscal-year 2015`）缩窗口没有用，应当把日期移进范围或联系客户经理。
 
 ### v0.31.0 — 2026-08-03
 
@@ -593,10 +501,10 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 **修复**
 - 🔴 **`indicator time-series` 传单个板块 ID 直接报错退出**（v0.30.1 回归）。v0.30.1 把时序的列轴判定改成只看请求里 `--security` 的条目数，但**板块 ID 是服务端展开的**——请求 1 条、响应 N 只，于是判成指标轴，随即被同版新加的矩阵维度校验拦下：`Indicator matrix shape mismatch: got 19 value rows for 1 indicators`，退出码 1。而这恰恰是板块 ID 在时序接口上**唯一合法**的用法（多指标时不允许传板块 ID）。触发条件很窄：`--security` 恰好 1 条且会展开成多只；传两个板块 ID 或板块+代码混传都正常，只有最标准的单板块写法炸。
 
-  轴判定改为响应优先、请求兜底：响应有多个指标 → 指标轴；响应有多只证券 → 证券轴（板块展开走这条）；两边都是 1 才回落到请求数（这是 v0.30.1 要解决的「服务端丢掉无数据证券后仍要按证券标列」）。补了缺失的那档测试：请求 1 条 × 响应 N 只。
+  轴判定改为响应优先、请求兜底：响应有多个指标 → 指标轴；响应有多只证券 → 证券轴（板块展开走这条）；两边都是 1 才回落到请求数（这是 v0.30.1 要解决的「服务端丢掉无数据证券后仍要按证券标列」）。
 
 **措辞订正**
-- screener 重复 `indicatorCode` 的警告此前说「服务端返回空结果」，实测更糟也更不稳定：至多一个变量拿得到值、其余恒为 `null`，同一请求有时返一行、有时整体返空（`F1@07-31 + F2@2024-01-02` 返空，顺序对调后返 `[[1685.01, null]]`）。涉及 `null` 变量的比较等于没筛，警告改为强调**结果不可信**，避免用户看到有数据就以为警告与自己无关
+- screener 重复 `indicatorCode` 的警告改为强调**结果不可信**：这种写法下至多一个变量拿得到值、其余恒为 `null`，同一请求有时返一行、有时整体返空；涉及 `null` 变量的比较等于没筛，有数据也不能当作筛选生效
 - `time-series` 的输出说明补上「板块 ID 算多证券」：传 1 个 `sectorId` 会展开成 N 列
 
 **退出码语义（对脚本是破坏性变更 → 走 minor，不是 patch）**
@@ -605,15 +513,15 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 
 版本号选 `0.31.0` 而非 `0.30.2`：退出码 3 的覆盖面扩大对按 `!= 0` 判失败的脚本是破坏性的，而 `^0.30.1` 会自动吃下任何 `0.30.x`、却不会吃 `0.31.0`——minor 位正好把这层隔离做出来。与 v0.30.0（`universe` 改名 + 矩阵转置）同为破坏性变更走 minor 的先例一致。
 
-- **服务端整行/整列丢数据 → 标 `partial` + 退出码 3**，并在结果里附 `omittedIndicators` / `omittedSecurities`。此前只写 stderr，退出码仍是 0、JSON 无任何标记，自动化调用方把一份短结果当完整结果用。这与「翻页失败」「行数触顶」是同一类缺陷，因此复用同一套信号
-- **screener 重复指标 → 标 `unreliable` + `duplicatedIndicators` + 退出码 3**。这类结果不是"少了行"而是"在场的值不可信"，所以用 `unreliable` 而非 `partial`，`printData` 两者都触发退出码 3。**状态是「已检测并告警，等待服务端修复」，不是「已修复」**——服务端缺陷仍在，已报后台。
-  - 2026-08-03 用相邻交易日重新定性，比最初的判断更严重：服务端把重复绑定**全部按其中最早的那个日期**取数，该值落到它们的第一列、其余列 `null`。所以**活下来的数字未必属于它标注的变量**——`F1@07-31 + F2@07-30` 的 F1 列返回 07-30 的 1361.76，F1 自己请求的 1350.6 全程没出现。六种组合（含三绑定、正反序、跨两年）全部吻合，判别性用例是 `F1@07-29 + F2@07-31` → 返回 1321.0（F1 自己的，若是「后者覆盖」应为 1350.6）。命中的证券集合同样不可信，且同一请求约 1/3 概率返回空集（恒真表达式下 12 次测得 4 次）。警告文案与 skill 说明都已按「整份结果不可用」改写
+- **服务端整行/整列丢数据 → 标 `partial` + 退出码 3**，并在结果里附 `omittedIndicators` / `omittedSecurities`。此前只写 stderr，退出码仍是 0、JSON 无任何标记，自动化调用方把一份短结果当完整结果用。这与「翻页失败」「行数触顶」是同一类问题，因此复用同一套信号
+- **screener 重复指标 → 标 `unreliable` + `duplicatedIndicators` + 退出码 3**。这类结果不是"少了行"而是"在场的值不可信"，所以用 `unreliable` 而非 `partial`，两者都触发退出码 3。（v0.32.0 起这类请求已能正确取数，标记已移除）
+  - 当时的表现：重复绑定**全部按其中最早的那个日期**取数，该值落到它们的第一列、其余列 `null`，所以**留下的数字未必属于它标注的变量**；命中的证券集合同样不可信，同一请求还可能返回空集。警告文案与 skill 说明都已按「整份结果不可用」改写
 - **合法的全空结果保持退出码 0 且不标任何缺失**。整个查询无数据时，「请求 vs 响应」的差集按构造就是全部——把每个请求的 code 都列进 `omitted` 是假元数据。现在这种响应只在 stderr 提示「无数据也可能是参数名/日期字段写错」，不碰 `partial`（实测：纯周末区间 TD 查询修前被标 `partial` + 全量 `omitted` + 退出 3）
 - 触发门槛比看上去高：只要批量里有一个广覆盖指标（如 `qte_close`），行和列都保得住，跨市场查询仍是退出 0 + 一堆 `null`；真正触发的是「某指标一个值都没有」或「某证券在全部指标上一个值都没有」
 
 **收紧**
 - **畸形矩阵不再伪装成「合法全空」**。`isEmptyMatrix` 此前只看两个轴列表为空，于是 `values: null`、缺 `values`、以及「`dates` 有值但 `values` 为空」都被判成合法空结果：前两种把原始信封原样打印、第三种造出一条只有 `date`、没有任何证券/指标身份的幽灵行，**全部退出码 0**——恰好绕过本版新增的所有矩阵保护。现在要求每个**结构性**数组都为空才算合法空结果：`securityCodeList`、`indicatorList`、`values` 必须是空数组，`dates` 存在时也必须为空（实测 2026-08-02：时序的无数据应答是五个空数组，截面是四个——它根本不带 `dates` 键，所以判据是「缺省或为空」而不是固定个数）。`securityNameList` 有意不校验：它只是展示用标签、不承载结构，`null` 也错不了位，而把它算进去会重新引入本函数要防的那个假 partial
-- **缺数据判据是两个维度，不是一个**（订正本条目前面几处的说法）。中间几稿写成「取决于同批里有没有别的**标的**有数」，把指标那一维吞掉了，对单指标批次会给出相反的预测。实测四档（2026-08-03，`finc_pb_mrq` 无港股数据）：
+- **缺数据判据是两个维度，不是一个**（v0.32.0 起接口改为给缺数据补占位单元格，本判据不再适用）。四档表现（以没有港股数据的 `finc_pb_mrq` 为例）：
 
   | 查法 | 结果 |
   | :--- | :--- |
@@ -631,64 +539,59 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 - **条件选股校验返回的变量绑定**。响应里每列带的 `field` 是**唯一**能把这一列追溯回它来自哪个筛选条件的东西，而载荷里没有任何别的信息能发现它漂了：实测把请求的 `F1` 换成 `F9` 返回，CLI 照样退出 0、stderr 全空、打出一张正常的选股表。现在只要**有证券命中**就要求：每个返回条目命名一个**请求过的**变量、带该变量对应的 code、不重复；缺列的变量按表达式的**布尔结构**判定（详见下条）——整个表达式再无可求值分支时**退出码 1**（这不是「少了行」也不是「值可疑」，是整份结果无法归属到条件，不该打印）。
   - **致命判定按表达式的布尔结构走**，不是「有没有 `||`」。把缺列的变量当作无法求值，看整个表达式是否还有一条能成立的分支：`A && B` 要两边都可求值，`A || B` 只要一边。
     - 起因：早先的规则是「表达式用到的每个变量都必须有列」，对析取不成立——实测 `F1 > 0 || F2 > 0` 扫 `09992.HK`（`finc_pe_ttm` 无港股覆盖），泡泡玛特靠 `F2 > 0` 正当命中，服务端给的是**一份正确完整的答案**，却被整份丢弃。「PE 低 **或** 价格高」扫港美股是很普通的筛法
-    - 但只看「含不含 `||`」又太松：`F1 && (F2 || F3)` 缺必选的 F1、以及 `F1 || F2` 两列全缺（没有任何可求值分支），都会被错误放行。所以实现了一个最小的布尔求值器（含括号、字符串字面量保护），三种情形各有单测与 CLI E2E 钉住
-  - 这套判定写进了随包 skill（`SKILL.md` 的退出码 3 说明 + `indicator.md` 的缺数据表 + `response-schema.md` 的缺数据说明），并各有 E2E 钉住三档：**无可求值分支** → 退出 1 且 stdout 为空；**仍有分支可求值**（如 `F1 || F2` 只缺 F1）→ 退出 3 + `omittedIndicators` 且数据行照常输出；**缺的只是未参与表达式的辅助变量** → 同样退出 3 且数据保留
+    - 但只看「含不含 `||`」又太松：`F1 && (F2 || F3)` 缺必选的 F1、以及 `F1 || F2` 两列全缺（没有任何可求值分支），都会被错误放行。所以按表达式的布尔结构求值（支持括号，字符串字面量里的内容不参与判断）
+  - 这套判定写进了随包 skill（`SKILL.md` 的退出码 3 说明 + `indicator.md` 的缺数据表 + `response-schema.md` 的缺数据说明），三档行为：**无可求值分支** → 退出 1 且 stdout 为空；**仍有分支可求值**（如 `F1 || F2` 只缺 F1）→ 退出 3 + `omittedIndicators` 且数据行照常输出；**缺的只是未参与表达式的辅助变量** → 同样退出 3 且数据保留
   - 「少一列可能只是被筛掉了」这个直觉是错的：**筛选移除的是证券（行），永远不是指标（列）**。某列消失意味着该指标对所有命中证券都无数据，也就是写在它上面的条件根本无法证明被执行过，而那些行却是以「通过了该条件」的名义呈现的。实测两种漏网形态——只返回 `F1`（表达式是 `F1 > 0 && F2 > 0`）、以及命中一只证券但 `indicatorList: []`（打出只有代码和名称的「命中行」）——此前都是退出 0
   - 绑定了但**没参与表达式**的辅助指标缺列，只是少了输出信息、不影响正确性，降级为 `partial` + 退出码 3
   - 整批全空的结果没有命中、不绑定任何东西，照常退出 0
 - **条件选股的空结果也给歧义提示**。`SKILL.md` 承诺全空时 stderr 会提醒「也可能是参数写错」，但 screener 此前不走 `flagDropped`、空结果静默退出 0。现在三个矩阵命令的承诺一致，且 screener 的判据是「**零证券命中**」而非严格的「四个数组全空」——一个返回零证券却仍回显 `indicatorList` 的响应，对调用方一样是空的、一样有歧义
 - **`--indicator` / `--security` 本地拦截**。两者都是可重复选项、Commander 标不了必填，但每个矩阵端点都至少各需要一个，缺了要发一趟请求才换回 `100001`，而它的提示又让用户去看 `--help`——`--help` 里恰恰显示成可选、默认 `[]`。现在本地报错、不发请求，且消息点名是哪个 flag
 - **时序数据必须同时具备两个身份轴**。`securityCodeList: []` 配一个有数据的矩阵，行数列数照样对得上，此前没有任何守卫会注意到，而每一行都不属于任何证券
-- **必需轴缺失或类型错误不再透传成功**。透传条件写的是「完全没有轴字段」，实际却是「**任意**一个轴解析失败就透传」——于是时序返回完整的证券/指标/values 但 `dates: null`、或 screener 缺 `indicatorList`，都会原样打印原始信封、退出码 0、stderr 全空，本轮的形状保护照样被绕过。拍平函数现在对**任何**非矩阵载荷都抛错（包括一个矩阵字段都不带的对象）；只要进到拍平函数，该端点需要的每个轴（截面/选股：`securityCodeList` + `indicatorList` + `values`；时序另加 `dates`）都必须在场且为数组，否则抛形状错并带 traceId
-- **矩阵形状校验补上第二个维度**。v0.30.1 只校验行数，现在每行的单元格数也必须等于列轴长度（截面=指标数、时序=日期数）。此前行长不符会静默丢值或留下幽灵列——正是这个 API 最擅长的那种无声失败。实测确认服务端**恒定按 `null` 补齐行内单元格**、从不返回不等长行（A/HK/US 三市场 × 4 指标，美股缺 3 个仍是满长度行；跨市场时序也按交易日并集补满），所以按精确相等校验是安全的
-- **修掉一条靠子串巧合通过的测试**。`client.test.ts` 断言 999999 的 hint 含「无数据」，而 v0.30.1 改写后「无数据」只出现在否定句里（「查询无数据现在返回空表**而不是**此码」）——测试照样绿，但已不再验证它声称的东西。改为断言 hint 含 `parameterList` / `指标周期` 且**不含**「稍后重试」，并补一条 `indicator.screener` 也走同一 hint 的用例
+- **必需轴缺失或类型错误不再透传成功**。透传条件写的是「完全没有轴字段」，实际却是「**任意**一个轴解析失败就透传」——于是时序返回完整的证券/指标/values 但 `dates: null`、或 screener 缺 `indicatorList`，都会原样打印原始信封、退出码 0、stderr 全空，本版新增的形状保护照样被绕过。拍平函数现在对**任何**非矩阵载荷都抛错（包括一个矩阵字段都不带的对象）；只要进到拍平函数，该端点需要的每个轴（截面/选股：`securityCodeList` + `indicatorList` + `values`；时序另加 `dates`）都必须在场且为数组，否则抛形状错并带 traceId
+- **矩阵形状校验补上第二个维度**。v0.30.1 只校验行数，现在每行的单元格数也必须等于列轴长度（截面=指标数、时序=日期数）。此前行长不符会静默丢值或留下幽灵列——正是这种接口最容易出现的无声失败。实测接口**恒定按 `null` 补齐行内单元格**、不返回不等长行（跨市场时序也按交易日并集补满），所以按精确相等校验是安全的
 
 **文档（随 npm 包分发的 skill，逐条实测订正）**
-- 🔄 **港/美股覆盖在发版窗口内被服务端补齐，随包 skill 的否定断言同步订正**。2026-08-03 实测：`qte_mkt_cptl`（总市值）与 `shr_tot`（总股本）**A/港/美股均已有数**（泡泡玛特 2165.47 亿 / 腾讯 43207.64 亿 / 苹果 45128.55 亿），`finc_pe_ttm`（PE TTM）**港股已有数**（腾讯 16.15 / 泡泡玛特 14.93）；`finc_pb_mrq`（PB MRQ）仍只有 A 股。
-  - 这是**最难发现的一类文档过期**：正面结论过期会给错数据（会被察觉），否定结论过期只会让 agent 拒掉一个现在能跑的查询——不报错、不告警、只是少一次调用。原文写着「PE/PB 等核心估值 EDE 也只有 A 股，别假定港/美股估值能从 EDE 取」，而回退目标 `valuation-analysis`/`earning-forecast` 又标着仅 A 股，于是 agent 会回报「当前 CLI 无可用口径」，实际有数
+- 🔄 **港/美股覆盖订正**：`qte_mkt_cptl`（总市值）与 `shr_tot`（总股本）**A/港/美股均有数**，`finc_pe_ttm`（PE TTM）**港股有数**；`finc_pb_mrq`（PB MRQ）只有 A 股。随包 skill 的相应说明同步更新。
+  - 原文「PE/PB 等核心估值 EDE 也只有 A 股，别假定港/美股估值能从 EDE 取」已删——照它会拒掉一个实际有数的查询，而且不报错
   - `indicator.md`、`SKILL.md`、`quote.md` 里的相关表述全部订正，并给这类结论加上了约定：**否定断言一律注明「以当次 `scopeList` + 抽查为准，本结论截至 YYYY-MM-DD」**，让读者知道要复验而不是直接信
-  - `scopeList` 与数据不同步是双向的：08-02 是 `qte_mkt_cptl` 声明超前于数据，08-03 数据补齐后换成 `finc_pb_mrq` 声明超前。「声明不是保证」这条仍然成立，只是例子换了
-- **纠正上一稿对港/美股市值的过度修正**。中间几稿写成「不是 `null`，只会整列消失」，实测（3 证券 × 3 指标）确实拿到了 `null` 单元格、退出码 0。⚠️ 当时给的判据「取决于同批里有没有别的**标的**有数」后来被证伪——见本节末「缺数据判据是两个维度」。三档口径（部分缺 → `null`／整指标整证券缺 → 整列整行消失 + 退出码 3／整批全空 → 空表 + 退出码 0）保持不变
-- 🔴 **MRQ 口径已变，旧文档会导致错数**。`indicator.md` / `examples.md` 都写着 `finc_pb_mrq` 只在报告期末打值、交易日取 `null`，要改用季末日期。2026-08-02 复测：**任意交易日都有数且逐日变动**（茅台 `07-31`=6.2325 / `07-22`=6.0221 / `06-30`=5.4706 / `03-31`=7.0634，五粮液与宁德时代同样）。照旧文档改用季末日期会拿到 4 个月前的陈值——茅台 7.0634 比当日 6.2325 高 13.5%，在估值指标上就是实打实的错数。「日期路由」整段结论跟着调整：PE 与 PB 现在同为日频、用同一个交易日即可，示例也从"拆三次截面"简化成两次
+  - `scopeList` 可能声明了覆盖、实际还没数据，而且涉及哪些指标会随数据更新变化。「声明不是保证」这条仍然成立
+- 🔴 **MRQ 口径已变，旧文档会导致错数**。`indicator.md` / `examples.md` 都写着 `finc_pb_mrq` 只在报告期末打值、交易日取 `null`，要改用季末日期。2026-08-02 复测：**任意交易日都有数且逐日变动**。照旧文档改用季末日期会拿到几个月前的陈值，在估值指标上就是实打实的错数。「日期路由」整段结论跟着调整：PE 与 PB 现在同为日频、用同一个交易日即可，示例也从"拆三次截面"简化成两次
 - **`response-schema.md` 的 EDE 概述整段过期**：还写着「三个接口」「平行 `indicatorCodeList`/`indicatorNameList`」「截面 `[指标][证券]`」「无数据为 `null` 单元格」，与同文件后半段自相矛盾。改为四个接口、结构化 `indicatorList`、截面 `[证券][指标]`（并注明该版转置过），以及四档缺数据形态
-- **`usageRestriction` 的两处说法自相矛盾**：`indicator.md` 开头说它意味着"只能用 cross-section/screener"，第 85 行又说它不是硬约束。统一为「提示不是保证」，并给出反例（`qte_vol_intvl` 带着该标注调时序照样返数据）
+- **`usageRestriction` 的两处说法自相矛盾**：`indicator.md` 开头说它意味着"只能用 cross-section/screener"，后文又说它不是硬约束。统一为「提示不是保证」，并给出反例（`qte_vol_intvl` 带着该标注调时序照样返数据）
 - **`reportType` 不再说「悬案关闭」**：`enumList` 与实测一致，但同一份 `search` 响应的 `paramDescription` 仍留着相反的旧映射文字。改为明确「以 `enumList` 和实测值为准，别读 `paramDescription`」
 - `examples.md` 的「单元格缺值返回 null 且不丢证券行」同步改为四档说明
-- 订正 `indicator.md` 里「港股市值/股本」的描述：它按缺数据口径走。（这条当时写成「与有数的**标的**混查就是 `null` 单元格」，同样被后来的两维判据修正——加证券不够，得加有覆盖的**指标**）
-- 说明 `cross-section` 的 `--date` 必填是 CLI 护栏而非协议要求：截面接受 `indicatorParamList: []`（`pty_op_scope` 实测照常返值）。多带一个无害参数 vs 漏传触发空表，权衡不对称。（`screener` 那边曾另有「空 `parameters` 被丢弃」的服务端缺陷，2026-08-03 已修复）
+- 订正 `indicator.md` 里「港股市值/股本」的描述：它按缺数据口径走
+- 说明 `cross-section` 的 `--date` 必填是 CLI 护栏而非协议要求：截面接受 `indicatorParamList: []`（`pty_op_scope` 实测照常返值）。多带一个无害参数 vs 漏传触发空表，权衡不对称
 
 **内部**
-- **补顶层 `uncaughtException` / `unhandledRejection` 兜底**。此前 `main()` 的 try/catch 只罩住 `program.parseAsync`，事件回调里抛出的错误会走 Node 默认路径：一坨崩溃转储 + 非零退出——于是一条**数据已经正确打印完**的命令看起来像硬失败。现在统一收敛成 `Name: message` + 退出码 1；**栈只在 `--verbose` 下打印**（走到这里意味着是 CLI 自身的 bug 而非 API 失败，一行消息不足以定位），且 verbose 下只打栈——`error.stack` 本身就以 `Name: message` 开头，两个都打会重复首行。终止方式也有讲究：**不能立即 `process.exit()`**（管道下两个流的写入都是异步的，会截掉已交给流的数据），**也不能只设 `exitCode`**（有常驻句柄时进程永不退出、致命错误后还会继续执行）。取中间：等**诊断本身写完**（stderr 的写回调，不是只看队列长度——诊断是当场发出的，只有回调知道它何时真正落到管道；此前立即退出会把一份 4 MiB 诊断截到 65,536 字节）**加上** stdout 还欠的部分，两者共用同一个 200ms 上限，到点无论如何退出
+- **补顶层 `uncaughtException` / `unhandledRejection` 兜底**。此前事件回调里抛出的错误会走 Node 默认路径：一坨崩溃转储 + 非零退出——于是一条**数据已经正确打印完**的命令看起来像硬失败。现在统一收敛成 `Name: message` + 退出码 1；**栈只在 `--verbose` 下打印**（走到这里意味着是 CLI 自身的 bug 而非 API 失败）。退出前等 stderr 的诊断与 stdout 剩余输出写完（共用 200ms 上限，到点无论如何退出），管道下不会截掉已输出的数据
 - **stdout 的读端消失一律退出 0**。`EPIPE`、`ERR_STREAM_DESTROYED`、`EBADF` 都是读端先走了，不是本进程的失败——`gangtise … | head` 就是日常场景，它同样截断输出却退出 0，同类竞态没道理退出 1。此前只放行 `EPIPE`，另两个码走 `throw` 变成未捕获异常（在**正确的 JSON 已经打完之后**再追加一段崩溃转储）
 - `cross-section` / `time-series` 的丢行警告移到 flatten 之后：形状异常时不再先打一条读起来像「只是少了几行」的警告
-- 形状异常的 `ApiError` 带上原始响应，traceId 不再丢失——这恰恰是最需要报障的一类错误。`unwrapIndicatorData` 现在把信封的 traceId 转交给内层载荷：此前它只挂在被剥掉的外层上，下游拍平函数看到的内层根本没有，形状报错依旧是无 trace 的
+- 形状异常的 `ApiError` 带上原始响应，traceId 不再丢失——这恰恰是最需要报障的一类错误。EDE 外层信封的 traceId 现在随内层载荷带下去，形状报错同样带 trace
 - 时序轴按**去重后**的 `--security` 条目数判定：同一证券传两次此前会被当成双证券请求，列名从指标名退化成证券代码
 - **板块查询始终按证券轴出列，不再丢失证券身份**。时序轴此前在响应为 1 指标 × 1 证券时只看「请求 universe 条目数 = 1」，无法区分「单证券」和「单板块 ID」——板块只剩一只成分股时（本就只有一只，或其余因无覆盖被略过）输出会变成裸的 `qte_close` 列，数据归属彻底丢失，而板块 ID 又被 dropped 检测有意跳过，所以连退出码 3 都不会给。现在把 universe 本身传进拍平函数：**含板块 ID 的请求一律优先证券轴**
-- 「未来再次转置必然报错」的注释改准：方阵（1×1、2×2）转置后维度不变，校验只能保证非方阵的结构变化被发现
-- `package-lock.json` 根版本补到与 `package.json` 一致（此前停在 0.29.0）
-- **记录本地偶发批量失败的真因**（`tests/globalSetup.ts` 注释）。症状是 spawn 型 E2E 成片失败（7～27 个）、只在跑完整套件时出现、单跑该文件从不复现。真因不是产品也不是 stub：`prebuild` 会 `rmSync('dist')`，测试进行中一旦有人 `npm run build`/`prepare`（或并发跑第二个 vitest），那几秒窗口里每个 `node dist/src/cli.js` 都以 `Cannot find module` 退出 1。CI 单次串行跑不受影响，本地别边测边构建。（下面那条 stub 加固修的是**另一个**真实机制，两者独立）
-- **E2E stub 不再会被一个畸形请求整体带走**。`cliBodyMapping` 的本地 stub 在 `req.on("end")` 里裸跑 `JSON.parse`（代码注释自己写着「曾经把整个 stub 搞挂」）——在那个回调里抛出就是 vitest worker 的未捕获异常，该文件**剩余用例全部连带失败**。这正是本轮 3 次「24/25/27 个用例批量失败」的签名：数量接近半个文件、只在跑完整套件时出现、单独跑该文件 30+ 次从不复现。现在坏 body 变成 `undefined`（让断言自己报错并指向真正的请求），并补上 `clientError` / `error` 处理器
+- 矩阵维度校验只能发现非方阵的转置：方阵（1×1、2×2）转置后维度不变
 
 ### v0.30.1 — 2026-08-02
 
-对 v0.30.0 做了一轮针对性复审（两组独立验证 + 本轮 40 余次真实 API 探针），修掉 1 个 v0.30.0 自己引入的静默错数、1 个让官方招牌用法失效的服务端缺陷绕过，以及一批把危险行为写反的文档。
+修正 v0.30.0 引入的一处静默错数，让条件选股的文本筛选可用，并订正一批把危险行为写反的文档。
 
 **修复**
-- 🔴 **`sDate` 被当成 `tradeDate` 的替代，导致区间指标静默错数**（v0.30.0 引入）。`qte_vol_intvl`/`qte_avg_vol` 的 `sDate` 是区间**起点**，`tradeDate` 是 required 的区间**终点**——v0.30.0 把 `sDate` 列进「替代日期」于是吞掉了 `--date`，区间终点漂移。实测茅台 `sDate=2024-01-02`：修前 `2,265,873,849`，修后（补上 `tradeDate=2024-01-31`）`65,687,435`，两次都是退出码 0。`cross-section` 与 `screener` 都受影响，后者会直接漏选股票
-- 🔴 **条件选股的文本筛选（`contains`/`notcontains`）当时不可用**（服务端已于 2026-08-03 修复，详见本条末）。根因不是「不支持 string 指标」，而是 **screener 丢弃任何 `parameters` 为空数组的指标**：`pty_op_scope` 按官方格式传 `[]` 时 0 命中，挂上一个（对它无意义的）`tradeDate` 就正确返回。CLI 因此把 `--date` 改为**必填**并无条件下发给每个指标，官方文档的招牌示例 `F3 contains '酒'` 由此可用（白酒板块 19 只全部命中）。
-  - 服务端已于 **2026-08-03 修复**该缺陷（`parameters: []` 现可直接工作，复测连跑 3 次稳定 19/19）。CLI 的无条件下发保留：对无参指标无害，一条规则比按指标开例外简单，且能扛住回滚。`--date` 必填也独立成立——绝大多数指标吃 `tradeDate`，漏传就是空表 + 退出码 0
-- **时序的列轴改按请求判定**。服务端会丢掉完全无数据的证券，于是「单指标 × 2 证券」在一只无覆盖时缩成 1 只，`flattenTimeSeries` 据此翻转成指标轴，输出一个裸的指标名列，看不出是哪只证券的序列（实测 `finc_pe_ttm` 查 `600519.SH`+`09992.HK`）。现在列头稳定是「贵州茅台」，并额外警告港股被略过
+- 🔴 **`sDate` 被当成 `tradeDate` 的替代，导致区间指标静默错数**（v0.30.0 引入）。`qte_vol_intvl`/`qte_avg_vol` 的 `sDate` 是区间**起点**，`tradeDate` 是 required 的区间**终点**——v0.30.0 把 `sDate` 列进「替代日期」于是吞掉了 `--date`，区间终点漂移，取到的是另一个区间的值，且退出码 0。`cross-section` 与 `screener` 都受影响，后者会直接漏选股票
+- 🔴 **条件选股的文本筛选（`contains`/`notcontains`）当时取不到数**。原因不是「不支持 string 指标」，而是 **screener 会忽略 `parameters` 为空数组的指标**：`pty_op_scope` 传 `[]` 时 0 命中，挂上一个（对它无意义的）`tradeDate` 就正确返回。CLI 因此把 `--date` 改为**必填**并无条件下发给每个指标，`F3 contains '酒'` 这类文本筛选由此可用。
+  - 2026-08-03 起 `parameters: []` 可直接使用。CLI 的无条件下发保留：对无参指标无害，一条规则比按指标开例外简单。`--date` 必填也独立成立——绝大多数指标吃 `tradeDate`，漏传就是空表 + 退出码 0
+- **时序的列轴改按请求判定**。服务端会丢掉完全无数据的证券，于是「单指标 × 2 证券」在一只无覆盖时缩成 1 只，拍平时据此翻转成指标轴，输出一个裸的指标名列，看不出是哪只证券的序列（实测 `finc_pe_ttm` 查 `600519.SH`+`09992.HK`）。现在列头稳定是「贵州茅台」，并额外警告港股被略过
 - **重复指标列全部带上变量名**。screener 把一个 code 绑到两个变量时，此前只有第二列加 `(F2)` 后缀，裸的那列读起来像「唯一的收盘价」。现在两列都是 `收盘价 (F1)` / `收盘价 (F2)`
 
 **新增防护**
 - **服务端整行/整列丢数据时在 stderr 警告**。EDE 不给缺失数据补 `null`：某指标对 universe 内所有证券无数据就**整列**从 `indicatorList` 消失，某证券对所有指标无数据就**整行**从 `securityCodeList` 消失（只有部分缺才是 `null`）。这两种都是退出码 0 的短结果，`--key-by code` 回填时 key 直接不存在。`cross-section` / `time-series` 现在会列出被整个略过的指标与证券（stderr，stdout 的 JSON 不受影响）。板块 ID 不会被误报为「丢失」——服务端会把它展开成成分股
 - **矩阵维度校验**：`values` 行数与轴长度不符时抛 `ApiError` 而不是错位贴值。2026-08-01 的转置是无版本标记发生的，再转一次必须炸出来
 - **`--expression` 引用未绑定变量本地拦截**，不再白发一次计费请求（字符串字面量里的 `F2` 不会误判）。服务端对此报 `100003`
-- **screener 重复 `indicatorCode` 时 stderr 警告**：API 规格允许一个 code 绑两个变量，但服务端当前对这种请求返回空结果（已报后台，修复中）。CLI 只警告不拒绝——能力是设计内的，硬拦会在服务端修好后要撤回
+- **screener 重复 `indicatorCode` 时 stderr 警告**：接口规格允许一个 code 绑两个变量，但当时这类请求返回空结果。CLI 只警告不拒绝——这是设计内的能力。（v0.32.0 起已能正确取数，警告已移除）
 
 **文档订正（全部实测）**
 - **「无数据返回 `null` 且不丢行」写反了**，这是最危险的一条。已改为四档说明（部分缺 → `null`／整指标缺 → 整列消失／整证券缺 → 整行消失／全空 → 空表），并标出各自后果
-- **区间指标的起始参数是 `sDate`（`yyyy-MM-dd`），不是 `startDate`（`YYYYMMDD`）**。旧写法传下去是静默失效（茅台实测 296 万 vs 正确 4673 万）；示例指标也改了——`qte_amp_mo` 现在根本没有起始日参数，只吃 `tradeDate`
+- **区间指标的起始参数是 `sDate`（`yyyy-MM-dd`），不是 `startDate`（`YYYYMMDD`）**。旧写法传下去不报错，但取到的数口径不对；示例指标也改了——`qte_amp_mo` 现在根本没有起始日参数，只吃 `tradeDate`
 - **错误码表全线更新**：`410001`/`410106` 已不再出现。现在是 `100003`@400（入参/表达式错，含多×多时序、未声明变量）与 `140002`@500（终态参数错：必填缺失、枚举越界、表达式语法错，**不重试**）。`140002` 的 hint 此前只讲异步生成失败，与 EDE 的参数错完全对不上，已改写
 - `999999` 的提示不再说「多为查询无数据」——无数据现在返回空表，此码基本只剩真故障；但参数排查清单保留，因为参数写错恰恰表现为空表而非报错
 - `usageRestriction` **不是硬约束**：`qte_vol_intvl` 标着「不支持指标时间序列接口」，调时序照样返数据。按「口径可能不对」理解，别当成会报错
@@ -702,8 +605,8 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 🔴 **破坏性修复**：服务端 2026-08-01 重构了 EDE 取数接口，v0.29.0 的 `indicator cross-section` / `time-series` **已完全不可用**（旧 body 一律 `100001 缺少必填参数`）。本版对齐新契约并新增条件选股。所有改动均对真实 API 实测通过。
 
 **新增**
-- `gangtise indicator screener` — 条件选股：`--indicator F1:qte_mkt_cptl` 把变量绑到指标，`--expression "F1 >= 500 && F2 <= 30"` 组合筛选，从证券/板块范围里筛出命中的股票。支持 `contains`/`notcontains` 文本匹配（仅 `dataType: string` 指标）。`--indicator-param` 按**变量**索引（`F1:scale=8`）而非按 code——同一指标可绑到两个变量取不同参数（如比较两个日期的收盘价），只有变量能区分；引用未绑定的变量直接 `ValidationError`，不静默丢弃。输出同 `cross-section` 宽表。实测：中信白酒板块 19 只 → 市值≥500亿 且 PE≤30 筛出 5 只
-- `indicator cross-section` / `time-series` / `screener` 的 `--security` 现在也接受**板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，与证券代码混传取并集去重）。⚠️ 中信行业码那类 9 位 ID（`100800109`，官方文档示例里用的就是它）**不是** `sectorId`，实测返 0 只
+- `gangtise indicator screener` — 条件选股：`--indicator F1:qte_mkt_cptl` 把变量绑到指标，`--expression "F1 >= 500 && F2 <= 30"` 组合筛选，从证券/板块范围里筛出命中的股票。支持 `contains`/`notcontains` 文本匹配（仅 `dataType: string` 指标）。`--indicator-param` 按**变量**索引（`F1:scale=8`）而非按 code——同一指标可绑到两个变量取不同参数（如比较两个日期的收盘价），只有变量能区分；引用未绑定的变量直接 `ValidationError`，不静默丢弃。输出同 `cross-section` 宽表
+- `indicator cross-section` / `time-series` / `screener` 的 `--security` 现在也接受**板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，与证券代码混传取并集去重）。⚠️ 中信行业码那类 9 位 ID（如 `100800109`）**不是** `sectorId`，传入返回 0 只
 
 **破坏性变更（服务端契约）**
 - 请求体 `securityCodeList` → `universe`（cross-section / time-series 均改）。不改就是 `100001` 硬报错
@@ -713,29 +616,28 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 - 服务端**会重排**返回顺序（实测请求 `qte_close,qte_vol` 回来是 `qte_vol,qte_close`；请求 `600519,09992` 回来是 `09992,600519`），CLI 一律按返回的 `indicatorList`/`securityCodeList` 对齐——批量按 code 回填继续用 `--key-by code`
 
 **修复**
-- 🔴 **复权参数名写错，导致静默取到错数据**：正确参数名是 **`adjustType`**，CLI 帮助文案、SKILL.md、README、references 此前全写成 `adjustmentType`（官方文档示例也是错的）。服务端对错误参数名**静默忽略并退回不复权**，用户照抄拿到的数看着正常实则错——实测茅台 `2024-01-02`：`adjustmentType=3` → 1685.01（= 不复权），`adjustType=3` → 13609.6168（真后复权），`adjustType=2` → 1531.225（前复权）。已全线改正并在文档中标注这个坑
-- **EDE `reportType` 悬案裁决关闭**：服务端 enum label 已改正，现在 label 与实际取数**一致**，直接按 label 传即可（`1`=合并 `2`=合并(调整) `3`=母公司 `4`=母公司(调整)）。实测闭环：`is_tot_op_rev` + 中信证券 `600030.SH` FY2024 → `1`=637.8922亿 / `2`=581.19亿 / `3`=`4`=321.924亿，与 `fundamental income-statement` 的「合并报表」`totalOpRev` 637.892亿 在 `1` 上吻合。取数值与 2026-07-24 历史实测一致——**变的只是服务端 label，取数从未变过**，文档里「按 label 传会取反」的警告已作废
-- `prepare.cjs` 的发版门禁按 README 的新条目式 changelog 格式匹配（README 改版后门禁一直找不到 `### vX.Y.Z`，形同虚设）
+- 🔴 **复权参数名写错会取到错数据**：参数名是 **`adjustType`**，CLI 帮助文案、SKILL.md、README、references 此前写成 `adjustmentType`。写错名不会报错，会按默认值 `1`（不复权）取数，结果看着正常但口径不对。已全线改正并在文档中标注这个坑
+- **EDE `reportType` 映射确认**：enum label 现在与实际取数**一致**，直接按 label 传即可（`1`=合并 `2`=合并(调整) `3`=母公司 `4`=母公司(调整)）；`1` 的取数与 `fundamental income-statement` 的「合并报表」一致。**变的只是 label，取数从未变过**，文档里「按 label 传会取反」的警告已作废
+- 发版前的版本条目检查改为匹配 README 当前的 changelog 格式
 
 **文档（均为实测修正）**
 - **无数据不再报 `999999`**：整查询无数据现在返回空数组（`Total: 0`）。这意味着**参数写错也表现为空表**而不是报错——文档补了空表排查顺序：① 参数名（`indicator search` 的 `parameterList`）② 日期语义 ③ `scopeList` ④ 才考虑真没数据
-- **根级 `--scale` 会污染不声明 `scale` 的指标**：`qte_close` 的 `parameterList` 里没有 `scale`，但根级 `--scale 8` 把收盘价 1350.6 缩成 `0`（与官方「根级参数仅对支持的指标生效」的说法不符）。价格与金额混查改用 `--indicator-param "code:scale=8"`
-- **`scopeList` 是声明不是保证**：`qte_mkt_cptl`/`shr_tot` 已声称覆盖港股，但实测 `09992.HK`/`00700.HK` 仍返 `null`（同一次调用里 A 股正常、港股行情类 `qte_close`/`qte_vol` 也正常）。港股**财务类**指标确已可用（`is_op_rev_ttm` 泡泡玛特 371.2亿 / 腾讯 7682.02亿）
+- **根级 `--scale` 会污染不声明 `scale` 的指标**：`qte_close` 的 `parameterList` 里没有 `scale`，但根级 `--scale 8` 会把收盘价缩成 `0`。价格与金额混查改用 `--indicator-param "code:scale=8"`
+- **`scopeList` 是声明不是保证**：本版时 `qte_mkt_cptl` / `shr_tot` 声明覆盖港股，`09992.HK` / `00700.HK` 却返回 `null`（同一次调用里 A 股正常，港股行情类 `qte_close` / `qte_vol` 也正常）；港股**财务类**指标可用（如 `is_op_rev_ttm`）
 - **币种与汇率已修复**：`DFT` 原始币种识别正确（A股=CNY、港股行情=HKD、美股=USD），汇率互逆且三角一致（误差 <0.003%）。⚠️ 同一只港股**行情类原始币种是 HKD、财务类可能是 CNY**（泡泡玛特财报以人民币计），跨市场比财务数据要显式传 `--currency`；币种枚举 2026-08-01 起**统一大写**，旧文档里的小写 `dft`/`cny` 已过时
 - `indicator search` 返回新增 `scopeList[].usageRestriction`（如「不支持指标时间序列接口」，`null`=无限制），已写入 skill 与响应字段文档
 - 全线强调：**指标参数名一律以 `indicator search` 的 `parameterList` 为准**，不要照抄任何文档示例——服务端会改参数名且传错是静默失效
 
-**内部**
-- `args.ts`：`parseIndicatorParams` 抽出通用的 `parseParamSpecs`；新增 `parseScreenerIndicators`（校验 `F+正整数` 变量名、拒绝重复变量与未绑定变量）
-- `indicatorMatrix.ts`：`buildHeaders` 改为接受 bases/suffixes/reserved 三元组，screener 用 `field` 而非 code 做去重后缀（同一 code 可绑两个变量）；多证券时序的列数改从 `securityCodeList` 派生，响应缺 `securityNameList` 时不再退化成 0 列
-- 测试 536 → 551：矩阵转置回归守卫、`reportDate` 不被 `--date` 覆盖、screener body 组装与变量校验，以及一条端到端断言 `universe` 上线的守卫（防止旧 body 悄悄回归）
+**其他**
+- `screener` 的 `--indicator` 变量名须为 `F` + 正整数，重复变量与未绑定变量本地报错；同一 code 绑两个变量时按变量名区分列
+- 多证券时序在响应缺 `securityNameList` 时不再输出 0 列
 
 ### v0.29.0 — 2026-07-25
 
 对齐服务端 2026-07-24 更新：新增财报日历（列表 + 原文下载）与 PDF 解析工具，群消息补 `quoteMsg` 引用字段。四个接口均已对真实 API 实测通过。
 
 **新增**
-- `insight performance-calendar list` — 财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件。按 `--start-date`/`--end-date`（`yyyy-MM-dd`，过滤 `publishDate`）、`--market`、`--security`、`--category` 筛选，自动翻页（单页上限 50）。**它是唯一按 `--*-date` 过滤的 insight list**（其余用 `--start-time`），也没有 `--keyword`/`--rank-type`/`--search-type`；`--market`/`--category` 走本地白名单，拼错直接 `ValidationError`（服务端对错枚举是静默返全量，按 0.1/条计费，拦在本地才不烧积分）。实测无筛选时 `total` 十万量级（126683，含未来排期），而省略 `--size` 等于拉全量（1000 页上限 = 5 万条 ≈ 5000 积分）——CLI 因此要求至少一个约束：完整日期范围 / `--security` / 显式 `--size`，裸跑本地报 `ValidationError` 且不发请求。`--security` 作为唯一约束时另加 **1000 行隐式上限**（实测服务端确实按 `securityList` 过滤：无效码返 0 条；但不拿五位数积分赌它不变——筛选一旦失效，结果会截断标 `partial` + 退出码 3，而不是翻完全表）。上限判据看 `total`，不是单看行数——`from + 行数 >= total` 即为完整结果，不误标 `partial`（否则恰好 1000 行的完整答案会被自动化调用方读成截断）
+- `insight performance-calendar list` — 财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件。按 `--start-date`/`--end-date`（`yyyy-MM-dd`，过滤 `publishDate`）、`--market`、`--security`、`--category` 筛选，自动翻页（单页上限 50）。**它是唯一按 `--*-date` 过滤的 insight list**（其余用 `--start-time`），也没有 `--keyword`/`--rank-type`/`--search-type`；`--market`/`--category` 走本地白名单，拼错直接 `ValidationError`（写错枚举不会报错，会返回全量并按 0.1/条计费）。无筛选时 `total` 在十万量级（含未来排期），而省略 `--size` 等于拉全量（1000 页上限 = 5 万条 ≈ 5000 积分）——CLI 因此要求至少一个约束：完整日期范围 / `--security` / 显式 `--size`，裸跑本地报 `ValidationError` 且不发请求。`--security` 作为唯一约束时另加 **1000 行隐式上限**（筛选万一失效，结果会截断标 `partial` + 退出码 3，而不是翻完全表）。上限判据看 `total`，不是单看行数——`from + 行数 >= total` 即为完整结果，不误标 `partial`（否则恰好 1000 行的完整答案会被自动化调用方读成截断）
 - `insight performance-calendar download --performance-report-id <id>` — 下载业绩报告原文 PDF（A股 10 积分 / 港美股 20 积分）；仅 `hasAttachment: true` 可下。省略 `--output` 走 title-cache → 真实标题命名（实测落盘 `赛诺医疗 · 发布2026半年度业绩预告.PDF`）
 - `gangtise tool file-parse --file <x.pdf>` / `tool file-parse-check --task-id <id>` — PDF 解析（异步）。提交走 multipart 上传拿 `taskId`，`--wait` 阻塞轮询（≈316s 预算，覆盖官方约 3 分钟）后把结果 ZIP（`file.md` + `images/`）落盘。**0.8 积分/页、提交时一次性扣**，取结果免费；提交端点标 `no-replay` + 超时下限 300s（100MB 上传不会被 30s 默认超时掐断，也不会因重放重复扣费）。上传前本地校验后缀/非空/≤100MB
 - 新增 skill 文档 `references/commands/tool.md`；`examples.md` 补例 18（财报日历）/ 例 19（PDF 解析），含「平台自有研报优先 `--file-type 2` 直出 Markdown、别花解析费」的路由提醒
@@ -746,30 +648,27 @@ v0.30.1 起我们记录并逐版加固的判据是：服务端不给缺数据补
 - `raw call` 对 POST 型 download 端点放行 `--body`（file-parse 取结果需要），GET 型仍只收 `--query`；upload 型端点（`tool.file-parse.submit`）明确报错并指向 `tool file-parse`
 - `--verbose` 的下载日志用端点真实 method（此前一律打印 `GET`，POST 型 download 会误导）
 
-**内部**
-- `EndpointDefinition.kind` 增加 `"upload"`；`client.download()` 支持 POST + JSON body；新增 `client.uploadFile()`（multipart，复用 requestJson 的鉴权/重试/信封处理）与 `src/core/fileParse.ts`
-- `asyncContent.ts` 导出 `isAsyncPending` / `nextPollDelayMs` 供 file-parse 复用（生成中的 `140001`/旧 `410110` 判定只此一处）
-- 新增 `EndpointDefinition.bigIntFields` + `transport.quoteBigIntFields`：解析前把指定字段的**裸数字**重新加引号，防止雪花 ID 被 `JSON.parse` 四舍五入（`1782345678901234567` → `…4700`）。file-parse 的 `taskId` 实测 2026-07-25 返回的是字符串、当前不受影响，这是前向防护——ID 一旦丢位，已扣费的解析任务就再也取不回结果
-- `package-lock.json` 根版本补到与 `package.json` 一致（此前停在 0.28.0）
+**其他**
+- 指定的 ID 字段在解析前保留为字符串，防止雪花 ID 被 `JSON.parse` 四舍五入（`1782345678901234567` → `…4700`）。file-parse 的 `taskId` 目前返回的是字符串、不受影响，这是预防——ID 一旦丢位，已扣费的解析任务就再也取不回结果
 
 ### v0.28.3 — 2026-07-24
 
 🔴 **数据完整性修复**：`--field` 传错字段名会导致**静默错列**（值贴到错误的字段上）。
 
 **修复**
-- 列式响应（`{fieldList, list}`）拍平时校验字段数与行长度，不匹配直接报错（`ValidationError`，退出码 1），不再输出错位数据。上游对不存在的字段名有两套处理：`day-kline` / `minute-kline` / `fund-flow` 名值同丢、三大报表补 `null`（长度相等，安全）；但 **`quote realtime` / `fundamental main-business` / `valuation-analysis` 只丢值、字段名照请求回显**——实测 `quote realtime --field securityCode --field close --field turnoverRate`（realtime 根本没有 `close`）把换手率 `28.5573` 拍成了 `close`，茅台真实价 1297.41。不报错、数字看着合理、却完全是另一个指标。`alternative edb-data` 的同款拍平（`{fieldList, dataList}`）改为复用同一个 `zipFieldRow` 一并纳入校验
+- 列式响应（`{fieldList, list}`）拍平时校验字段数与行长度，不匹配直接报错（`ValidationError`，退出码 1），不再输出错位数据。上游对不存在的字段名有两套处理：`day-kline` / `minute-kline` / `fund-flow` 名值同丢、三大报表补 `null`（长度相等，安全）；但 **`quote realtime` / `fundamental main-business` / `valuation-analysis` 只丢值、字段名照请求回显**——实测 `quote realtime --field securityCode --field close --field turnoverRate`（realtime 根本没有 `close`）把换手率的值标成了 `close`。不报错、数字看着合理、却完全是另一个指标。`alternative edb-data` 的同款拍平（`{fieldList, dataList}`）一并纳入校验
 
 **文档（随包 skill）**
 - SKILL.md 必备规则加第 10 条：`--field` 不确定就别传（返回全量最稳）；`quote realtime` **无 `close`**（用 `latestPrice`）、**无市值**（总市值走 `indicator cross-section --indicator qte_mkt_cptl`，仅 A 股）
 - `quote.md` / `fields.md` / `response-schema.md`：补全 realtime 实测 16 字段（此前漏 `turnoverRate` / `volumeRatio`），并写明错名硬失败的行为与自查路径
 - `fundamental.md`：`valuation-analysis` 只有 7 个字段、**无 `securityCode`**（误传会拿到一列重复的 `tradeDate`，长度相等拦不住）；`main-business` 的 `--field` 只认主营字段
-- **推翻 07-23 关于 EDE `reportType` 的结论**（复测 2026-07-24）：旧文档写「枚举不可信、`value=2/4` 直接 `999999`、要指定口径请改用 `fundamental --report-type`」。实测是 label 与 value **错位但映射稳定**：`1`=合并（默认）、`2`=合并(调整)、`3`=母公司、`4`=母公司(调整)。中信证券 `600030.SH` FY2024 营收四值与三大报表逐一相等（637.9/581.2/321.9/321.9 亿），中国神华 `601088.SH` 的 `1`≠`2`（3383.75 vs 3397.88 亿）可排除「2 即合并原值」。`2`/`4` 为空是该报告期尚无调整表（与 `consolidatedRestated` 同期无数据一致），不是枚举失效；全查询无值时才升级为 `999999`。**结论：EDE 可以指定口径——母公司传 `3`，合并省略即可**，不必再绕道三大报表
+- **EDE `reportType` 可以指定口径**（订正上一版「枚举不可信、改用 `fundamental --report-type`」的说明）：取值映射稳定——`1`=合并（默认）、`2`=合并(调整)、`3`=母公司、`4`=母公司(调整)，与三大报表对应口径一致。`2` / `4` 为空是该报告期尚无调整表（与 `consolidatedRestated` 同期无数据一致），不是枚举失效；整个查询都无值时才报 `999999`。母公司传 `3`，合并省略即可，不必绕道三大报表
 - 修正 `response-schema.md` 里会**反向诱导传错字段**的陈旧记录：`main-business` 行原写 `endDate` / `breakdownName` / `revenue`（实测均不存在），改为真实的 `periodName` / `periodEndDate` / `categoryName` + `opRevenue` / `grossProfit` 等 15 个字段；`valuation-analysis` 行补齐 7 字段并标注响应是列式
-- 标注上游 meta 字段错位，范围以实测为准：**A 股累计口径的 `balance-sheet` / `cash-flow`** 的 `companyType` 与 `currency` 值互换（茅台/工行/平安银行/中国平安/中信证券五个样本一致：`companyType=人民币`、`currency=银行`/`一般企业`）；A 股 `income-statement`、港股三表、美股三表实测均正确；A 股 `*-quarterly` 单季表则是 `companyType` 返回未映射的数字码（`102119999`）、`currency` 正确。读这两列按值判断语义，科目数字不受影响
+- 标注上游 meta 字段错位，范围以实测为准：**A 股累计口径的 `balance-sheet` / `cash-flow`** 的 `companyType` 与 `currency` 值互换（如 `companyType=人民币`、`currency=银行`/`一般企业`）；A 股 `income-statement`、港股三表、美股三表实测均正确；A 股 `*-quarterly` 单季表则是 `companyType` 返回未映射的数字码（`102119999`）、`currency` 正确。读这两列按值判断语义，科目数字不受影响
 
 ### v0.28.2 — 2026-07-24
 
-EDE 指标批量取数优化（基于对上游 990 个指标的实测）。
+EDE 指标批量取数优化。
 
 **新增**
 - `indicator cross-section` / `time-series` 加 `--key-by name|code`（默认 `name`）：`code` 模式列头用 `indicatorCode`（时序多证券侧用 `securityCode`），唯一且与服务端返回列序无关。**多证券批量按 code 回填必用**——此前拍平只按指标显示名，而多个指标同名（如 `cf_finc_exp`/`_qtr` 都叫「财务费用」）+ 服务端会重排返回列序，导致按名/按位置都错位、只能绕道 raw API 手工回填
@@ -783,7 +682,7 @@ EDE 指标批量取数优化（基于对上游 990 个指标的实测）。
 
 ### v0.28.1 — 2026-07-23
 
-Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券取一批**已实现**财务/估值指标优先走 EDE `indicator cross-section`/`time-series` 一次拉取，替代逐只 `fundamental` 循环。**本版仅改随包分发的 skill 文档（`gangtise-openapi/`），无 CLI 代码/命令/参数变更。**
+Agent Skill 文档取数路由调整：多证券取一批**已实现**财务/估值指标优先走 EDE `indicator cross-section`/`time-series` 一次拉取，替代逐只 `fundamental` 循环。**本版仅改随包分发的 skill 文档（`gangtise-openapi/`），无 CLI 代码/命令/参数变更。**
 
 **路由规则**
 - 单票财务/估值/盈利预测/股东/主营、单票完整三大报表 → 仍走 `fundamental` 专用命令；行情/K 线 → `quote`（免费批量）
@@ -798,13 +697,13 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 
 ### v0.28.0 — 2026-07-21
 
-对齐服务端 2026-07-17 更新（内资研报下载调价 + 41 个公开错误码重排）。**41 个码逐个打了线上探针**，结论是迁移按「错误处理层」而非按业务模块进行、文档并不等于现状：同一个接口内，参数校验层与路由层已发新码，方法路由层和 token 过滤器仍发旧码，异步生成状态也仍是旧码。CLI 对两代都识别。
+对齐服务端 2026-07-17 更新（内资研报下载调价 + 41 个公开错误码重排）。错误码迁移按「错误处理层」而非按业务模块进行：同一个接口内，参数校验层与路由层已用新码，方法路由层和 token 过滤器仍用旧码，异步生成状态也仍是旧码。CLI 对两代都识别。
 
 **错误码体系**
-- `errors.ts` 错误码表按新三层结构（`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层）重写，覆盖 41 个公开码 + 实测仍在线的旧码
+- 错误码表按新三层结构（`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层）重写，覆盖 41 个公开码 + 实测仍在线的旧码
 - 异步轮询同时识别 `410110`/`140001`（生成中）与 `410111`/`140002`（终态失败）。实测服务端**仍在用旧码**（HTTP 400、无 `errorType`），新码为预置——服务端切换那天 `--wait` 不会在首次轮询就抛错中止，把已扣的 50 积分作废
-- `140002`（异步 PROCESSING_FAILED，`410111` 的新码）纳入 transport 终态码集合、任何 HTTP 状态都不重试——异步 `*-check`（get-content）端点无 retry 声明、走默认策略，`140002@500` 会被白重试 2 次才轮到 `asyncContent` 的 `FAILED_CODES` 识别（后者在 `client.call` 的 `withRetry` 之上、拦不到重试）；`140002` 语义即「生成失败·终态」、只有那些异步端点会返回它，故全局终态化既安全又省掉白重试。实测服务端仍用 `410111`，此为预置
-- token 自愈补上 `999002`（`0000001008` 的新码）；`999011`（AK/SK 不匹配）加入**终态码集合**，任何 HTTP 状态下都不重试——凭证错不会自己好。注意它只来自 `auth.login`，而 login 走 `useAuth=false` 压根不经过自愈码表，所以「不列进自愈表」并拦不住 `auth.login` 在 5xx 上按默认策略重放两次，必须落在终态码上
+- `140002`（异步 PROCESSING_FAILED，`410111` 的新码）纳入终态码集合、任何 HTTP 状态都不重试——此前异步 `*-check` 端点遇到 `140002`@500 会先被白重试 2 次才识别为终态失败；`140002` 语义即「生成失败·终态」、只有那些异步端点会返回它，故全局终态化既安全又省掉白重试。实测服务端仍用 `410111`，此为预置
+- token 自愈补上 `999002`（`0000001008` 的新码）；`999011`（AK/SK 不匹配）加入**终态码集合**，任何 HTTP 状态下都不重试——凭证错不会自己好（它只来自 `auth.login`，不列为终态码的话，5xx 形态下会按默认策略重放两次）
 - 修正 `900002` 的错误释义：实测服务端用它表示「请求方法不正确」（HTTP 405），旧文档写作「请求缺少 uid」，据此排查会走错方向
 - 错误提示改为只给下一步动作，不再复述服务端 msg（此前输出形如 `资源不存在 资源不存在，确认 ID 有效`）——新旧两代都过了一遍：留用的 `903301` / `8000016` / `8000018` / `999995` / `999997` / `900001` / `130001` / `410004` / `410110` / `410111` 原本是逐字重复 msg
 - 补上 `410001` / `410106` 两个 EDE 专有旧码的提示——它们没被 2026-07-17 重排收编，却是 `indicator` 取数最常见的两个报错（漏传 `--indicator`/`--security`、漏传 `periodNum` 等必填参数），`indicator.md` 早已把它们列为首要排查项
@@ -813,14 +712,14 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 - `130001` 提示改为先给通用「未找到数据/核对查询条件」再限定 EDE 指标权限（此前把通用 DATA_NOT_FOUND 一律导向「未开通指标」）；`130002` 提示补上「非法 `--file-type` 也归此码」（下载类兜底）
 
 **行为变更（本地校验）**
-- 所有 date 参数（`--start-date`/`--end-date`/`--date`/`--report-date`，覆盖 Quote/Fundamental、AI `theme-tracking`/`hot-topic`/`management-discuss-*`、Alternative `edb-data`、Indicator）只接受 `YYYY-MM-DD`，其余格式在发请求前报 `ValidationError`——**服务端额外接受的两种「年在后」格式日月顺序相反**：实测 `07/01/2026`（斜杠）读成 `2026-01-07`、`07-01-2026`（横杠）读成 `2026-07-01`，同样三个数字差半年且都返回 HTTP 200，响应里不回显服务端实际采用的日期（用 `25/12` 与 `12/25` 的互补接受结果交叉验证）。CLI 无从判断用户想要哪个读法，故只转发无歧义写法。`20260701` / `2026/07/01` 这类服务端同样能正确处理的写法也一并拒掉——统一成一种入参形态，好过按端点逐一探针维护白名单；报错文案说明该用哪种写法，不再断言输入本身有歧义
-- **datetime 参数（`--start-time`/`--end-time`）本地拦截覆盖全部透传命令**（insight research/summary/announcement-hk/us、vault 各 list、`quote minute-kline`、`ai security-clue` 等原样透传的 18 处，外加转时间戳的 A 股 `announcement` / `knowledge-batch`）。**服务端对透传的年在后格式静默误解析、并不报 `110001`**：实测 `insight research list` 对 `07/01/2026` 返回 1562 条（=`2026-01-07`）、`07-01-2026` 返回 210 条（=`2026-07-01`），差半年、都 HTTP 200、响应不回显实际日期。新增 `parseDatetimeOption` 做**时区无关**的字段校验（算术闰年、不构造本地 `Date`，故 DST 缺口时刻等对服务端合法的字符串不被客户端时区误伤）后**原样透传**
-- 本地时间校验只认 `YYYY-MM-DD`、`YYYY-MM-DD HH:mm[:ss]`（空格或 `T` 分隔、秒可省）或 10/13 位时间戳；此前 `parseTimestamp13` 用 `new Date()` 兜底还能吞 `.SSS` 毫秒尾、`+08:00` 时区尾、以及 `Infinity`/`1e309`/非整数（数字分支只查 `NaN`，这类会序列化成 null 静默取消过滤），现一律拒绝（时间戳分支改用严格 `^\d{10}$`/`^\d{13}$` 位数正则——这也是科学计数法 / 16 进制 / 空白 / 非标准位数被拒、且 13 位 `1000000000000` 不再落进秒分支的原因）
+- 所有 date 参数（`--start-date`/`--end-date`/`--date`/`--report-date`，覆盖 Quote/Fundamental、AI `theme-tracking`/`hot-topic`/`management-discuss-*`、Alternative `edb-data`、Indicator）只接受 `YYYY-MM-DD`，其余格式在发请求前报 `ValidationError`——**服务端额外接受的两种「年在后」格式日月顺序相反**：实测 `07/01/2026`（斜杠）读成 `2026-01-07`、`07-01-2026`（横杠）读成 `2026-07-01`，同样三个数字差半年且都返回 HTTP 200，响应里不回显实际采用的日期。CLI 无从判断用户想要哪个读法，故只转发无歧义写法。`20260701` / `2026/07/01` 这类服务端同样能正确处理的写法也一并拒掉——统一成一种入参形态，好过按端点逐一探针维护白名单；报错文案说明该用哪种写法，不再断言输入本身有歧义
+- **datetime 参数（`--start-time`/`--end-time`）本地拦截覆盖全部透传命令**（insight research/summary/announcement-hk/us、vault 各 list、`quote minute-kline`、`ai security-clue` 等原样透传的 18 处，外加转时间戳的 A 股 `announcement` / `knowledge-batch`）。**透传的年在后格式不报 `110001`，会被按另一种日月顺序解析**：实测 `insight research list` 对 `07/01/2026` 按 `2026-01-07`、`07-01-2026` 按 `2026-07-01` 取数，差半年、都 HTTP 200、响应不回显实际日期。本地做**时区无关**的字段校验（不按本机时区构造日期，DST 缺口时刻等合法字符串不会被误拒）后**原样透传**
+- 本地时间校验只认 `YYYY-MM-DD`、`YYYY-MM-DD HH:mm[:ss]`（空格或 `T` 分隔、秒可省）或 10/13 位时间戳；此前的兜底解析还能吞 `.SSS` 毫秒尾、`+08:00` 时区尾、以及 `Infinity`/`1e309`/非整数（数字分支只查 `NaN`，这类会序列化成 null 静默取消过滤），现一律拒绝（时间戳分支改用严格 `^\d{10}$`/`^\d{13}$` 位数正则——这也是科学计数法 / 16 进制 / 空白 / 非标准位数被拒、且 13 位 `1000000000000` 不再落进秒分支的原因）
 
 **修复**
 - EDE 内层信封的报错（`indicator` 取数失败的 `999999` / `130001` 等）此前**永远拿不到 traceId**：实测 `traceId` 只挂在外层信封上，而外层在解包时即被丢弃，内层抛错又没传 details。现在外层 id 以不可枚举属性随 payload 带下去（不进 JSON/CSV 输出），`ApiError.traceId` 兜底读它——这类错误恰恰最需要报障，此前与 README「报错行会带 trace」的表述对不上
 - HTTP 200 包裹的错误信封（Gangtise 也用这种形态）此前会丢掉服务端的 `Retry-After`：主 JSON 路径与下载 JSON 路径两处 `unwrapEnvelope` 都补上（此前只有 4xx/5xx 的 `throwHttpError` 保留），限流响应的退避窗口不再被丢弃
-- `toTimestamp13` 的日历校验补年份与时间 round-trip：`0050-06-15` 曾被 `Date(50,…)` 构造器映射成 1950、DST 缺失时刻（如 America/New_York 的 `02:30`）曾被静默移到 `03:30`——均改为拒绝
+- 时间换算的日历校验补年份与时间 round-trip：`0050-06-15` 曾被 `Date(50,…)` 构造器映射成 1950、DST 缺失时刻（如 America/New_York 的 `02:30`）曾被静默移到 `03:30`——均改为拒绝
 - 异步终态失败（`410111`/`140002`）的报错行补上 code / msg / `traceId` 并提示重提会再次计费——此前只打印一句 "Content generation failed"，把本版新增的 trace 信息吞掉了，与 README「报错行会带 trace」的表述矛盾
 
 **可观测性**
@@ -859,8 +758,8 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 - `gangtise-openapi/` 目录纳入 npm 包；README 安装命令改为从 `$(npm root -g)` 复制——此前的相对路径命令对 npm 用户不可执行
 
 **防漂移门禁（工程，不影响 CLI 行为）**
-- 新增 README↔ENDPOINTS 一致性测试：「自动翻页」清单与注册表 pagination 标记双向比对（此类手抄清单漂移已发生两次）；insight/reference 子命令的 `--help` 覆盖改为从端点注册表派生，新命令漏接线直接测试失败
-- `npm run prepare` 前置断言 README/CHANGELOG 含当前版本条目（写盘前检查，失败零残留）；`npm run typecheck` 纳入 tests/（tsconfig.test.json）
+- 新增 README↔ENDPOINTS 一致性测试：「自动翻页」清单与注册表 pagination 标记双向比对；insight/reference 子命令的 `--help` 覆盖改为从端点注册表派生，新命令漏接线直接测试失败
+- `npm run prepare` 前置断言 README/CHANGELOG 含当前版本条目（写盘前检查，失败零残留）；`npm run typecheck` 覆盖测试代码
 - CI：`npm pack` 装包冒烟（`--help` + skill 文件存在校验）、测试矩阵 Node 下限改精确 20.18.1、CI typecheck；publish 的 `workflow_dispatch` 必须指向 `v*` tag（关闭无护栏发布通道）
 
 ### v0.26.0 — 2026-07-11
@@ -887,7 +786,7 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 - `reference official-account-search` — 公众号 ID 搜索：输入公众号名 / 机构 / 关键字返回 `accountId`（喂 `insight official-account list --account-id`）；`--keyword`（必填）、`--category`（`listedCompany`/`broker`/`government`/`media`，可重复；未分类公众号 `category` 为 `null`，传 `--category` 会漏掉）、`--top`（默认 10 上限 10）；免费
 
 **变更**
-- `indicator search` / `cross-section` / `time-series` 市场范围从仅 A 股扩展至 A 股 / 港股 / 美股（服务端变更；CLI 早已支持 `--currency` 与多市场证券代码，无需改动）。⚠️ 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE)，**非 `.US`**——官方示例的 `AAPL.US` 查不到数据，实测须 `AAPL.O`
+- `indicator search` / `cross-section` / `time-series` 市场范围从仅 A 股扩展至 A 股 / 港股 / 美股（服务端变更；CLI 早已支持 `--currency` 与多市场证券代码，无需改动）。⚠️ 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE)，**非 `.US`**——`AAPL.US` 查不到数据，要写 `AAPL.O`
 
 **修复 / 加固**（承接上一批未单独发版的改动）
 - 分页 / 分片 `partial` 检测补全：`requestPaginated` 的短后续页、`MAX_PAGES` 上限、`total` 漂移、失败页四种场景统一触发 `partial`（退出码 3）——失败页独立成判定条件，避免超额返回的兄弟页把行数补满、掩盖失败页空洞；`quote` 全市场分片硬错后熔断、破损形状分片计入 `failedShards`
@@ -936,7 +835,7 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 - 错误码 `410004` 提示改为中性措辞「数据未找到或无指标权限，请检查查询条件与指标权限」——此前只说"数据未找到"，与 `indicator` 内层信封的"无权限"消息拼接后自相矛盾
 
 **文档 / Skill**（随 `/sync-skill` 分发，不影响 CLI 行为）
-- gangtise-openapi Agent Skill 经 fable5 审计 + 多轮 review 优化：积分计费速查 + 高积分 pre-flight 闸门、AI 同步命令超时前置、大结果集落盘、异步 `--wait` 主路径、行业码口径收敛、市值量纲实测等
+- Agent Skill 优化：积分计费速查 + 高积分 pre-flight 闸门、AI 同步命令超时前置、大结果集落盘、异步 `--wait` 主路径、行业码口径收敛、市值量纲实测等
 
 ### v0.22.0 — 2026-07-02
 
@@ -961,7 +860,6 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 **CLI / 工程**
 - `raw call` 会在本地拒绝 JSON endpoint 的 `--query` 和 download endpoint 的 `--body`，避免静默丢参数；`--format` 在发请求前校验，格式拼错不再先消耗接口调用
 - `gangtise ... | head` 遇 stdout `EPIPE` 时安静退出；只有首个参数是 `--version` / `-V` 时才触发版本快捷路径
-- Endpoint registry 的 `key` 改为由记录键自动派生，减少映射漂移；新增真实 CLI 选项到请求体的 stub 测试；测试 272 → 323
 
 ### v0.21.0 — 2026-06-29
 
@@ -977,7 +875,7 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 - token 缓存文件（`~/.config/gangtise/token.json`）改为临时文件 + 原子 `rename` 写入：从第一字节即 `0600`，消除"旧文件宽松权限残留"与"崩溃截断"两个隐患
 
 **内部 / 工程**
-- 依赖 `vitest` 升级到 3.2.6（修复 dev-only 安全告警）；新增 `npm run typecheck`；测试 257 → 272
+- 依赖 `vitest` 升级到 3.2.6（修复 dev-only 安全告警）；新增 `npm run typecheck`
 
 ### v0.20.0 — 2026-06-26
 
@@ -1013,7 +911,7 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 - `indicator search` — 按名称搜索证券级数据指标，返回 `indicatorCode` 及可传参数 `parameterList`（含 `required` 必填标记与枚举）；取数前必先 search 拿 code，绝不猜编码
 - `indicator cross-section` — 指标截面数据（多指标 × 多证券，单日快照）：`--indicator` / `--security`（均可重复）/ `--date` / `--currency` / `--scale` / `--indicator-param`
 - `indicator time-series` — 指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）：另有 `--start-date` / `--end-date` / `--calendar-type`（`ND`/`TD`/`WD`）
-- 复权等指标专属参数用 `--indicator-param "code:key=value"`，参数 key 与取值以 search 的 `parameterList` 为准（行情复权键为 `adjustmentType`：`1` 不复权 / `2` 前复权 / `3` 后复权）
+- 复权等指标专属参数用 `--indicator-param "code:key=value"`，参数 key 与取值以 search 的 `parameterList` 为准（行情复权键为 `adjustmentType`：`1` 不复权 / `2` 前复权 / `3` 后复权；⚠️ v0.30.0 更正：参数名是 `adjustType`，写错名会按不复权取数）
 - 很多指标有必填参数，默认调用会报 `410106`（缺必填参数）：N 期统计补 `periodNum`、区间/周期类补 `startDate`、年度/分红类补 `fiscalYear`；`999999` 多为「该证券公司类型/报告期无数据」而非系统故障。详见 `gangtise-openapi/references/commands/indicator.md`
 
 **修复**
@@ -1048,7 +946,7 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 
 **说明 / 修正**
 - `--industry` 用 `citicIndustry` 码（`1008001xx`，全命令通用）；`--research-area` 用 `gangtiseIndustry` 码（行业 `1008001xx` + 宏观/策略/固收/金工/海外等方向 `122000xxx`）。详见 `gangtise-openapi/references/commands/reference-and-lookup.md`
-  > ⚠️ **后续订正（2026-08-08）**：`gangtiseIndustry` 里**只有 6 条方向码 `122000xxx`，不含任何行业码**（`constant-list --category gangtiseIndustry` 实测 `constantCount=6`，连查 3 次一致）。`1008001xx` 行业码用于 `--research-area` 确实有效，但它们属于 `citicIndustry`，本条把归属写错了。别再照这句去 `gangtiseIndustry` 找行业。
+  > ⚠️ **后续订正（2026-08-08）**：`gangtiseIndustry` 里**只有方向码 `122000xxx`，不含任何行业码**（以 `constant-list --category gangtiseIndustry` 的返回为准）。`1008001xx` 行业码用于 `--research-area` 确实有效，但它们属于 `citicIndustry`，本条把归属写错了。别再照这句去 `gangtiseIndustry` 找行业。
 - 日程类 `--location`（domesticCity）服务端过滤已生效（v0.16.0 时曾未生效）
 
 ### v0.16.0 — 2026-06-12
@@ -1092,20 +990,20 @@ Agent Skill 文档取数路由对齐（对齐 gangtise-mcp 0.1.46）：多证券
 ### v0.14.2 — 2026-05-22
 
 **Bug fix（A 股 / HK 全市场 K 线同源问题）**
-- `quote day-kline --security all` 由 2 天/片改为 **1 天/片**（A 股全市场单日约 5500 行）
-- `quote day-kline-hk --security all` 由 3 天/片改为 **2 天/片**（港股全市场单日约 2770 行）
+- `quote day-kline --security all` 由 2 天/片改为 **1 天/片**（A 股全市场两个交易日的行数会超过单请求上限）
+- `quote day-kline-hk --security all` 由 3 天/片改为 **2 天/片**（港股全市场三个交易日的行数会超过默认 `--limit` 6000）
 - 根治性修复：`callKlineWithSharding` 在 `--security all` 路径上，若用户未显式传 `--limit`，强制写入 `limit: 10000`（API 上限），不再走默认 6000——这样即便分片日数估算偏大，每个 shard 也能拿满 10K 行。用户自己传的 `--limit` 仍然保留生效。
 
 ### v0.14.1 — 2026-05-22
 
 **Bug fix**
-- `quote day-kline-us --security all` 分片由 2 天/片改为 **1 天/片**。美股全市场单日约 5800 行，原 2 天/片会在第一个 shard 命中默认 `--limit 6000` 上限，导致 shard 内第二日数据被截断到几百行。改 1 天/片后每个 shard 数据完整。
+- `quote day-kline-us --security all` 分片由 2 天/片改为 **1 天/片**。美股全市场单日行数接近默认 `--limit 6000`，原 2 天/片会在第一个 shard 命中该上限，导致 shard 内第二日数据被截断到几百行。改 1 天/片后每个 shard 数据完整。
 
 ### v0.14.0 — 2026-05-22
 
 **新增接口**
 - `quote realtime` — 个股实时行情快照，单接口同时覆盖 A 股 / 港股 / 美股；支持代码混合传入或市场关键字（`aShares` / `hkStocks` / `usStocks`）批量查询全市场
-- `quote day-kline-us` — 美股历史日 K 线，数据范围 NYSE / NASDAQ / AMEX；支持 `--security all` 全市场（CLI 自动按 1 天/片切分并发拉取，美股全市场单日约 5800 行）
+- `quote day-kline-us` — 美股历史日 K 线，数据范围 NYSE / NASDAQ / AMEX；支持 `--security all` 全市场（CLI 自动按 1 天/片切分并发拉取）
 
 **接口变更**
 - `quote day-kline` / `quote day-kline-hk` 明确仅返回**历史**日 K 线，不包含盘中实时数据；当日数据入库时间：A 股 ~15:30 / 港股 ~16:30（北京时间）。盘中实时请走 `quote realtime`

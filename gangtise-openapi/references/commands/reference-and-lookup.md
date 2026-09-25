@@ -55,7 +55,7 @@ gangtise reference institution-search --keyword <text> [--category <name>] [--to
   | `foreignOpinionInstitution` | `insight foreign-opinion list --broker` | 外资机构观点 |
   | `leadInstitution` | `--institution`（`summary` / `roadshow` / `site-visit` / `strategy` / `vault my-conference` list） | 纪要 / 路演 / 调研 / 线下策略会 / 我的会议的牵头机构 |
 
-  注：API 文档 `categoryList` 只列了前 4 类，但 `foreignOpinionInstitution` 同样是有效过滤值（服务端接受且返回该类）
+  注：`foreignOpinionInstitution` 同样是有效过滤值（服务端接受且返回该类）
 - `--top`：默认 10，**上限 10**；结果按 `matchScore`（`0~1`）降序
 - 免费调用
 - 返回字段：`institutionId` / `institutionName` / `category` / `usageScopes[{apiName, paramName}]`（该机构适用的接口及参数）/ `matchScore`
@@ -95,9 +95,9 @@ gangtise reference constant-category [--format json]
 
 | category | 名称 | 结构 | 用于参数 |
 |----------|------|------|---------|
-| `citicIndustry` | 中信一级行业（30，`1008001xx`） | flat | `--industry` 全命令通用首选（见下方说明） |
-| `swIndustry` | 申万一级行业（31，`104xx0000`） | flat | `--industry`（opinion / research / foreign-report / official-account 可用，但**与中信码不等效**，见下方说明）；`--research-area` 只有 summary / pamirs-summary 认 |
-| `gangtiseIndustry` | Gangtise 研究方向（**只有 6 条方向码** `122000xxx`，不含行业码） | flat | `--research-area` 的方向维度（宏观/策略/固收/金工/海外/其他，见下方说明） |
+| `citicIndustry` | 中信一级行业（`1008001xx`） | flat | `--industry` 全命令通用首选（见下方说明） |
+| `swIndustry` | 申万一级行业（`104xx0000`） | flat | `--industry`（opinion / research / foreign-report / official-account 可用，但**与中信码不等效**，见下方说明）；`--research-area` 只有 summary / pamirs-summary 认 |
+| `gangtiseIndustry` | Gangtise 研究方向（**只有方向码** `122000xxx`，不含行业码） | flat | `--research-area` 的方向维度（宏观/策略/固收/金工/海外/其他，见下方说明） |
 | `domesticCity` | 国内城市（省级 ID） | flat | `--location`（roadshow / site-visit / strategy / forum）|
 | `aShareAnnouncementCategory` | A股公告分类 | tree（2 级） | `insight announcement --category` |
 | `hkShareAnnouncementCategory` | 港股公告分类 | tree（2 级） | `insight announcement-hk --category` |
@@ -113,11 +113,11 @@ gangtise reference constant-category [--format json]
 | `ratingType` | 评级类型 | flat | `bond rating-*` 的 `ratingType` |
 | `exchange` | 交易市场 | flat | `bond` 各命令的 `exchange` |
 
-> **行业 / 研究方向过滤——选哪套 category（⭐ 权威口径，其他文件引用此处、勿重复枚举命令清单以免漂移；逐端点核对）：**
+> **行业 / 研究方向过滤——选哪套 category（⭐ 以此处为准）：**
 >
-> 先记住三套码的归属，**别把行业码算到 `gangtiseIndustry` 头上**：`citicIndustry` = 30 条行业码 `1008001xx`；`swIndustry` = 31 条行业码 `104xx0000`；`gangtiseIndustry` = **只有 6 条方向码** `122000xxx`（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`），里面**没有任何行业**，去它那里找「食品饮料」永远找不到。
+> 先记住三套码的归属，**别把行业码算到 `gangtiseIndustry` 头上**：`citicIndustry` = 行业码 `1008001xx`；`swIndustry` = 行业码 `104xx0000`；`gangtiseIndustry` = **只有方向码** `122000xxx`（宏观 `122000001` / 策略 `122000002` / 固收 `122000003` / 金工 `122000004` / 海外 `122000005` / 其他 `122000007`），里面**没有任何行业**，去它那里找「食品饮料」永远找不到。
 >
-> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / official-account 正确过滤。`swIndustry`（`104xx0000`）在这 4 个上**也生效，但不是等效**——两套码的行业成分不同，4 个里有 2 个结果集对不上（research / foreign-report 完全一致；**opinion 与 official-account 传两套码取回的条数相差约 2%–5%**）。所以**统一用中信码**，同一批查询里别把两套码混着传。方向码 `122000xxx` 在 `--industry` 上一律返 0。⚠️ 一个例外：`insight foreign-opinion` / `independent-opinion` 的 `--industry` **只认申万码 `104xx0000`**，传中信码报 `100005 枚举值非法`（详见 `insight.md`）。`vault wechat-message-list` 反过来**只认中信码**，传申万码报 `100005`（详见 `vault.md`）。
+> - **`--industry`（industryList）→ 用 `citicIndustry`（`1008001xx`）**：opinion / research / foreign-report / official-account 正确过滤。`swIndustry`（`104xx0000`）在这 4 个上**也生效，但不是等效**——两套码的行业成分不同，**opinion 与 official-account 上两套码取回的结果集不同**。所以**统一用中信码**，同一批查询里别把两套码混着传。方向码 `122000xxx` 在 `--industry` 上一律返 0。⚠️ 一个例外：`insight foreign-opinion` / `independent-opinion` 的 `--industry` **只认申万码 `104xx0000`**，传中信码报 `100005 枚举值非法`（详见 `insight.md`）。`vault wechat-message-list` 反过来**只认中信码**，传申万码报 `100005`（详见 `vault.md`）。
 > - **`--research-area`（researchAreaList）→ 用 `citicIndustry` 行业码 `1008001xx`，方向再叠 `gangtiseIndustry` 的 `122000xxx`**。⚠️ **申万码 `104xx0000` 只有 `summary` / `pamirs-summary` 认**，其余端点返 0（与传乱码表现一致，不报错）。逐端点对照（同一行业分别传三套码，✅ = 正常过滤，❌ = 返 0）：
 >
 > | 端点 | 中信 `1008001xx` | 申万 `104xx0000` | 方向 `122000xxx` |
@@ -129,6 +129,7 @@ gangtise reference constant-category [--format json]
 > | `insight site-visit` | ✅ | **❌ 返 0** | ✅ |
 > | `insight forum` | ✅ | **❌ 返 0** | ✅ |
 > | `vault my-conference-list` | ✅ | **❌ 返 0** | ✅ |
+> | `insight highlight` | ✅ | **❌ 不可用** | ✅ |
 >
 > 一句话结论：**行业维度一律传中信码**（唯一全端点通吃的一套），方向维度传 `122000xxx`（`pamirs-summary` 不支持方向）。
 
@@ -195,28 +196,28 @@ gangtise reference sector-search --keyword 半导体 --top 3 --format json   # �
 gangtise reference sector-constituents --sector-id 1000001005 --format json
 ```
 
-**申万行业代码全量列表**（`ai security-clue --gts-code` 用的 `821xxx.SWI`）也走这两步——申万行业指数板块的成分就是 31 只行业指数本身：
+**申万行业代码全量列表**（`ai security-clue --gts-code` 用的 `821xxx.SWI`）也走这两步——申万行业指数板块的成分就是各一级行业指数本身：
 
 ```bash
 gangtise reference sector-search --keyword 申万一级行业指数 --format json
 # 取「指数数据板块-行业指数-申万指数-申万一级行业指数」层级的 sectorId（2000000014）
 # 注意：「中国内地股票-指数成份类」层级下的同名节点查成分返回 0 条
 gangtise reference sector-constituents --sector-id 2000000014 --format json
-# → total 31，gtsCode 即 821xxx.SWI
+# → 每条的 gtsCode 即 821xxx.SWI
 ```
 
 单个行业也可以直接 `reference securities-search --keyword 申万银行 --category index` → `821047.SWI`。
 
-## Lookup 本地表（仅剩 2 个）
+## Lookup 本地表
 
 **按名称找机构 ID 优先用 `reference institution-search`**（服务端搜索、覆盖全部 5 类机构、带 usageScopes）；本地表主要用于**全量枚举**券商/会议机构（institution-search 为搜索型：top≤10、非全量）：
 
 ```bash
-gangtise lookup broker-org list           # 券商机构全量（--broker 用；180 条静态表）
-gangtise lookup meeting-org list          # 会议/牵头机构全量（--institution 用；130 条静态表）
+gangtise lookup broker-org list           # 券商机构全量（--broker 用；静态表）
+gangtise lookup meeting-org list          # 会议/牵头机构全量（--institution 用；静态表）
 ```
 
-行业 / 区域 / 公告分类 / 研究方向 / 题材 ID / 申万行业代码已改用 API：`reference constant-list` / `reference concept-search` / `reference sector-constituents`（对应 lookup 子命令已移除）。
+行业 / 区域 / 公告分类 / 研究方向 / 题材 ID / 申万行业代码用 API 查：`reference constant-list` / `reference concept-search` / `reference sector-constituents`。
 
 ### 常见行业别名映射
 
@@ -249,5 +250,7 @@ gangtise raw call insight.research.download --query reportId=<id> --query fileTy
 - endpoint key 格式：`<命令组>.<子命令>.<操作>`，如：
   - `insight.opinion.list`、`insight.announcement-hk.list`、`insight.foreign-opinion.list`、`insight.independent-opinion.list`
   - `reference.securities-search`、`reference.constant-list`、`quote.day-kline`、`fundamental.income-statement`、`ai.knowledge-batch`
-- **JSON 端点**（绝大多数）用 `--body` 传 JSON；**`kind=download` 端点**（各 `*.download`）用 `--query key=value`（可重复）。传反会被 CLI **直接拒绝**（JSON 端点给 `--query`、或 download 端点给 `--body`，都抛 ValidationError，不发请求）
-- 自动翻页 / 重试 / Agent 复用与封装命令一致
+- **endpoint key 不能按命令名猜**（如券商本地表是 `lookup.broker-orgs.list`），先用 `gangtise raw list` 查
+- **JSON 端点**（绝大多数）用 `--body` 传 JSON；**`kind=download` 端点**（各 `*.download`）用 `--query key=value`（可重复）。传反会被 CLI **直接拒绝**（JSON 端点给 `--query`、或 GET 下载端点给 `--body`，都抛 ValidationError，不发请求；POST 下载端点 `tool.file-parse.result` 的参数走 `--body`）
+- `--yes`：删除 / 改动数据的端点必须加才会执行；按条计费的列表省略 `size` 时，也要加它才会越过积分额度保护拉全量
+- **与专用命令一致的只有**自动翻页、重试策略、翻页的完整性标记。K 线全市场分片、多证券分批请求、撞 `limit` 标 `partial`、`--field` 缺列检测、EDE 解包与拍平、时序日期轴自动判定都**只在专用命令里**——能用专用命令就别用 `raw call`

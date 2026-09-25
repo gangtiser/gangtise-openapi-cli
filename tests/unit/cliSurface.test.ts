@@ -94,6 +94,8 @@ const VALUE_OVERRIDES: Record<string, Record<string, string[]>> = {
   "insight pamirs-summary list": { "--category": ["companyAnalysis"], "--market": ["hkStocks"] },
   "insight performance-calendar list": { "--category": ["performanceExpress"], "--market": ["hkStocks"] },
   "reference securities-search": { "--category": ["index"] },
+  "ai hot-topic": { "--category": ["noonBriefing"] },
+  "ai security-clue": { "--source": ["conference"] },
   "reference institution-search": { "--category": ["leadInstitution"] },
   "reference official-account-search": { "--category": ["broker"] },
   "indicator screener": { "--indicator": ["F1:qte_close"], "--indicator-param": ["F1:scale=8"], "--expression": ["F1 > 0"] },

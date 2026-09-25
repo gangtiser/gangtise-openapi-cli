@@ -1,6 +1,7 @@
 import type { IndicatorParamGroup } from "./args.js"
 import { maybeArray, parseFrom, parseIndicatorParams, parseOptionalNumberOption, parseScreenerIndicators, parseSize } from "./args.js"
 import { ValidationError } from "./errors.js"
+import { QUOTE_MAX_LIMIT } from "./quoteSharding.js"
 
 interface QuoteKlineOptions {
   security: string[]
@@ -66,7 +67,7 @@ export function buildQuoteKlineBody(options: QuoteKlineOptions) {
     securityList: maybeArray(options.security),
     startDate: options.startDate,
     endDate: options.endDate,
-    limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: 10000 }),
+    limit: parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: QUOTE_MAX_LIMIT }),
     fieldList: maybeArray(options.field),
   }
 }

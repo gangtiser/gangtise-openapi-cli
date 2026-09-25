@@ -16,10 +16,7 @@ for (const [doc, marker] of Object.entries(RELEASE_MARKER)) {
   }
 }
 
-// 2. Generate src/version.ts
-f.writeFileSync("src/version.ts", `// Auto-generated — DO NOT EDIT\nexport const CLI_VERSION = "${p.version}"\n`)
-
-// 3. Update version in gangtise-openapi/SKILL.md frontmatter. Fail loudly if the
+// 2. Update version in gangtise-openapi/SKILL.md frontmatter. Fail loudly if the
 // frontmatter line is missing: a silent no-op here would publish a release whose
 // skill still carries the previous version number.
 const skillPath = "gangtise-openapi/SKILL.md"
