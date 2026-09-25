@@ -105,3 +105,15 @@ describe("no-replay roster ↔ ENDPOINTS consistency", () => {
     })
   }
 })
+
+// CI installs with `npm ci` from npmjs; a `resolved` URL on a mirror makes that install
+// depend on the mirror. Nothing else notices when it happens: any dependency update on a
+// machine whose default registry is a mirror writes the mirror back for every package it
+// re-resolves.
+describe("package-lock.json registry host", () => {
+  it("resolves every package from registry.npmjs.org", () => {
+    const lock = fs.readFileSync(path.resolve(process.cwd(), "package-lock.json"), "utf8")
+    const hosts = [...new Set([...lock.matchAll(/"resolved": "https?:\/\/([^/"]+)\//g)].map((m) => m[1]))]
+    expect(hosts, "package-lock.json 的 resolved 主机名要换回 registry.npmjs.org：只换主机名，版本与 integrity 不动；别用 npm install --package-lock-only 重解析").toEqual(["registry.npmjs.org"])
+  })
+})

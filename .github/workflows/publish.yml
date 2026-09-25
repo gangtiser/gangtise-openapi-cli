@@ -42,6 +42,21 @@ jobs:
 
       - run: npm run prepare
 
+      # Everything below must pass before anything is published: a tag push publishes
+      # straight from here, without waiting on test.yml.
+      - run: npm run typecheck
+
       - run: npm test
+
+      # The tarball is the product: install it the way a user would, and check it reports
+      # the version being released.
+      - name: Pack & install smoke test
+        run: |
+          npm pack
+          npm install -g ./gangtise-openapi-cli-*.tgz
+          test "$(gangtise --version 2>/dev/null | head -1)" = "${GITHUB_REF_NAME#v}"
+          gangtise --help > /dev/null
+          test -f "$(npm root -g)/gangtise-openapi-cli/gangtise-openapi/SKILL.md"
+          rm ./gangtise-openapi-cli-*.tgz
 
       - run: npm publish
