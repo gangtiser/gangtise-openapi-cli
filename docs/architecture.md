@@ -54,17 +54,19 @@
 
 | Module | Responsibility |
 |:--|:--|
-| `transport.ts` | Shared `undici.Agent` (keep-alive pool) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for replay-unsafe endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control |
+| `transport.ts` | Shared `undici.Agent` (keep-alive pool of `max(16, page concurrency)` sockets) · `withRetry` exponential-backoff retry with per-endpoint policies (`no-replay` for replay-unsafe endpoints, `no-999999` for EDE) · `runWithConcurrency` concurrency control · `runInOrder` ordered fan-out: results are consumed in input order while later items are still in flight, bounded by a window (default = concurrency; auto-pagination passes 4×, since a page is small and a shard or per-security part is not) |
 | `commandBodies.ts` | Complex command body construction (kline / stock-pool / wechat group) |
 | `quoteSharding.ts` | Full-market date-sharded concurrency — kline (`aShares` / `hkStocks` / `usStocks`; the retired HK / US endpoints still take `all`, the retired index endpoint takes codes only) & fund-flow (`aShares`), each market at its own shard size · truncation + partial-failure tolerance (`partial` / `failedShards` / `truncatedShards`) |
 | `indicatorMatrix.ts` | EDE double-envelope unwrap (`unwrapIndicatorData`) · cross-section / screener / time-series `values` matrix flattened into a wide table |
 | `printer.ts` | `printData`: normalize + render + title-cache writeback · stages the `<file>.meta.json` sidecar (row/column counts, completeness flags, `bytes` + `sha256`) and re-reads the published path to detect a file replaced by a concurrent export (exit 4) |
 | `titleCache.ts` | Download filename cache (list writes / download reads) · per-endpoint cap + 24h TTL |
-| `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) · pending 140001 (legacy 410110) / terminal 140002 (legacy 410111) · both the ready and pending results go through `printData`, so `--output` / `--format` hold either way |
-| `fileParse.ts` | `tool file-parse`: pre-upload validation (PDF / non-empty / ≤100MB) · multipart submit → taskId · poll + stream the result ZIP (140001 = still generating) |
+| `asyncContent.ts` | Async polling (`pollAsyncContent` / `checkAsyncContent`) on the shared `pollUntilDone` loop (attempt budget, backoff between attempts and none after the last, transient errors wait on, anything else aborts) · pending 140001 (legacy 410110) / terminal 140002 (legacy 410111) · both the ready and pending results go through `printData`, so `--output` / `--format` hold either way |
+| `fileParse.ts` | `tool file-parse`: pre-upload validation (PDF / non-empty / ≤100MB) · multipart submit → taskId · poll through `pollUntilDone` + stream the result ZIP (140001 = still generating) |
 | `driveUpload.ts` | `vault drive-upload`: pre-upload validation (non-empty / ≤100MB / name ≤200 UTF-16 units) · multipart upload with `spaceType` / `folderId` / `title` form fields |
 | `perSecurity.ts` | Splits one command into per-security requests — endpoints that accept a single code (minute-kline), or many codes × a long range that would hit the row cap — then merges in request order. Stricter than date sharding: the caller named every security, so any shard with a mismatched `fieldList` fails the whole command |
-| `rowSink.ts` | `ExportSink`: ordered batched writes to disk for large `jsonl` / `csv` exports (1000-row threshold · staging file + rename · csv goes through a temp row file in two passes) |
+| `rowSink.ts` | `ExportSink`: ordered batched writes to disk for large `jsonl` / `csv` exports (1000-row threshold · written in 1000-row chunks · staging file + rename · csv goes through a temp row file in two passes) |
+| `exitStatus.ts` | The one place that sets the process exit code: `1` failed > `3` incomplete > `4` output replaced; a lighter verdict never overwrites a heavier one. A closed stdout (`\| head`) leaves with the verdict reached so far, not 0 |
+| `opinionDetail.ts` | Opinion `detail`: de-duplicated IDs fetched 20 per request; IDs with no body → `missingIds`, IDs after a failed batch → `unfetchedIds` (both exit 3); a first-batch failure fails the command |
 | `calendarType.ts` | `resolveCalendarType`: picks the time-series date axis when `--calendar-type` is absent. Probes each distinct indicator's `parameterList` via the free `indicator search`; asks for `TD` only when every indicator is trading-day typed, and falls back to the server's `ND` on anything else — an unknown code, an empty `parameterList`, a failed probe. The asymmetry is deliberate: a wrong `ND` costs cells, a wrong `TD` silently empties report-period rows |
 
 ↓
@@ -168,7 +170,8 @@ Step 2 compares the cache's `issuedFor` fingerprint against the configured `acce
 | **Envelope Unwrapping** | Detects `code` field → unwraps `{code, msg, data}` envelope; no `code` → pass-through |
 | **EDE Double-Envelope + Matrix Flatten** | Indicator endpoints double-wrap (`unwrapIndicatorData` peels the inner envelope); `values` matrices flattened by `indicatorMatrix` into wide rows — `{security, name, indicator:value}` for cross-section / screener (`values` is `[security][indicator]`), `{date, series:value}` for time-series |
 | **Smart Title Cache** | Human-readable filenames · list-then-download |
-| **Async Task Polling** | Shared `pollAsyncContent()` / `checkAsyncContent()` helpers · `--wait` flag · 410110/410111 handling |
+| **Async Task Polling** | One `pollUntilDone()` loop behind AI async content and file-parse · `checkAsyncContent()` for a single check · `--wait` flag · pending / terminal codes, legacy and current |
+| **Response-Shape Contract** | An endpoint declares the layout it must return (`expects: "list"` / `"array"`); the client checks it once for every command and fails with a structural error carrying the traceId, instead of each command guessing |
 | **Token Refresh Dedup** | Single in-flight refresh promise · concurrent calls coalesce |
 | **Token Validation** | `isTokenCacheValid()` — single source of truth for cache/expiry check (client-time based) |
 

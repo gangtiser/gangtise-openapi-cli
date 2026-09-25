@@ -115,7 +115,7 @@ gangtise ai theme-tracking --theme-id <id> --date <yyyy-MM-dd> [--type <name>]
 **示例：**
 ```bash
 # 查"核电"主题 2026-05-09 的晚报
-GANGTISE_TIMEOUT_MS=120000 gangtise ai theme-tracking --theme-id 121000002 --date 2026-05-09 --type night --format json
+gangtise ai theme-tracking --theme-id 121000002 --date 2026-05-09 --type night --format json
 # 返回 [{"type":"night","date":"2026-05-09","content":"..."}]
 ```
 
