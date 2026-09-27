@@ -610,22 +610,29 @@ describe("ENDPOINTS", () => {
   })
 
   it("keeps every endpoint whose single request can bill past the line on no-replay", () => {
-    // A per-row / per-document endpoint re-bills what a replayed request delivers again.
+    // An endpoint billed by quantity re-bills what a replayed request delivers again.
     // Past NO_REPLAY_ABOVE_CREDITS for one request, that risk outweighs the retry.
-    const costly = Object.values(ENDPOINTS).filter((ep) => ep.billing && (ep.billing.per === "row" || ep.billing.per === "document") && worstRequestCredits(ep) > NO_REPLAY_ABOVE_CREDITS)
+    const costly = Object.values(ENDPOINTS).filter((ep) => ep.billing && ep.billing.per !== "call" && ep.billing.per !== "page" && worstRequestCredits(ep) > NO_REPLAY_ABOVE_CREDITS)
     expect(costly.map((ep) => ep.key)).toContain("ai.stock-summary.list") // guards the guard: not vacuous
     expect(costly.filter((ep) => ep.retry !== "no-replay").map((ep) => ep.key)).toEqual([])
     // The line is strict: ai.security-clue.list (500 × 5 = 2500) stays under it.
     expect(worstRequestCredits(ENDPOINTS["ai.security-clue.list"])).toBe(2500)
   })
 
-  it("declares a per-request bound on every per-row endpoint that is not paginated", () => {
+  it("declares a per-request bound on every endpoint billed by quantity that is not paginated", () => {
     // Without one, worstRequestCredits would price a batch or a date-range endpoint as a
     // single row and the no-replay line above could never see it.
     const unbounded = Object.values(ENDPOINTS)
-      .filter((ep) => ep.billing?.per === "row" && !ep.pagination?.enabled && ep.billing.maxUnits === undefined)
+      .filter((ep) => ep.billing && !["call", "page", "document"].includes(ep.billing.per) && !ep.pagination?.enabled && ep.billing.maxUnits === undefined)
       .map((ep) => ep.key)
     expect(unbounded).toEqual([])
+  })
+
+  it("bills the three bond rating endpoints by quantity, at most 10 units a call", () => {
+    // Per the platform's price list: rows with data, bonds with data, issuers matched.
+    expect(ENDPOINTS["bond.rating-overview"].billing).toEqual({ per: "row", price: 0.4, maxUnits: 10 })
+    expect(ENDPOINTS["bond.rating-change"].billing).toEqual({ per: "security", price: 0.4, maxUnits: 10 })
+    expect(ENDPOINTS["bond.issuer-rating-change"].billing).toEqual({ per: "issuer", price: 0.4, maxUnits: 10 })
   })
 
   it("keeps every endpoint billed per call or per submitted page on no-replay", () => {
@@ -640,7 +647,7 @@ describe("ENDPOINTS", () => {
   it("prices every billed endpoint above zero, in a known unit", () => {
     for (const ep of Object.values(ENDPOINTS)) {
       if (!ep.billing) continue
-      expect(["call", "page", "row", "document"], ep.key).toContain(ep.billing.per)
+      expect(["call", "page", "row", "security", "issuer", "document"], ep.key).toContain(ep.billing.per)
       expect(ep.billing.price, ep.key).toBeGreaterThan(0)
     }
   })

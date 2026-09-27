@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.43.0"
+version: "0.43.1"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -271,7 +271,7 @@ vault.stock-pool.create
   - 单证券 → 优先 `fundamental` 专用命令（多数免费 / 低价）；多证券批量取**已实现**指标 → `indicator`（EDE）一次拉取：同一日期 / 报告期横比用 `cross-section`，区间走势用 `time-series`（不能多指标 × 多证券同时）
   - 始终不走 EDE：盈利预测 / 一致预期 → `fundamental earning-forecast`（EDE 的 EPS 是已实现值，**不能冒充预测**）；A 股估值历史分位 → `valuation-analysis`；行情与 K 线 → `quote`；行业 / 宏观指标（无证券维度）→ `alternative edb-*`。**例外：总市值只有 EDE 有**——`indicator cross-section --indicator qte_mkt_cptl`（单位「元」，用 `--scale` 缩放）
   - 取数前 `indicator search --format json` 核三项：`indicatorName` + `description` 语义对、`scopeList` 覆盖全部目标市场、`parameterList` 必填参数可满足；任一不符就回退专用接口，港 / 美股缺专用能力时如实说不支持。「某市场无数据」这类否定结论以当次 `scopeList` + 抽查一行为准
-  - 日期参数**只看 `parameterList` 必填哪个**：`tradeDate` → `--date`，`reportDate` → `--indicator-param "code:reportDate=..."`（多数报告期类要后者，但 `_ttm` 整族要 `tradeDate`）；两个都必填（如 `div_cash_yld`）就两个都用 `--indicator-param` 显式给，只给 `reportDate` 时 `--date` 不再注入、会报 `100001`。日频估值（`finc_pe_ttm` / `finc_pb_mrq`）用最新交易日，用报告期末日期会取到陈值；参数名同样以 `parameterList` 为准（复权是 `adjustType`）
+  - 日期参数**只看 `parameterList` 必填哪个**：`tradeDate` → `--date`，`reportDate` → `--indicator-param "code:reportDate=..."`（多数报告期类要后者，但 `_ttm` 整族要 `tradeDate`）；两个都必填（如 `div_cash_yld`）就两个都用 `--indicator-param` 显式给，只给 `reportDate` 时 `--date` 不再注入、会报 `100001`。🔴 `parameterList` 要 `fiscalYear` 的（预测类 `frcst_*`、分红类 `div_cash_yr` 等）一律显式给——漏传**不报错**，按一个服务端自定的默认年度取数（不随 `--date` 变）：该年度有数就返回它、看着完全正常，没有就是 `null`。日频估值（`finc_pe_ttm` / `finc_pb_mrq`）用最新交易日，用报告期末日期会取到陈值；参数名同样以 `parameterList` 为准（复权是 `adjustType`）
   - 结果**按 `security` 字段取值**，别按请求下标对位（证券会按代码升序重排）；批量回填加 `--key-by code`
   - 估值历史：EDE 与 `valuation-analysis` 的财报口径切换时点与财报版本都不同，做分位 / 回测两边都拉交叉核
 - "业绩点评"双义消歧：**检索已有**的业绩点评：研报走 `insight research list --llm-tag earningsReview`（0.1/条；`--llm-tag` 只有 `opinion` / `research` / `foreign-report` 三个列表有），业绩会纪要走 `insight summary list --category earningsCall`；**AI 现生成**一份走 `ai earnings-review`（异步、50/次）。不确定问一句

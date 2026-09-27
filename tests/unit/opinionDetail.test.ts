@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ApiError, ValidationError } from "../../src/core/errors.js"
+import { ApiError, attachEnvelopeTraceId, isStructuralError, ValidationError } from "../../src/core/errors.js"
 import { fetchOpinionDetails, type DetailClient } from "../../src/core/opinionDetail.js"
 
 /** Answers each batch with a body for every requested ID except the ones in `gone`; throws
@@ -58,6 +58,63 @@ describe("fetchOpinionDetails", () => {
     const failure = new ApiError("boom", "999999")
     const { client } = fakeClient({ failOn: { firstId: "ID1", error: failure } })
     await expect(run(client, ids(3))).rejects.toBe(failure)
+  })
+
+  it("drops a null element as a missing body and keeps the bodies returned beside it", async () => {
+    const client: DetailClient = {
+      async call(_key, body) {
+        const batch = (body as { chiefOpinionIdList: string[] }).chiefOpinionIdList
+        return batch[0] === "ID21" ? [null] : [...batch.slice(1).map((id) => ({ chiefOpinionId: id, content: `body ${id}` })), null]
+      },
+    }
+    const result = await run(client, ids(21))
+    // First batch: ID1 came back as null beside 19 bodies; second batch: ID21 as null.
+    expect(result.total).toBe(19)
+    expect(result.missingIds).toEqual(["ID1", "ID21"])
+    expect(result.unfetchedIds).toBeUndefined()
+    expect(result.partial).toBe(true)
+    const warnings = vi.mocked(process.stderr.write).mock.calls.map((c) => String(c[0])).join("")
+    expect(warnings).toContain("no body returned for 2 ID(s): ID1, ID21 (2 came back as a null element)")
+  })
+
+  it.each([[1], ["x"], [[]]])("fails a batch holding a non-null non-object element (%j) as a layout change", async (element) => {
+    const client: DetailClient = {
+      async call(_key, body) {
+        const batch = (body as { chiefOpinionIdList: string[] }).chiefOpinionIdList
+        return attachEnvelopeTraceId(batch[0] === "ID21" ? [element] : batch.map((id) => ({ chiefOpinionId: id, content: `body ${id}` })), "T-21")
+      },
+    }
+    // A later batch: the bodies already returned are kept and the rest listed as not fetched,
+    // with the response's traceId.
+    const later = await run(client, ids(21))
+    expect(later.total).toBe(20)
+    expect(later.unfetchedIds).toEqual(["ID21"])
+    expect(later.unfetchedError).toMatchObject({ traceId: "T-21" })
+    expect(later.partial).toBe(true)
+    // The first batch: nothing was delivered, so the error surfaces as structural.
+    const error = await run(client, ["ID21"]).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(isStructuralError(error)).toBe(true)
+    expect((error as ApiError).traceId).toBe("T-21")
+  })
+
+  it("keeps the bodies a batch returned beside a non-object element and lists only the rest as not fetched", async () => {
+    const client: DetailClient = {
+      async call(_key, body) {
+        const batch = (body as { chiefOpinionIdList: string[] }).chiefOpinionIdList
+        return batch[0] === "ID21" ? [{ chiefOpinionId: "ID21", content: "body ID21" }, "x"] : batch.map((id) => ({ chiefOpinionId: id, content: `body ${id}` }))
+      },
+    }
+    const later = await run(client, ids(22))
+    expect(later.total).toBe(21)
+    expect(later.unfetchedIds).toEqual(["ID22"])
+    expect(later.missingIds).toBeUndefined()
+    expect(later.partial).toBe(true)
+    // In the first batch too: a body was delivered, so it is kept rather than thrown away.
+    const first = await run(client, ["ID21", "ID22"])
+    expect(first.total).toBe(1)
+    expect(first.unfetchedIds).toEqual(["ID22"])
+    expect(first.partial).toBe(true)
   })
 
   it("refuses an empty ID list before any request", async () => {

@@ -379,8 +379,8 @@ function parseParamSpecs(specs: string[], option: string, syntax: string): { gro
     // params: the fiscalYear pair needs `"code:"` AND `"code:fiscalYear=2025"`.
     // Opt-in on purpose: this spelling used to be a ValidationError, so no existing
     // invocation changes behaviour. NOT a blanket `fiscalYear` entry in
-    // DATE_PARAM_KEYS — that would regress the five `frcst_*` indicators, which
-    // require tradeDate AND fiscalYear together (see commandBodies.ts).
+    // DATE_PARAM_KEYS — that would regress the `frcst_*` indicators that require
+    // tradeDate AND fiscalYear together (see commandBodies.ts).
     if (rest.trim() === "") {
       if (!lhs) throw new ValidationError(`Invalid ${option}: expected "${syntax}", got "${spec}"`)
       noQueryDate.add(lhs)

@@ -75,6 +75,17 @@ function markTotalCapped(out: Record<string, unknown>, why: string, collected: n
   out.totalCapped = true
 }
 
+/** JSON with object keys sorted and array order kept, so two copies of one row that differ
+ * only in key order digest the same when paging drops repeats. */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>
+    return `{${Object.keys(obj).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(",")}}`
+  }
+  return JSON.stringify(value)
+}
+
 export class GangtiseClient {
   /** The caller confirmed (--yes) a --size-less fetch past COSTLY_FETCH_CREDITS. */
   allowCostlyFetch = false
@@ -389,9 +400,10 @@ export class GangtiseClient {
     const collected: unknown[] = []
     let count = 0
     // A row already kept, seen again whole on a neighbouring page (see `rowId` in
-    // endpoints.ts). Only the id and a digest are held per row, not the row itself.
+    // endpoints.ts): the same as ANY version kept under its id, not just the first. Only
+    // the id and a digest per version are held, not the row itself.
     const rowId = endpoint.rowId
-    const seen = rowId ? new Map<string, string>() : undefined
+    const seen = rowId ? new Map<string, Set<string>>() : undefined
     let duplicateRows = 0
     // An id seen again with different content on a LATER page: a row that moved or
     // changed while paging, so its neighbours may have shifted too. Both versions are
@@ -402,26 +414,28 @@ export class GangtiseClient {
     let idIsRowKey = true
     const dropRepeats = (rows: unknown[]): unknown[] => {
       if (!seen || !rowId) return rows
-      const onThisPage = new Set<string>()
+      const onThisPage = new Map<string, Set<string>>()
       return rows.filter((row) => {
         const id = row && typeof row === "object" ? (row as Record<string, unknown>)[rowId] : undefined
         if (id === undefined || id === null) return true
-        const digest = createHash("sha1").update(JSON.stringify(row)).digest("base64")
+        const digest = createHash("sha1").update(stableStringify(row)).digest("base64")
         const key = String(id)
-        const previous = seen.get(key)
-        const earlierOnThisPage = onThisPage.has(key)
-        onThisPage.add(key)
-        if (previous === undefined) {
-          seen.set(key, digest)
+        const pageVersions = onThisPage.get(key)
+        if (pageVersions && !pageVersions.has(digest)) idIsRowKey = false
+        if (pageVersions) pageVersions.add(digest)
+        else onThisPage.set(key, new Set([digest]))
+        const versions = seen.get(key)
+        if (versions === undefined) {
+          seen.set(key, new Set([digest]))
           return true
         }
-        if (previous !== digest) {
-          if (earlierOnThisPage) idIsRowKey = false
-          else changedRows++
-          return true
+        if (versions.has(digest)) {
+          duplicateRows++
+          return false
         }
-        duplicateRows++
-        return false
+        versions.add(digest)
+        if (!pageVersions) changedRows++
+        return true
       })
     }
     const keep = async (fetched: unknown[]): Promise<void> => {
@@ -801,7 +815,7 @@ export class GangtiseClient {
       const isIndicatorFetch = endpoint.key === 'indicator.cross-section' || endpoint.key === 'indicator.time-series' || endpoint.key === 'indicator.screener'
       if (isIndicatorFetch && error instanceof ApiError && error.code === '999999') {
         throw new ApiError(error.message, error.code, error.statusCode, error.details, error.retryAfterMs,
-          'EDE 取数故障。先核对参数再重试：参数名以 indicator search 的 parameterList 为准（传错名会报 100003 并指名）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意此码不表示无数据——无数据返回保留行列的 null 单元格；code 或参数名写错报 100003、缺必填参数报 100001，都会指名。')
+          'EDE 取数故障。先核对参数再重试：参数名以 indicator search 的 parameterList 为准（传错名会报 100003 并指名）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意此码不表示无数据——无数据返回保留行列的 null 单元格；code 或参数名写错报 100003、缺必填参数报 100001，都会指名（fiscalYear 例外：漏传不报错，返回 null 或默认年度的值）。')
       }
       throw error
     })

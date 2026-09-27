@@ -275,22 +275,22 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 
 | 错误码 | 实际含义 | 怎么办 |
 | :--- | :--- | :--- |
-| `100001` | **缺少必填参数**：如 `universe` 没传，或指标 `parameterList` 里 `required` 的参数没给（msg 会点名是哪个指标的哪个参数） | 补齐 `--indicator` / `--security`，或用 `--indicator-param` 补上点名的参数 |
+| `100001` | **缺少必填参数**：如 `universe` 没传，或指标 `parameterList` 里 `required` 的参数没给（msg 会点名是哪个指标的哪个参数）。⚠️ 漏传 `fiscalYear` **不报这个码**，见下「必填参数」 | 补齐 `--indicator` / `--security`，或用 `--indicator-param` 补上点名的参数 |
 | `100003`@400 | 入参/表达式错误：`time-series` 传了「多指标 × 多证券」、`expression` 引用未声明变量、`indicatorParamList` 的 code 不在 `indicatorCodeList` 里 | 按 msg 改；多 × 多改用 `cross-section`。CLI 已在本地拦截「表达式引用未绑定变量」，不会白发一次请求 |
 | `140002`@500 | **终态参数错**：枚举越界（如「参数 adjustType 的值 99 不在有效范围内 [1,2,3,4]」）、表达式语法错误 | **不重试**（CLI 已把 140002 列为终态码）。读 `search --format json` 的 `parameterList` 改参数名/取值 |
-| `999999` | 系统故障。「无数据」不用此码，所以它基本只剩真故障。⚠️ 无数据是占位单元格（统一 `null`）；代码或参数名写错报 `100003`、缺必填参数报 `100001`，都会点名 | CLI 对 indicator 端点**不重试此码**；确认参数无误仍报错，稍后再试或联系平台支持 |
+| `999999` | 系统故障。「无数据」不用此码，所以它基本只剩真故障。⚠️ 无数据是占位单元格（统一 `null`）；代码或参数名写错报 `100003`、缺必填参数报 `100001`，都会点名（漏传 `fiscalYear` 例外，不报错） | CLI 对 indicator 端点**不重试此码**；确认参数无误仍报错，稍后再试或联系平台支持 |
 | `110003` | **超出账号数据权限的时间范围**。窗口按**账号**配、不按接口配——`cross-section` / `time-series` / `screener` 同界，区间**跨过**下界也整批报这个码；`quote day-kline` 在同一条界上，但跨界时从下界起返回、不报错 | 把起点移进范围；整段区间都早于下界时缩短窗口无用，**换接口绕不过去**，要更长历史联系客户经理开通 |
 | `130001` | 数据未找到，或**该指标无权限**（内层信封失败会带具体 msg，如"指标无权限"；此码被服务端复用） | 检查查询条件与指标权限；换证券/日期仍失败多为无权限，联系管理员开通 |
 
 ### 指标专属参数
 
-缺必填参数报 `100001` 并点名是哪个指标的哪个参数。**先完成语义 + `scopeList` + `parameterList` 三项校验；其中凡 `required:true` 的参数都用 `--indicator-param "指标code:参数=值"` 补上。** 常见的几个：
+缺必填参数报 `100001` 并点名是哪个指标的哪个参数。🔴 **`fiscalYear` 例外：漏传不报错**——预测类（如 `frcst_pe`）与分红类（`div_cash_yr` / `div_cash_paid_ratio`）都会按一个服务端自定的默认年度取数（不随 `--date` 变）：该年度有数就返回它，看着完全正常，但未必是你要的那一年；没有就是 `null`，与「没有数据」无法区分。所以 `parameterList` 里标 `required` 的 `fiscalYear` 一律显式传。**先完成语义 + `scopeList` + `parameterList` 三项校验；其中凡 `required:true` 的参数都用 `--indicator-param "指标code:参数=值"` 补上。** 常见的几个：
 
 | 参数 | 适用指标 | 示例 |
 | :--- | :--- | :--- |
-| `periodNum` | N 期统计（N 期均值/最值，如 `finc_roe_avg_avg` 平均ROE N期均值） | `--indicator-param "finc_roe_avg_avg:periodNum=4"`；部分还需配**年报日期**才出数（如 `finc_roe_avg_avg` 用季末日期为空、用年报日期有数） |
+| `periodNum` | N 期统计（N 期均值/最值，如 `finc_roe_avg_avg` 平均ROE N期均值） | `--indicator-param "finc_roe_avg_avg:periodNum=4"`；`finc_roe_avg_avg` 属报告期类，还要补 `--indicator-param "finc_roe_avg_avg:reportDate=2025-12-31"`（只给 `--date` 报 `100003`） |
 | `sDate` | 区间类的**起始日**（如 `qte_vol_intvl` 区间成交量、`qte_avg_vol` 区间日均成交量），格式 `yyyy-MM-dd` | `--indicator-param "qte_vol_intvl:sDate=2024-01-02"`。⚠️ **`sDate` 不能替代 `tradeDate`**——它是区间起点，`tradeDate`（=区间终点）仍是 required，`--date` 会照常下发。区间起始日的参数名就是 `sDate`，写成 `startDate` 会报 `100003 不支持参数 startDate`。⚠️ **不传 `sDate` 不报错**——它是可选参数，缺了就按默认区间算，所以要的是特定区间就必须显式传。另：`qte_amp_mo`（月振幅）等周期变体只吃 `tradeDate`，没有起始日参数 |
-| `fiscalYear` | 年度/报告期类（如 `div_cash_yr` 年度现金分红） | `--indicator-param "div_cash_yr:fiscalYear=2025"` |
+| `fiscalYear` | 年度/报告期类（如 `div_cash_yr` 年度现金分红）、预测类（如 `frcst_pe`，与 `tradeDate` 同时必填）。**漏传不报错**，见上 | `--indicator-param "div_cash_yr:fiscalYear=2025"` |
 | `industryType` + `industryLevel` | `scr_indu` 所属行业（两个都 required，缺任一报 `100001`） | `--indicator-param "scr_indu:industryType=1" --indicator-param "scr_indu:industryLevel=0"` |
 
 > `paramValue` 一律按**字符串**约定传（`periodNum=4` 内部即 `"4"`，CLI 已处理）。
@@ -384,7 +384,7 @@ gangtise indicator cross-section --indicator scr_indu_citic --indicator scr_indu
 - **混合日期语义要拆查询**：同时要“某报告期营收 / EPS”和“估值 PE / PB”时，按各自有效日期分别调用 `cross-section` 再按 `security` 合并（财务=报告期末、PE/PB=最新交易日）；不要把不同日期语义的指标塞进同一个 `--date`
 - **探索性取数**：缺值会保留行列并给占位单元格（含 1×1 的最简形态），占位值统一为 `null`；code 写错会直接报 `100003`，不会伪装成缺值。看趋势用 `time-series` + 覆盖报告期的区间，但不能把缺值当成通过语义 / scope 校验。
 - **名称反查 code 要核对，别取首条**：存在同显示名的兄弟指标——单季 `cf_finc_exp_qtr` 与累计 `cf_finc_exp` 都叫「财务费用」，`bs_fmt`/`cf_fmt`/`is_fmt` 都叫「报表格式」。`search` 按名称模糊匹配，目标 code 高概率在 top1 但不绝对，要看 `indicatorCode` 确认。
-- **批量查询出错先读 msg**：缺必填参数报 `100001`、代码或参数名写错报 `100003`，msg 都会点名是哪个指标或证券，照 msg 改即可。
+- **批量查询出错先读 msg**：缺必填参数报 `100001`、代码或参数名写错报 `100003`，msg 都会点名是哪个指标或证券，照 msg 改即可。漏传 `fiscalYear` 不报错，见「必填参数」。
 - **市值量纲**：`qte_mkt_cptl`（总市值）与 `shr_tot`（总股本）**A/港/美股均有数**；**默认返原始「元」**（大市值公司是 `1e12` 量级，即万亿级），别误当天文数字。用 `scale` 数字码缩放（`0`元 / `3`千 / `4`万 / `6`百万 / `8`亿 / `9`十亿——`scale=8` 即以亿元为单位）、`currency` 换币种（**大写** `DFT`本币 / `CNY` / `HKD` / `USD` …）。**跨证券比市值前先统一 `scale`+`currency`**。
 - **币种与汇率**：`DFT`（原始币种）按市场识别——A股=CNY、港股行情=HKD、美股=USD；汇率换算自洽（互逆且三角一致）。⚠️ 但**同一只港股，行情类的原始币种是 HKD、财务类可能是 CNY**（如泡泡玛特财报以人民币计），跨市场比财务数据时显式传 `--currency CNY` 别依赖 `DFT`。另：财务类指标的汇率按**报告期**折算、行情类按查询日折算，两者隐含汇率会有细微差异，属正常口径差别。
 - **EDE 财务指标的 `reportType`**：`enumList` 的 label 与实际取数**一致**，按 label 传即可（取值以 `enumList` 为准）：
@@ -419,6 +419,6 @@ gangtise indicator cross-section --indicator scr_indu_citic --indicator scr_indu
 
 - **发现流程**：`indicator search --format json` → 核对 `indicatorName` + `description`、`scopeList`（含 `usageRestriction`）、`parameterList`（**参数名以此为准**）→ 三项都通过才用 `cross-section` / `time-series` / `screener`
 - **积分**：`search` 免费；`cross-section` / `time-series` / `screener` 按请求单元格数量计费，标价为每 100 单元格 A 股 0.05 / 港股 0.1 / 美股 0.2 积分，每次查询不足 100 单元格按 100 计
-- **空结果排查顺序**：代码、参数名写错与缺必填参数都会直接报错并点名（`100003` / `100001`），不会以空结果出现。拿到整批 `null` 或 `screener` 空集时按序排查：① 日期语义对不对（`tradeDate` vs `reportDate`——报告期类指标日期用错会整批返 `null`，看着像「没数据」）② 该指标覆不覆盖这批证券（`scopeList`，单查一行确认）③ 真的没有数据
+- **空结果排查顺序**：代码、参数名写错与缺必填参数会直接报错并点名（`100003` / `100001`），不会以空结果出现——已知例外是漏传 `fiscalYear`（按默认年度取数，该年度无数据时返回 `null`）。拿到整批 `null` 或 `screener` 空集时按序排查：① 日期语义对不对（`tradeDate` vs `reportDate`——报告期类指标日期用错会整批返 `null`，看着像「没数据」；`parameterList` 要 `fiscalYear` 的传了没有）② 该指标覆不覆盖这批证券（`scopeList`，单查一行确认）③ 真的没有数据
 - **数据权限**：正式账号行情 / 财务 / 指标类可回溯的年限按服务等级而定，试用账号更短。这个时间窗口按**账号**配、不按接口配——三个 EDE 接口同界，区间跨过下界也整批返 `110003`（`quote day-kline` 在同一条界上，但跨界时从下界起返回、不报错），**换接口绕不过去**；整段区间都早于下界时缩短窗口无用，要更长历史联系客户经理开通
 - 所有格式（table/json/jsonl/csv/markdown）均可用；导出宽表给 Excel 直接用 `--format csv --output xxx.csv`

@@ -47,7 +47,7 @@ gangtise insight opinion detail --chief-opinion-id <id> [--chief-opinion-id <id>
 - 🔴 **列表只含摘要**：`brief` 是正文前 200 字的截断，**1 积分/条**。要正文用 `detail` 按 `chiefOpinionId` 取（`content`，**30 积分/条**，按返回条数计）；或 `list --with-content` 让列表直接带正文（30 积分/条）。只需判断相关性、做筛选时看 `brief` 就够，别默认加 `--with-content`
 - `detail` 与 `--with-content` 都按返回条数计费，**超时 / 5xx 不自动重发**（重发可能对已交付的正文再计一次费），偶发失败自行重跑
 - ⚠️ **`--with-content` 返回的是旧版结构**：标题与正文在 `contentList.title` / `contentList.content`（`contentList` 是对象，不是数组），顶层没有 `title` / `brief`。按 `content` 字段名取会取不到；要统一成 `detail` 的结构就走 `list` + `detail`
-- `detail`：ID 可重复传或逗号分隔，CLI 去重后按 **20 个一批**自动拆分请求。**没有有效正文的 ID 不报错、直接跳过**（ID 写错时即如此；刚发布的观点也可能暂时取不到，稍后重取）。CLI 比对请求与返回，缺的 ID 列在 `missingIds`；某一批请求失败时，已取到的正文照常输出，没取的 ID 列在 `unfetchedIds`、原因在 `unfetchedError`，只需对这些 ID 重跑。两种情况都标 `partial`、**退出 3**
+- `detail`：ID 可重复传或逗号分隔，CLI 去重后按 **20 个一批**自动拆分请求。**没有有效正文的 ID 不报错、直接跳过**（ID 写错时即如此；刚发布的观点也可能暂时取不到，稍后重取）。CLI 比对请求与返回，缺的 ID 列在 `missingIds`；某一批请求失败或返回异常时，已取到的正文（包括这一批里已返回的）照常输出，没取到的 ID 列在 `unfetchedIds`、原因在 `unfetchedError`，只需对这些 ID 重跑。两种情况都标 `partial`、**退出 3**
 - 返回字段（list）：`chiefOpinionId` / `publishTime` / `title` / `brief` / `author{chiefId, chiefName, researchAreaList, brokerID, brokerName}` / `securityList[]` / `industryList[]` / `conceptList[]` / `llmTagList`；`detail` 另加 `content`。`author.chiefId` / `chiefName` 在机构点评类观点上为 `null`
 
 - `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队

@@ -150,11 +150,10 @@ export function buildStockPoolStocksBody(options: StockPoolStocksOptions) {
  * `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`. Other prefixes unscanned.
  *
  * `fiscalYear` is deliberately NOT in this set either. It looks like a date axis,
- * but five indicators require it TOGETHER with `tradeDate` — `frcst_op_rev` /
- * `frcst_op_rev_yoy` / `frcst_pe` / `frcst_shnp` / `frcst_shnp_yoy` (parameterList,
- * probed 2026-08-15; all five return values today). Adding it here to reach the
- * two `div_*` indicators would break those five, which is why the fix is the
- * per-indicator opt-out and not a wider key set.
+ * but the `frcst_*` forecasts whose parameterList lists both require it TOGETHER with
+ * `tradeDate` (`frcst_pe`, `frcst_shnp` …; `indicator search --keyword frcst_` gives
+ * the current set). Adding it here to reach the two `div_*` indicators would break
+ * those, which is why the fix is the per-indicator opt-out and not a wider key set.
  *
  * `sDate` is deliberately NOT here. It is an interval START, not a substitute:
  * `qte_vol_intvl` declares `tradeDate` required (the interval END) and `sDate`

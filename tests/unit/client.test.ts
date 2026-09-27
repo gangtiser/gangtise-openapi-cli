@@ -454,6 +454,118 @@ describe("GangtiseClient pagination", () => {
       }
     })
 
+    // Three pages of 50 (total 150); `at(from)` replaces the row at the page boundary: the
+    // last row of the first page, the first row of each later page. The empty page past
+    // the end (the total-cap probe) is left empty.
+    const boundaryRows = (idField: string, at: (from: number) => Record<string, unknown> | undefined) =>
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        const ids = Array.from({ length: Math.max(0, Math.min(body.size ?? 50, 150 - from)) }, (_, i) => from + i + 1)
+        const list: Array<Record<string, unknown>> = ids.map((i) => ({ [idField]: String(i), title: `t${i}` }))
+        const row = at(from)
+        if (row && list.length > 0) list[from === 0 ? 49 : 0] = row
+        return Promise.resolve(jsonResponse({ total: 150, list }))
+      })
+
+    it("drops a repeat of an id's later version, not only of its first", async () => {
+      boundaryRows("chiefOpinionId", (from) => from === 0 ? { chiefOpinionId: "a", title: "v1" } : { chiefOpinionId: "a", title: "v2" })
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const previousExit = process.exitCode
+      try {
+        const result = await createClient().call("insight.opinion.list", { from: 0 }) as { list: Array<{ chiefOpinionId: string }>; partial?: boolean; duplicateRows?: number; changedRows?: number; totalCapped?: boolean }
+        expect(result.list.filter((r) => r.chiefOpinionId === "a")).toHaveLength(2)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.changedRows).toBe(1)
+        expect(result.partial).toBe(true)
+        expect(result.totalCapped).toBeUndefined()
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    it("marks the same later-version repeat partial on a list whose id field is not verified", async () => {
+      boundaryRows("independentOpinionId", (from) => from === 0 ? { independentOpinionId: "a", title: "v1" } : { independentOpinionId: "a", title: "v2" })
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const previousExit = process.exitCode
+      try {
+        const client = createClient()
+        client.allowCostlyFetch = true
+        const result = await client.call("insight.independent-opinion.list", { from: 0 }) as { list: Array<{ independentOpinionId: string }>; partial?: boolean; duplicateRows?: number; changedRows?: number; totalCapped?: boolean }
+        expect(result.list.filter((r) => r.independentOpinionId === "a")).toHaveLength(2)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.changedRows).toBeUndefined()
+        expect(result.partial).toBe(true)
+        expect(result.totalCapped).toBeUndefined()
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    // Page 1 ends with id "a" as v1; page 2 opens with the two rows given.
+    const secondPageOpens = (first: string, second: string) =>
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        const ids = Array.from({ length: Math.max(0, Math.min(body.size ?? 50, 100 - from)) }, (_, i) => from + i + 1)
+        const list: Array<Record<string, unknown>> = ids.map((i) => ({ chiefOpinionId: String(i), title: `t${i}` }))
+        if (from === 0) list[49] = { chiefOpinionId: "a", title: "v1" }
+        if (from === 50) {
+          list[0] = { chiefOpinionId: "a", title: first }
+          list[1] = { chiefOpinionId: "a", title: second }
+        }
+        return Promise.resolve(jsonResponse({ total: 100, list }))
+      })
+
+    it("counts a later version repeated on one page as one changed row and one repeat", async () => {
+      secondPageOpens("v2", "v2")
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const previousExit = process.exitCode
+      try {
+        const result = await createClient().call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean; duplicateRows?: number; changedRows?: number }
+        expect(result.list).toHaveLength(99)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.changedRows).toBe(1)
+        expect(result.partial).toBe(true)
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    it("reads two versions of an id on one page as no row key, even when one repeats an earlier page", async () => {
+      secondPageOpens("v2", "v1")
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const previousExit = process.exitCode
+      try {
+        const result = await createClient().call("insight.opinion.list", { from: 0 }) as { list: unknown[]; partial?: boolean; duplicateRows?: number; changedRows?: number }
+        expect(result.list).toHaveLength(99)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.changedRows).toBeUndefined()
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
+    it("reads a repeat whose keys come in another order as the same row", async () => {
+      boundaryRows("chiefOpinionId", (from) => from === 0 ? { chiefOpinionId: "a", title: "t" } : from === 50 ? { title: "t", chiefOpinionId: "a" } : undefined)
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const previousExit = process.exitCode
+      try {
+        const result = await createClient().call("insight.opinion.list", { from: 0 }) as { list: Array<{ chiefOpinionId: string }>; duplicateRows?: number; changedRows?: number; totalCapped?: boolean }
+        expect(result.list.filter((r) => r.chiefOpinionId === "a")).toHaveLength(1)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.changedRows).toBeUndefined()
+        expect(result.totalCapped).toBeUndefined()
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
     it("reads an id that one page carries twice with different content as no row key, and marks nothing", async () => {
       // One response is a consistent snapshot, so two different rows under one id there
       // mean the declared field does not identify a row on this list.

@@ -15,14 +15,15 @@ export interface EndpointDefinition {
     maxWindow?: number
   }
   /** The row field that identifies a record of a paginated list. Auto-pagination drops a
-   * row whose id it has already kept when the two rows are identical: lists sorted on a
+   * row identical to one it has already kept under the same id: lists sorted on a
    * non-unique key (`msgTime`, `publishTime`) reorder a same-timestamp group between two
    * page requests, so the neighbouring pages both return some of it and miss the rest —
    * the row count still equals `total` (probed 2026-09-25, server-side P2-26). Dropping the
    * duplicate makes the count fall short, which marks the result partial. A row without
    * the field, or with the id of a DIFFERENT row, is always kept. An id that comes back on
    * a later page with different content marks the result partial too (`changedRows`) —
-   * unless one page carries it twice, which shows the field is no row key for this list.
+   * unless one page carries it with two different contents, which shows the field is no
+   * row key for this list.
    * A field that is not unique yet never shows that on one page would still flag every
    * fetch whose repeated pair straddles a page boundary, so a field not seen in real
    * responses as the record's id is declared with `rowIdUnverified`. */
@@ -33,18 +34,19 @@ export interface EndpointDefinition {
   /** Published price (the platform's price list; the client cannot measure billing — there
    * is no usage API). `per`: "call" — each request; "page" — each page of the submitted
    * document; "row" — each row returned (a paginated list bills every page's rows);
+   * "security" — each requested security that has data; "issuer" — each issuer matched;
    * "document" — each file downloaded. Absent for free endpoints and for those without a
    * published price, so its absence never means "free" by itself.
    *
    * It drives three guards (endpoints.test.ts / client.ts): an endpoint billed per call
    * or per page must carry `retry: "no-replay"`, since a replayed request can bill again;
-   * a per-row / per-document endpoint must too once one request can bill more than
-   * NO_REPLAY_ABOVE_CREDITS (see worstRequestCredits) — below that line, replaying a
-   * page or a document stays the default; and a per-row paginated list fetched without
+   * an endpoint billed by quantity (any other unit) must too once one request can bill
+   * more than NO_REPLAY_ABOVE_CREDITS (see worstRequestCredits) — below that line,
+   * replaying a page or a document stays the default; and a per-row paginated list fetched without
    * --size is refused past COSTLY_FETCH_CREDITS unless the caller confirmed with --yes.
    * `maxUnits` is how many units one request can be billed for when the endpoint is not
    * paginated (a paginated one is bounded by its page size). */
-  billing?: { per: "call" | "page" | "row" | "document"; price: number; maxUnits?: number }
+  billing?: { per: "call" | "page" | "row" | "security" | "issuer" | "document"; price: number; maxUnits?: number }
   /** Per-endpoint timeout floor in ms. Synchronous AI generation blocks well past
    * the 30s default; without a floor it times out and retries, and a retry can
    * re-bill the generation. `resolveTimeoutMs` lifts the request timeout to this
@@ -732,7 +734,8 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/rating-overview",
     kind: "json",
     description: "Query bond / issuer / guarantor ratings side by side (max 10 bonds per call)",
-    billing: { per: "call", price: 0.4 },
+    // Rows that are all null but the code are not billed (the platform's price list).
+    billing: { per: "row", price: 0.4, maxUnits: 10 },
     retry: "no-replay",
     expects: "list",
   },
@@ -741,7 +744,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/rating-change",
     kind: "json",
     description: "Query bond rating change history (max 10 bonds per call)",
-    billing: { per: "call", price: 0.4 },
+    billing: { per: "security", price: 0.4, maxUnits: 10 },
     retry: "no-replay",
     expects: "list",
   },
@@ -750,7 +753,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/issuer-rating-change",
     kind: "json",
     description: "Query issuer rating change history (by bond code or issuer name)",
-    billing: { per: "call", price: 0.4 },
+    billing: { per: "issuer", price: 0.4, maxUnits: 10 },
     retry: "no-replay",
     expects: "list",
   },
@@ -1223,15 +1226,15 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
   },
 }
 
-/** Credits one request of a per-row / per-document endpoint may bill before a 5xx or
+/** Credits one request of an endpoint billed by quantity may bill before a 5xx or
  * timeout replay is judged too costly (decided 2026-09-25): above it the endpoint is
  * `no-replay`, at or below it a replay is left to the default policy. */
 export const NO_REPLAY_ABOVE_CREDITS = 3000
 
 /** The most one request can bill: a page of a paginated list, `maxUnits` of a batch
- * endpoint, one unit otherwise — a download is one document; a per-row endpoint that is
- * not paginated must declare `maxUnits` (endpoints.test.ts), so 1 never stands in for an
- * unknown bound. */
+ * endpoint, one unit otherwise — a download is one document; a per-row / per-security /
+ * per-issuer endpoint that is not paginated must declare `maxUnits` (endpoints.test.ts),
+ * so 1 never stands in for an unknown bound. */
 export function worstRequestCredits(endpoint: EndpointDefinition): number {
   if (!endpoint.billing) return 0
   const units = endpoint.pagination?.maxPageSize ?? endpoint.billing.maxUnits ?? 1
