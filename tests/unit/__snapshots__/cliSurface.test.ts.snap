@@ -100,6 +100,25 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "bond issuer-rating-change",
   "bond issuance-plan",
   "bond announcement",
+  "fund",
+  "fund basic-info",
+  "fund nav",
+  "fund fee-rate",
+  "fund manager-info",
+  "fund manager-history",
+  "fund asset-size",
+  "fund holder-structure",
+  "fund top10-holders",
+  "fund asset-allocation",
+  "fund stock-portfolio",
+  "fund industry-allocation",
+  "fund bond-portfolio",
+  "fund bond-type-allocation",
+  "fund fund-portfolio",
+  "fund fund-type-allocation",
+  "fund etf-pcf-header",
+  "fund etf-pcf-components",
+  "fund etf-share-change",
   "reference",
   "reference securities-search",
   "reference constant-category",
@@ -191,6 +210,8 @@ Commands:
   fundamental     Fundamental APIs
   bond            Bond APIs: profiles, issuers, quotes, valuations, cash flows,
                   ratings, announcements
+  fund            Fund APIs: profiles, NAV, fees, managers, scale, holders,
+                  holdings and allocation, ETF creation/redemption
   reference       Reference data APIs
   vault           Vault APIs
   ai              AI APIs
@@ -273,9 +294,9 @@ Options:
   --no-with-close-reading       Exclude close reading content
   --format <format>             Output format (default: "json")
   --output <path>
-  --yes                         Fetch every row even when a fetch without --size
-                                is estimated above the credit guard (the list is
-                                billed per row)
+  --yes                         Fetch past the credit guard: a fetch without
+                                --size, or with a large one, estimated above
+                                1000 credits (the list is billed per row)
   -h, --help                    display help for command
 "
 `;
@@ -399,9 +420,9 @@ Options:
                            (repeat) (default: [])
   --format <format>        Output format (default: "table")
   --output <path>
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -862,6 +883,375 @@ Options:
 "
 `;
 
+exports[`CLI surface > help > help: gangtise fund 1`] = `
+"Usage: gangtise fund [options] [command]
+
+Fund APIs: profiles, NAV, fees, managers, scale, holders, holdings and
+allocation, ETF creation/redemption
+
+Options:
+  -h, --help                      display help for command
+
+Commands:
+  basic-info [options]            Fund profiles: category, manager, custodian,
+                                  dates, subscription rules, benchmark, risk
+                                  level, tracked index
+  nav [options]                   Daily NAV: unit, accumulated and adjusted NAV,
+                                  adjustment factor; money-market funds add
+                                  7-day annualized yield and income per 10k
+                                  units
+  fee-rate [options]              Current fee rates by type, one row per
+                                  condition band (holding period, amount)
+  manager-info [options]          Fund manager profiles by name: career, funds
+                                  and assets under management, introduction
+  manager-history [options]       Past and present managers of a fund: tenure,
+                                  days managed, return over tenure (endDate null
+                                  = current)
+  asset-size [options]            Shares at start and end of each report period,
+                                  subscriptions, redemptions, net assets
+  holder-structure [options]      Holder count and institutional / individual /
+                                  employee holdings per report date
+  top10-holders [options]         Top 10 holders of a listed fund (LOF / ETF)
+                                  per report date
+  asset-allocation [options]      Asset allocation per report date: amount and %
+                                  of total assets by asset type
+  stock-portfolio [options]       Stock holdings per report date: shares, value,
+                                  % of float and of NAV, change vs the previous
+                                  report
+  industry-allocation [options]   Stock holdings grouped by level-1 industry (SW
+                                  or CITIC), as % of NAV
+  bond-portfolio [options]        Bond holdings per report date: quantity,
+                                  value, % of NAV
+  bond-type-allocation [options]  Bond holdings grouped by bond type, as % of
+                                  NAV
+  fund-portfolio [options]        Fund-of-funds holdings of other funds: value
+                                  and % of NAV
+  fund-type-allocation [options]  Fund-of-funds holdings grouped by fund
+                                  category (level 1), as % of NAV
+  etf-pcf-header [options]        ETF creation/redemption parameters for the
+                                  latest trade date: unit size, daily limits,
+                                  cash components
+  etf-pcf-components [options]    ETF creation/redemption component list for the
+                                  latest trade date: quantities, weights, cash
+                                  substitution
+  etf-share-change [options]      ETF shares and scale per trade date, with the
+                                  change vs the previous one
+  help [command]                  display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund asset-allocation 1`] = `
+"Usage: gangtise fund asset-allocation [options]
+
+Asset allocation per report date: amount and % of total assets by asset type
+
+Options:
+  --security <code>      Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                         (repeatable, comma-separated accepted)
+  --start-date <date>    Report date range start (yyyy-MM-dd); omit both ends
+                         for everything in your account's history window
+  --end-date <date>      Report date range end (yyyy-MM-dd)
+  --asset-level <level>  level1 / level2 (repeatable); omit for both (default:
+                         [])
+  --format <format>      Output format (default: "table")
+  --output <path>
+  -h, --help             display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund asset-size 1`] = `
+"Usage: gangtise fund asset-size [options]
+
+Shares at start and end of each report period, subscriptions, redemptions, net
+assets
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Report date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund basic-info 1`] = `
+"Usage: gangtise fund basic-info [options]
+
+Fund profiles: category, manager, custodian, dates, subscription rules,
+benchmark, risk level, tracked index
+
+Options:
+  --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                     (repeatable, comma-separated accepted)
+  --field <field>    Field to return (repeatable); omit for all. An unsupported
+                     name rejects the whole call with 100003 (default: [])
+  --format <format>  Output format (default: "table")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund bond-portfolio 1`] = `
+"Usage: gangtise fund bond-portfolio [options]
+
+Bond holdings per report date: quantity, value, % of NAV
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Report date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund bond-type-allocation 1`] = `
+"Usage: gangtise fund bond-type-allocation [options]
+
+Bond holdings grouped by bond type, as % of NAV
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Report date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund etf-pcf-components 1`] = `
+"Usage: gangtise fund etf-pcf-components [options]
+
+ETF creation/redemption component list for the latest trade date: quantities,
+weights, cash substitution
+
+Options:
+  --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                     (repeatable, comma-separated accepted)
+  --format <format>  Output format (default: "table")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund etf-pcf-header 1`] = `
+"Usage: gangtise fund etf-pcf-header [options]
+
+ETF creation/redemption parameters for the latest trade date: unit size, daily
+limits, cash components
+
+Options:
+  --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                     (repeatable, comma-separated accepted)
+  --format <format>  Output format (default: "table")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund etf-share-change 1`] = `
+"Usage: gangtise fund etf-share-change [options]
+
+ETF shares and scale per trade date, with the change vs the previous one
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Trade date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Trade date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund fee-rate 1`] = `
+"Usage: gangtise fund fee-rate [options]
+
+Current fee rates by type, one row per condition band (holding period, amount)
+
+Options:
+  --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                     (repeatable, comma-separated accepted)
+  --fee-type <type>  purchaseFee / redemptionFee / managementFee / custodianFee
+                     / saleFee (repeatable); omit for all (default: [])
+  --format <format>  Output format (default: "table")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund fund-portfolio 1`] = `
+"Usage: gangtise fund fund-portfolio [options]
+
+Fund-of-funds holdings of other funds: value and % of NAV
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Report date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund fund-type-allocation 1`] = `
+"Usage: gangtise fund fund-type-allocation [options]
+
+Fund-of-funds holdings grouped by fund category (level 1), as % of NAV
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Report date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund holder-structure 1`] = `
+"Usage: gangtise fund holder-structure [options]
+
+Holder count and institutional / individual / employee holdings per report date
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Report date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund industry-allocation 1`] = `
+"Usage: gangtise fund industry-allocation [options]
+
+Stock holdings grouped by level-1 industry (SW or CITIC), as % of NAV
+
+Options:
+  --security <code>           Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                              (repeatable, comma-separated accepted)
+  --start-date <date>         Report date range start (yyyy-MM-dd); omit both
+                              ends for everything in your account's history
+                              window
+  --end-date <date>           Report date range end (yyyy-MM-dd)
+  --industry-standard <name>  swIndustry = SW level 1 (server default) /
+                              citicIndustry = CITIC level 1
+  --position-type <type>      top = top holdings, disclosed every quarter
+                              (server default); all = full book, interim and
+                              annual reports only
+  --format <format>           Output format (default: "table")
+  --output <path>
+  -h, --help                  display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund manager-history 1`] = `
+"Usage: gangtise fund manager-history [options]
+
+Past and present managers of a fund: tenure, days managed, return over tenure
+(endDate null = current)
+
+Options:
+  --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                     (repeatable, comma-separated accepted)
+  --format <format>  Output format (default: "table")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund manager-info 1`] = `
+"Usage: gangtise fund manager-info [options]
+
+Fund manager profiles by name: career, funds and assets under management,
+introduction
+
+Options:
+  --manager <name>   Manager name, e.g. 张坤 (repeatable). Exact match; every
+                     manager with that name comes back — tell them apart by
+                     currentCompany
+  --format <format>  Output format (default: "table")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund nav 1`] = `
+"Usage: gangtise fund nav [options]
+
+Daily NAV: unit, accumulated and adjusted NAV, adjustment factor; money-market
+funds add 7-day annualized yield and income per 10k units
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Trade date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Trade date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund stock-portfolio 1`] = `
+"Usage: gangtise fund stock-portfolio [options]
+
+Stock holdings per report date: shares, value, % of float and of NAV, change vs
+the previous report
+
+Options:
+  --security <code>       Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                          (repeatable, comma-separated accepted)
+  --start-date <date>     Report date range start (yyyy-MM-dd); omit both ends
+                          for everything in your account's history window
+  --end-date <date>       Report date range end (yyyy-MM-dd)
+  --position-type <type>  top = top holdings, disclosed every quarter (server
+                          default); all = full book, interim and annual reports
+                          only
+  --format <format>       Output format (default: "table")
+  --output <path>
+  -h, --help              display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise fund top10-holders 1`] = `
+"Usage: gangtise fund top10-holders [options]
+
+Top 10 holders of a listed fund (LOF / ETF) per report date
+
+Options:
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted)
+  --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
+                       everything in your account's history window
+  --end-date <date>    Report date range end (yyyy-MM-dd)
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
+"
+`;
+
 exports[`CLI surface > help > help: gangtise fundamental 1`] = `
 "Usage: gangtise fundamental [options] [command]
 
@@ -1019,6 +1409,8 @@ Options:
   --consensus <name>      Consensus indicator:
                           netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps
                           (default: [])
+  --yes                   Fetch a range estimated above 1000 credits (billed per
+                          row; see the refusal for the estimate)
   --format <format>       Output format (default: "table")
   --output <path>
   -h, --help              display help for command
@@ -1372,9 +1764,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1426,9 +1818,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1481,9 +1873,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1546,9 +1938,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1607,9 +1999,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1643,9 +2035,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1681,9 +2073,9 @@ Options:
                            codes are NOT accepted here (default: [])
   --format <format>        Output format (default: "table")
   --output <path>
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1732,9 +2124,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1790,9 +2182,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1854,9 +2246,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -1968,9 +2360,9 @@ Options:
                        (default: [])
   --format <format>    Output format (default: "table")
   --output <path>      Output path
-  --yes                Fetch every row even when a fetch without --size is
-                       estimated above the credit guard (the list is billed per
-                       row)
+  --yes                Fetch past the credit guard: a fetch without --size, or
+                       with a large one, estimated above 1000 credits (the list
+                       is billed per row)
   -h, --help           display help for command
 "
 `;
@@ -2006,9 +2398,9 @@ Options:
                               for all) (default: [])
   --format <format>           Output format (default: "table")
   --output <path>
-  --yes                       Fetch every row even when a fetch without --size
-                              is estimated above the credit guard (the list is
-                              billed per row)
+  --yes                       Fetch past the credit guard: a fetch without
+                              --size, or with a large one, estimated above 1000
+                              credits (the list is billed per row)
   -h, --help                  display help for command
 "
 `;
@@ -2108,9 +2500,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -2155,9 +2547,9 @@ Options:
   --start-time <datetime>    Start time
   --end-time <datetime>      End time
   --keyword <keyword>        Keyword
-  --yes                      Fetch every row even when a fetch without --size is
-                             estimated above the credit guard (the list is
-                             billed per row)
+  --yes                      Fetch past the credit guard: a fetch without
+                             --size, or with a large one, estimated above 1000
+                             credits (the list is billed per row)
   -h, --help                 display help for command
 "
 `;
@@ -2197,9 +2589,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -2230,9 +2622,9 @@ Options:
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
   --keyword <keyword>      Keyword
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -2291,9 +2683,9 @@ Options:
   --start-time <datetime>    Start time
   --end-time <datetime>      End time
   --keyword <keyword>        Keyword
-  --yes                      Fetch every row even when a fetch without --size is
-                             estimated above the credit guard (the list is
-                             billed per row)
+  --yes                      Fetch past the credit guard: a fetch without
+                             --size, or with a large one, estimated above 1000
+                             credits (the list is billed per row)
   -h, --help                 display help for command
 "
 `;
@@ -2759,7 +3151,8 @@ Options:
                                 intent rewriting server-side, so spell out what
                                 you want
   --size <number>               Results to return, 1-20 (1-5 with
-                                --include-content) (default: "10")
+                                --include-content); default 10, or 5 with
+                                --include-content
   --freshness <window>          Time window over publishTime; results with no
                                 resolvable publish date are dropped by
                                 day/week/month (choices: "day", "week", "month",
@@ -3039,9 +3432,9 @@ Options:
                            (default: [])
   --format <format>        Output format (default: "table")
   --output <path>
-  --yes                    Fetch every row even when a fetch without --size is
-                           estimated above the credit guard (the list is billed
-                           per row)
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
   -h, --help               display help for command
 "
 `;
@@ -3711,6 +4104,258 @@ exports[`CLI surface > invocations > bare: bond valuation 1`] = `
   "exit": 1,
   "requests": [],
   "stderr": "error: required option '--start-date <date>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund asset-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "asset-allocation",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund asset-size 1`] = `
+{
+  "argv": [
+    "fund",
+    "asset-size",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund basic-info 1`] = `
+{
+  "argv": [
+    "fund",
+    "basic-info",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund bond-portfolio 1`] = `
+{
+  "argv": [
+    "fund",
+    "bond-portfolio",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund bond-type-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "bond-type-allocation",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund etf-pcf-components 1`] = `
+{
+  "argv": [
+    "fund",
+    "etf-pcf-components",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund etf-pcf-header 1`] = `
+{
+  "argv": [
+    "fund",
+    "etf-pcf-header",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund etf-share-change 1`] = `
+{
+  "argv": [
+    "fund",
+    "etf-share-change",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund fee-rate 1`] = `
+{
+  "argv": [
+    "fund",
+    "fee-rate",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund fund-portfolio 1`] = `
+{
+  "argv": [
+    "fund",
+    "fund-portfolio",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund fund-type-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "fund-type-allocation",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund holder-structure 1`] = `
+{
+  "argv": [
+    "fund",
+    "holder-structure",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund industry-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "industry-allocation",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund manager-history 1`] = `
+{
+  "argv": [
+    "fund",
+    "manager-history",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund manager-info 1`] = `
+{
+  "argv": [
+    "fund",
+    "manager-info",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--manager <name>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund nav 1`] = `
+{
+  "argv": [
+    "fund",
+    "nav",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund stock-portfolio 1`] = `
+{
+  "argv": [
+    "fund",
+    "stock-portfolio",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: fund top10-holders 1`] = `
+{
+  "argv": [
+    "fund",
+    "top10-holders",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
 ",
   "stdout": "",
 }
@@ -5268,6 +5913,24 @@ bond.rating-change                         POST    /application/open-fundamental
 bond.issuer-rating-change                  POST    /application/open-fundamental/bond/issuer-rating-change                         Query issuer rating change history (by bond code or issuer name)                             
 bond.issuance-plan                         POST    /application/open-fundamental/bond/issuance-plan                                Query the rate-bond issuance calendar over a date range                                      
 bond.exercise-notice                       POST    /application/open-fundamental/bond/exercise-notice                              Query put/call exercise schedules and results for option-embedded bonds                      
+fund.basic-info                            POST    /application/open-fundamental/fund/basic-info                                   Query fund profiles (category, manager, subscription rules, benchmark, tracked index)        
+fund.nav                                   POST    /application/open-quote/fund/nav                                                Query fund daily NAV (unit / accumulated / adjusted; money-market yields)                    
+fund.fee-rate                              POST    /application/open-fundamental/fund/fee-rate                                     Query fund fee rates (purchase / redemption / management / custodian / sales service)        
+fund.manager-info                          POST    /application/open-fundamental/fund/manager-info                                 Query fund manager profiles by name (exact match; same-name managers all returned)           
+fund.manager-history                       POST    /application/open-fundamental/fund/manager-history                              Query a fund's past and present managers (tenure + return over tenure)                       
+fund.asset-allocation                      POST    /application/open-fundamental/fund/asset-allocation                             Query a fund's asset allocation per report date (equity / bonds / cash ...)                  
+fund.asset-size                            POST    /application/open-fundamental/fund/asset-size                                   Query a fund's shares, subscriptions / redemptions and net assets per report date            
+fund.holder-structure                      POST    /application/open-fundamental/fund/holder-structure                             Query a fund's holder structure per report date (institutional / individual / employee)      
+fund.top10-holders                         POST    /application/open-fundamental/fund/top10-holders                                Query a listed fund's top 10 holders per report date                                         
+fund.stock-portfolio                       POST    /application/open-fundamental/fund/stock-portfolio                              Query a fund's stock holdings per report date                                                
+fund.industry-allocation                   POST    /application/open-fundamental/fund/industry-allocation                          Query a fund's stock holdings grouped by industry (SW / CITIC level 1)                       
+fund.bond-portfolio                        POST    /application/open-fundamental/fund/bond-portfolio                               Query a fund's bond holdings per report date                                                 
+fund.bond-type-allocation                  POST    /application/open-fundamental/fund/bond-type-allocation                         Query a fund's bond holdings grouped by bond type                                            
+fund.fund-portfolio                        POST    /application/open-fundamental/fund/fund-portfolio                               Query a fund-of-funds' holdings of other funds                                               
+fund.fund-type-allocation                  POST    /application/open-fundamental/fund/fund-type-allocation                         Query a fund-of-funds' holdings grouped by fund category                                     
+fund.etf-pcf-header                        POST    /application/open-fundamental/fund/etf-pcf-header                               Query ETF creation/redemption parameters (latest trade date)                                 
+fund.etf-pcf-components                    POST    /application/open-fundamental/fund/etf-pcf-components                           Query the ETF creation/redemption component list (latest trade date)                         
+fund.etf-share-change                      POST    /application/open-fundamental/fund/etf-share-change                             Query ETF shares and scale per trade date                                                    
 ai.stock-summary.list                      POST    /application/open-ai/stock-summary/getList                                      Stock highlights (refined research summary per security)                                     
 ai.knowledge-batch                         POST    /application/open-data/ai/search/knowledge/batch                                Batch knowledge search                                                                       
 ai.knowledge-resource.download             GET     /application/open-data/ai/resource/download                                     Download knowledge resource                                                                  
@@ -7331,6 +7994,768 @@ exports[`CLI surface > invocations > full: bond valuation 1`] = `
 }
 `;
 
+exports[`CLI surface > invocations > full: fund asset-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "asset-allocation",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--asset-level",
+    "asset-level-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "assetLevelList": [
+          "asset-level-v",
+        ],
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/asset-allocation",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund asset-size 1`] = `
+{
+  "argv": [
+    "fund",
+    "asset-size",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/asset-size",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund basic-info 1`] = `
+{
+  "argv": [
+    "fund",
+    "basic-info",
+    "--security",
+    "600519.SH",
+    "--field",
+    "field-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "fieldList": [
+          "field-v",
+        ],
+        "fundCodeList": [
+          "600519.SH",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/basic-info",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund bond-portfolio 1`] = `
+{
+  "argv": [
+    "fund",
+    "bond-portfolio",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/bond-portfolio",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund bond-type-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "bond-type-allocation",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/bond-type-allocation",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund etf-pcf-components 1`] = `
+{
+  "argv": [
+    "fund",
+    "etf-pcf-components",
+    "--security",
+    "600519.SH",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "fundCodeList": [
+          "600519.SH",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/etf-pcf-components",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund etf-pcf-header 1`] = `
+{
+  "argv": [
+    "fund",
+    "etf-pcf-header",
+    "--security",
+    "600519.SH",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "fundCodeList": [
+          "600519.SH",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/etf-pcf-header",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund etf-share-change 1`] = `
+{
+  "argv": [
+    "fund",
+    "etf-share-change",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/etf-share-change",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund fee-rate 1`] = `
+{
+  "argv": [
+    "fund",
+    "fee-rate",
+    "--security",
+    "600519.SH",
+    "--fee-type",
+    "fee-type-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "feeTypeList": [
+          "fee-type-v",
+        ],
+        "fundCodeList": [
+          "600519.SH",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/fee-rate",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund fund-portfolio 1`] = `
+{
+  "argv": [
+    "fund",
+    "fund-portfolio",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/fund-portfolio",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund fund-type-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "fund-type-allocation",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/fund-type-allocation",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund holder-structure 1`] = `
+{
+  "argv": [
+    "fund",
+    "holder-structure",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/holder-structure",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund industry-allocation 1`] = `
+{
+  "argv": [
+    "fund",
+    "industry-allocation",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--industry-standard",
+    "industry-standard-v",
+    "--position-type",
+    "position-type-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "industryStandard": "industry-standard-v",
+        "positionType": "position-type-v",
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/industry-allocation",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund manager-history 1`] = `
+{
+  "argv": [
+    "fund",
+    "manager-history",
+    "--security",
+    "600519.SH",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "fundCodeList": [
+          "600519.SH",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/manager-history",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund manager-info 1`] = `
+{
+  "argv": [
+    "fund",
+    "manager-info",
+    "--manager",
+    "manager-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "managerNameList": [
+          "manager-v",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/manager-info",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund nav 1`] = `
+{
+  "argv": [
+    "fund",
+    "nav",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-quote/fund/nav",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund stock-portfolio 1`] = `
+{
+  "argv": [
+    "fund",
+    "stock-portfolio",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--position-type",
+    "position-type-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "positionType": "position-type-v",
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/stock-portfolio",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: fund top10-holders 1`] = `
+{
+  "argv": [
+    "fund",
+    "top10-holders",
+    "--security",
+    "600519.SH",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fundCodeList": [
+          "600519.SH",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/top10-holders",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
 exports[`CLI surface > invocations > full: fundamental balance-sheet 1`] = `
 {
   "argv": [
@@ -7771,6 +9196,7 @@ exports[`CLI surface > invocations > full: fundamental earning-forecast 1`] = `
     "2026-06-03",
     "--consensus",
     "consensus-v",
+    "--yes",
     "--format",
     "json",
   ],
@@ -12427,6 +13853,114 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "method": "POST",
     "path": "/application/open-fundamental/bond/exercise-notice",
     "description": "Query put/call exercise schedules and results for option-embedded bonds"
+  },
+  {
+    "key": "fund.basic-info",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/basic-info",
+    "description": "Query fund profiles (category, manager, subscription rules, benchmark, tracked index)"
+  },
+  {
+    "key": "fund.nav",
+    "method": "POST",
+    "path": "/application/open-quote/fund/nav",
+    "description": "Query fund daily NAV (unit / accumulated / adjusted; money-market yields)"
+  },
+  {
+    "key": "fund.fee-rate",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/fee-rate",
+    "description": "Query fund fee rates (purchase / redemption / management / custodian / sales service)"
+  },
+  {
+    "key": "fund.manager-info",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/manager-info",
+    "description": "Query fund manager profiles by name (exact match; same-name managers all returned)"
+  },
+  {
+    "key": "fund.manager-history",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/manager-history",
+    "description": "Query a fund's past and present managers (tenure + return over tenure)"
+  },
+  {
+    "key": "fund.asset-allocation",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/asset-allocation",
+    "description": "Query a fund's asset allocation per report date (equity / bonds / cash ...)"
+  },
+  {
+    "key": "fund.asset-size",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/asset-size",
+    "description": "Query a fund's shares, subscriptions / redemptions and net assets per report date"
+  },
+  {
+    "key": "fund.holder-structure",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/holder-structure",
+    "description": "Query a fund's holder structure per report date (institutional / individual / employee)"
+  },
+  {
+    "key": "fund.top10-holders",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/top10-holders",
+    "description": "Query a listed fund's top 10 holders per report date"
+  },
+  {
+    "key": "fund.stock-portfolio",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/stock-portfolio",
+    "description": "Query a fund's stock holdings per report date"
+  },
+  {
+    "key": "fund.industry-allocation",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/industry-allocation",
+    "description": "Query a fund's stock holdings grouped by industry (SW / CITIC level 1)"
+  },
+  {
+    "key": "fund.bond-portfolio",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/bond-portfolio",
+    "description": "Query a fund's bond holdings per report date"
+  },
+  {
+    "key": "fund.bond-type-allocation",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/bond-type-allocation",
+    "description": "Query a fund's bond holdings grouped by bond type"
+  },
+  {
+    "key": "fund.fund-portfolio",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/fund-portfolio",
+    "description": "Query a fund-of-funds' holdings of other funds"
+  },
+  {
+    "key": "fund.fund-type-allocation",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/fund-type-allocation",
+    "description": "Query a fund-of-funds' holdings grouped by fund category"
+  },
+  {
+    "key": "fund.etf-pcf-header",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/etf-pcf-header",
+    "description": "Query ETF creation/redemption parameters (latest trade date)"
+  },
+  {
+    "key": "fund.etf-pcf-components",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/etf-pcf-components",
+    "description": "Query the ETF creation/redemption component list (latest trade date)"
+  },
+  {
+    "key": "fund.etf-share-change",
+    "method": "POST",
+    "path": "/application/open-fundamental/fund/etf-share-change",
+    "description": "Query ETF shares and scale per trade date"
   },
   {
     "key": "ai.stock-summary.list",

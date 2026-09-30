@@ -1,12 +1,13 @@
 import { Command, Option } from "commander"
 
 import { checkAsyncContent, pollAsyncContent, POLL_MAX_ATTEMPTS } from "../core/asyncContent.js"
-import { collectList, numberListArg, collectText, dateArg, datetimeArg, maybeArray, parseChoiceList, parseFrom, parseNumberOption, parseSize, parseTimestamp13 } from "../core/args.js"
+import { collectList, collectNames, numberListArg, collectText, datetimeArg, maybeArray, parseChoiceList, parseNumberOption, parseEndTimestamp13, parseTimestamp13 } from "../core/args.js"
+import { maxUnitsOf } from "../core/endpoints.js"
 import { ValidationError } from "../core/errors.js"
 import { markFailed } from "../core/exitStatus.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
-import { emit, withClient, runDownload, confirmCostly, multiChoice, field, required, date, list, choiceList, flag, format, output, from, size, requestBody, query } from "./shared.js"
+import { emit, withClient, runDownload, multiChoice, field, required, date, list, choiceList, flag, format, output, from, size, requestBody, query } from "./shared.js"
 import { checkMarketKeywords } from "./quote.js"
 import type { Field } from "./shared.js"
 
@@ -55,14 +56,14 @@ ai.command("knowledge-batch")
   .option("--query <text>", "Query text; repeat for up to 5. Each --query is taken whole — commas inside it are part of the question, not separators", collectText, [])
   .option("--top <number>", "Max results (default: 10, max: 20)", "10")
   .option("--resource-type <number>", "Resource type", numberListArg("--resource-type"), [])
-  .option("--knowledge-name <name>", "Knowledge name", collectList, [])
+  .option("--knowledge-name <name>", "Knowledge name", collectNames, [])
   .option("--start-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)")
   .option("--end-time <datetime>", "13/10-digit epoch or YYYY-MM-DD[ HH:mm[:ss]] (space or T)")
   .option("--format <format>", "Output format", "json")
   .option("--output <path>")
   .action((options) => {
   if (!options.query.length) throw new ValidationError("--query is required: pass at least one --query")
-  return emit(options, (client) => client.call("ai.knowledge-batch", { queries: options.query, top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 20 }), resourceTypes: options.resourceType.length ? options.resourceType : undefined, knowledgeNames: maybeArray(options.knowledgeName), startTime: parseTimestamp13(options.startTime, "--start-time"), endTime: parseTimestamp13(options.endTime, "--end-time") }))
+  return emit(options, (client) => client.call("ai.knowledge-batch", { queries: options.query, top: parseNumberOption(options.top, "--top", { integer: true, min: 1, max: 20 }), resourceTypes: options.resourceType.length ? options.resourceType : undefined, knowledgeNames: maybeArray(options.knowledgeName), startTime: parseTimestamp13(options.startTime, "--start-time"), endTime: parseEndTimestamp13(options.endTime, "--end-time") }))
 })
 ai.command("knowledge-resource-download").requiredOption("--resource-type <number>").requiredOption("--source-id <id>").option("--output <path>").action((options) => withClient(async (client) => {
   await runDownload(client, "ai.knowledge-resource.download", { resourceType: parseNumberOption(options.resourceType, "--resource-type", { integer: true, min: 0 }), sourceId: options.sourceId }, {
@@ -110,30 +111,22 @@ query(ai, "research-outline", { endpoint: "ai.research-outline", fields: [requir
  * measured), so a misspelling reads as an ordinary answer. */
 const HOT_TOPIC_CATEGORIES = ["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"]
 
-ai.command("hot-topic")
-  .option("--from <number>", "Starting offset", "0")
-  .option("--size <number>", "Total rows to return; omit to fetch all")
-  .option("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date"))
-  .option("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date"))
-  .addOption(multiChoice("--category <name>", "Report type: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing", HOT_TOPIC_CATEGORIES))
-  .option("--with-related-securities", "Include related securities info")
-  .option("--no-with-related-securities", "Exclude related securities info")
-  .option("--with-close-reading", "Include close reading content")
-  .option("--no-with-close-reading", "Exclude close reading content")
-  .option("--format <format>", "Output format", "json")
-  .option("--output <path>")
-  .addOption(confirmCostly().option)
-  .action((options) => emit(options, (client) => {
-  return client.call("ai.hot-topic", {
-    from: parseFrom(options.from),
-    size: parseSize(options.size),
-    startDate: options.startDate,
-    endDate: options.endDate,
-    categoryList: parseChoiceList(options.category, "--category", HOT_TOPIC_CATEGORIES) ?? HOT_TOPIC_CATEGORIES,
-    withRelatedSecurities: options.withRelatedSecurities !== false,
-    withCloseReading: options.withCloseReading !== false,
-  })
-}))
+query(ai, "hot-topic", {
+  endpoint: "ai.hot-topic",
+  fields: [
+    from(), size(),
+    date("--start-date <date>", "Start date (yyyy-MM-dd)", "startDate"),
+    date("--end-date <date>", "End date (yyyy-MM-dd)", "endDate"),
+    // Every category when none is named: the API has no "all" of its own.
+    field(multiChoice("--category <name>", "Report type: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing", HOT_TOPIC_CATEGORIES), (v: string[]) => ({ categoryList: parseChoiceList(v, "--category", HOT_TOPIC_CATEGORIES) ?? HOT_TOPIC_CATEGORIES })),
+    // Each pair shares one attribute: on unless its --no- form was given.
+    field(new Option("--with-related-securities", "Include related securities info"), (v?: boolean) => ({ withRelatedSecurities: v !== false })),
+    flag("--no-with-related-securities", "Exclude related securities info"),
+    field(new Option("--with-close-reading", "Include close reading content"), (v?: boolean) => ({ withCloseReading: v !== false })),
+    flag("--no-with-close-reading", "Exclude close reading content"),
+    format("json"), output(),
+  ],
+})
 query(ai, "management-discuss-announcement", {
   endpoint: "ai.management-discuss-announcement",
   fields: [
@@ -168,7 +161,7 @@ addGenerationTask("viewpoint-debate", {
  * takes a cross-market batch. If a request inside the documented limit ever answers
  * with an empty list, lower this again. Probes behind both the old ceiling and this
  * reversal: `bug/server-open.md` P1-12. */
-const STOCK_SUMMARY_MAX_SECURITIES = 6000
+const STOCK_SUMMARY_MAX_SECURITIES = maxUnitsOf("ai.stock-summary.list")
 
 ai.command("stock-summary")
   .description("Stock highlights: refined research summary per security (A-share / HK)")

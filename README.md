@@ -6,6 +6,8 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.44.0 — 2026-09-30**：**新增 `fund` 公募基金 18 个命令，一律 0.4 积分/次**（按次，与返回行数、基金只数无关）：`basic-info` / `nav`（日频净值）/ `fee-rate` / `manager-info`（按姓名精确匹配，同名全返回）/ `manager-history` / `asset-size` / `holder-structure` / `top10-holders` / `asset-allocation` / `stock-portfolio` / `industry-allocation` / `bond-portfolio` / `bond-type-allocation` / `fund-portfolio` / `fund-type-allocation` / `etf-pcf-header` / `etf-pcf-components` / `etf-share-change`。`--security` 用带大写后缀的基金代码（场外 `.OF`，场内 `.SH` / `.SZ`），**代码不存在、不带后缀或后缀小写都返回空结果、不报错**。不分页：单次上限 10000 行，超出整批报 `100006`；日期两端都不传取账号可回溯窗口内的全部，起点早于窗口整批报 `110003`。**整族超时 / 5xx 不自动重发**（避免重复扣费）。取数前注意：各命令单位不同（元 / 万元 / 万份 / 万股）；`holder-structure` 的 `holderCount` 是带千分位的字符串；持仓明细只返回证券简称、不返回代码；`fund-type-allocation` 季报期只含重仓基金。逐条见 `gangtise-openapi/references/commands/fund.md`。**另有几处行为变化**：只收一个值的参数重复传直接报错；代码类列表也按顿号 / 分号 / 空格分隔并去重；显式 `--size` 与 `fundamental earning-forecast` 的日期区间估算超过 1000 积分同样要 `--yes`；jsonl / csv 文件一律以换行结尾，csv 不再给 `-3.5%` 这类值加 `'`；全市场分片早于账号窗口的部分跳过而不中止；接口返回下载链接时不带 `--output` 也会下载；A 股公告与 `ai knowledge-batch` 只写日期的 `--end-time` 按当日 23:59:59 换算；`--indicator-param` 里的日期值与 `--date` 同样校验；单次请求另有总时长上限（`GANGTISE_TIMEOUT_MS` 的 2 倍，下载与上传 60 倍）；环境变量设成空字符串按未设置处理。完整列表见 CHANGELOG。
+
 - **v0.43.1 — 2026-09-27**：① **EDE `fiscalYear` 漏传不报错**：预测类（`frcst_*`）与分红类（`div_cash_yr` 等）漏传时按服务端自定的默认年度取数，数看着正常但未必是你要的年度——**一律显式传 `fiscalYear`**；其余必填参数缺失仍报 `100001`。② **翻页去重**：同一 ID 的任一已出现版本再次出现都按重复去掉（计入 `duplicateRows`），不区分字段顺序。③ **观点 `detail`**：某一批夹有空元素或格式异常的元素时，这一批已返回的正文照常输出；空元素的 ID 列在 `missingIds`，其余没取到的列在 `unfetchedIds`（`unfetchedError` 带 traceId）。④ 文档：`finc_roe_avg_avg` 示例补 `reportDate`；债券三个评级命令的计费说明统一。
 
 - **v0.43.0 — 2026-09-26**：① **按条计费列表的额度保护**：省略 `--size` 时先拿到 `total` 估算全量积分（整页超过 50 积分的列表只先取 1 条），超过 1000 积分报错退出 1，加 `--yes` 或传 `--size N` 放行。② **翻页结果的完整性**：跨页重复的行去掉并标 `duplicateRows`；同一 ID 在后面的页内容变了，两版都保留并标 `changedRows`；`total` 正好等于偏移窗口时标 `totalCapped`；都退出 3。热点话题、纪要、A 股 / 港股公告、财报日历查不到内容时按空结果、退出 0（此前退出 3）。③ **`quote` 的 `--field` 在多只证券或全市场时自动补身份列**（日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、`realtime` 补 `securityCode`；单只不补），**多只证券只点一列的脚本输出会多出这些列**。④ **多证券日 K 合批**：按行数上限装入尽量多的证券，请求数大幅减少；全市场分片按工作日计（港股 2 个工作日一片），全市场关键字须同时给起止日期。⑤ **首行晚到提示**：行情首行比请求起点晚 14 天以上时 stderr 提示（上市较晚或越过回溯窗口）。⑥ **`ai stock-summary` 与 `fundamental earning-forecast` 超时 / 5xx 不再自动重试**（单次可能扣数千积分）。⑦ 四个枚举参数写错时本地报错；Ctrl-C / `kill` / 终端断开时清理暂存文件，进程以该信号结束（`$?` 为 130 / 143 / 129），脚本循环随之停下。⑧ Agent Skill 主文件精简，细节移到 `references/`。
@@ -14,10 +16,9 @@ README 仅列最近 5 个版本摘要：
 
 - **v0.41.1 — 2026-09-24**：① **`quote index-day-kline --security all` 改为直接报错**：该接口对 `all` 返回空结果、不报错，与「当天无数据」无法区分；报错信息写明原因与替代写法。指数日 K 请用 `quote day-kline` 逐个传代码；该接口的返回字段与 `day-kline` 相同、不含指数名称，名称用 `reference securities-search --keyword <指数代码> --category index` 返回的 `gtsName`。② **`fundamental valuation-analysis` 长区间不再被静默截断**：序列逐自然日一行（含周末），默认只取最近 2000 行，区间更长时开头会缺失——现在撞满即标 `partial`、退出码 3，并提示把 `--limit` 设到不小于区间天数（按 366 × 年数估算，如 5 年约 1830 行）；首行恰好就是 `--start-date` 时说明没丢，不标。起点早于账号回溯下界时该接口从下界起返回、不报错，CLI 在 stderr 提示首行晚于 `--start-date`。③ **估值分析 `--field` 不再可能错列**：CLI 发请求前对字段去重并去掉 `tradeDate`（它总在第一列返回）。旧版在 `--field` 同时含 `tradeDate`（或重复字段）与不存在的字段名时，会输出整体右移一列的数据且退出 0，**用过这类组合的估值结果请重跑**。④ 依赖 `undici` 升至 7.29.1（安全更新）。⑤ 文档：`fundamental valuation-analysis` 的 `--field` 至少要含一个数值列（`value` 等），只传 `tradeDate` 或只传不存在的名字时接口返回 0 行、不报错；`references/errors.md` 的退出码摘要补上 `4`。⑥ **Skill 安装命令改为可重复执行**：目标目录已存在时直接 `cp -r`，新版会被复制进嵌套的 `gangtise-openapi/gangtise-openapi/`、已安装的副本仍是旧版；这样更新过的，按「AI Agent Skill」段的新命令重新执行一次即可。
 
-- **v0.41.0 — 2026-09-24**：① **观点列表改走 v2，省积分**：`insight opinion list` / `foreign-opinion list` 默认只返回摘要（`brief`，外资另有 `briefTranslate`，取正文前 200 字），**1 积分/条**；要正文用新增的 `insight opinion detail --chief-opinion-id` / `foreign-opinion detail --foreign-opinion-id`（**30 积分/条**，按返回条数计；ID 可一次传多个，CLI 按 20 个一批自动拆分；没返回正文的 ID 列在 `missingIds`、中途某批失败时未取的 ID 列在 `unfetchedIds`，两种情况都以退出码 3 结束）。想像以前一样列表直接带正文，加 `--with-content`（30 积分/条，返回旧版结构：内资正文在 `contentList.content`；与 `detail` 一样超时不自动重发）。② **题材画像与成分股改走 v2**：`alternative concept-info` / `concept-securities` **50 积分/次**；v2 不含催化事件 `keyEvents`、重点个股标识 `isKey`、纳入理由 `inclusionReason`，需要这几列加 `--full`（500 积分/次）。③ **云盘管理 9 个命令，全部免费**：`vault drive-folder-list`（浏览目录）/ `drive-upload` / `drive-create-folder` / `drive-rename` / `drive-move-file` / `drive-move-folder` / `drive-copy`（把文件复制到另一空间：我的云盘 ↔ 租户云盘）/ `drive-delete-file` / `drive-delete-folder`。两个删除**需 `--yes`**，删文件夹会连同其中全部子文件夹与文件一起删除且不可恢复；云盘允许同名，上传 / 新建 / 复制每跑一次就多一份，这三个与两个删除**超时不自动重发**。④ **新增 `bond` 族 12 个命令，0.4 积分起**：`basic-info`（静态档案）/ `issuer-info` / `daily-quote` / `valuation`（上清所估值）/ `cash-flow` / `announcement` / `issuance-detail` / `rating-overview` / `rating-change`（债项评级变动）/ `issuer-rating-change` / `issuance-plan` / `exercise-notice`。多数按次计费；`rating-overview` 按条、`rating-change` 按有数据的债券只数、`issuer-rating-change` 按发行人计。`--security` **只收标准债券代码**（`019742.SH` / `220205.IB`），简称与拼音整批拒绝（`120001`），先用 `reference securities-search` 换代码；`--field` 写错字段名同样整批拒绝（`100003`），不会静默丢列。**整族超时不自动重发**——计费接口重发会重复扣费，偶发 5xx / 超时请自行重跑。🔴 **`bond announcement` 需手动翻页**：本族唯一分页的接口且**不返回 `total`**，`--page-no` 从 1 起逐页递增直到某页为空。⑤ **`insight highlight list` 会议线索**（会议核心要点信息流；🔴 **5 积分/条，务必带 `--size`**，省略会拉全量；`content` 是 HTML 片段，`--research-area` 不认申万码；按偏移量最多能翻到第 10000 条，超出部分请缩短时间范围分段取）。⑥ **`tool web-search` 联网搜索**（1 积分/次，零结果不扣）：`--site` 定向站点、`--min-tier` 收信源等级、`--freshness` 收时效、`--include-content` 取正文（此时 `--size` ≤5）。⚠️ **排序是「信源等级 → 发布日期 → 相关性」，首条不等于最相关**；`publishTime` 判不出时为 `null`，`--freshness` 会把这批一并滤掉，做时点判断别用 `indexTime`。⑦ **常量接口新增 9 个分类**：`fundType` / `fundBondType` / `bondType` / `interestRateType` / `interestFrequency` / `absUnderlyingAssetType` / `ratingType` / `exchange` / `nationalEconomicIndustry`。⑧ **取数前注意几处取值**：`bond issuer-info` 的评级列混合境内外口径，做信用比较一并取 `ratingAgency`；评级值可能带 `sf` / `pi` 后缀；`bond daily-quote` / `valuation` / `issuance-plan` 的 `--start-date` 早于可回溯下界时整批返回 `110003`，把起点移进窗口再查。逐条见 `gangtise-openapi/references/commands/bond.md`。
-
 ### 历史里程碑
 
+- **v0.41.0**：新增债券 12 个命令与云盘管理 9 个命令；观点列表改走 v2（列表只含摘要 1 积分/条，正文按 ID 另取）；新增会议线索与联网搜索。
 - **v0.40.0**：自选股股票池可增删改（首批写操作，删池须显式 `--yes`）；`indicator time-series` 自动判定日期轴；Token 缓存绑定签发它的凭证。
 - **v0.39.0**：`csv` / `jsonl` 导出的元信息加上字节数与 `sha256`，转交前可核验；并发导出到同一 `--output` 不再互相掺混，文件被另一次导出替换时退出码 4。
 - **v0.38.0**：`quote realtime` / `day-kline` / `minute-kline` 支持沪深 ETF 与 20 个全球指数，代码直接传即可。
@@ -75,11 +76,13 @@ export GANGTISE_TOKEN="Bearer xxx"
 # 性能/调试可选项
 export GANGTISE_PAGE_CONCURRENCY=5     # 翻页/分片并发数（默认 5，上限 32；非法值回退默认）
 export GANGTISE_VERBOSE=1              # 打印每个请求的耗时与字节数
-export GANGTISE_TIMEOUT_MS=30000       # 请求超时，整数毫秒（默认 30s；上限 1 小时；低于 1 秒或写法非法时用默认值；未按所写数值生效时在 stderr 提示）。one-pager 等生成类命令至少 120 秒、上传类至少 300 秒，设得更短不生效
+export GANGTISE_TIMEOUT_MS=30000       # 请求超时，整数毫秒（默认 30s；上限 1 小时；低于 1 秒或写法非法时用默认值；未按所写数值生效时在 stderr 提示）。按「多久没收到数据」计时，另有单次请求总时长上限：普通请求为它的 2 倍，下载与上传为 60 倍。one-pager 等生成类命令至少 120 秒、上传类至少 300 秒，设得更短不生效
 export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.config/gangtise/token.json）
 ```
 
-如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。服务端判定 Token 失效时会自动重新登录并重试一次；凭证本身错（AK/SK 不匹配）不重试，直接报错让你查环境变量。
+环境变量设成空字符串（如 `GANGTISE_BASE_URL=`）按未设置处理，取默认值。
+
+如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。服务端判定 Token 失效时，先用其他进程已刷新并写入缓存的 token，不行再重新登录，然后重发请求；凭证本身错（AK/SK 不匹配）不重试，直接报错让你查环境变量。
 
 
 ## AI Agent Skill
@@ -101,6 +104,7 @@ gangtise-openapi/
     │   ├── ai.md                     #   AI 能力（知识库 / 个股线索与看点 / 一页通等生成类 / 业绩点评与观点 PK 异步任务 / 热点 / 管理层讨论）
     │   ├── alternative.md            #   行业指标数据库 EDB（search / data）+ 题材指数画像与成分股
     │   ├── bond.md                   #   债券（基本资料 / 发行人 / 行情与估值 / 兑付 / 公告 / 发行 / 评级 / 行权）
+    │   ├── fund.md                   #   公募基金（基本信息 / 净值 / 费率 / 经理 / 规模与持有人 / 资产配置 / 持仓与分布 / ETF 申赎与份额）
     │   ├── fundamental.md            #   财务数据（A股/港股/美股三大报表 / 主营 / 估值 / 盈利预测 / 股东）
     │   ├── indicator.md              #   证券级数据指标 EDE（search / 截面 / 时序 / 条件选股）
     │   ├── insight.md                #   投研内容（研报 / 观点 / 纪要 / 公告 / 外资 / 财报日历 / 会议线索 / 公众号 / QA / 研报图表）
@@ -198,6 +202,16 @@ install_skill ~/.hermes/skills               # Hermes
 | | `issuer-rating-change` | 发债主体评级变动历史（`--security` 或 `--issuer` 二选一） |
 | | `issuance-plan` | 利率债发行计划（按发行日期区间） |
 | | `exercise-notice` | 含权债行权提示（行权安排与行权结果） |
+| **Fund** | `basic-info` | 公募基金基本信息（分类、管理人与托管人、成立与存续、申赎规则、业绩基准、风险等级、跟踪指数） |
+| | `nav` | 基金日频净值（单位 / 累计 / 复权净值、复权因子；货币基金七日年化与万份收益） |
+| | `fee-rate` | 基金费率（申购 / 赎回 / 管理 / 托管 / 销售服务，按条件分档） |
+| | `manager-info` / `manager-history` | 基金经理基本信息（按姓名）/ 某只基金的历任经理 |
+| | `asset-size` / `holder-structure` / `top10-holders` | 资产规模与份额变动 / 持有人结构 / 上市基金前十大持有人（按报告期） |
+| | `asset-allocation` | 大类资产配置（按报告期，一级 / 二级资产类型） |
+| | `stock-portfolio` / `industry-allocation` | 持股明细 / 持股行业分布（申万或中信一级；重仓或全部持股） |
+| | `bond-portfolio` / `bond-type-allocation` | 持债明细 / 持有券种分布 |
+| | `fund-portfolio` / `fund-type-allocation` | FOF 持基明细 / 持有基金类型分布 |
+| | `etf-pcf-header` / `etf-pcf-components` / `etf-share-change` | ETF 申赎基本资料 / 申赎成分清单（最新一份）/ ETF 逐日份额与规模 |
 | **AI** | `knowledge-batch` | 知识库批量检索 |
 | | `knowledge-resource-download` | 知识资源下载 |
 | | `security-clue` | 个股线索 |
@@ -245,6 +259,7 @@ install_skill ~/.hermes/skills               # Hermes
 - `gangtise quote ...`
 - `gangtise fundamental ...`
 - `gangtise bond ...`
+- `gangtise fund ...`
 - `gangtise ai ...`
 - `gangtise vault ...`
 - `gangtise indicator ...`
@@ -265,6 +280,7 @@ gangtise reference constant-list --category swIndustry            # 申万行业
 gangtise reference constant-list --category regionCategory        # 外资研报区域
 gangtise reference constant-list --category aShareAnnouncementCategory  # A股公告分类（树形）
 gangtise reference constant-list --category bondType               # 债券类型
+gangtise reference constant-list --category fundType               # 基金分类（fund 命令返回的 investTypeCode* 与它一致）
 gangtise reference constant-list --category ratingType             # 评级类型
 gangtise reference constant-list --category exchange               # 交易市场
 gangtise reference sector-constituents --sector-id 2000000014   # 申万行业代码 821xxx.SWI 全量（security-clue --gts-code 用）
@@ -285,10 +301,10 @@ gangtise ai knowledge-batch --query 比亚迪 --query 最近热门概念
 
 - **并发翻页**：自动翻页接口的首页拿到 `total` 后，剩余页用 `Promise.all` 并发拉取（默认并发数 5，可通过 `GANGTISE_PAGE_CONCURRENCY` 调整），多页查询的耗时远低于串行。
 - **HTTP keep-alive**：所有请求复用同一个 `undici.Agent`（连接池不少于 16，且不少于翻页并发数），避免重复 TLS 握手。
-- **流式下载**：指定 `--output` 时，二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；50MB PDF 内存占用近乎为零。
-- **流式输出**：`--format jsonl` 或 `csv` 加 `--output <file>` 时，翻页 / 全市场分片 / 多证券分批请求的行**按到达顺序逐批写盘**，取数阶段不持有整份结果，内存不随行数增长；csv 先落临时行文件、收尾时按列并集写表头再转成 csv（磁盘两遍、内存不变）。不足 1000 行的结果一次整体写出。任一只 / 页 / 片失败，命令退出时后台已无取数与写盘，不留 `.part`。
-- **导出元信息**：`csv` / `jsonl` 落盘时旁边生成 `<文件>.meta.json`——命令行、数据行数、列名、`complete`（写元信息时的判定：退出 3 即 `false`）、`total` / `partial` / `failedPages` / `failedShards` / `truncatedShards` / `droppedColumns` / `missingFields` / `duplicateRows` / `changedRows` / `totalCapped` 等全部完整性标记、抓取时间与时区、CLI 版本，以及数据文件的字节数 `bytes` 与内容哈希 `sha256`。命令行与结果里的 key / secret / token 类字段写成 `[redacted]`。元信息在数据文件发布之后才就位，导出失败不会留下新数据配旧元信息。**转交或归档前建议核一次**：`shasum -a 256 <文件>` 与元信息里的 `sha256` 相等，才说明这份元信息描述的就是旁边这份数据——两个进程同时导出到**同一个 `--output`** 时，最终文件一定是其中某一次的完整产物，但旁边的元信息有可能来自另一次，核哈希就能发现。**输的那一次自己也会报**：收尾时回读一次 `--output`，与本次写出的哈希不符就在 stderr 说明「这个文件不是本次命令的产物」并**退出码 4**。这两种格式的文件本身只有数据行，转交之后靠它核验是否完整；`json` 自带标记，不生成。
-- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**不重放的端点例外**（贵档：one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载 + 题材 `concept-info` / `concept-securities`（含 `--full`）；`bond` 全部 12 个命令（多数按次，三个评级命令按条 / 按债券 / 按发行人）与按次计费的 `tool web-search`；按条计费的 `insight highlight list`、观点 `detail` 与 `list --with-content`，以及单次最多 6000 只、按只计费的 `ai stock-summary` 与行数随日期区间增长的 `fundamental earning-forecast`；另加不计分但不可重复执行的 `vault stock-pool-create` 与云盘的上传 / 新建文件夹 / 复制 / 两个删除，共 46 个）：5xx/超时不重放，仅连接失败、429 与 token 自愈重试。**两类端点各有各的理由**：贵档是**重放会重复扣分**——服务端可能已经执行并计费，重发按次计费的再扣一次，重发按篇/按条计费的会把已交付的行再计一次；不计分的那几个是**重放会造成副作用或把成功报成失败**——股票池名不允许重复，重发一个其实已经建成的请求，回来的是 `230006 股票池名称重复`；云盘允许同名，重发上传 / 新建 / 复制会多出一份；重发一个其实已经删掉的删除，回来的是「文件不存在」或 `130002`。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（EDE 无数据不用此码，而是保留行列的占位单元格 `null`；代码或参数名写错报 `100003`、缺必填参数报 `100001`，漏传 `fiscalYear` 例外、不报错）。**终态码 `999011`（凭证无效）/ `140002`（终态失败：异步生成失败、参数错误或业务处理失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，`140002` 立即重发得到的还是同一结果。
+- **流式下载**：二进制响应（PDF 等）直接 `pipeline` 到磁盘，不经过内存缓冲；不带 `--output` 时先写入临时文件，定好文件名后再改名。50MB PDF 内存占用近乎为零。
+- **流式输出**：`--format jsonl` 或 `csv` 加 `--output <file>` 时，翻页 / 全市场分片 / 多证券分批请求的行**按到达顺序逐批写盘**，取数阶段不持有整份结果，内存不随行数增长；csv 先落临时行文件、收尾时按列并集写表头再转成 csv（磁盘两遍、内存不变）。jsonl / csv 无论写文件还是输出到终端都按批写出，每行以换行结尾。任一只 / 页 / 片失败，命令退出时后台已无取数与写盘，不留 `.part`。
+- **导出元信息**：`csv` / `jsonl` 落盘时旁边生成 `<文件>.meta.json`——命令行、数据行数、列名、`complete`（写元信息时的判定：退出 3 即 `false`）、`total` / `partial` / `failedPages` / `failedShards` / `truncatedShards` / `droppedColumns` / `missingFields` / `duplicateRows` / `changedRows` / `totalCapped` 等全部完整性标记（以及不影响完整性判定的 `outOfWindowShards`）、抓取时间与时区、CLI 版本，以及数据文件的字节数 `bytes` 与内容哈希 `sha256`。命令行与结果里的 key / secret / token 类字段写成 `[redacted]`。元信息在数据文件发布之后才就位，导出失败不会留下新数据配旧元信息。**转交或归档前建议核一次**：`shasum -a 256 <文件>` 与元信息里的 `sha256` 相等，才说明这份元信息描述的就是旁边这份数据——两个进程同时导出到**同一个 `--output`** 时，最终文件一定是其中某一次的完整产物，但旁边的元信息有可能来自另一次，核哈希就能发现。**输的那一次自己也会报**：收尾时核对 `--output` 是否仍是本次写出的文件（仍是同一个文件就不必回读，否则回读比对哈希），不符就在 stderr 说明「这个文件不是本次命令的产物」并**退出码 4**。这两种格式的文件本身只有数据行，转交之后靠它核验是否完整；`json` 自带标记，不生成。
+- **自动重试**：5xx / 429 / `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `EAI_AGAIN` / `UND_ERR_*`（undici 连接/超时类）/ `999999` 系统错误自动指数退避重试 2 次。**不重放的端点例外**（贵档：one-pager 等生成/提交类 + `tool file-parse` 提交 + 50/篇 的 summary / foreign-report / my-conference 下载 + 单价未公布但保守同档的 pamirs-summary 下载 + 题材 `concept-info` / `concept-securities`（含 `--full`）；`bond` 全部 12 个命令（多数按次，三个评级命令按条 / 按债券 / 按发行人）、`fund` 全部 18 个命令（按次）与按次计费的 `tool web-search`；按条计费的 `insight highlight list`、观点 `detail` 与 `list --with-content`，以及单次最多 6000 只、按只计费的 `ai stock-summary` 与行数随日期区间增长的 `fundamental earning-forecast`；另加不计分但不可重复执行的 `vault stock-pool-create` 与云盘的上传 / 新建文件夹 / 复制 / 两个删除，共 64 个）：5xx/超时不重放，仅连接失败、429 与 token 自愈重试。**两类端点各有各的理由**：贵档是**重放会重复扣分**——服务端可能已经执行并计费，重发按次计费的再扣一次，重发按篇/按条计费的会把已交付的行再计一次；不计分的那几个是**重放会造成副作用或把成功报成失败**——股票池名不允许重复，重发一个其实已经建成的请求，回来的是 `230006 股票池名称重复`；云盘允许同名，重发上传 / 新建 / 复制会多出一份；重发一个其实已经删掉的删除，回来的是「文件不存在」或 `130002`。**`indicator`（EDE）端点对 `999999` 不重试**——重放一次已计费的查询没有意义（EDE 无数据不用此码，而是保留行列的占位单元格 `null`；代码或参数名写错报 `100003`、缺必填参数报 `100001`，漏传 `fiscalYear` 例外、不报错）。**终态码 `999011`（凭证无效）/ `140002`（终态失败：异步生成失败、参数错误或业务处理失败）在任何 HTTP 状态下都不重试**——凭证错不会因重试而变，`140002` 立即重发得到的还是同一结果。
 
 <!-- no-replay-endpoints
      上面那句点名的「不重放」端点，完整清单如下（endpoint key，与 `gangtise raw list` 一致）：
@@ -320,6 +336,24 @@ bond.issuer-rating-change
 bond.rating-change
 bond.rating-overview
 bond.valuation
+fund.asset-allocation
+fund.asset-size
+fund.basic-info
+fund.bond-portfolio
+fund.bond-type-allocation
+fund.etf-pcf-components
+fund.etf-pcf-header
+fund.etf-share-change
+fund.fee-rate
+fund.fund-portfolio
+fund.fund-type-allocation
+fund.holder-structure
+fund.industry-allocation
+fund.manager-history
+fund.manager-info
+fund.nav
+fund.stock-portfolio
+fund.top10-holders
 fundamental.earning-forecast
 insight.foreign-opinion.detail
 insight.foreign-opinion.list-with-content
@@ -339,7 +373,7 @@ vault.drive.upload
 vault.my-conference.download
 vault.stock-pool.create
 -->
-- **Token 自愈**：服务端判定 Token 失效时自动强制刷新 Token 并重试一次。
+- **Token 自愈**：服务端判定 Token 失效时，先换用本进程其他请求或其他进程已刷新好的 token，不行再重新登录一次，然后重发请求。换 token 的重发不占用网络重试次数；多个并发请求同时失效只登录一次。
 - **Token 缓存绑定账号**：缓存记录它是为哪组凭证 + 哪个 `GANGTISE_BASE_URL` 签发的（只存不可逆的指纹，不存 key 本身）。换了 `GANGTISE_ACCESS_KEY` 再跑，即使旧 token 还没过期也会重新登录，**不会拿上一个账号的身份去发请求**——这点在股票池那五个写命令上尤其要紧。
 - **`auth login` 报告的是「接下来真正会用的身份」**，返回体里的 `source` 说明它从哪来：`GANGTISE_TOKEN` 有值时是 `env-token`（那个 token 对所有命令优先，所以不联服务端、也不签发新的，并附一句提示）；没有它、有 AK/SK 时是 `login`（每次都真的登录，不复用缓存）；两者都没有才报错。返回的 `cache` 描述的就是这次登录的结果，缓存落盘失败也不会混进上一个账号的信息。
 - **K线/资金流向自动分片**：`quote day-kline --security aShares|hkStocks|usStocks`、`quote fund-flow --security aShares` 等全市场查询自动按日期切分（按工作日计：A股 K线/资金流向 1 个/片、美股 1 个/片、港股 2 个/片；已弃用的 `day-kline-hk`/`day-kline-us` 用 `all`，分别 2/1 个/片），并发执行后合并结果；周六日不单独发请求。分片时如果用户未传 `--limit`，自动注入 `limit: 10000`（API 上限）避免默认 6000 截断。**显式多证券**的日 K 在「证券数 × 交易日数」达到 `--limit` 时自动分批请求并按传入顺序合并（每批按行数上限装入尽量多的证券，未传 `--limit` 时上限按 10000 算；撞上限的证券标 `partial` + `truncatedSecurities`）；`minute-kline` 的 `--security` 可重复，逐只并发请求后合并。
@@ -377,14 +411,14 @@ vault.stock-pool.create
 
 规则：
 - **省略 `--size` 一律拉全量**（无论是否传时间范围），CLI 自动翻页查完
-- **按条计费的列表有额度保护**：省略 `--size` 时，CLI 先拿到 `total`，按 `total × 单价` 估算全量要花的积分，超过 1000 积分就报错、退出码 1，不再往下拉，报错写明估算值。整页不超过 50 积分的列表用第一页拿 `total`；整页更贵的（路演 / 调研 / 策略会 / 论坛、独立观点、会议线索、个股线索、热点话题、`--with-content`）先只取 1 条：结果最多 1 条时它就是全部结果；否则放行后从头翻页，这 1 条会多计一次费（知道要多少条就直接传 `--size N`，不走这一步）。确认要全量就加 `--yes`，只要一部分就传 `--size N`。免费列表不受影响
+- **按条计费的列表有额度保护**：省略 `--size` 时，CLI 先拿到 `total`，按 `total × 单价` 估算全量要花的积分，超过 1000 积分就报错、退出码 1，不再往下拉，报错写明估算值。整页不超过 50 积分的列表用第一页拿 `total`；整页更贵的（路演 / 调研 / 策略会 / 论坛、独立观点、会议线索、个股线索、热点话题、`--with-content`）先只取 1 条：结果最多 1 条时它就是全部结果；否则放行后从头翻页，这 1 条会多计一次费（知道要多少条就直接传 `--size N`，不走这一步）。确认要全量就加 `--yes`，只要一部分就传 `--size N`——显式 `--size` 按 `min(--size, total) × 单价` 估算仍超过 1000 积分时同样报错（`--size 100000` 不能当「全量」绕过），要 `--yes`。`fundamental earning-forecast` 不分页，按日期区间估算（工作日数 × 3 条 × 0.5），同一条线。免费列表不受影响
 - 数据量未知时，可先 `--size 1` 从 stderr 的 `Total: N` 探明量级，再决定是否全量
 - 如果显式传了 `--size`，则按指定值翻页，直到达到 `size` 或数据取完
 - `--from` 必须是非负整数，`--size` 必须是正整数；非法数字会在本地直接报 `ValidationError`，不会继续请求 API
 - 安全上限：自动翻页最多 1000 页，防止异常循环
-- 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`，只有部分分片返回、合并时放不下的列为 `droppedColumns`；`quote` 系带 `--field` 而服务端没回的列为 `missingFields`；翻页时同一行在相邻两页各出现一次为 `duplicateRows`，按时间排序的列表在同一时刻的一组数据跨页时会发生，重复了几行也就漏了几行，重复行已去掉，缩短时间范围重拉可补齐；同一 ID 在后面的页以不同内容再次出现为 `changedRows`，说明翻页期间列表有变动、也可能漏了行，两版都保留（按 ID 去重只留一版），重拉即可——重拉后仍在同一处出现，说明这个列表里同一 ID 对应多条记录，按 ID 去重前先核对；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
+- 部分页失败、或服务端实际返回行数与 `total` 矛盾（提前短页）时，不丢弃已取到的数据：结果带 `partial: true`（页失败时另有 `failedPages`；K线分片为 `failedShards`——早于账号可回溯窗口而跳过的分片不算失败、也不标 `partial`，另列在 `outOfWindowShards`；只有部分分片返回、合并时放不下的列为 `droppedColumns`；`quote` 系带 `--field` 而服务端没回的列为 `missingFields`；翻页时同一行在相邻两页各出现一次为 `duplicateRows`，按时间排序的列表在同一时刻的一组数据跨页时会发生，重复了几行也就漏了几行，重复行已去掉，缩短时间范围重拉可补齐；同一 ID 在后面的页以不同内容再次出现为 `changedRows`，说明翻页期间列表有变动、也可能漏了行，两版都保留（按 ID 去重只留一版），重拉即可——重拉后仍在同一处出现，说明这个列表里同一 ID 对应多条记录，按 ID 去重前先核对；`--format json` 可见），stderr 输出警告，**进程退出码为 3**（完整成功为 0）
 - **`indicator` 命令的退出码 3**（脚本按 `!= 0` 判失败的需留意）：服务端整指标/整证券没返回时标 `partial` + `omittedIndicators` / `omittedSecurities` 并退出 3。这个分支很少触发——服务端对解析不了的代码直接报 `100003` 并点名是哪个（指标码拼错 →「指标 xxx 不存在」；证券后缀错，如美股写成 `AAPL.US` 而非 `AAPL.O` →「xxx 不是有效证券或者板块ID」），**无论同批有没有正确的代码都会报**，CLI 相应退出 1。真实的无数据/无覆盖仍是占位单元格 + 退出码 0。占位值统一是 `null`。⚠️ **报告期类指标（`is_*`）的时序上大部分行都是占位**（只有报告期末那几行是真值），`null` 虽被 Excel / pandas / SQL 的聚合跳过，**但行数不变**，手工「总和 ÷ 行数」仍会差几十倍；详见 skill 的 `references/commands/indicator.md`。**条件选股的缺列另有更严的一档**：把缺列的变量当作无法求值，若表达式（按 `&&`/`||` 的布尔结构）再无任何可成立的分支，则**退出码 1 且不输出**——那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过。⚠️ 这一档以「服务端返回了命中行」为前提；**零命中时一律退出码 0**（没有行需要被质疑），所以空集不能直接当成「无标的符合条件」——另有两种成因产生**逐字相同**的输出：**日期没落在报告期末**（报告期类指标此时整批 `null`），或**该指标不覆盖这批证券**（如拿 A 股专属指标查港美股）。语义约定：`0` 完整成功（含合法空结果）／`3` 有数据但不完整／`4` 数据写出完整、但 `--output` 指向的文件在收尾期间被另一次写向同一路径的导出替换掉了（不是本次命令的产物，stderr 会说明并给出两边的 sha256 前缀；与 `3` 同时发生时退出 `3`）／`1` 硬失败／`130` / `143` / `129` 被 Ctrl-C / `kill` / 终端断开中断（进程以该信号结束，shell 里的 `$?` 即此值，脚本循环会随之停下；本次导出的暂存文件已删除；自动命名的下载被中断时可能留下一个 0 字节的同名文件，删掉即可；中断前已发出的请求服务端照常处理并计费）。接 `| head` 等管道提前关掉读端时，退出码同样保留，脚本需 `set -o pipefail` 才看得到
-- **分页端点返回 `null` 也退出 3**：分页端点的正常响应是 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`，CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建：csv 会写入 3 字节 UTF-8 BOM（Excel 兼容用），jsonl 为 0 字节（旁边的 `.meta.json` 标 `complete: false`）——**按文件大小判空的脚本要留意 csv 的这 3 个字节**。
+- **分页端点返回 `null` 也退出 3**：分页端点的正常响应是 `{total, list}`，真实的空结果是 `{total: 0, list: []}`。若响应体是 `null`，CLI 在 stderr 告警并**退出码 3**——只给告警的话，脚本无法区分「这个筛选确实没命中」和「这个筛选没生效」。机器格式（jsonl/csv）此时 **stdout 不输出任何字节**（不是空行），`--format json` 仍忠实打印 `null`。⚠️ 带 `--output` 时文件仍会被创建，为 0 字节（旁边的 `.meta.json` 标 `complete: false`）。
 - 🔴 **`total` 被服务端封顶时会标 `totalCapped` 并退出 3**：分页端点的 `total` 若被服务端封顶（返回一个固定上限而非真实条数），省略 `--size` 的全量拉取会**正好取满那个上限就停、且不报任何异常**——导出的文件是截断的却看不出来。全量拉取结束后会**多探一行**（`from = total`）：探到数据就标 `partial` + `totalCapped` 并退出 3；探针被服务端以偏移窗口类错误拒绝、或 `total` 正好等于端点声明的偏移窗口（`vault wechat-message-list` / `insight highlight list` 为 10000，窗口外的行取不到也数不到）时，同样按封顶处理。判据不写死 10000，服务端改配置仍然有效；`total` 诚实时探针返回空、不产生计费。传了 `--size` 的有界请求不做此探测。
 - 分页结果中 `total` 字段会被保留（json 格式输出 `{total, list}`）；其他格式下 stderr 输出 `Total: N, showing: M`（json 格式不输出该行）
 
@@ -395,6 +429,7 @@ vault.stock-pool.create
 1. **缓存优先** — 如果之前执行过对应的 `list` 命令，标题已缓存在 `~/.config/gangtise/title-cache.json`，直接使用，**无额外 API 调用、无额外积分**
 2. **兜底** — 缓存未命中时使用服务器返回的原始文件名，无则 `{type}-{id}.{ext}`
 3. **同名不覆盖** — 目标文件已存在时自动加 `-1`、`-2` 后缀；多个下载并发写同一名字时各得其名
+4. **下载链接** — 接口返回的是下载链接而不是文件本身时，CLI 跟随链接下载，文件名同上、扩展名取自链接
 
 推荐工作流：先 `list` 再 `download`，文件名自动正确且零额外成本。
 
@@ -657,6 +692,34 @@ gangtise bond announcement --start-date 2026-09-18 --end-date 2026-09-19 --page-
 
 > **债券命令计费**（多数按次，`rating-overview` 按条、`rating-change` 按有数据的债券只数、`issuer-rating-change` 按发行人），且超时 / 5xx 不自动重放（避免重复扣费）——偶发失败请自行重跑。
 
+### Fund（公募基金）
+
+```bash
+# 基本信息：--security 用带大写后缀的代码（场外 .OF，场内 .SH / .SZ），可重复；--field 写错整批拒绝（100003）
+gangtise fund basic-info --security 005827.OF --security 159967.SZ --field fundName --field investTypeNameLevel2 --field mgrComp --field setupDate
+
+# 净值：算区间收益用复权净值 navAdjusted
+gangtise fund nav --security 005827.OF --start-date 2026-01-01 --end-date 2026-09-29
+
+# 费率、经理（manager-info 按姓名精确匹配，同名全返回）
+gangtise fund fee-rate --security 003096.OF --fee-type redemptionFee
+gangtise fund manager-info --manager 张坤
+gangtise fund manager-history --security 005827.OF
+
+# 持仓：--start-date/--end-date 筛报告期；--position-type all（全部持股）只有中报、年报有
+gangtise fund stock-portfolio --security 005827.OF --start-date 2026-06-30 --end-date 2026-06-30 --position-type all
+gangtise fund industry-allocation --security 005827.OF --start-date 2026-06-30 --end-date 2026-06-30 --industry-standard citicIndustry
+gangtise fund asset-allocation --security 005827.OF --start-date 2026-06-30 --end-date 2026-06-30 --asset-level level1
+
+# ETF：申赎清单只有最新一份；份额变动按交易日
+gangtise fund etf-pcf-components --security 510300.SH --format csv --output ./510300-pcf.csv
+gangtise fund etf-share-change --security 510300.SH --start-date 2026-09-01 --end-date 2026-09-30
+```
+
+> **基金命令一律按次计费 0.4 积分**（与返回行数、基金只数无关，多只基金合并成一次调用最省），超时 / 5xx 不自动重放。不分页：单次上限 10000 行，超出整批报 `100006`，减少只数或缩短区间分批查。**代码不存在、不带后缀或后缀小写都返回空结果、不报错**——拿到空先核对代码。日期两端都不传 = 取账号可回溯窗口内的全部；起点早于窗口整批报 `110003`。
+
+> **取数前注意**：各命令单位不同（`nav` / `asset-allocation` 为元，`asset-size` 为万份 / 万元，持仓明细为万股 / 万张 / 万元）；`holder-structure` 的 `holderCount` 是带千分位的字符串；持仓明细只返回证券简称、不返回代码；`fund-type-allocation` 季报期只含重仓基金（`positionType: top`），中报 / 年报为全部持基（`all`）。逐条见 `gangtise-openapi/references/commands/fund.md`。
+
 ### AI
 
 ```bash
@@ -870,7 +933,7 @@ gangtise tool web-search --query "减持新规" --site csrc.gov.cn --site sse.co
 # 限定时效窗口（无法解析出发布日期的结果在 day/week/month 下不返回）
 gangtise tool web-search --query "券商 合并 传闻 辟谣" --freshness week
 
-# 精读：返回网页正文（Markdown），此时 --size 上限降为 5
+# 精读：返回网页正文（Markdown），此时 --size 上限降为 5（不传 --size 默认取 5 条）
 gangtise tool web-search --query "上市公司股东减持股份管理暂行办法" --site csrc.gov.cn --include-content --max-content-chars 6000 --size 2 --format json
 ```
 
@@ -900,6 +963,10 @@ gangtise raw call insight.opinion.list --body '{"from":0,"size":120}'
 
 所有格式均支持 `--output <path>` 输出到文件（自动创建父目录）。`csv` / `jsonl` 落盘时会在旁边写 `<path>.meta.json`（命令、行数、列、完整性标记、抓取时间），`complete: false` 即退出码 3 那次导出，缺了什么看 `result` 里的标记。
 
+- `csv` 对 `=` / `@` / `+` / `-`（及制表符、回车）开头的值加前导 `'` 防公式注入；`-3.5%`、`+5.2%`、`-1,234.5`、`-` 这类数值样式的值不加
+- 没有数据行时，列名已知的 `csv` 仍写出表头
+- `table` 在终端里会截断过长的单元格，写到文件（`--output`）时不截断
+
 ## 参数校验
 
 CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 API：
@@ -909,7 +976,10 @@ CLI 会在本地校验常见数值参数，避免把明显非法的请求发到 
 - `--file-type` / `--resource-type` 以及数值型列表参数：整数
 - 数值一律按十进制写法解析：`0x10`、`1e3`、`5.0` 这类写法在发请求前拒绝，不会被悄悄换算成别的数
 - 所有 date 参数（`--start-date`/`--end-date`/`--date`/`--report-date`，含 Quote/Fundamental/AI/Alternative/Indicator）：`YYYY-MM-DD`、`YYYY/MM/DD` 或 `YYYYMMDD`，统一归一成 `YYYY-MM-DD` 发出（年在后等歧义写法在发请求前拒绝，见下节）
-- 所有 `--start-time` / `--end-time`（Insight/Vault/AI 透传、`quote minute-kline`，以及 A 股公告 / `knowledge-batch` 两个转换端点）：上述三种日期写法 + 可选的 `[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔），或 10/13 位 Unix 时间戳（同样归一日期部分、拒绝年在后写法）。两个转换端点把日期与时刻按**北京时间**换算成毫秒，与运行机器的时区无关
+- 所有 `--start-time` / `--end-time`（Insight/Vault/AI 透传、`quote minute-kline`，以及 A 股公告 / `knowledge-batch` 两个转换端点）：上述三种日期写法 + 可选的 `[ HH:mm[:ss]]`（秒可省、空格或 `T` 分隔），或 10/13 位 Unix 时间戳（同样归一日期部分、拒绝年在后写法）。两个转换端点把日期与时刻按**北京时间**换算成毫秒，与运行机器的时区无关；`--end-time` 只写日期时按当日 23:59:59 换算，`--start-time D --end-time D` 即取 D 这一整天
+- `indicator` 的 `--indicator-param` 里键名以 `Date` 结尾的值（`reportDate` / `tradeDate` 等）：与 `--date` 相同的规则校验并归一
+- 列表参数（代码、ID、字段名、枚举值）：可重复传，也可用逗号、顿号、分号或空格分隔，重复值自动去掉；名称类参数（`--manager` / `--issuer` / `--room-name` / `--knowledge-name`）只按逗号分隔，名称里的空格与顿号原样保留
+- 只收一个值的参数重复传直接报错（不会只取最后一个）；`fund` 命令的 `--security` / `--manager` 给了空值（如 `--security ""`）在本地报错、不发请求
 
 校验失败会输出 `ValidationError: Invalid ...` 并以非 0 状态退出。
 
@@ -943,7 +1013,7 @@ datetime 参数（`--start-time` / `--end-time`）同理，只归一日期部分
 | `ValidationError` | 本地参数校验失败，检查 `--size` / `--limit` / `--from` / `--file-type` 等数值参数 |
 | `API error (HTTP 4xx/5xx)` | HTTP 层失败；CLI 会把 4xx/5xx 响应视为错误，即使响应体不是标准 `{code,msg,data}` 信封 |
 | `999011` | 开发账号凭证无效（AK/SK 不匹配，不区分是 AK 错还是 SK 错） |
-| `999002` / `0000001008` | Token 无效或已过期（有 AK/SK 时 CLI 自动重登重试一次） |
+| `999002` / `0000001008` | Token 无效或已过期（有 AK/SK 时 CLI 自动换用已刷新的 token 或重新登录，再重发） |
 | `999001` / `0000001007` | 请求未携带 token |
 | `999003` | 未开通接口权限（定制接口需联系客户经理） |
 | `999005` | 积分不足 |
@@ -957,6 +1027,7 @@ datetime 参数（`--start-time` / `--end-time`）同理，只归一日期部分
 | `100001` | 缺必填参数（msg 带字段名，如「缺少必填参数: reportId」） |
 | `100006` | 查询/下载数量超限 |
 | `110001` / `110002` | 日期格式错误 / 日期区间非法（起晚于止） |
+| `110003` | 超出账号数据权限的时间范围（按账号配、不按接口配）：把日期移进范围，更长历史联系客户经理 |
 | `120001` | 证券代码无效（用 `reference securities-search` 确认代码与后缀） |
 | `130001` | 数据未找到或无指标权限 |
 | `130002` | 资源不存在——**下载类的兜底码**，`--report-id` 不存在 / 非数字都归这里（`--file-type` 写错由 CLI 在本地报错，不发请求） |

@@ -1,9 +1,10 @@
+import { createHash, type Hash } from "node:crypto"
 import { createReadStream, createWriteStream, type WriteStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
 
 import { assertColumnarHeader, zipFieldRow } from "./normalize.js"
-import { csvEscape, digestFile, type ExportDigest, formatScalar, stagingPath, writeLine, writeLines, LINES_PER_WRITE } from "./output.js"
+import { csvHeader, csvRow, type ExportDigest, publishFile, stagingPath, writeLine, LINES_PER_WRITE } from "./output.js"
 import { extractTitles, MAX_TITLES_PER_ENDPOINT, type TitleCacheConfig } from "./titleCache.js"
 
 /** Non-enumerable key under which a producer hangs the sink it streamed into on the result
@@ -31,7 +32,8 @@ export type SinkFormat = "jsonl" | "csv"
  * while the column set accumulates; finish() then streams that file back line by line
  * into the csv (two passes over disk, still O(1) memory). Row shaping matches
  * rowsFromList: object rows under the union of their keys, scalar rows dropped when any
- * object row exists and shown as index/value pairs otherwise.
+ * object row exists and shown as index/value pairs otherwise. The published file's bytes are
+ * hashed as they are written — it is never read back.
  */
 export class ExportSink {
   /** Rows written out. */
@@ -60,6 +62,9 @@ export class ExportSink {
    * abort() comes to remove them. */
   private readonly partPath: string
   private readonly rowsPath: string
+  /** Hash of the bytes written to the file that will be published (partPath). */
+  private hash: Hash = createHash("sha256")
+  private bytes = 0
 
   constructor(readonly outputPath: string, readonly format: SinkFormat = "jsonl", private readonly cache?: TitleCacheConfig) {
     this.partPath = stagingPath(outputPath)
@@ -138,8 +143,8 @@ export class ExportSink {
     try {
       await endStream(stream)
       if (this.format === "csv") await this.assembleCsv()
-      this.digest = await digestFile(this.partPath)
-      await fs.rename(this.partPath, this.outputPath)
+      this.digest = { bytes: this.bytes, sha256: this.hash.digest("hex") }
+      await publishFile(this.partPath, this.outputPath)
       this.finished = true
     } catch (error) {
       await this.abort()
@@ -193,7 +198,7 @@ export class ExportSink {
         }
       }
       chunk.push(JSON.stringify(item))
-      if (chunk.length >= LINES_PER_WRITE) { await writeLines(stream, chunk); chunk = [] }
+      if (chunk.length >= LINES_PER_WRITE) { await this.writeChunk(stream, chunk, this.format === "jsonl"); chunk = [] }
       this.rows++
       if (this.cache && this.titleCount < MAX_TITLES_PER_ENDPOINT) {
         for (const [id, title] of Object.entries(extractTitles([item], this.cache))) {
@@ -202,7 +207,20 @@ export class ExportSink {
         }
       }
     }
-    await writeLines(stream, chunk)
+    await this.writeChunk(stream, chunk, this.format === "jsonl")
+  }
+
+  /** One write of newline-terminated lines; `published` when they go to the file that will
+   * be published, so its digest is taken from exactly these bytes. */
+  private async writeChunk(stream: WriteStream, lines: string[], published: boolean): Promise<void> {
+    if (lines.length === 0) return
+    const text = lines.join("\n")
+    if (published) {
+      const buf = Buffer.from(`${text}\n`, "utf8")
+      this.hash.update(buf)
+      this.bytes += buf.byteLength
+    }
+    await writeLine(stream, text)
   }
 
   /** Second pass for csv: the buffered jsonl rows become the csv, header first. The writer
@@ -221,7 +239,7 @@ export class ExportSink {
     // is why the reader is NOT created until after it: a Readable created before an await
     // has nobody listening for 'error' until the loop below starts, and an open failure
     // in that window is an uncaught exception, not a rejection.
-    await writeLine(out, "\ufeff" + columns.map(csvEscape).join(","))
+    await this.writeChunk(out, [`\ufeff${csvHeader(columns)}`], true)
     // Created in the same synchronous segment as the loop that consumes it: async
     // iteration attaches its error handling at loop entry, so no error can slip in
     // between. A read error rejects the loop (readline's error semantics vary by
@@ -235,9 +253,9 @@ export class ExportSink {
         const item = JSON.parse(line) as unknown
         if (objectMode) {
           if (!isObjectRow(item)) return
-          csvLines.push(columns.map((column) => csvEscape(formatScalar(item[column]))).join(","))
+          csvLines.push(csvRow(columns, item))
         } else {
-          csvLines.push(`${csvEscape(String(index++))},${csvEscape(formatScalar(item))}`)
+          csvLines.push(csvRow(columns, { index: index++, value: item }))
         }
       }
       // JSON.stringify never emits a raw newline, so splitting on "\n" is exact.
@@ -246,10 +264,10 @@ export class ExportSink {
         const lines = (rest + String(chunk)).split("\n")
         rest = lines.pop() ?? ""
         for (const line of lines) emit(line)
-        if (csvLines.length >= LINES_PER_WRITE) { await writeLines(out, csvLines); csvLines = [] }
+        if (csvLines.length >= LINES_PER_WRITE) { await this.writeChunk(out, csvLines, true); csvLines = [] }
       }
       emit(rest)
-      await writeLines(out, csvLines)
+      await this.writeChunk(out, csvLines, true)
       await endStream(out)
     } catch (error) {
       input.destroy()

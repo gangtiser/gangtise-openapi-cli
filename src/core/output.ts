@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
-import { rmSync, statSync } from "node:fs"
+import { renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import fs from "node:fs/promises"
+import path from "node:path"
 
 import type { OutputFormat } from "./config.js"
 import { ConfigError } from "./errors.js"
@@ -24,6 +25,60 @@ export function stagingPath(target: string, suffix = "part"): string {
   const staging = `${target}.${randomBytes(4).toString("hex")}.${suffix}`
   handedOut.add(staging)
   return staging
+}
+
+/** Write `content` to `target` in one go through a staging sibling renamed into place, so a
+ * failed write (disk full, a crash) leaves neither a truncated target nor the staging file
+ * behind. `mode` holds from the first byte: the staging file is created with it and the
+ * rename carries it over — a follow-up chmod would leave a window. The one implementation
+ * for whole-content writes; streaming writers (rowSink, exports, downloads) stage the same
+ * way but publish on their own schedule. */
+export async function writeFileAtomic(target: string, content: string | Uint8Array, options: { mode?: number; suffix?: string } = {}): Promise<void> {
+  const staging = stagingPath(target, options.suffix)
+  try {
+    await fs.writeFile(staging, content, options.mode === undefined ? undefined : { mode: options.mode })
+    await publishFile(staging, target)
+  } catch (error) {
+    await fs.unlink(staging).catch(() => {})
+    throw error
+  }
+}
+
+/** The dev / inode each file this process published has, by absolute path. rename keeps
+ * the inode, so a path that still holds the same one is still ours, and nothing needs to be
+ * read back to know it (see stillPublished; a DIFFERENT inode is only a hint, see
+ * warnIfSuperseded). */
+const publishedIdentity = new Map<string, { dev: number; ino: number }>()
+
+/** Move a finished staging file over `target`, remembering which file it was. Every write
+ * that publishes by rename goes through here. */
+export async function publishFile(staging: string, target: string): Promise<void> {
+  const { dev, ino } = await fs.stat(staging)
+  await fs.rename(staging, target)
+  publishedIdentity.set(path.resolve(target), { dev, ino })
+}
+
+/** Is the file at `target` still the one this process published there? `undefined` when that
+ * cannot be told: nothing recorded, a filesystem without inode numbers (0), or a failed stat
+ * (a transient failure is not evidence of a replacement). */
+export async function stillPublished(target: string): Promise<boolean | undefined> {
+  const mine = publishedIdentity.get(path.resolve(target))
+  if (!mine || !mine.ino) return undefined
+  const now = await fs.stat(target).catch(() => undefined)
+  if (!now) return undefined
+  return now.dev === mine.dev && now.ino === mine.ino
+}
+
+/** `writeFileAtomic` for the few callers that cannot await (the update check). */
+export function writeFileAtomicSync(target: string, content: string, options: { suffix?: string } = {}): void {
+  const staging = stagingPath(target, options.suffix)
+  try {
+    writeFileSync(staging, content)
+    renameSync(staging, target)
+  } catch (error) {
+    try { rmSync(staging, { force: true }) } catch { /* nothing to remove */ }
+    throw error
+  }
 }
 
 /** Every staging name this process has handed out. */
@@ -203,10 +258,11 @@ function clampCell(value: string): string {
   return out + "…"
 }
 
-function renderTable(rows: Array<Record<string, unknown>>): string {
+function renderTable(rows: Array<Record<string, unknown>>, clamp: boolean): string {
   if (rows.length === 0) {
     return "(empty)"
   }
+  const cell = clamp ? clampCell : (value: string) => value
 
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
   // Format every cell once (formatScalar may JSON.stringify objects), sanitizing
@@ -215,8 +271,8 @@ function renderTable(rows: Array<Record<string, unknown>>): string {
   // spreading a per-row array overflows the call stack on large results (table is
   // the default format, e.g. `quote day-kline --security all`). Widths and padding
   // use displayWidth so CJK cells stay aligned.
-  const headerCells = columns.map((column) => clampCell(sanitizeCell(column)))
-  const matrix = rows.map((row) => columns.map((column) => clampCell(sanitizeCell(formatScalar(row[column])))))
+  const headerCells = columns.map((column) => cell(sanitizeCell(column)))
+  const matrix = rows.map((row) => columns.map((column) => cell(sanitizeCell(formatScalar(row[column])))))
   // Each cell's width once, reused for the column widths and for the padding.
   const cellWidths = matrix.map((cells) => cells.map(displayWidth))
   const headerWidths = headerCells.map(displayWidth)
@@ -248,15 +304,30 @@ function renderMarkdown(rows: Array<Record<string, unknown>>): string {
   return [header, divider, ...body].join("\n")
 }
 
-function renderCsv(rows: Array<Record<string, unknown>>): string {
-  if (rows.length === 0) {
-    return ""
-  }
+export function csvHeader(columns: readonly string[]): string {
+  return columns.map(csvEscape).join(",")
+}
 
-  const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
-  const header = columns.map(csvEscape).join(",")
-  const body = rows.map((row) => columns.map((column) => csvEscape(formatScalar(row[column]))).join(","))
-  return [header, ...body].join("\n")
+export function csvRow(columns: readonly string[], row: Record<string, unknown>): string {
+  return columns.map((column) => csvEscape(formatScalar(row[column]))).join(",")
+}
+
+/** The lines of a jsonl or csv render of `value`, in order — ONE generator for the in-memory
+ * render, the file writer and stdout, so no two of them shape rows differently. jsonl: one
+ * line per jsonlItems record. csv: the header, then one line per toRows row under the union
+ * of the rows' keys; with no rows at all, the header alone when the columns are known
+ * (`columns`: a columnar result's fieldList), else nothing — an object-row result with no
+ * rows has no columns to name. */
+export function* outputLines(value: unknown, format: "jsonl" | "csv", columns?: readonly unknown[]): Generator<string> {
+  if (format === "jsonl") {
+    for (const item of jsonlItems(value)) yield JSON.stringify(item)
+    return
+  }
+  const rows = toRows(value)
+  const header = rows.length > 0 ? Array.from(new Set(rows.flatMap((row) => Object.keys(row)))) : (columns ?? []).map(String)
+  if (header.length === 0) return
+  yield csvHeader(header)
+  for (const row of rows) yield csvRow(header, row)
 }
 
 /** The records a jsonl render of `value` emits — ONE rule for the in-memory renderer, the
@@ -275,49 +346,71 @@ export function countOutputRows(value: unknown, format: "jsonl" | "csv"): number
   return format === "jsonl" ? jsonlItems(value).length : toRows(value).length
 }
 
-export function renderOutput(value: unknown, format: OutputFormat): string {
+export interface RenderOptions {
+  /** A columnar result's fieldList: names the csv header when there are no rows. */
+  columns?: readonly unknown[]
+  /** Cap table cells at MAX_CELL_DISPLAY_WIDTH. For the terminal only: a file written with
+   * --format table keeps every cell whole — a cut cell there is lost data, not layout. */
+  clampCells?: boolean
+}
+
+export function renderOutput(value: unknown, format: OutputFormat, options: RenderOptions = {}): string {
   // toRows is computed lazily per branch: json never needs it, and jsonl only
   // falls back to it when the value isn't already a {list}.
   switch (format) {
     case "json":
       return JSON.stringify(value, null, 2)
     case "jsonl":
-      return jsonlItems(value).map((item) => JSON.stringify(item)).join("\n")
     case "csv":
-      return renderCsv(toRows(value))
+      return [...outputLines(value, format, options.columns)].join("\n")
     case "markdown":
       return renderMarkdown(toRows(value))
     case "table":
     default:
-      return renderTable(toRows(value))
+      return renderTable(toRows(value), options.clampCells ?? true)
   }
 }
 
-/** Stream large jsonl/csv output row-by-row to avoid building a full string in memory. */
-export async function streamOutputToFile(value: unknown, format: OutputFormat, outputPath: string): Promise<ExportDigest | null> {
+/** Write `value` as jsonl / csv lines to `stream`, a batch of lines per write (a result of
+ * any size never becomes one string: V8 caps a string near 512 MiB, and a redirected
+ * full-market pull passes that). Every line ends with a newline. With `digest`, the bytes
+ * are hashed as they are written, so the caller never reads the file back to describe it.
+ * `bom`: csv files start with one so Excel decodes Chinese as UTF-8; stdout does not. */
+export async function writeOutputLines(stream: LineSink, value: unknown, format: "jsonl" | "csv", options: { columns?: readonly unknown[]; bom?: boolean; digest?: boolean } = {}): Promise<ExportDigest | undefined> {
+  const hash = options.digest ? createHash("sha256") : undefined
+  let bytes = 0
+  const flush = async (lines: string[]): Promise<void> => {
+    if (lines.length === 0) return
+    const text = lines.join("\n")
+    if (hash) {
+      const buf = Buffer.from(`${text}\n`, "utf8")
+      hash.update(buf)
+      bytes += buf.byteLength
+    }
+    await writeLine(stream, text)
+  }
+  let chunk: string[] = []
+  let first = true
+  for (const line of outputLines(value, format, options.columns)) {
+    chunk.push(first && options.bom && format === "csv" ? `\ufeff${line}` : line)
+    first = false
+    if (chunk.length >= LINES_PER_WRITE) { await flush(chunk); chunk = [] }
+  }
+  await flush(chunk)
+  return hash ? { bytes, sha256: hash.digest("hex") } : undefined
+}
+
+/** Write a jsonl / csv export to `outputPath`: line batches into a staging sibling, hashed as
+ * they are written, then renamed over the target only on success — a failed re-export never
+ * destroys the previous good file, and nothing is read back. Every size goes this way, so a
+ * small file and a large one end the same way (with a newline). Returns null for the other
+ * formats, which the caller renders whole. */
+export async function streamOutputToFile(value: unknown, format: OutputFormat, outputPath: string, columns?: readonly unknown[]): Promise<ExportDigest | null> {
   if (format !== "jsonl" && format !== "csv") return null
 
-  const list = pickList(value)
-  if (!list) return null
-  // Below this row count the join() approach is cheaper than per-row writes.
-  if (list.length < 1000) return null
-
-  // csv can only stream object rows; an all-scalar list has no columns — fall back
-  // to renderOutput's index/value shaping instead of writing a BOM-only file.
-  let csvRows: Array<Record<string, unknown>> = []
-  let csvColumns: string[] = []
-  if (format === "csv") {
-    csvRows = list.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
-    if (csvRows.length === 0) return null
-    csvColumns = Array.from(new Set(csvRows.flatMap((row) => Object.keys(row))))
-  }
-
-  const { dirname } = await import("node:path")
   const { createWriteStream } = await import("node:fs")
-  await fs.mkdir(dirname(outputPath), { recursive: true })
+  await fs.mkdir(path.dirname(outputPath), { recursive: true })
 
-  // Stream into a staging sibling and rename over the target only on success, so a
-  // failed re-export never destroys the previous good file.
   const partPath = stagingPath(outputPath)
   const stream = createWriteStream(partPath, { encoding: "utf8" })
   // A stream 'error' with no listener (EACCES on open, ENOSPC mid-write) crashes the
@@ -325,29 +418,11 @@ export async function streamOutputToFile(value: unknown, format: OutputFormat, o
   // still surfaces through the write/end callbacks below.
   stream.on("error", () => {})
   try {
-    if (format === "jsonl") {
-      // Same record selection as renderOutput, so crossing the 1000-row threshold never
-      // changes which rows a bare array yields.
-      let chunk: string[] = []
-      for (const item of jsonlItems(value)) {
-        chunk.push(JSON.stringify(item))
-        if (chunk.length >= LINES_PER_WRITE) { await writeLines(stream, chunk); chunk = [] }
-      }
-      await writeLines(stream, chunk)
-    } else {
-      // BOM so Excel double-click decodes Chinese as UTF-8 instead of ANSI/GBK.
-      let chunk = ["\ufeff" + csvColumns.map(csvEscape).join(",")]
-      for (const row of csvRows) {
-        chunk.push(csvColumns.map((column) => csvEscape(formatScalar(row[column]))).join(","))
-        if (chunk.length >= LINES_PER_WRITE) { await writeLines(stream, chunk); chunk = [] }
-      }
-      await writeLines(stream, chunk)
-    }
+    const digest = await writeOutputLines(stream, value, format, { columns, bom: true, digest: true }) as ExportDigest
     await new Promise<void>((resolve, reject) => {
       stream.end((err?: Error | null) => err ? reject(err) : resolve())
     })
-    const digest = await digestFile(partPath)
-    await fs.rename(partPath, outputPath)
+    await publishFile(partPath, outputPath)
     return digest
   } catch (error) {
     // Mirror the download path: never leave a truncated file that looks complete.
@@ -376,12 +451,16 @@ export function pickList(value: unknown): unknown[] | null {
   return null
 }
 
+const NUMERIC_LOOKING = /^[+\-](?:(?=[^\d]*\d)[\d.,%eE]+)?$/
+
 export function csvEscape(value: string): string {
   let out = value
-  // Formula-injection guard, but don't mangle legitimate numbers: a leading
-  // -/+ only needs escaping when the cell isn't a finite number (e.g. "-1+cmd"),
-  // so values like "-3.5" stay numeric for Excel/pandas.
-  if (/^[=@\t\r]/.test(out) || (/^[+\-]/.test(out) && !Number.isFinite(Number(out)))) out = "'" + out
+  // Formula-injection guard, but don't mangle legitimate values: a leading -/+ only needs
+  // escaping when what follows is more than a number — digits with separators, a percent
+  // or an exponent ("-3.5%", "+5.2%", "-1,234.5", "-1e3"), or the sign alone ("-", a common
+  // placeholder), stay as they are. A payload like "-1+cmd|..." carries operators or
+  // letters and is still escaped.
+  if (/^[=@\t\r]/.test(out) || (/^[+\-]/.test(out) && !NUMERIC_LOOKING.test(out))) out = "'" + out
   if (/[",\n\r]/.test(out)) return `"${out.replaceAll("\"", "\"\"")}"`
   return out
 }
@@ -426,22 +505,11 @@ export async function saveOutputIfNeeded(content: string | Uint8Array, outputPat
   const { dirname } = await import("node:path")
   await fs.mkdir(dirname(outputPath), { recursive: true })
 
-  // Write to a staging sibling and rename over the target only on success, so a
-  // failed re-export/download never destroys the previous good file.
-  const partPath = stagingPath(outputPath)
-  try {
-    if (typeof content === "string") {
-      await fs.writeFile(partPath, content, "utf8")
-    } else {
-      await fs.writeFile(partPath, content)
-    }
-    // Digested from `content`, not from the file: these are the bytes just written. Only an
-    // export's sidecar uses it, so downloads pass `withDigest = false` and skip the hash.
-    const digest = withDigest ? digestBuffer(content) : undefined
-    await fs.rename(partPath, outputPath)
-    return digest
-  } catch (error) {
-    await fs.unlink(partPath).catch(() => {})
-    throw error
-  }
+  // Staged and renamed over the target only on success, so a failed re-export/download
+  // never destroys the previous good file. Digested from `content`, not from the file: these
+  // are the bytes being written. Only an export's sidecar uses it, so downloads pass
+  // `withDigest = false` and skip the hash.
+  const digest = withDigest ? digestBuffer(content) : undefined
+  await writeFileAtomic(outputPath, content)
+  return digest
 }

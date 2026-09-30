@@ -45,7 +45,7 @@ gangtise tool web-search --query "<标题>" --site csrc.gov.cn --include-content
 ```
 
 - `--query`（**必填**）：1–200 字符。**服务端不做意图推断或改写**，检索词原样发送；要限定站点必须显式用 `--site`
-- `--size`：1–20，默认 10；**带 `--include-content` 时上限降为 5**（CLI 本地拦截并说明是哪个 flag 压低了上限）。指去重与过滤**之后**的条数，不足不补
+- `--size`：1–20，默认 10；**带 `--include-content` 时上限降为 5、默认也随之取 5**（显式传超过 5 的值 CLI 本地拦截并说明是哪个 flag 压低了上限）。指去重与过滤**之后**的条数，不足不补
 - `--freshness`：`day` / `week` / `month` / `none`（默认）。按 `publishTime` 过滤，⚠️ **判不出发布日期（`publishTime` 为 `null`）的结果在 `day`/`week`/`month` 下不返回**——收窄时效会连带丢掉这批
 - `--min-tier`：`T0` / `T1` / `T2` / `T3`（默认 T3 = 不过滤）。低于该等级不返回
 - `--site`：注册域或子域（`csrc.gov.cn`、`finance.sina.com.cn`），可重复，**最多 10 个**（按去重后计），相互之间是**或**关系，子域按后缀匹配

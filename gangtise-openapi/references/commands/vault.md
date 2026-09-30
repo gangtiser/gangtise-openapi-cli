@@ -93,7 +93,7 @@ gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wec
 gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n>]
 ```
 
-- `--room-name`：可重复或英文逗号分隔
+- `--room-name`：可重复或逗号分隔（名称里的空格、顿号原样保留）
 - 省略 `--size` 拉全量（接口返回 `total`，CLI 按 total 并发翻页）；传 `--size N` 只取前 N 条。单页最大 50
 - 返回字段：`total`（总条数）/ `chatroomName` / `chatroomId`
 

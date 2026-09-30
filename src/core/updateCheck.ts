@@ -3,24 +3,21 @@
  * The registry's answer is kept for a day, so the command only waits on the network
  * (1–2.5 s) once a day rather than every time.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { isVersionNewer } from "./args.js"
-import { stagingPath } from "./output.js"
+import { writeFileAtomicSync } from "./output.js"
 
 export const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000
 export const DEFAULT_UPDATE_CHECK_PATH = path.join(os.homedir(), ".config", "gangtise", "update-check.json")
 
 function saveLatest(cachePath: string, latest: string, now: number): void {
-  const staging = stagingPath(cachePath, "tmp")
   try {
     mkdirSync(path.dirname(cachePath), { recursive: true })
-    writeFileSync(staging, JSON.stringify({ checkedAt: now, latest }))
-    renameSync(staging, cachePath)
+    writeFileAtomicSync(cachePath, JSON.stringify({ checkedAt: now, latest }), { suffix: "tmp" })
   } catch {
     // A read-only home only costs the next run another registry call.
-    try { rmSync(staging, { force: true }) } catch { /* nothing to remove */ }
   }
 }
 

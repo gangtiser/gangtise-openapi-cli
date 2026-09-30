@@ -44,7 +44,7 @@ tool.command("file-parse-check").description("Download a finished file-parse res
 
 tool.command("web-search").description("Search the public web for research: deduped, source-tiered (T0-T3) results with optional page content (1 credit/call)")
   .requiredOption("--query <text>", "Search query, 1-200 chars. Sent verbatim — no intent rewriting server-side, so spell out what you want")
-  .option("--size <number>", "Results to return, 1-20 (1-5 with --include-content)", "10")
+  .option("--size <number>", "Results to return, 1-20 (1-5 with --include-content); default 10, or 5 with --include-content")
   .addOption(new Option("--freshness <window>", "Time window over publishTime; results with no resolvable publish date are dropped by day/week/month").choices(["day", "week", "month", "none"]))
   .addOption(new Option("--min-tier <tier>", "Lowest source tier to keep; T3 = no filtering").choices(["T0", "T1", "T2", "T3"]))
   .option("--site <domain>", "Restrict to a registered domain or subdomain, e.g. csrc.gov.cn (repeatable, max 10, OR-ed)", collectList, [])
@@ -52,10 +52,10 @@ tool.command("web-search").description("Search the public web for research: dedu
   .option("--max-content-chars <number>", "Max chars per body, 1000-20000 (only with --include-content)")
   .option("--format <format>", "Output format", "table").option("--output <path>")
   .action((options) => emit(options, (client) => {
-    // The size ceiling drops to 5 with bodies on. Checked here so a rejected call
-    // doesn't spend the credit, and so the message names the flag that lowered the cap
-    // instead of an unexplained "expected a number <= 5".
-    const size = parseNumberOption(options.size, "--size", { integer: true, min: 1, max: 20 })
+    // The size ceiling drops to 5 with bodies on, so the default follows it: a plain
+    // `--include-content` must not fail on a --size nobody typed. An explicit size over 5
+    // is refused here, before the credit is spent, naming the flag that lowered the cap.
+    const size = parseNumberOption(options.size ?? (options.includeContent ? "5" : "10"), "--size", { integer: true, min: 1, max: 20 })
     if (options.includeContent && size > 5) throw new ValidationError(`--size ${size} with --include-content: this endpoint caps size at 5 when page bodies are requested. Lower --size, or drop --include-content to fetch up to 20 snippets.`)
     // Counted after de-duplication, as the server counts it.
     const sites = [...new Set(options.site as string[])]

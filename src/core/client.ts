@@ -9,10 +9,10 @@ import { FormData, request } from "undici"
 import type { CliConfig } from "./config.js"
 import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, attachEnvelopeTraceId, markStructural, ValidationError } from "./errors.js"
-import { ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
+import { COSTLY_FETCH_CREDITS, ENDPOINTS, type EndpointDefinition, resolveTimeoutMs } from "./endpoints.js"
 import { getLookupData } from "./lookupData/index.js"
 import { stagingPath } from "./output.js"
-import { decodeResponseBody, getDispatcher, isVerbose, logTiming, markRetryable, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runInOrder, withRetry } from "./transport.js"
+import { decodeResponseBody, getDispatcher, isVerbose, JSON_TOTAL_FACTOR, logTiming, markAuthReplay, PAGE_CONCURRENCY, parseRetryAfterMs, quoteBigIntFields, runInOrder, TRANSFER_TOTAL_FACTOR, withRetry } from "./transport.js"
 import { attachRowSink, type ExportSink } from "./rowSink.js"
 import type { DownloadResult } from "./download.js"
 import { markIncomplete } from "./exitStatus.js"
@@ -43,10 +43,6 @@ function hasExpectedShape(expects: "list" | "array", payload: unknown): boolean 
   return Boolean(payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>).list))
 }
 
-/** Credits above which a --size-less fetch of a per-row billed list is refused once its
- * total is known (see `billing` in endpoints.ts). Omitting --size means "everything", and on
- * a list priced per row everything can be tens of thousands of credits from one missing flag. */
-export const COSTLY_FETCH_CREDITS = 1000
 /** A guarded list whose full first page would cost more than this learns its total from a
  * one-row probe first, so a refused fetch pays for one row rather than a page. */
 const PROBE_ABOVE_CREDITS = 50
@@ -86,12 +82,23 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value)
 }
 
+/** One logical request's token recovery so far (see refreshAuthIfRecoverable). */
+interface AuthRecovery {
+  /** Replayed with a token that did not come from a login of this process. */
+  usedUnprovenToken?: boolean
+  /** Replayed with a token this process's login minted. */
+  usedLoginToken?: boolean
+}
+
 export class GangtiseClient {
   /** The caller confirmed (--yes) a --size-less fetch past COSTLY_FETCH_CREDITS. */
   allowCostlyFetch = false
 
   private refreshPromise: Promise<string> | null = null
   private memoCache: TokenCache | null = null
+  /** The token this process's last login returned: proven, unlike one read from the cache
+   * file (see refreshAuthIfRecoverable). */
+  private loginToken: string | null = null
   // After an injected env token (GANGTISE_TOKEN) is rejected and we self-heal via
   // login, stop preferring that now-stale token so the retry uses the fresh one.
   private envTokenInvalidated = false
@@ -169,6 +176,7 @@ export class GangtiseClient {
       issuedFor: credentialFingerprint(credentials.accessKey, this.config.baseUrl),
     }
     this.memoCache = cache
+    this.loginToken = accessToken
     try {
       await writeTokenCache(this.config.tokenCachePath, cache)
     } catch (error) {
@@ -182,39 +190,63 @@ export class GangtiseClient {
   }
 
   /**
-   * On a recoverable auth error (expired/invalid token codes), force a one-time
-   * token refresh and re-throw as retryable so withRetry replays the request.
-   * Otherwise — or once we've already retried this request — it's a no-op and
-   * the caller re-throws the original error. `authState` persists across the
-   * withRetry attempts so we only refresh once per logical request.
+   * On a recoverable auth error (expired/invalid token codes), get a working token and
+   * re-throw marked for an auth replay, so withRetry sends the request again (outside its
+   * transient-retry budget). Otherwise it's a no-op and the caller re-throws the original
+   * error. `authState` persists across the attempts of one logical request.
+   *
+   * A login is the last resort: back-to-back logins can end each other's sessions
+   * server-side (the 0000001008 semantics). So a token someone else already obtained is
+   * tried first — from memory, or from the shared cache file. Such a token is unproven when
+   * it did not come from a login of this process (a cache file can hold an old, dead one,
+   * and another request may have just put one in memory), so each request may replay with
+   * an unproven token once, and a failure after that logs in. A token this process's login
+   * minted that fails too ends the recovery: no login loop.
    */
-  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean }, usedAuthorization?: string): Promise<void> {
-    if (
+  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: AuthRecovery, usedAuthorization?: string): Promise<void> {
+    if (!(
       useAuth
-      && !authState.retried
       && error instanceof ApiError
       && error.code
       && AUTH_RETRY_CODES.has(error.code)
       && this.config.accessKey
       && this.config.secretKey
-    ) {
-      authState.retried = true
-      this.envTokenInvalidated = true
-      // If the failed request was still carrying an OLDER token than the one now in
-      // memoCache, another request already refreshed — replay with the fresh token
-      // instead of logging in again (back-to-back logins can kick each other's
-      // sessions server-side, the 0000001008 semantics). If the failed request used
-      // the CURRENT token, that token is genuinely dead: force a new login. A time
-      // window is NOT a valid proxy here — right after the initial login the window
-      // is always "recent", which would skip the refresh exactly when it's needed.
+    )) return
+    if (authState.usedLoginToken) return
+    this.envTokenInvalidated = true
+    const replay = () => markAuthReplay(new ApiError(error.message, error.code, error.statusCode, error.details))
+    // A live token in memory other than the one that failed: take it. A time window is NOT
+    // a valid proxy for "someone refreshed" — right after the initial login the window is
+    // always "recent", which would skip the refresh exactly when it's needed.
+    const tryMemory = (): void => {
       const memoToken = this.memoCache && isTokenCacheValid(this.memoCache) ? normalizeToken(this.memoCache.accessToken) : null
-      const alreadyRefreshed = memoToken !== null && usedAuthorization !== undefined && usedAuthorization !== memoToken
-      if (!alreadyRefreshed) {
-        this.memoCache = null
-        await this.getAuthorizationHeader(true)
+      if (memoToken === null || usedAuthorization === undefined || memoToken === usedAuthorization) return
+      if (memoToken === this.loginToken) {
+        authState.usedLoginToken = true
+        throw replay()
       }
-      throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
+      if (!authState.usedUnprovenToken) {
+        authState.usedUnprovenToken = true
+        throw replay()
+      }
     }
+    tryMemory()
+    if (!authState.usedUnprovenToken) {
+      const expected = credentialFingerprint(this.config.accessKey, this.config.baseUrl)
+      const disk = await readTokenCache(this.config.tokenCachePath)
+      // Checked again after the read: a request of this process may have logged in while it
+      // ran, and the snapshot just read can predate that login's write.
+      tryMemory()
+      if (disk && isTokenCacheValid(disk, undefined, expected) && normalizeToken(disk.accessToken) !== usedAuthorization) {
+        this.memoCache = disk
+        authState.usedUnprovenToken = true
+        throw replay()
+      }
+    }
+    this.memoCache = null
+    await this.getAuthorizationHeader(true)
+    authState.usedLoginToken = true
+    throw replay()
   }
 
   /** `new URL("/a/b", "https://proxy/prefix")` drops "/prefix" — an absolute path
@@ -307,21 +339,25 @@ export class GangtiseClient {
     }
     const windowRoom = maxWindow === undefined ? Infinity : maxWindow - startFrom
 
-    // A per-row billed list fetched without --size is priced from `total` before the fetch
-    // fans out, and refused past COSTLY_FETCH_CREDITS. A cheap list learns `total` from its
+    // A per-row billed list fetched without --size — or with one large enough to pass the
+    // guard by itself (`--size 100000` as "everything") — is priced from `total` before the
+    // fetch fans out, and refused past COSTLY_FETCH_CREDITS. A cheap list learns `total` from its
     // first page. Where a full first page would itself cost more than PROBE_ABOVE_CREDITS,
     // one row is asked for first, so a refused fetch pays for that row alone; the fetch then
     // starts over from the same offset at the usual page size, keeping every page on the
     // usual boundaries (the probe row is billed twice) rather than depending on how an
     // endpoint reads an unaligned `from`.
     const billing = endpoint.billing
-    const guarded = requestedSize === undefined && billing?.per === "row" && !this.allowCostlyFetch
+    const guarded = billing?.per === "row" && !this.allowCostlyFetch
+      && (requestedSize === undefined || requestedSize * billing.price > COSTLY_FETCH_CREDITS)
     const refuseIfCostly = (reportedTotal: number, fetched: number): void => {
       if (!guarded || !billing) return
-      const rows = Math.min(Math.max(reportedTotal - startFrom, 0), windowRoom)
+      const rows = Math.min(Math.max(reportedTotal - startFrom, 0), windowRoom, requestedSize ?? Infinity)
       const estimatedCredits = Math.round(rows * billing.price * 100) / 100
       if (estimatedCredits <= COSTLY_FETCH_CREDITS) return
-      throw new ValidationError(`fetching all ${rows} rows of ${endpoint.key} would cost about ${estimatedCredits} credits (${billing.price} per row), above the ${COSTLY_FETCH_CREDITS}-credit guard for a fetch without --size. Only ${fetched} row(s) were fetched, to learn the total. Pass --size N for a bounded subset, or --yes to fetch them all.`)
+      const what = requestedSize === undefined ? `all ${rows} rows` : `${rows} rows (--size ${requestedSize})`
+      const escape = requestedSize === undefined ? "Pass --size N for a bounded subset" : "Pass a smaller --size"
+      throw new ValidationError(`fetching ${what} of ${endpoint.key} would cost about ${estimatedCredits} credits (${billing.price} per row), above the ${COSTLY_FETCH_CREDITS}-credit guard. Only ${fetched} row(s) were fetched, to learn the total. ${escape}, or --yes to fetch them all.`)
     }
     // The probe stands in as the first page when it already answers the fetch: when its
     // shape is unexpected (reported below, without paying a full page to see it again) and
@@ -338,7 +374,7 @@ export class GangtiseClient {
       } else {
         refuseIfCostly(probe.total, probe.list.length)
         probeRows = probe.list.length
-        probed = probe.list.length === Math.min(Math.max(probe.total - startFrom, 0), windowRoom)
+        probed = probe.list.length === Math.min(Math.max(probe.total - startFrom, 0), windowRoom, requestedSize ?? Infinity)
       }
     }
 
@@ -706,7 +742,7 @@ export class GangtiseClient {
 
     const dispatcher = getDispatcher()
     const url = this.buildUrl(endpoint.path)
-    const authState = { retried: false }
+    const authState: AuthRecovery = {}
 
     const timeoutMs = resolveTimeoutMs(this.config.timeoutMs, endpoint)
 
@@ -736,6 +772,10 @@ export class GangtiseClient {
         body: endpoint.method === 'GET' ? undefined : (isUpload ? body as FormData : JSON.stringify(body ?? {})),
         headersTimeout: timeoutMs,
         bodyTimeout: timeoutMs,
+        // headers/body timeouts are IDLE timeouts: a server trickling a few bytes per
+        // interval resets them forever. A total deadline bounds the request as a whole;
+        // an upload carries a file, so it gets the download allowance.
+        signal: AbortSignal.timeout(timeoutMs * (isUpload ? TRANSFER_TOTAL_FACTOR : JSON_TOTAL_FACTOR)),
         dispatcher,
       })
       // Only buffer + gunzip when the server actually compressed; an unencoded
@@ -847,7 +887,7 @@ export class GangtiseClient {
     Object.entries(query).forEach(([key, value]) => {
       url.searchParams.set(key, String(value))
     })
-    const authState = { retried: false }
+    const authState: AuthRecovery = {}
     // Same floor `requestJson` applies: an endpoint that declares `timeoutMs` needs it
     // here too, and reading the global config directly silently ignored it. No download
     // endpoint declares one today — `tool.file-parse.result` is the obvious candidate
@@ -858,6 +898,8 @@ export class GangtiseClient {
     return withRetry(async () => {
       const authorization = await this.getAuthorizationHeader()
       const startedAt = Date.now()
+      // One deadline for the whole attempt, redirects included (see JSON_TOTAL_FACTOR).
+      const signal = AbortSignal.timeout(timeoutMs * TRANSFER_TOTAL_FACTOR)
       let currentUrl = url
       let auth: string | undefined = authorization
       const isPost = endpoint.method === 'POST'
@@ -869,6 +911,7 @@ export class GangtiseClient {
         body: isPost ? JSON.stringify(body ?? {}) : undefined,
         headersTimeout: timeoutMs,
         bodyTimeout: timeoutMs,
+        signal,
         dispatcher,
       })
 
@@ -889,6 +932,7 @@ export class GangtiseClient {
           headers: auth ? { Authorization: auth } : {},
           headersTimeout: timeoutMs,
           bodyTimeout: timeoutMs,
+          signal,
           dispatcher,
         })
       }
@@ -1004,6 +1048,25 @@ export class GangtiseClient {
     })
   }
 
+  /** An endpoint whose one request has no bound on what it bills (`estimateBilledUnits`) is
+   * priced from the request before it goes out, and refused past COSTLY_FETCH_CREDITS
+   * unless the caller confirmed (--yes). Here, not in the command, so `raw call` is held to
+   * the same line. */
+  private refuseIfEstimatedCostly(endpoint: EndpointDefinition, body: unknown): void {
+    const billing = endpoint.billing
+    if (!endpoint.estimateBilledUnits || !billing || this.allowCostlyFetch) return
+    let units: number
+    try {
+      units = endpoint.estimateBilledUnits(body && typeof body === "object" ? body as Record<string, unknown> : {})
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error)
+      throw new ValidationError(`${endpoint.key} could not be priced before sending (${why}), and it is billed per ${billing.per} with no upper bound. Fix the request, or pass --yes to send it as it is.`)
+    }
+    const credits = Math.ceil(units * billing.price)
+    if (credits <= COSTLY_FETCH_CREDITS) return
+    throw new ValidationError(`${endpoint.key} would cost about ${credits} credits (${billing.price} per ${billing.per}, about ${units} estimated from the requested date range), above the ${COSTLY_FETCH_CREDITS}-credit guard. Narrow the date range, or pass --yes to send it.`)
+  }
+
   async call(endpointKey: string, body?: unknown, query?: Record<string, string | number>, options?: { streamTo?: string }) {
     const endpoint = ENDPOINTS[endpointKey]
     if (!endpoint) {
@@ -1017,6 +1080,8 @@ export class GangtiseClient {
     if (endpoint.kind === 'download') {
       return this.download(endpoint, query ?? {}, options, body)
     }
+
+    this.refuseIfEstimatedCostly(endpoint, body)
 
     if (endpoint.kind === 'json' && endpoint.pagination?.enabled) {
       return this.requestPaginated(endpoint, body)

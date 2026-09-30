@@ -3,13 +3,27 @@ import { gzipSync } from "node:zlib"
 import { describe, expect, it, vi } from "vitest"
 
 import { ApiError } from "../../src/core/errors.js"
-import { decodeResponseBody, markRetryable, parseRetryAfterMs, quoteBigIntFields, resolvePageConcurrency, runInOrder, runWithConcurrency, withRetry } from "../../src/core/transport.js"
+import { decodeResponseBody, markAuthReplay, parseRetryAfterMs, quoteBigIntFields, resolvePageConcurrency, runInOrder, runWithConcurrency, withRetry } from "../../src/core/transport.js"
 
 describe("runWithConcurrency", () => {
   it("preserves item order in the results", async () => {
     const items = [1, 2, 3, 4, 5]
     const result = await runWithConcurrency(items, 2, async (n) => n * 10)
     expect(result).toEqual([10, 20, 30, 40, 50])
+  })
+
+  it("takes no new item once one has failed", async () => {
+    // The call is going to reject; work started after that is thrown away — on a billed
+    // endpoint, credits spent for nothing.
+    let started = 0
+    const work = Array.from({ length: 20 }, (_, i) => i)
+    await expect(runWithConcurrency(work, 2, async (i) => {
+      started++
+      await new Promise((r) => setTimeout(r, 5))
+      if (i === 0) throw new Error("boom")
+    })).rejects.toThrow("boom")
+    await new Promise((r) => setTimeout(r, 50))
+    expect(started).toBeLessThanOrEqual(3)
   })
 
   it("respects the concurrency limit", async () => {
@@ -65,16 +79,20 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledTimes(1)
   })
 
-  it("retries when the error is explicitly marked retryable", async () => {
+  it("replays an auth recovery without spending a retry, and stops after its own bound", async () => {
+    // Two auth replays with no transient retries left: both go out.
     let attempt = 0
     const fn = vi.fn().mockImplementation(async () => {
       attempt++
-      if (attempt < 2) throw markRetryable(new ApiError("auth recovered", "8000014", 200))
-      return "second-time-lucky"
+      if (attempt < 3) throw markAuthReplay(new ApiError("auth recovered", "8000014", 200))
+      return "third-time-lucky"
     })
-    const result = await withRetry(fn, { retries: 2, baseDelayMs: 1 })
-    expect(result).toBe("second-time-lucky")
-    expect(fn).toHaveBeenCalledTimes(2)
+    expect(await withRetry(fn, { retries: 0, baseDelayMs: 1 })).toBe("third-time-lucky")
+    expect(fn).toHaveBeenCalledTimes(3)
+    // A third is refused: the recovery never asks for more, so this is a backstop.
+    const endless = vi.fn().mockImplementation(async () => { throw markAuthReplay(new ApiError("auth recovered", "8000014", 200)) })
+    await expect(withRetry(endless, { retries: 2, baseDelayMs: 1 })).rejects.toMatchObject({ code: "8000014" })
+    expect(endless).toHaveBeenCalledTimes(3)
   })
 
   it("retries on retryable network errors", async () => {
@@ -172,9 +190,9 @@ describe("withRetry no-replay policy (replay-unsafe endpoints)", () => {
     expect(fn).toHaveBeenCalledTimes(2)
   })
 
-  it("still honors the explicit retryable mark (token self-heal replay is safe)", async () => {
+  it("replays an auth recovery on a no-replay endpoint too (a rejected token billed nothing)", async () => {
     const fn = vi.fn()
-      .mockRejectedValueOnce(markRetryable(new ApiError("token invalid", "8000014", 200)))
+      .mockRejectedValueOnce(markAuthReplay(new ApiError("token invalid", "8000014", 200)))
       .mockResolvedValue("ok")
     expect(await withRetry(fn, { retries: 2, baseDelayMs: 1, policy: "no-replay" })).toBe("ok")
     expect(fn).toHaveBeenCalledTimes(2)

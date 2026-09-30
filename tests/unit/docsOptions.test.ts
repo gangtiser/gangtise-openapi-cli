@@ -7,18 +7,7 @@ import { promisify } from "node:util"
 import type { Command } from "commander"
 import { describe, expect, inject, it } from "vitest"
 
-import { ai } from "../../src/commands/ai.js"
-import { alternative } from "../../src/commands/alternative.js"
-import { auth, lookup } from "../../src/commands/auth.js"
-import { bond } from "../../src/commands/bond.js"
-import { fundamental } from "../../src/commands/fundamental.js"
-import { indicator } from "../../src/commands/indicator.js"
-import { insight } from "../../src/commands/insight.js"
-import { quote } from "../../src/commands/quote.js"
-import { raw } from "../../src/commands/raw.js"
-import { reference } from "../../src/commands/reference.js"
-import { tool } from "../../src/commands/tool.js"
-import { vault } from "../../src/commands/vault.js"
+import { COMMAND_GROUPS } from "../../src/commands/groups.js"
 import { multiChoiceValues } from "../../src/commands/shared.js"
 import { ENDPOINTS } from "../../src/core/endpoints.js"
 import { commandForKey } from "../fixtures/commandForKey.js"
@@ -136,7 +125,7 @@ function choicesByCommand(): Map<string, Map<string, { known: readonly string[];
     }
     for (const child of command.commands) walk(child, name)
   }
-  for (const group of [auth, lookup, insight, quote, fundamental, bond, reference, vault, ai, alternative, indicator, tool, raw]) walk(group, [])
+  for (const group of COMMAND_GROUPS) walk(group, [])
   return out
 }
 
@@ -160,12 +149,15 @@ describe("options named in the shipped docs", () => {
     // that advice into an unknown-option error. A stray --yes elsewhere confirms nothing.
     const leaves = await leafOptions()
     const billedLists = Object.values(ENDPOINTS).filter((ep) => ep.pagination?.enabled && ep.billing?.per === "row").map((ep) => commandForKey(ep.key))
+    // Not paged, with no bound on what one request bills: the client prices the request
+    // from its body before sending it (fundamental earning-forecast).
+    const billedRanges = Object.values(ENDPOINTS).filter((ep) => ep.estimateBilledUnits).map((ep) => ep.key.replace(".", " "))
     const destructive = Object.values(ENDPOINTS).filter((ep) => ep.destructive).map((ep) => { const [group, name, action] = ep.key.split("."); return `${group} ${name}-${action}` })
-    const expected = new Set([...billedLists, ...destructive, "raw call"])
+    const expected = new Set([...billedLists, ...billedRanges, ...destructive, "raw call"])
     const actual = new Set([...leaves].filter(([, options]) => options.has("--yes")).map(([command]) => command))
     expect([...actual].sort()).toEqual([...expected].sort())
-    // Each group whose lists carry the credit guard says so in its command reference.
-    for (const group of new Set(billedLists.map((command) => command.split(" ")[0]))) {
+    // Each group whose commands carry the credit guard says so in its command reference.
+    for (const group of new Set([...billedLists, ...billedRanges].map((command) => command.split(" ")[0]))) {
       const doc = fs.readFileSync(path.join(ROOT, "gangtise-openapi", "references", "commands", `${group}.md`), "utf8")
       expect(doc, `references/commands/${group}.md 应说明按条计费列表的 --yes`).toContain("--yes")
     }

@@ -42,6 +42,53 @@ describe("callKlineWithSharding", () => {
     expect(started).toBeGreaterThan(2 * concurrency)
   })
 
+  it("skips shards before the account's history window (110003) without failing the rest", async () => {
+    // A single request across the window's lower bound answers from the bound, no error.
+    // Sharded, the shards wholly before it answer 110003; they used to abort every later
+    // shard, turning a mostly-in-window range into an almost empty, "7/8 failed" result.
+    const call = vi.fn().mockImplementation(async (_key: string, b: { startDate: string }) => {
+      if (b.startDate < "2016-01-01") throw new ApiError("超出时间范围限制", "110003", 400)
+      return { fieldList: ["tradeDate"], list: [[b.startDate]] }
+    })
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      const out = await callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["all"], startDate: "2015-12-28", endDate: "2016-01-08" }, { shardDays: 1 }) as Record<string, unknown>
+      expect(out.partial).toBeUndefined()
+      expect(out.failedShards).toBeUndefined()
+      expect(out.outOfWindowShards).toEqual([
+        { startDate: "2015-12-28", endDate: "2015-12-28" },
+        { startDate: "2015-12-29", endDate: "2015-12-29" },
+        { startDate: "2015-12-30", endDate: "2015-12-30" },
+        { startDate: "2015-12-31", endDate: "2015-12-31" },
+      ])
+      expect((out.list as unknown[][]).map((row) => row[0])).toEqual(["2016-01-01", "2016-01-04", "2016-01-05", "2016-01-06", "2016-01-07", "2016-01-08"])
+      expect(errSpy.mock.calls.map(([t]) => String(t)).join("")).toContain("outside your account's history window (110003)")
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("still fails when every shard is outside the window", async () => {
+    const call = vi.fn().mockRejectedValue(new ApiError("超出时间范围限制", "110003", 400))
+    await expect(callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["all"], startDate: "2015-01-05", endDate: "2015-01-09" }, { shardDays: 1 })).rejects.toMatchObject({ code: "110003" })
+  })
+
+  it("names the first error and tells failed shards from ones never sent", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, b: { startDate: string }) => {
+      if (b.startDate === "2026-01-06") throw new ApiError("系统内部错误", "999999", 500)
+      return { fieldList: ["tradeDate"], list: [[b.startDate]] }
+    })
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      await callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["all"], startDate: "2026-01-05", endDate: "2026-01-16" }, { shardDays: 1, concurrency: 1 })
+      const text = errSpy.mock.calls.map(([t]) => String(t)).join("")
+      expect(text).toContain("first error: (999999) 系统内部错误")
+      expect(text).toMatch(/\d+ of them not sent: the first error stopped the rest/)
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
   it("passes through when --security all but date range fits in one shard", async () => {
     const call = vi.fn().mockResolvedValue({ list: [{ id: 1 }] })
     await callKlineWithSharding({ call }, "quote.day-kline", {

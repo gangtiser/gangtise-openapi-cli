@@ -1,16 +1,13 @@
 import { Command } from "commander"
 
-import { collectList, dateArg, maybeArray, parseChoiceList, parseFrom, parseSize, parseTimestamp13 } from "../core/args.js"
+import { collectList, dateArg, maybeArray, parseChoiceList, parseEndTimestamp13, parseFrom, parseSize, parseTimestamp13 } from "../core/args.js"
 import { ValidationError } from "../core/errors.js"
 import { fetchOpinionDetails } from "../core/opinionDetail.js"
 import { rowCount } from "../core/rowSink.js"
-import { emit, addDownloadCommand, confirmCostly, multiChoice, value, required, list, numberList, choiceList, count, rankType, searchType, top, flag, format, output, from, size, startTime, endTime, timeFilters, query } from "./shared.js"
+import { emit, addDownloadCommand, confirmCostly, multiChoice, value, required, list, numberList, choiceList, count, rankType, searchType, top, flag, format, output, from, size, startTime, endTime, timeFilters, query, RESEARCH_AREA_CITIC_OR_DIRECTION } from "./shared.js"
 import type { Field } from "./shared.js"
 
 export const insight = new Command("insight").description("Insight APIs")
-/** Where the research-area filter takes the CITIC industry set and the gangtise direction
- * set but not the SW set, which comes back empty rather than rejected. */
-const RESEARCH_AREA_CITIC_OR_DIRECTION = "Research area ID: citicIndustry code (1008001xx) or gangtiseIndustry direction code (122000xxx: macro/strategy/fixed-income/quant/overseas). swIndustry (104xx0000) returns 0 here"
 const SW_INDUSTRY_ONLY = "Industry ID -- swIndustry codes only (104xx0000); citicIndustry codes are rejected with 100005 even where constant-category declares them"
 
 const opinion = new Command("opinion")
@@ -264,7 +261,7 @@ query(foreignReport, "list", {
 addDownloadCommand(foreignReport, { endpointKey: "insight.foreign-report.download", idOption: "--report-id", idField: "reportId", fallbackPrefix: "foreign-report", fileType: { description: "File type: 1=PDF 2=Markdown 3=CN-PDF 4=CN-Markdown", choices: ["1", "2", "3", "4"], default: "1" }, titleListEndpoint: "insight.foreign-report.list" })
 
 // Contract: A-share announcement startTime/endTime go out as 13-digit epoch millis
-// (parseTimestamp13), while HK/US announcement and every other insight list send the
+// (parseTimestamp13; a bare end date counts to the end of that day), while HK/US announcement and every other insight list send the
 // datetime string straight through. All three filter correctly — verified live against
 // a narrow past window (each returns in-window rows). A-share's API also accepts the
 // string form, but the 13-digit conversion is kept as the historical spec contract;
@@ -277,7 +274,7 @@ query(announcement, "list", {
     list("--security <code>", "Security code", "securityList"),
     list("--category <id>", "Category ID", "categoryList"),
     format(), output("Output path"),
-    ...timeFilters(parseTimestamp13),
+    ...timeFilters(parseTimestamp13, parseEndTimestamp13),
   ],
 })
 addDownloadCommand(announcement, { endpointKey: "insight.announcement.download", idOption: "--announcement-id", idField: "announcementId", fallbackPrefix: "announcement", fileType: { description: "File type: 1=PDF 2=Markdown", choices: ["1", "2"], default: "1" }, titleListEndpoint: "insight.announcement.list" })

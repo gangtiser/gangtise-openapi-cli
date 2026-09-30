@@ -1,8 +1,6 @@
-import { Command } from "commander"
 import { describe, expect, it } from "vitest"
 
-import { collectList } from "../../src/core/args.js"
-import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody, buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "../../src/core/commandBodies.js"
+import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody, buildQuoteKlineBody } from "../../src/core/commandBodies.js"
 
 describe("command request body builders", () => {
   it("builds quote kline bodies with securities, dates, limit, and fields", () => {
@@ -18,44 +16,6 @@ describe("command request body builders", () => {
       endDate: "2024-05-20",
       limit: 5000,
       fieldList: ["securityCode", "tradeDate", "open", "close", "volume"],
-    })
-  })
-
-  it("builds wechat message list bodies with all filters", () => {
-    expect(buildWechatMessageListBody({
-      from: "5",
-      size: "50",
-      startTime: "2024-03-01 00:00:00",
-      endTime: "2024-03-02 23:59:59",
-      keyword: "AI应用",
-      security: ["000001.SZ", "000063.SH"],
-      wechatGroupId: ["ueKEGyhdjFGkjyebh", "TYkuhyhdjFGkjyebh"],
-      industry: ["100800101", "100800102"],
-      category: ["text", "url"],
-      tag: ["roadShow", "meetingSummary"],
-    })).toEqual({
-      from: 5,
-      size: 50,
-      startTime: "2024-03-01 00:00:00",
-      endTime: "2024-03-02 23:59:59",
-      keyword: "AI应用",
-      securityList: ["000001.SZ", "000063.SH"],
-      wechatGroupIdList: ["ueKEGyhdjFGkjyebh", "TYkuhyhdjFGkjyebh"],
-      industryIdList: ["100800101", "100800102"],
-      categoryList: ["text", "url"],
-      tagList: ["roadShow", "meetingSummary"],
-    })
-  })
-
-  it("builds wechat chatroom list bodies with comma-joined room names", () => {
-    expect(buildWechatChatroomListBody({
-      from: "0",
-      size: "50",
-      roomName: ["AI学习群", "柚子消息共享群", "投研分享群"],
-    })).toEqual({
-      from: 0,
-      size: 50,
-      roomName: "AI学习群,柚子消息共享群,投研分享群",
     })
   })
 
@@ -463,40 +423,5 @@ describe("command request body builders", () => {
       date: "2026-07-31",
       indicatorParam: [],
     })).toMatchObject({ expression: "F1 contains 'F2 系列'" })
-  })
-})
-
-// Drives a real Commander command wired exactly as src/commands/vault.ts wires
-// `vault stock-pool-stocks`, so the test covers the collectList option default
-// interaction (Commander passes the option default in as `previous` on the
-// first collect — a non-empty default would leak into every explicit value).
-function resolveStockPoolBody(argv: string[]): unknown {
-  let body: unknown
-  const program = new Command()
-  program
-    .command("stock-pool-stocks")
-    .option("--pool-id <id>", "Pool ID; repeat for multiple; omit for all pools", collectList)
-    .action((options) => {
-      body = buildStockPoolStocksBody(options)
-    })
-  program.parse(argv, { from: "user" })
-  return body
-}
-
-describe("stock-pool-stocks pool-id filtering", () => {
-  it("filters by an explicit pool id without injecting 'all'", () => {
-    expect(resolveStockPoolBody(["stock-pool-stocks", "--pool-id", "123"])).toEqual({ poolIdList: ["123"] })
-  })
-
-  it("keeps multiple pool ids", () => {
-    expect(resolveStockPoolBody(["stock-pool-stocks", "--pool-id", "111", "--pool-id", "222"])).toEqual({ poolIdList: ["111", "222"] })
-  })
-
-  it("falls back to all pools when --pool-id is omitted", () => {
-    expect(resolveStockPoolBody(["stock-pool-stocks"])).toEqual({ poolIdList: ["all"] })
-  })
-
-  it("treats an explicit --pool-id all as all pools", () => {
-    expect(resolveStockPoolBody(["stock-pool-stocks", "--pool-id", "all"])).toEqual({ poolIdList: ["all"] })
   })
 })

@@ -13,9 +13,25 @@ import { ENDPOINTS } from "../../src/core/endpoints.js"
 import { getRowSink, ExportSink } from "../../src/core/rowSink.js"
 import os from "node:os"
 
-const { requestMock } = vi.hoisted(() => ({
+const { requestMock, cacheReadDelays } = vi.hoisted(() => ({
   requestMock: vi.fn(),
+  /** Per-call delays for readTokenCache, applied AFTER the file was read — so a delayed read
+   * returns the snapshot it took, late. Empty = no delay (every other test). */
+  cacheReadDelays: [] as number[],
 }))
+
+vi.mock("../../src/core/auth.js", async () => {
+  const actual = await vi.importActual<typeof import("../../src/core/auth.js")>("../../src/core/auth.js")
+  return {
+    ...actual,
+    readTokenCache: async (file: string) => {
+      const snapshot = await actual.readTokenCache(file)
+      const delay = cacheReadDelays.shift() ?? 0
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
+      return snapshot
+    },
+  }
+})
 
 vi.mock("undici", async () => {
   const actual = await vi.importActual<typeof import("undici")>("undici")
@@ -1023,6 +1039,7 @@ describe("GangtiseClient pagination", () => {
     }
   })
 
+  // 1000 mocked pages: fast alone, but a loaded worker has pushed it past the 5 s default.
   it("flags partial when the MAX_PAGES safety cap truncates a huge fetch", async () => {
     // maxPageSize 50 × the 1000-page cap = 50000 rows max. total=50001 forces the cap:
     // the fetch stops one row short, so the result must be partial, not a silent subset.
@@ -1041,7 +1058,7 @@ describe("GangtiseClient pagination", () => {
     } finally {
       errSpy.mockRestore()
     }
-  })
+  }, 30_000)
 
   it("flags partial when total drifts across pages even if the row count meets target", async () => {
     // First page reports total=100 (target 100); a later page reports total=90 — data
@@ -1500,6 +1517,135 @@ describe("GangtiseClient auth recovery", () => {
 
     expect(result).toEqual({ answer: 42 })
     expect(listCalls).toBe(2) // initial 8000014 + retry after refresh
+  })
+
+  it("takes a token another process wrote to the cache instead of logging in again", async () => {
+    // Back-to-back logins can end each other's sessions; when another process sharing the
+    // cache has already refreshed, its token is the one to replay with.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
+    let loginCalls = 0
+    const sent: string[] = []
+    requestMock.mockImplementation(async (url: unknown, opts: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      sent.push(opts.headers?.Authorization ?? "")
+      if (sent.length === 1) {
+        // Meanwhile another process logged in and saved its token.
+        await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer other-process", expiresIn: 7200, time: 2, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
+        return rawJsonResponse({ code: "8000014", msg: "access key error" })
+      }
+      return jsonResponse({ answer: 42 })
+    })
+
+    const result = await loginClient().call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(result).toEqual({ answer: 42 })
+    expect(sent).toEqual(["Bearer stale", "Bearer other-process"])
+    expect(loginCalls).toBe(0)
+  })
+
+  it("still logs in when the token taken from the cache turns out dead too", async () => {
+    // An env token that went stale, and an old dead token left in the cache file: taking the
+    // cached one must not use up the recovery — its failure gets the one login.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer old-dead", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
+    let loginCalls = 0
+    const sent: string[] = []
+    requestMock.mockImplementation(async (url: unknown, opts: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      sent.push(opts.headers?.Authorization ?? "")
+      return opts.headers?.Authorization === "Bearer fresh" ? jsonResponse({ answer: 42 }) : rawJsonResponse({ code: "999002", msg: "token 失效" })
+    })
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "env-stale", accessKey: "ak", secretKey: "sk", tokenCachePath })
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 42 })
+    expect(sent).toEqual(["Bearer env-stale", "Bearer old-dead", "Bearer fresh"])
+    expect(loginCalls).toBe(1)
+  })
+
+  it("keeps the login in reserve for a request that replayed with a dead token another request took from the cache", async () => {
+    // A and B fail on the same stale env token. A takes the dead cached token into memory
+    // and, when that fails too, logs in (slowly). B fails in between, sees A's borrowed
+    // token in memory and replays with it. That token is unproven, so B's failure with it
+    // must still earn the login (joining A's) — not end B's recovery.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer old-dead", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
+    let loginCalls = 0
+    const sentByB: string[] = []
+    requestMock.mockImplementation(async (url: unknown, opts: { headers?: Record<string, string>; body?: string }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      const auth = opts.headers?.Authorization ?? ""
+      if (String(opts.body).includes("000858.SZ")) {
+        sentByB.push(auth)
+        // B's first answer arrives while A's borrowed token is in memory…
+        if (sentByB.length === 1) await new Promise((resolve) => setTimeout(resolve, 10))
+      } else if (auth === "Bearer old-dead") {
+        // …because A's replay with it is still in flight.
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      }
+      return auth === "Bearer fresh" ? jsonResponse({ ok: true }) : rawJsonResponse({ code: "999002", msg: "token 失效" })
+    })
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "env-stale", accessKey: "ak", secretKey: "sk", tokenCachePath })
+    const results = await Promise.all([
+      client.call("ai.one-pager", { securityCode: "600519.SH" }),
+      client.call("ai.one-pager", { securityCode: "000858.SZ" }),
+    ])
+    expect(results).toEqual([{ ok: true }, { ok: true }])
+    expect(sentByB).toEqual(["Bearer env-stale", "Bearer old-dead", "Bearer fresh"])
+    expect(loginCalls).toBe(1)
+  })
+
+  it("does not spend the transient-retry budget on token recovery", async () => {
+    // 429, then the env token dead, then the cached token dead: the login still gets its
+    // replay. The two transient retries are for the 429 and its kind, not for auth.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer old-dead", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
+    let loginCalls = 0
+    const sent: string[] = []
+    requestMock.mockImplementation(async (url: unknown, opts: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      sent.push(opts.headers?.Authorization ?? "")
+      if (sent.length === 1) return { ...rawJsonResponse({ code: "999006", msg: "限流" }, 429), headers: { "content-type": "application/json", "retry-after": "0" } }
+      return opts.headers?.Authorization === "Bearer fresh" ? jsonResponse({ ok: true }) : rawJsonResponse({ code: "999002", msg: "token 失效" })
+    })
+    const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "env-stale", accessKey: "ak", secretKey: "sk", tokenCachePath })
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ ok: true })
+    expect(sent).toEqual(["Bearer env-stale", "Bearer env-stale", "Bearer old-dead", "Bearer fresh"])
+    expect(loginCalls).toBe(1)
+  })
+
+  it("does not log in again when another request of this process logged in while the cache was being read", async () => {
+    // Two requests fail together on the same token. One recovers by logging in; the other's
+    // cache read took its snapshot before that login was written and returns it late —
+    // it must see the fresh token in memory and replay, not log in a second time.
+    await fs.writeFile(tokenCachePath, JSON.stringify({ accessToken: "Bearer t0", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 3600, issuedFor: SEEDED_FINGERPRINT }))
+    cacheReadDelays.push(0, 0, 150)
+    let loginCalls = 0
+    requestMock.mockImplementation(async (url: unknown, opts: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "t1", expiresIn: 7200, time: 2 } })
+      }
+      return opts.headers?.Authorization === "Bearer t1" ? jsonResponse({ ok: true }) : rawJsonResponse({ code: "999002", msg: "token 失效" })
+    })
+    const client = loginClient()
+    try {
+      const results = await Promise.all([
+        client.call("ai.one-pager", { securityCode: "600519.SH" }),
+        client.call("ai.one-pager", { securityCode: "000858.SZ" }),
+      ])
+      expect(results).toEqual([{ ok: true }, { ok: true }])
+      expect(loginCalls).toBe(1)
+    } finally {
+      cacheReadDelays.length = 0
+    }
   })
 
   it("gives up after one refresh when the server keeps rejecting the token (no login loop)", async () => {
@@ -1987,6 +2133,7 @@ describe("GangtiseClient pagination cap", () => {
     requestMock.mockReset()
   })
 
+  // 1000 mocked pages: fast alone, but a loaded worker has pushed it past the 5 s default.
   it("caps at 1000 pages and warns when more rows exist", async () => {
     // maxPageSize is 50, so 50_001 rows would need 1001 pages — one past the cap.
     paginatedMock({ total: 50_001, itemFor: (id) => ({ id }) })
@@ -2004,7 +2151,7 @@ describe("GangtiseClient pagination cap", () => {
     } finally {
       errSpy.mockRestore()
     }
-  })
+  }, 30_000)
 })
 
 // A gzip-encoded JSON envelope: content-encoding: gzip + a body that only exposes

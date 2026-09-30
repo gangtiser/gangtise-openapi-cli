@@ -1,24 +1,13 @@
 #!/usr/bin/env node
 import { Command, InvalidArgumentError } from "commander"
 
-import { unknownChoiceMessage } from "./core/args.js"
-import { ApiError } from "./core/errors.js"
+import { ACCUMULATING_PARSERS, unknownChoiceMessage } from "./core/args.js"
+import { ApiError, ValidationError } from "./core/errors.js"
 import { removeStagingFiles } from "./core/output.js"
 import { isVerbose, setVerbose } from "./core/transport.js"
 import { checkForUpdate } from "./core/updateCheck.js"
 import { CLI_VERSION } from "./version.js"
-import { ai } from "./commands/ai.js"
-import { alternative } from "./commands/alternative.js"
-import { auth, lookup } from "./commands/auth.js"
-import { bond } from "./commands/bond.js"
-import { fundamental } from "./commands/fundamental.js"
-import { indicator } from "./commands/indicator.js"
-import { insight } from "./commands/insight.js"
-import { quote } from "./commands/quote.js"
-import { raw } from "./commands/raw.js"
-import { reference } from "./commands/reference.js"
-import { tool } from "./commands/tool.js"
-import { vault } from "./commands/vault.js"
+import { COMMAND_GROUPS } from "./commands/groups.js"
 import { decidedExitCode, markFailed } from "./core/exitStatus.js"
 
 const program = new Command()
@@ -33,7 +22,7 @@ program
   })
 
 // Registration order is the order `gangtise --help` lists the groups in.
-for (const group of [auth, lookup, insight, quote, fundamental, bond, reference, vault, ai, alternative, indicator, tool, raw]) {
+for (const group of COMMAND_GROUPS) {
   program.addCommand(group)
 }
 
@@ -57,6 +46,25 @@ function relabelServerChoices(command: Command): void {
   command.commands.forEach(relabelServerChoices)
 }
 relabelServerChoices(program)
+
+/** A single-value option given twice is refused instead of Commander's silent last-one-wins
+ * (see ACCUMULATING_PARSERS). Counted per option object: one process parses one command. */
+function refuseRepeatedSingleValues(command: Command): void {
+  for (const option of command.options) {
+    const takesValue = option.required || option.optional
+    const original = option.parseArg
+    if (!takesValue || option.variadic || (original && ACCUMULATING_PARSERS.has(original))) continue
+    let given = 0
+    option.argParser((value: string, previous: unknown) => {
+      // Neither value goes into the message, and it is not an InvalidArgumentError, whose
+      // Commander prefix quotes the value: a repeated `raw call --body` carries credentials.
+      if (++given > 1) throw new ValidationError(`${option.long} was given more than once; it takes a single value. Pass it once — options that take several values say "repeatable" in --help.`)
+      return original ? original(value, previous) : value
+    })
+  }
+  command.commands.forEach(refuseRepeatedSingleValues)
+}
+refuseRepeatedSingleValues(program)
 
 /** Last-resort reporting for anything that escapes main()'s try/catch: an error
  * thrown inside an event callback or a rejected promise nobody awaited. Node's
@@ -94,13 +102,20 @@ function reportFatal(error: unknown): void {
   // stderr is not merely "check the length": the write is issued right here, so
   // its callback is the only thing that knows when it actually reached the pipe.
   // Exiting on the spot truncated a large diagnostic to one 64 KiB buffer.
+  //
+  // The staging files go first, as on a signal: a run that dies here never reaches the
+  // cleanup its own write path would have done, and nothing else removes them.
+  const exit = (): never => {
+    removeStagingFiles()
+    return process.exit(1)
+  }
   let pending = 1
-  const leave = (): void => { if (--pending === 0) process.exit(1) }
+  const leave = (): void => { if (--pending === 0) exit() }
   if (process.stdout.writableLength > 0) {
     pending++
     process.stdout.once("drain", leave)
   }
-  setTimeout(() => process.exit(1), FATAL_FLUSH_MS)
+  setTimeout(exit, FATAL_FLUSH_MS)
   process.stderr.write(text, leave)
 }
 process.on("uncaughtException", reportFatal)
@@ -134,7 +149,11 @@ for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]
  * JSON had already been written). */
 const READER_GONE = new Set(["EPIPE", "ERR_STREAM_DESTROYED", "EBADF"])
 process.stdout.on("error", (error: NodeJS.ErrnoException) => {
-  if (error?.code && READER_GONE.has(error.code)) process.exit(decidedExitCode())
+  if (error?.code && READER_GONE.has(error.code)) {
+    // An --output export still being written when the reader left would leave its .part.
+    removeStagingFiles()
+    process.exit(decidedExitCode())
+  }
   reportFatal(error)
 })
 

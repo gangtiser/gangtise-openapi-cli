@@ -2,6 +2,7 @@ import { Command } from "commander"
 
 import { readTokenCache, redactTokenCache } from "../core/auth.js"
 import { loadConfig } from "../core/config.js"
+import { getLookupData } from "../core/lookupData/index.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
 import { emit } from "./shared.js"
@@ -37,10 +38,11 @@ export const auth = new Command("auth")
   )
 
 export const lookup = new Command("lookup").description("Local lookup tables (IDs not covered by 'reference constant-list')")
-const addLookupList = (name: string, endpointKey: string, description?: string) => {
+// Served from the bundled tables, so no client (and no undici load) is needed.
+const addLookupList = (name: string, table: Parameters<typeof getLookupData>[0], description?: string) => {
   const cmd = new Command(name)
   if (description) cmd.description(description)
-  lookup.addCommand(cmd.addCommand(new Command("list").option("--format <format>", "Output format", "table").action((options) => emit(options, (client) => client.call(endpointKey)))))
+  lookup.addCommand(cmd.addCommand(new Command("list").option("--format <format>", "Output format", "table").action(async (options) => printData(await getLookupData(table), parseOutputFormat(options.format)))))
 }
-addLookupList("broker-org", "lookup.broker-orgs.list")
-addLookupList("meeting-org", "lookup.meeting-orgs.list")
+addLookupList("broker-org", "broker-orgs")
+addLookupList("meeting-org", "meeting-orgs")

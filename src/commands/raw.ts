@@ -18,16 +18,20 @@ export const raw = new Command("raw").description("Raw API calls").addCommand(ne
   // that nothing restores. Checked before the client is acquired.
   assertConfirmed(endpointKey, Boolean(options.yes), endpointKey)
   const format = parseOutputFormat(options.format)
-  // --yes also confirms a costly fetch without --size on a list billed per row.
-  const client = await createClient({ format, output: options.output, yes: Boolean(options.yes) })
   let body: unknown
   if (options.body) {
     try {
       body = JSON.parse(options.body)
-    } catch {
-      throw new ConfigError(`Invalid JSON in --body: ${options.body}`)
+    } catch (error) {
+      // The position only — neither the body nor the parser's message, which on some Node
+      // versions quotes the text around the error: a body can carry credentials
+      // (`raw call auth.login`), and stderr ends up in logs.
+      const position = /position (\d+)/.exec(error instanceof Error ? error.message : "")?.[1]
+      throw new ConfigError(`Invalid JSON in --body${position === undefined ? "" : ` (at character ${position})`}; the body is not echoed because it may hold credentials`)
     }
   }
+  // --yes also confirms a costly fetch without --size on a list billed per row.
+  const client = await createClient({ format, output: options.output, yes: Boolean(options.yes) })
   // Fail loudly on arguments the endpoint kind can't use — they used to be
   // silently dropped, leaving the user to puzzle over server-side errors.
   if (endpoint.kind === "download") {

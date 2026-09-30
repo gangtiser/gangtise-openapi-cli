@@ -53,8 +53,11 @@ function terminalFailureLine(error: unknown): string {
   // Name the *submit* endpoint explicitly: re-running a `*-check` is a free
   // lookup, it is resubmitting the generation job that re-bills 50 credits for a
   // verdict that will not change (probed 2026-07-20 on sensitive content).
+  // Same split as the 140002 hint in errors.ts: the msg says whether the parameters are
+  // at fault. A plain 「业务处理失败」 is not about them, so "change the parameters" would
+  // send the caller looking for a mistake that is not there.
   return `Content generation failed (terminal${code})${trace}${detail}\n`
-    + "This dataId is final — re-checking it will not change. Resubmitting the generation task bills again for the same result; change the parameters first.\n"
+    + "This dataId is final — re-checking it will not change. Resubmitting the generation task bills again: if the message above points at a parameter or the content, change that first; a plain 业务处理失败 is not about the parameters — resubmit later only if you still need it.\n"
 }
 
 /** "ok" = content printed; "failed" = terminal 410111 (retrying is pointless, a

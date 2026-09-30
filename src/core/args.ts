@@ -6,17 +6,34 @@ interface NumberOptionConfig {
   max?: number
 }
 
+/** For codes, IDs, enum values and field names — none of which contain a comma, 、, a
+ * semicolon or whitespace. Voice input and pasted lists produce all of those as
+ * separators ("600519，000858", "600519、000858", "600519.SH 000858.SZ"), and an unsplit
+ * list goes to the API as one bogus value with no local hint. */
 export function splitCsv(value: string): string[] {
-  // Also split on full-width "，": voice-input IMEs produce it, and an unsplit
-  // "600519，000858" goes to the API as one bogus code with no local hint.
   return value
-    .split(/[,，]/)
+    .split(/[,，、;；\s]+/)
     .map((item) => item.trim())
     .filter(Boolean)
 }
 
+/** Repeated values are dropped, first occurrence kept: a code, ID, field or enum value named
+ * twice means nothing more than once, and passing it on doubles rows (`--security A,A`) or
+ * misaligns columns (a repeated --field). */
 export function collectList(value: string, previous: string[] = []): string[] {
-  return [...previous, ...splitCsv(value)]
+  return unique([...previous, ...splitCsv(value)])
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)]
+}
+
+/** For names (issuers, managers, chat rooms, knowledge bases, tags) and `code:key=value`
+ * specs: split on commas only. A name can hold a space or a 、 ("Morgan Stanley",
+ * "研究所、策略群"), and cutting it there would search two fragments — silently, since a
+ * fuzzy name match answers something for either half. */
+export function collectNames(value: string, previous: string[] = []): string[] {
+  return unique([...previous, ...value.split(/[,，]/).map((item) => item.trim()).filter(Boolean)])
 }
 
 /** Repeatable option that keeps each occurrence WHOLE. For free-form text, where a
@@ -73,10 +90,13 @@ export function parseSize(value: string | number | undefined): number | undefine
 /** Parser for a repeatable list of integer codes (source types, permissions, file types):
  * named, so a bad item says which option it came from. */
 export function numberListArg(optionName: string): (value: string, previous?: number[]) => number[] {
-  return (value, previous = []) => [
+  // Deduplicated like collectList.
+  const parse = (value: string, previous: number[] = []): number[] => [...new Set([
     ...previous,
     ...splitCsv(value).map((item) => parseNumberOption(item, optionName, { integer: true })),
-  ]
+  ])]
+  ACCUMULATING_PARSERS.add(parse)
+  return parse
 }
 
 export function collectKeyValue(value: string, previous: Record<string, string> = {}): Record<string, string> {
@@ -277,6 +297,16 @@ export function toTimestamp13(value: string | undefined): number | undefined {
   return Number.isNaN(instant) ? undefined : instant
 }
 
+/** `parseTimestamp13` for the END of a window: a date written without a time means the
+ * whole of that day (Beijing), not its first instant — otherwise `--start-time D
+ * --end-time D` is an empty window that answers zero rows with exit 0. */
+export function parseEndTimestamp13(value: string | undefined, optionName: string): number | undefined {
+  const parsed = parseTimestamp13(value, optionName)
+  if (parsed === undefined || value === undefined) return parsed
+  const parts = LOCAL_DATETIME.exec(value)
+  return parts && parts[5] === undefined ? parsed + 86_400_000 - 1 : parsed
+}
+
 export function parseTimestamp13(value: string | undefined, optionName: string): number | undefined {
   if (value === undefined) return undefined
   const parsed = toTimestamp13(value)
@@ -395,7 +425,9 @@ function parseParamSpecs(specs: string[], option: string, syntax: string): { gro
       params = []
       groups.set(lhs, params)
     }
-    params.push({ paramKey, paramValue })
+    // A date parameter gets the same check as --date: year-first layouts are normalized,
+    // year-last ones refused — the API reads "01-07-2026" as 7 January.
+    params.push({ paramKey, paramValue: /date$/i.test(paramKey) ? parseDateOption(paramValue, `${option} "${spec}"`) : paramValue })
   }
   return { groups, noQueryDate }
 }
@@ -554,3 +586,9 @@ export function parseScreenerIndicators(bindings: string[], paramSpecs: string[]
   }
   return [...indicators.values()]
 }
+
+/** Option parsers that gather every occurrence into one list (or map). Every other
+ * value-taking option holds one value, and cli.ts refuses it given twice — Commander's
+ * default is to keep the last one silently, so `--security-code A --security-code B`
+ * queried B alone (and billed for it) while reading like a request for both. */
+export const ACCUMULATING_PARSERS = new WeakSet<(...args: never[]) => unknown>([collectList, collectNames, collectText, collectKeyValue])

@@ -41,7 +41,7 @@ describe("contract-probe", () => {
   it("--update writes a baseline and a rerun on the same contract passes", async () => {
     expect((await probe("ok", "--update")).code).toBe(0)
     const written = JSON.parse(await readFile(snapshot, "utf8")) as Record<string, unknown>
-    expect(Object.keys(written).sort()).toEqual(["bond.basic-info", "indicator.search", "insight.foreign-opinion.list", "insight.highlight.list", "insight.opinion.list", "quote.day-kline", "quote.fund-flow", "quote.index-day-kline.all", "quote.minute-kline", "quote.realtime", "reference.constant-category", "vault.drive.folder-list"])
+    expect(Object.keys(written).sort()).toEqual(["bond.basic-info", "fund.basic-info", "fund.holder-structure", "fund.stock-portfolio", "indicator.search", "insight.foreign-opinion.list", "insight.highlight.list", "insight.opinion.list", "quote.day-kline", "quote.fund-flow", "quote.index-day-kline.all", "quote.minute-kline", "quote.realtime", "reference.constant-category", "vault.drive.folder-list"])
     const again = await probe("ok")
     expect(again.code).toBe(0)
     expect(again.stderr).not.toContain("≠")

@@ -30,13 +30,21 @@ export function loadConfig(): CliConfig {
   }
 
   return {
-    baseUrl: process.env.GANGTISE_BASE_URL ?? DEFAULT_BASE_URL,
+    baseUrl: envValue("GANGTISE_BASE_URL") ?? DEFAULT_BASE_URL,
     timeoutMs,
-    accessKey: process.env.GANGTISE_ACCESS_KEY,
-    secretKey: process.env.GANGTISE_SECRET_KEY,
-    token: process.env.GANGTISE_TOKEN,
-    tokenCachePath: process.env.GANGTISE_TOKEN_CACHE_PATH ?? DEFAULT_TOKEN_CACHE_PATH,
+    accessKey: envValue("GANGTISE_ACCESS_KEY"),
+    secretKey: envValue("GANGTISE_SECRET_KEY"),
+    token: envValue("GANGTISE_TOKEN"),
+    tokenCachePath: envValue("GANGTISE_TOKEN_CACHE_PATH") ?? DEFAULT_TOKEN_CACHE_PATH,
   }
+}
+
+/** An environment variable, with an empty or blank value treated as unset. `export
+ * GANGTISE_BASE_URL=` (a common way to "clear" one) otherwise sends every request to an
+ * empty base URL, and an empty GANGTISE_TOKEN shadows working AK/SK credentials. */
+function envValue(name: string): string | undefined {
+  const value = process.env[name]?.trim()
+  return value ? value : undefined
 }
 
 /** Bounds for GANGTISE_TIMEOUT_MS. Below a second every request times out before the

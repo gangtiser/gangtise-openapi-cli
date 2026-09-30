@@ -1,4 +1,4 @@
-import { isStructuralError } from "./errors.js"
+import { ApiError, isStructuralError } from "./errors.js"
 import { columnarSchemaValid } from "./normalize.js"
 import { attachRowSink, type ExportSink } from "./rowSink.js"
 import { isVerbose, PAGE_CONCURRENCY, runInOrder } from "./transport.js"
@@ -114,6 +114,15 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
  * combined row count stays under the 10K-row API limit. For small ranges or
  * single-security queries this is a no-op.
  */
+/** The code the API answers for a date range the account may not query. */
+const OUT_OF_WINDOW_CODE = "110003"
+
+/** One line naming a shard failure: the API code and message, or the error's own text. */
+function describeError(error: unknown): string {
+  if (error instanceof ApiError) return `${error.code ? `(${error.code}) ` : ""}${error.message}`
+  return error instanceof Error ? error.message : String(error)
+}
+
 export async function callKlineWithSharding(client: KlineClient, endpointKey: string, body: KlineBody, config: ShardConfig): Promise<unknown> {
   const fullMarketValue = config.fullMarketValue ?? "all"
   if (!isFullMarket(body, fullMarketValue)) {
@@ -186,12 +195,21 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   const failedShards: Array<{ startDate: string; endDate: string }> = []
   let firstError: unknown = null
   let aborted = false
+  /** Failed shards that were never sent, because an earlier one stopped the fan-out. */
+  let unsent = 0
+  /** Shards the server answered with 110003: wholly before the account's history window.
+   * Not failures — a single request across the window's lower bound answers from the bound
+   * without an error, and a sharded one must mean the same — so they neither stop the
+   * fan-out nor mark the result partial. */
+  const outOfWindow: Array<{ startDate: string; endDate: string }> = []
+  let windowError: unknown = null
   const fetchShard = async (shard: { startDate: string; endDate: string }): Promise<unknown> => {
     // A prior shard hit a hard error (rate limit, no-perm, retries exhausted). Stop
     // dispatching the rest rather than burning quota into the same failure; record them
     // as failed so the merged result is flagged partial. Mirrors requestPaginated.
     if (aborted) {
       failedShards.push(shard)
+      unsent++
       return null
     }
     try {
@@ -206,6 +224,11 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
       }
       return res
     } catch (error) {
+      if (error instanceof ApiError && error.code === OUT_OF_WINDOW_CODE) {
+        outOfWindow.push(shard)
+        if (!windowError) windowError = error
+        return null
+      }
       if (!firstError) firstError = error
       // A structural error (the client rejected THIS response's shape) is local to one
       // shard; only a systemic failure stops the rest from being sent.
@@ -307,10 +330,14 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
   await runInOrder(shards, config.concurrency ?? PAGE_CONCURRENCY, fetchShard, mergeShard)
 
-  // Every shard failed → surface the error loudly (non-zero exit) rather than
-  // masking a total outage as an empty success.
-  if (failedShards.length === shards.length) {
-    throw firstError ?? new Error(`All ${shards.length} kline shards failed`)
+  // Nothing fetched — every shard failed or lay outside the history window → surface the
+  // error loudly (non-zero exit) rather than masking it as an empty success.
+  if (failedShards.length + outOfWindow.length === shards.length) {
+    throw firstError ?? windowError ?? new Error(`All ${shards.length} kline shards failed`)
+  }
+  const skipped = [...outOfWindow].sort((a, b) => a.startDate.localeCompare(b.startDate))
+  if (skipped.length > 0) {
+    process.stderr.write(`[gangtise] note: ${skipped.length}/${shards.length} shard(s) between ${skipped[0].startDate} and ${skipped[skipped.length - 1].endDate} lie outside your account's history window (110003) and were skipped; the result covers the rest of the range (see outOfWindowShards).\n`)
   }
 
   // Defensive default only. With JSON payloads every shard is a contributor (header), a
@@ -321,6 +348,9 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // so the JSON `total` and the `Total:` stderr line reflect the whole combined result.
   const out: Record<string, unknown> = { ...base, total: count, list: merged }
   if (sink) attachRowSink(out, sink)
+  // Machine-readable too, so an export's sidecar says which dates are not in the file. Not
+  // partial: the account cannot query them, which a retry would not change.
+  if (skipped.length > 0) out.outOfWindowShards = skipped
   // Two different jobs share the output's fieldList: zipping array rows by position (only
   // a header validated against columnar rows may do that), and telling flagMissingFields
   // which columns came back (which needs an honest answer for EVERY shape). So:
@@ -343,7 +373,9 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   if (failedShards.length > 0) {
     out.partial = true
     out.failedShards = failedShards
-    process.stderr.write(`[gangtise] warning: ${failedShards.length}/${shards.length} shards failed; results are partial (see failedShards)\n`)
+    const notSent = unsent > 0 ? ` (${unsent} of them not sent: the first error stopped the rest)` : ""
+    const cause = firstError ? `; first error: ${describeError(firstError)}` : ""
+    process.stderr.write(`[gangtise] warning: ${failedShards.length}/${shards.length} shards failed${notSent}${cause}; results are partial (see failedShards)\n`)
   }
   if (partialShards.length > 0) {
     out.partial = true

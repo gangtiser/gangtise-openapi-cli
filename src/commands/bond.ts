@@ -1,6 +1,7 @@
 import { Command, Option } from "commander"
 
-import { collectList, dateArg, maybeArray, parseNumberOption } from "../core/args.js"
+import { collectList, collectNames, dateArg, maybeArray, parseNumberOption } from "../core/args.js"
+import { maxUnitsOf } from "../core/endpoints.js"
 import { ValidationError } from "../core/errors.js"
 import { emit } from "./shared.js"
 
@@ -35,11 +36,11 @@ bondSecurityOption(bond.command("basic-info").description("Bond static profiles:
   .action((options) => emit(options, (client) => client.call("bond.basic-info", { securityList: requireBondCodes(options.security, 10000), fieldList: maybeArray(options.field) })))
 
 bondSecurityOption(bond.command("rating-overview").description("Bond, issuer and guarantor ratings side by side"))
-  .action((options) => emit(options, (client) => client.call("bond.rating-overview", { securityList: requireBondCodes(options.security, 10), fieldList: maybeArray(options.field) })))
+  .action((options) => emit(options, (client) => client.call("bond.rating-overview", { securityList: requireBondCodes(options.security, maxUnitsOf("bond.rating-overview")), fieldList: maybeArray(options.field) })))
 
 addBondRange("cash-flow", "bond.cash-flow", "Interest payment and redemption schedule per bond", "Payment date")
 addBondRange("issuance-detail", "bond.issuance-detail", "Issuance and re-issuance records: bidding, pricing, cover ratios", "Issue announcement date")
-addBondRange("rating-change", "bond.rating-change", "Bond rating change history: current vs previous rating, direction, outlook, agency (max 10 bonds per call)", "Announcement date", 10)
+addBondRange("rating-change", "bond.rating-change", "Bond rating change history: current vs previous rating, direction, outlook, agency (max 10 bonds per call)", "Announcement date", maxUnitsOf("bond.rating-change"))
 addBondRange("exercise-notice", "bond.exercise-notice", "Put/call exercise schedule and results for option-embedded bonds", "Exercise date")
 
 bondSecurityOption(bond.command("daily-quote").description("Daily close quotes (exchange + CFETS): dirty/clean price, YTM, duration, convexity"))
@@ -62,7 +63,7 @@ function issuerSelector(security: string[], issuer: string[]): Record<string, un
   return security.length ? { securityList: security } : { issuerNameList: issuer }
 }
 
-const issuerNameOption = (command: Command) => command.option("--issuer <name>", "Issuer name, full or short (repeatable); fuzzy-matched, one best hit per name", collectList, [])
+const issuerNameOption = (command: Command) => command.option("--issuer <name>", "Issuer name, full or short (repeatable); fuzzy-matched, one best hit per name", collectNames, [])
 
 issuerNameOption(bondSecurityOption(bond.command("issuer-info").description("Issuer profiles: nature, SW industry, registration, rating, outstanding bonds")))
   .action((options) => emit(options, (client) => client.call("bond.issuer-info", { ...issuerSelector(options.security, options.issuer), fieldList: maybeArray(options.field) })))

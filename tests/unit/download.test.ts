@@ -6,7 +6,7 @@ import { Readable } from "node:stream"
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
 import { stagingSiblings } from "../fixtures/staging.js"
-import { extFromContentType, releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
+import { extFromContentType, placeStreamedDownload, releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "../../src/core/download.js"
 import { removeStagingFiles, saveOutputIfNeeded } from "../../src/core/output.js"
 import { DownloadError } from "../../src/core/errors.js"
 import { readTitleCache, writeTitleCache } from "../../src/core/titleCache.js"
@@ -67,6 +67,16 @@ describe("resolveTitle", () => {
     const name = await resolveTitle({ call: listSpy }, { contentType: "application/pdf" }, ENDPOINT, "reportId", "123")
     expect(name).toBe("Cached Q3 Report.pdf")
     expect(listSpy).not.toHaveBeenCalled()
+  })
+
+  it("takes a {url} answer's extension from the URL, not from the JSON that carried it", async () => {
+    // The answer that hands over a signed URL is application/json; naming the file after
+    // that type saved a PDF as "<title>.json".
+    vi.mocked(readTitleCache).mockResolvedValueOnce({
+      [ENDPOINT]: { titles: { "123": "Cached Q3 Report" }, ts: Date.now() },
+    })
+    const name = await resolveTitle({ call: vi.fn() }, { url: "https://signed.example.com/x/y.pdf?sig=1", contentType: "application/json" }, ENDPOINT, "reportId", "123")
+    expect(name).toBe("Cached Q3 Report.pdf")
   })
 
   it("does NOT query the list endpoint on a cache miss unless the lookup is opted into", async () => {
@@ -433,9 +443,51 @@ describe("saveDownloadResult", () => {
     await expect(uniquePath(base)).rejects.toBeInstanceOf(DownloadError)
   })
 
-  it("still prints the URL to stdout when no output path is given", async () => {
-    await saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "fallback")
-    expect(stdout().trim()).toBe("https://signed.example.com/f.pdf")
+  it("follows a server-returned URL to an auto-named file when no output path is given", async () => {
+    // A signed URL expires, so printing it was no download at all — and the same command
+    // saved a file or not depending on whether the title cache hit. Named after the
+    // fallback, with the extension the URL names.
+    await fs.mkdir(dir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      requestMock.mockResolvedValue({ statusCode: 200, headers: {}, body: Readable.from(Buffer.from([37, 80, 68, 70])) })
+      await saveDownloadResult({ url: "https://signed.example.com/a/f.pdf?sig=abc", contentType: "application/json" }, "report-7")
+      expect(stdout().trim()).toBe("report-7.pdf")
+      expect(new Uint8Array(await fs.readFile(path.join(dir, "report-7.pdf")))).toEqual(new Uint8Array([37, 80, 68, 70]))
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
+  it("leaves no empty placeholder when an auto-named URL download fails", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      requestMock.mockResolvedValue({ statusCode: 403, headers: {}, body: { text: vi.fn().mockResolvedValue("expired") } })
+      await expect(saveDownloadResult({ url: "https://signed.example.com/f.pdf" }, "report-8")).rejects.toBeInstanceOf(DownloadError)
+      expect(await fs.readdir(dir)).toEqual([])
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
+  it("removes the streamed temporary file when no free name is left for it", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(path.join(dir, "dup.pdf"), "x")
+    for (let i = 1; i <= 99; i++) await fs.writeFile(path.join(dir, `dup-${i}.pdf`), "x")
+    const temp = path.join(dir, ".gangtise-download.abcd.part")
+    await fs.writeFile(temp, "the whole downloaded file")
+    // The auto name is relative: it lands in the working directory, so work in `dir`.
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      await expect(placeStreamedDownload({ savedPath: temp, contentType: "application/pdf" }, "dup")).rejects.toBeInstanceOf(DownloadError)
+    } finally {
+      process.chdir(cwd)
+    }
+    await expect(fs.access(temp)).rejects.toThrow()
   })
 
   it("keeps plain overwrite semantics for an explicit output path", async () => {
@@ -463,11 +515,6 @@ describe("saveDownloadResult", () => {
     const out = path.join(dir, "note.txt")
     await saveDownloadResult({ text: "hello" }, "fallback", out)
     expect(await fs.readFile(out, "utf8")).toBe("hello")
-  })
-
-  it("prints a redirect url when there is no output path", async () => {
-    await saveDownloadResult({ url: "https://cdn.example/file.pdf" }, "fallback")
-    expect(stdout().trim()).toBe("https://cdn.example/file.pdf")
   })
 
   it("throws DownloadError on an unrecognized response", async () => {

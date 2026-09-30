@@ -1,3 +1,6 @@
+import { beijingDateString, parseDateOption } from "./args.js"
+import { ValidationError } from "./errors.js"
+
 export interface EndpointDefinition {
   key: string
   method: "GET" | "POST"
@@ -47,6 +50,13 @@ export interface EndpointDefinition {
    * `maxUnits` is how many units one request can be billed for when the endpoint is not
    * paginated (a paginated one is bounded by its page size). */
   billing?: { per: "call" | "page" | "row" | "security" | "issuer" | "document"; price: number; maxUnits?: number }
+  /** For an endpoint billed by quantity whose one request has no bound the client can rely
+   * on: how many billed units a request body asks for, estimated. The client refuses a
+   * request estimated above COSTLY_FETCH_CREDITS unless the caller confirmed (--yes) — on
+   * every entry point, `raw call` included, because the check sits in the client. Throws
+   * (a ValidationError) when the body cannot be priced; the client then refuses the
+   * request too, since "unknown" must not pass as "free". */
+  estimateBilledUnits?: (body: Record<string, unknown>) => number
   /** Per-endpoint timeout floor in ms. Synchronous AI generation blocks well past
    * the 30s default; without a floor it times out and retries, and a retry can
    * re-bill the generation. `resolveTimeoutMs` lifts the request timeout to this
@@ -109,6 +119,49 @@ export interface EndpointDefinition {
    * points run `flagFailedItems` on these, so the same response cannot exit 3 through
    * the dedicated command and 0 through `raw call`. */
   itemFailures?: true
+}
+
+/** Credits above which a fetch whose size the caller left open is refused without --yes: a
+ * --size-less fetch of a per-row billed list once its total is known (client.ts), and an
+ * open date range on a per-row billed endpoint that does not page (fundamental
+ * earning-forecast). Omitting a bound means "everything", and priced per row everything can
+ * be tens of thousands of credits from one missing flag. Here, not in client.ts, so a
+ * command can check it before a client (and undici) is loaded. */
+export const COSTLY_FETCH_CREDITS = 1000
+
+/** Rows one earning-forecast date carries: one per forecast year (probed 2026-09-25: three).
+ * For the credit estimate, not a promise — a thinly covered security has fewer. */
+const FORECAST_ROWS_PER_DATE = 3
+
+/** A body date an estimate can use, as yyyy-MM-dd: the year-first layouts --start-date takes,
+ * nothing else — a year-last date means another day to the API, and a date nobody can read
+ * cannot be priced (see estimateBilledUnits). */
+function billedDate(value: unknown, key: string): string {
+  if (typeof value !== "string") throw new ValidationError(`${key} is not a date string`)
+  return parseDateOption(value, key)
+}
+
+/** Monday–Friday days from `start` to `end` (yyyy-MM-dd), both included; holidays counted,
+ * so an upper bound. 0 for a reversed or unreadable range. */
+export function weekdaysBetween(start: string, end: string): number {
+  const from = Date.parse(`${start}T00:00:00Z`)
+  const to = Date.parse(`${end}T00:00:00Z`)
+  if (!(to >= from)) return 0
+  let count = 0
+  for (let t = from; t <= to; t += 86_400_000) {
+    const day = new Date(t).getUTCDay()
+    if (day !== 0 && day !== 6) count++
+  }
+  return count
+}
+
+/** The most units one request to `key` can be billed for — the registry's `maxUnits`, which
+ * is also the endpoint's per-call limit wherever a command checks one locally. Throws when
+ * the entry declares none, so a command cannot quietly fall back to a stale literal. */
+export function maxUnitsOf(key: string): number {
+  const max = ENDPOINTS[key]?.billing?.maxUnits
+  if (max === undefined) throw new Error(`${key} declares no billing.maxUnits`)
+  return max
 }
 
 /** Effective request timeout: the endpoint's floor, or the config timeout if higher
@@ -657,6 +710,15 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     // bills more than NO_REPLAY_ABOVE_CREDITS. No bound the client can rely on, so none is
     // claimed, and the call is not replayed.
     billing: { per: "row", price: 0.5, maxUnits: Number.POSITIVE_INFINITY },
+    estimateBilledUnits: (body) => {
+      // A missing end is today (Beijing), a missing start the year before the end — the
+      // command's own defaults, so a `raw call` without dates is priced the same way. A date
+      // given is read like --start-date / --end-date (year-first layouts normalized); one
+      // that cannot be read throws, and the request is refused rather than priced at zero.
+      const end = body.endDate == null ? beijingDateString(new Date()) : billedDate(body.endDate, "endDate")
+      const start = body.startDate == null ? new Date(Date.parse(`${end}T00:00:00Z`) - 365 * 86_400_000).toISOString().slice(0, 10) : billedDate(body.startDate, "startDate")
+      return weekdaysBetween(start, end) * FORECAST_ROWS_PER_DATE
+    },
     retry: "no-replay",
   },
 
@@ -771,6 +833,175 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/exercise-notice",
     kind: "json",
     description: "Query put/call exercise schedules and results for option-embedded bonds",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+
+  // ─── fund ───
+  // All eighteen are billed 0.4 credits per call (the 2026-09 spec), hence `no-replay`.
+  // None of them pages: `data` is `{list}` with no `total`, and an unknown code answers
+  // `{list: []}` (probed 2026-09-30 on all eighteen). Past the 10000-row ceiling the spec
+  // says nothing is returned; probed on `nav` (2026-09-30), that is a whole-query 100006,
+  // not a cut-short list — so there is no truncation to flag.
+  "fund.basic-info": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/basic-info",
+    kind: "json",
+    description: "Query fund profiles (category, manager, subscription rules, benchmark, tracked index)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.nav": {
+    method: "POST",
+    path: "/application/open-quote/fund/nav",
+    kind: "json",
+    description: "Query fund daily NAV (unit / accumulated / adjusted; money-market yields)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.fee-rate": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/fee-rate",
+    kind: "json",
+    description: "Query fund fee rates (purchase / redemption / management / custodian / sales service)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.manager-info": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/manager-info",
+    kind: "json",
+    description: "Query fund manager profiles by name (exact match; same-name managers all returned)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.manager-history": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/manager-history",
+    kind: "json",
+    description: "Query a fund's past and present managers (tenure + return over tenure)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.asset-allocation": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/asset-allocation",
+    kind: "json",
+    description: "Query a fund's asset allocation per report date (equity / bonds / cash ...)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.asset-size": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/asset-size",
+    kind: "json",
+    description: "Query a fund's shares, subscriptions / redemptions and net assets per report date",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.holder-structure": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/holder-structure",
+    kind: "json",
+    description: "Query a fund's holder structure per report date (institutional / individual / employee)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.top10-holders": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/top10-holders",
+    kind: "json",
+    description: "Query a listed fund's top 10 holders per report date",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.stock-portfolio": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/stock-portfolio",
+    kind: "json",
+    description: "Query a fund's stock holdings per report date",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.industry-allocation": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/industry-allocation",
+    kind: "json",
+    description: "Query a fund's stock holdings grouped by industry (SW / CITIC level 1)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.bond-portfolio": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/bond-portfolio",
+    kind: "json",
+    description: "Query a fund's bond holdings per report date",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.bond-type-allocation": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/bond-type-allocation",
+    kind: "json",
+    description: "Query a fund's bond holdings grouped by bond type",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.fund-portfolio": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/fund-portfolio",
+    kind: "json",
+    description: "Query a fund-of-funds' holdings of other funds",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.fund-type-allocation": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/fund-type-allocation",
+    kind: "json",
+    description: "Query a fund-of-funds' holdings grouped by fund category",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.etf-pcf-header": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/etf-pcf-header",
+    kind: "json",
+    description: "Query ETF creation/redemption parameters (latest trade date)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.etf-pcf-components": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/etf-pcf-components",
+    kind: "json",
+    description: "Query the ETF creation/redemption component list (latest trade date)",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "fund.etf-share-change": {
+    method: "POST",
+    path: "/application/open-fundamental/fund/etf-share-change",
+    kind: "json",
+    description: "Query ETF shares and scale per trade date",
     billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",

@@ -100,7 +100,7 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 ## A股盈利预测 `fundamental earning-forecast`
 
 ```bash
-gangtise fundamental earning-forecast --security-code <code> [--start-date <date>] [--end-date <date>] [--consensus <name>]
+gangtise fundamental earning-forecast --security-code <code> [--start-date <date>] [--end-date <date>] [--consensus <name>] [--yes]
 ```
 
 - **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股盈利预测 / 一致预期始终走本命令，不走 EDE；EDE 搜索目前没有一致预期语义，搜到的基本 / 稀释 EPS 是已实现值，不能冒充预测 EPS。港 / 美股盈利预测当前 CLI 不支持
@@ -108,7 +108,7 @@ gangtise fundamental earning-forecast --security-code <code> [--start-date <date
 - `--consensus` 可重复：`netIncome` 归母净利润 | `netIncomeYoy` 同比增速 | `eps` 每股收益 | `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG | `roe` 净资产收益率 | `ps` 市销率
 - **`roe` 的单位是百分比（%）**：`35.6` 即 35.6%，**不要再做 ÷100 之类的单位换算**——换算后的数字看着仍像个 ROE，不会报错
 - 返回结构：`{securityCode, securityName, updateList: [{date, fieldList: [{forecastYear, ...consensus}]}]}` — 每个日期固定返回 3 年预测（如 `2026E` / `2027E` / `2028E`）
-- **积分**：`0.5`/条（盈利预测是 `fundamental` 里唯一收费项，其余报表/主营/估值/股东均免费）。行数随日期区间增长（每个交易日一组、每组 3 年预测），长区间一次可达数千积分，所以超时 / 5xx **不自动重试**；长区间按年分段拉
+- **积分**：`0.5`/条（盈利预测是 `fundamental` 里唯一收费项，其余报表/主营/估值/股东均免费）。行数随日期区间增长（每个交易日一组、每组 3 年预测），长区间一次可达数千积分，所以超时 / 5xx **不自动重试**；长区间按年分段拉。**CLI 先按区间估算（工作日数 × 3 条 × 0.5），超过 1000 积分（约两年半）报错退出并给出估算值**，确认后加 `--yes` 或缩短区间
 
 ## 前十大股东 `fundamental top-holders`
 

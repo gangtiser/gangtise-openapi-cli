@@ -87,7 +87,7 @@ const ERROR_HINTS: Record<string, string> = {
   "100005": "对照命令 --help 列出的合法取值检查。",
   // 2026-08-14 起 list 类端点把单页上限（50）也归到此码，不再只是「一次要太多行」。
   // 2026-09 起 EDE 截面 / 时序的单次单元格上限（30000）也归这里，msg 会写明限额。
-  "100006": "缩短日期范围或调小 --size / --limit（list 类端点单页上限为 50，CLI 自动翻页，直发接口时要自己遵守）；indicator cross-section / time-series 撞此码是单次单元格数超 30000（截面=证券数×指标数，时序=证券数或指标数×日期数），按这个乘积拆批重跑。",
+  "100006": "缩短日期范围或调小 --size / --limit（list 类端点单页上限为 50，CLI 自动翻页，直发接口时要自己遵守）；indicator cross-section / time-series 撞此码是单次单元格数超 30000（截面=证券数×指标数，时序=证券数或指标数×日期数），按这个乘积拆批重跑；fund 命令不分页，撞此码是单次超过 10000 行，减少 --security 只数或缩短日期区间分批查。",
   // 按参数名判断，不要按命令组：AI 下 management-discuss 的 --report-date 是 date，
   // 而同属 AI 的 knowledge-batch 收时间戳或 datetime——旧文案笼统写"AI 用 datetime"会把
   // --report-date 的用户越导越错。

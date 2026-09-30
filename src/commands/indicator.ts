@@ -1,6 +1,6 @@
 import { Command, Option } from "commander"
 
-import { collectList, dateArg, screenerExpressionFields, parseNumberOption, parseScreenerIndicators } from "../core/args.js"
+import { collectList, collectNames, dateArg, screenerExpressionFields, parseNumberOption, parseScreenerIndicators } from "../core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody } from "../core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "../core/indicatorMatrix.js"
 import { resolveCalendarType } from "../core/calendarType.js"
@@ -82,7 +82,7 @@ indicator.command("cross-section")
   .requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as each indicator's tradeDate. Report-period indicators (is_*, financial statements) REJECT tradeDate and require --indicator-param 'code:reportDate=yyyy-MM-dd' instead — check parameterList in 'indicator search'", dateArg("--date"))
   .option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)")
   .option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)")
-  .option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'. Bare 'code:' (nothing after the colon) declares the indicator takes NO date — required by any indicator whose parameterList has no date key at all, which otherwise rejects the tradeDate --date injects: the pty_* / scr_* static-attribute families (pty_op_scope, scr_exchg_mkt, scr_isin …), plus div_cash_paid_ratio / div_cash_yr (add 'code:fiscalYear=YYYY' too) and pty_shr_reg. It composes with real params, so 'code:' + 'code:scale=8' keeps the scale", collectList, [])
+  .option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'. Bare 'code:' (nothing after the colon) declares the indicator takes NO date — required by any indicator whose parameterList has no date key at all, which otherwise rejects the tradeDate --date injects: the pty_* / scr_* static-attribute families (pty_op_scope, scr_exchg_mkt, scr_isin …), plus div_cash_paid_ratio / div_cash_yr (add 'code:fiscalYear=YYYY' too) and pty_shr_reg. It composes with real params, so 'code:' + 'code:scale=8' keeps the scale", collectNames, [])
   .addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode, unique & order-stable for batch code→value mapping").choices(["name", "code"]).default("name"))
   .option("--format <format>", "Output format", "table")
   .option("--output <path>")
@@ -105,7 +105,7 @@ indicator.command("time-series")
   .option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday. Omit it and the CLI picks: a free 'indicator search' reads each parameterList and sends TD only when EVERY indicator is trading-day typed, otherwise it leaves the server on ND (report-period indicators land on dates a trading calendar lacks, and TD would answer them with an all-null grid). An explicit value is sent as given, with no lookup")
   .option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)")
   .option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)")
-  .option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectList, [])
+  .option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectNames, [])
   .addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode/securityCode, unique & order-stable for batch mapping").choices(["name", "code"]).default("name"))
   .option("--format <format>", "Output format", "table")
   .option("--output <path>")
@@ -137,11 +137,11 @@ indicator.command("time-series")
 }))
 indicator.command("screener")
   .description("Screen securities by an expression over indicator values (条件选股)")
-  .option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectList, [])
+  .option("--indicator <spec>", "Bind a variable to an indicator, 'F1:code', e.g. F1:qte_mkt_cptl (REQUIRED, repeat)", collectNames, [])
   .option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, [])
   .requiredOption("--expression <expr>", "Filter over the bound variables, e.g. 'F1 >= 800 && (F2 >= 20 && F2 <= 30)'; also supports contains/notcontains on string indicators")
   .requiredOption("--date <date>", "Data date (yyyy-MM-dd); sent as every indicator's tradeDate unless it already has one. Report-period indicators (is_*) reject tradeDate: give them --indicator-param 'F1:reportDate=yyyy-MM-dd'", dateArg("--date"))
-  .option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'. Bare 'F1:' (nothing after the colon) declares that the indicator takes NO date — required by any indicator whose parameterList has no date key at all, which otherwise rejects the tradeDate --date injects: the pty_* / scr_* static-attribute families (pty_op_scope, scr_exchg_sctr, scr_isin …), plus div_cash_paid_ratio / div_cash_yr (add 'F1:fiscalYear=YYYY' too) and pty_shr_reg. It composes with real params, so 'F1:' + 'F1:scale=8' keeps the scale", collectList, [])
+  .option("--indicator-param <spec>", "Per-variable param 'F1:key=value', e.g. F1:scale=8 (repeat); read exact keys from 'indicator search'. Bare 'F1:' (nothing after the colon) declares that the indicator takes NO date — required by any indicator whose parameterList has no date key at all, which otherwise rejects the tradeDate --date injects: the pty_* / scr_* static-attribute families (pty_op_scope, scr_exchg_sctr, scr_isin …), plus div_cash_paid_ratio / div_cash_yr (add 'F1:fiscalYear=YYYY' too) and pty_shr_reg. It composes with real params, so 'F1:' + 'F1:scale=8' keeps the scale", collectNames, [])
   .addOption(new Option("--key-by <mode>", "Column key: name=display name (default) | code=indicatorCode").choices(["name", "code"]).default("name"))
   .option("--format <format>", "Output format", "table")
   .option("--output <path>")

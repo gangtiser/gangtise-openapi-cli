@@ -3,14 +3,16 @@ import path from "node:path"
 
 import type { OutputFormat } from "./config.js"
 import { normalizeRows } from "./normalize.js"
-import { countOutputRows, digestFile, type ExportDigest, pickList, renderOutput, saveOutputIfNeeded, stagingPath, streamOutputToFile } from "./output.js"
+import { countOutputRows, digestFile, type ExportDigest, pickList, renderOutput, saveOutputIfNeeded, stagingPath, stillPublished, streamOutputToFile, writeOutputLines } from "./output.js"
 import { getRowSink } from "./rowSink.js"
 import { extractTitles, type TitleCacheConfig, writeTitleCache } from "./titleCache.js"
 import { CLI_VERSION } from "../version.js"
 import { decidedExitCode, EXIT_SUPERSEDED, markIncomplete, markSuperseded } from "./exitStatus.js"
 
 /** Rows above which renderOutput's single in-memory string risks high memory / the V8
- * max-string-length cap. Well above normal result sizes, so it only fires on huge exports. */
+ * max-string-length cap. Well above normal result sizes, so it only fires on huge results in
+ * the formats that are rendered whole (json / table / markdown; jsonl and csv are written in
+ * line batches). */
 const LARGE_RESULT_ROWS = 50_000
 
 /** The export was written in full, but the file now at --output is someone else's.
@@ -39,11 +41,18 @@ export const SUPERSEDED_EXIT = EXIT_SUPERSEDED
  * failure is not evidence that someone replaced it.
  */
 export async function warnIfSuperseded(output: string, digest: ExportDigest): Promise<void> {
+  // The inode this process published there settles the common case without reading the
+  // file back. A different inode is not proof on its own — SMB and some FUSE mounts
+  // synthesize inode numbers, so the same file can stat differently twice — so the contents
+  // decide then, as they do when no inode was recorded. A replacement with byte-identical
+  // content therefore passes: it leaves the same data in place, and a false exit 4 on such a
+  // filesystem would cost more.
+  if (await stillPublished(output) === true) return
   const actual = await digestFile(output).catch(() => undefined)
   if (!actual || actual.sha256 === digest.sha256) return
   process.stderr.write(
     `[gangtise] warning: ${output} was replaced by another export to the same path while this one was finishing — the file there is not this command's output `
-    + `(wrote sha256 ${digest.sha256.slice(0, 12)}…, found ${actual.sha256.slice(0, 12)}…). Give concurrent exports distinct --output paths.\n`,
+    + `(this run wrote sha256 ${digest.sha256.slice(0, 12)}…). Give concurrent exports distinct --output paths.\n`,
   )
   markSuperseded()
 }
@@ -223,14 +232,10 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
         // Rows are already on disk in order; close and move the file into place.
         await streamed.finish()
         digest = streamed.digest
-      } else if (!(digest = (await streamOutputToFile(normalized, format, output)) ?? undefined)) {
-        // streamOutputToFile declined (non-stream format, or an all-scalar csv list) → we
-        // fall back to renderOutput, which builds the whole result as one string.
+      } else if (!(digest = (await streamOutputToFile(normalized, format, output, columns)) ?? undefined)) {
+        // json / table / markdown: rendered whole. A table in a file keeps every cell whole.
         warnIfLargeInMemory(items, format)
-        const content = renderOutput(normalized, format)
-        // CSV files get a BOM so Excel double-click decodes Chinese as UTF-8 (stdout
-        // stays BOM-free for pipes).
-        digest = await saveOutputIfNeeded(format === "csv" ? `\ufeff${content}` : content, output)
+        digest = await saveOutputIfNeeded(renderOutput(normalized, format, { clampCells: false }), output)
       }
     } catch (error) {
       await staged?.discard()
@@ -240,6 +245,12 @@ export async function printData(data: unknown, format: OutputFormat, output?: st
     // After the sidecar, so a mismatch is reported against a pair that is already on disk.
     if (digest) await warnIfSuperseded(output, digest)
     process.stdout.write(`${output}\n`)
+    return
+  }
+  if (format === "jsonl" || format === "csv") {
+    // Line batches, never one string (see writeOutputLines). No rows means no output at all:
+    // a stray newline would be a phantom record to `wc -l` / `while read`.
+    await writeOutputLines(process.stdout, normalized, format, { columns })
     return
   }
   warnIfLargeInMemory(items, format)

@@ -128,6 +128,29 @@ export function extFromContentType(contentType?: string): string {
   return MIME_EXT[mime] ?? ""
 }
 
+const KNOWN_EXT = new Set(Object.values(MIME_EXT).concat([".md", ".jpeg", ".htm"]))
+
+/** The file extension a signed download URL names (`…/report.pdf?sig=…` → `.pdf`), when it
+ * is a known file type. For a `{url}` answer this is the only hint at what the file is: the
+ * response that carried the URL is JSON, and naming the file after THAT type saved a PDF as
+ * `.json`. */
+export function extFromUrl(url: string): string {
+  try {
+    const ext = extname(decodeURIComponent(new URL(url).pathname)).toLowerCase()
+    return KNOWN_EXT.has(ext) ? ext : ""
+  } catch {
+    return ""
+  }
+}
+
+/** The extension of the file a download result stands for: the server's filename, else the
+ * URL of a `{url}` answer, else the response's content type. */
+function resultExt(file: { filename?: string; contentType?: string; url?: string }): string {
+  if (file.filename) return extname(file.filename)
+  if (typeof file.url === "string") return extFromUrl(file.url)
+  return extFromContentType(file.contentType)
+}
+
 /**
  * Resolve a friendly filename for a downloaded file.
  *
@@ -148,8 +171,8 @@ export async function resolveTitle(
   options: { titleField?: string; allowLookup?: boolean } = {},
 ): Promise<string | undefined> {
   const titleField = options.titleField ?? "title"
-  const file = result as { filename?: string; contentType?: string }
-  const serverExt = file.filename ? extname(file.filename) : extFromContentType(file.contentType)
+  const file = result as { filename?: string; contentType?: string; url?: string }
+  const serverExt = resultExt(file)
 
   function buildFilename(rawTitle: string): string {
     let title = sanitizeFilename(rawTitle).trim()
@@ -202,7 +225,7 @@ async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
   const { pipeline } = await import("node:stream/promises")
   const { dirname } = await import("node:path")
   const { request } = await import("undici")
-  const { getDispatcher, logTiming, withRetry } = await import("./transport.js")
+  const { getDispatcher, logTiming, TRANSFER_TOTAL_FACTOR, withRetry } = await import("./transport.js")
   const { loadConfig } = await import("./config.js")
 
   // Through the transport layer instead of a bare global fetch: the configured
@@ -231,10 +254,10 @@ async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
       headersTimeout: timeoutMs,
       bodyTimeout: timeoutMs,
       // headers/body timeouts are IDLE timeouts — a stream trickling one byte
-      // per interval resets them forever. A generous total deadline (10× the
-      // per-request timeout) bounds the whole transfer without killing large
-      // legitimate downloads.
-      signal: AbortSignal.timeout(timeoutMs * 10),
+      // per interval resets them forever. A generous total deadline bounds the
+      // whole transfer without killing large legitimate downloads (see
+      // TRANSFER_TOTAL_FACTOR).
+      signal: AbortSignal.timeout(timeoutMs * TRANSFER_TOTAL_FACTOR),
       dispatcher: getDispatcher(),
     }
     let currentUrl = url
@@ -276,6 +299,31 @@ async function downloadUrlTo(url: string, outputPath: string): Promise<void> {
   }
 }
 
+/** The name a download gets when no --output is given: the server's filename (sanitized so a
+ * Content-Disposition value with / or : cannot write outside the working directory), else
+ * `<fallback><ext of the content type>`. Not yet claimed — pass it through uniquePath. */
+export function autoDownloadName(file: { filename?: string; contentType?: string }, fallbackName: string): string {
+  return truncateFilename(file.filename ? sanitizeFilename(file.filename) : sanitizeFilename(fallbackName) + extFromContentType(file.contentType))
+}
+
+/** Move a download the client streamed to a temporary name (`savedPath`) to its final one:
+ * `named` (a title-derived name) or the auto name, claimed with uniquePath. The temporary
+ * file is removed if the move fails. */
+export async function placeStreamedDownload(file: DownloadResult & { savedPath: string }, fallbackName: string, named?: string): Promise<string> {
+  let target: string | undefined
+  try {
+    // Inside the cleanup too: when every candidate name is taken, the downloaded file must
+    // not stay behind under its temporary name.
+    target = await uniquePath(truncateFilename(named ?? autoDownloadName(file, fallbackName)))
+    await fs.rename(file.savedPath, target)
+  } catch (error) {
+    if (target) await releaseClaim(target)
+    await fs.unlink(file.savedPath).catch(() => {})
+    throw error
+  }
+  return target
+}
+
 export async function saveDownloadResult(result: unknown, fallbackName: string, output?: string): Promise<void> {
   if (!(result && typeof result === "object")) {
     throw new DownloadError("Unexpected download response")
@@ -292,10 +340,7 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   }
 
   if (file.data instanceof Uint8Array) {
-    // Sanitize the server-provided filename so a Content-Disposition value with
-    // / or : can't write outside the intended path (same rule as buildFilename).
-    const autoName = (file.filename ? sanitizeFilename(file.filename) : undefined) ?? (safeFallback + extFromContentType(file.contentType))
-    const outputPath = output ?? await uniquePath(truncateFilename(autoName))
+    const outputPath = output ?? await uniquePath(autoDownloadName(file, fallbackName))
     try {
       await saveOutputIfNeeded(file.data, outputPath, false)
     } catch (error) {
@@ -319,15 +364,18 @@ export async function saveDownloadResult(result: unknown, fallbackName: string, 
   }
 
   if (typeof file.url === "string") {
-    if (output) {
-      // The server handed us a (typically signed, short-lived) URL instead of the
-      // bytes. The user asked for a file — follow the URL and stream the content
-      // to disk instead of writing the URL string into a fake .pdf.
-      await downloadUrlTo(file.url, output)
-      process.stdout.write(`${output}\n`)
-      return
+    // The server handed us a (typically signed, short-lived) URL instead of the bytes. The
+    // user asked for a file — follow the URL and stream the content to disk, named like any
+    // other download when no --output is given (the URL alone expires, and printing it
+    // instead made the same command save a file or not depending on the title cache).
+    const outputPath = output ?? await uniquePath(truncateFilename(safeFallback + extFromUrl(file.url)))
+    try {
+      await downloadUrlTo(file.url, outputPath)
+    } catch (error) {
+      if (!output) await releaseClaim(outputPath)
+      throw error
     }
-    process.stdout.write(`${file.url}\n`)
+    process.stdout.write(`${outputPath}\n`)
     return
   }
 

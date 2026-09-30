@@ -512,6 +512,9 @@ describe("download title lookup wiring", () => {
     // The whole point of the default: a miss must cost ZERO requests, not four.
     expect(listBodies).toEqual([])
     expect(await listed()).toEqual(["announcement-us-3.pdf"])
+    // Streamed to a temporary name first (the file never sits in memory while it is
+    // named); nothing of that may be left once it has its final name.
+    expect((await fsp.readdir(workDir)).filter((f) => f.includes("gangtise-download"))).toEqual([])
   }, 30_000)
 
   it("queries the list endpoint only when --resolve-title is passed", async () => {

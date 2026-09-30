@@ -39,6 +39,20 @@ describe("loadConfig", () => {
     expect(config.tokenCachePath).toContain("token.json")
   })
 
+  it("treats an empty or blank variable as unset", () => {
+    // `export GANGTISE_BASE_URL=` is a common way to "clear" one; it must not send every
+    // request to an empty base URL, and an empty GANGTISE_TOKEN must not shadow AK/SK.
+    process.env.GANGTISE_BASE_URL = ""
+    process.env.GANGTISE_TOKEN = "  "
+    process.env.GANGTISE_TOKEN_CACHE_PATH = ""
+    process.env.GANGTISE_ACCESS_KEY = ""
+    const config = loadConfig()
+    expect(config.baseUrl).toBe(DEFAULT_BASE_URL)
+    expect(config.token).toBeUndefined()
+    expect(config.accessKey).toBeUndefined()
+    expect(config.tokenCachePath).toMatch(/token\.json$/)
+  })
+
   it("defaults to the openapi.gangtise.com base URL", () => {
     expect(DEFAULT_BASE_URL).toBe("https://openapi.gangtise.com")
   })

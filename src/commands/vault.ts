@@ -1,10 +1,9 @@
 import { Command, Option } from "commander"
 
-import { collectList, datetimeArg } from "../core/args.js"
-import { buildStockPoolStocksBody, buildWechatChatroomListBody, buildWechatMessageListBody } from "../core/commandBodies.js"
+import { collectList, collectNames } from "../core/args.js"
 import { uploadDriveFile } from "../core/driveUpload.js"
 import { flagFailedItems } from "../core/normalize.js"
-import { emit, addDownloadCommand, assertConfirmed, field, value, required, list, numberList, format, output, from, size, startTime, endTime, query } from "./shared.js"
+import { emit, addDownloadCommand, assertConfirmed, field, value, required, list, numberList, format, output, from, size, startTime, endTime, query, RESEARCH_AREA_CITIC_OR_DIRECTION } from "./shared.js"
 
 export const vault = new Command("vault").description("Vault APIs")
 query(vault, "drive-list", {
@@ -136,7 +135,7 @@ query(vault, "my-conference-list", {
   cache: { endpointKey: "vault.my-conference.list", idField: "conferenceId" },
   fields: [
     from(), size(), startTime(), endTime(), value("--keyword <text>", undefined, "keyword"),
-    list("--research-area <id>", "Research area ID: citicIndustry code (1008001xx) or gangtiseIndustry direction code (122000xxx: macro/strategy/fixed-income/quant/overseas). swIndustry (104xx0000) returns 0 here", "researchAreaList"),
+    list("--research-area <id>", RESEARCH_AREA_CITIC_OR_DIRECTION, "researchAreaList"),
     list("--security <code>", "Security code", "securityList"),
     list("--institution <id>", "Institution ID", "institutionList"),
     list("--category <name>", "Conference category: earningsCall/strategyMeeting/fundRoadshow/shareholdersMeeting/maMeeting/specialMeeting/companyAnalysis/industryAnalysis/other", "categoryList"),
@@ -145,33 +144,37 @@ query(vault, "my-conference-list", {
   ],
 })
 addDownloadCommand(vault, { endpointKey: "vault.my-conference.download", name: "my-conference-download", idOption: "--conference-id", idField: "conferenceId", fallbackPrefix: "conference", contentTypeDescription: "Content type: asr/summary", contentTypeChoices: ["asr", "summary"], titleListEndpoint: "vault.my-conference.list" })
-vault.command("wechat-message-list")
-  .option("--from <number>", "Starting offset", "0")
-  .option("--size <number>", "Total rows to return; omit to fetch all")
-  .option("--start-time <datetime>", "Start time", datetimeArg("--start-time"))
-  .option("--end-time <datetime>", "End time", datetimeArg("--end-time"))
-  .option("--keyword <text>")
-  .option("--security <code>", "Security code (e.g. 000001.SZ)", collectList, [])
-  .option("--wechat-group-id <id>", "WeChat group ID", collectList, [])
-  .option("--industry <id>", "Industry ID -- citicIndustry codes (1008001xx) only; swIndustry codes and unknown values are rejected with 100005", collectList, [])
-  .option("--category <name>", "Message type: text/image/documents/url", collectList, [])
-  .option("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", collectList, [])
-  .option("--format <format>", "Output format", "table")
-  .option("--output <path>")
-  .action((options) => emit(options, (client) => client.call("vault.wechat-message.list", buildWechatMessageListBody(options))))
-vault.command("wechat-chatroom-list")
-  .option("--from <number>", "Starting offset", "0")
-  .option("--size <number>", "Total rows to return; omit to fetch all")
-  .option("--room-name <name>", "WeChat group name; repeat or comma-separate for multiple names", collectList, [])
-  .option("--format <format>", "Output format", "table")
-  .option("--output <path>")
-  .action((options) => emit(options, (client) => client.call("vault.wechat-chatroom.list", buildWechatChatroomListBody(options))))
+query(vault, "wechat-message-list", {
+  endpoint: "vault.wechat-message.list",
+  fields: [
+    from(), size(), startTime(), endTime(), value("--keyword <text>", undefined, "keyword"),
+    list("--security <code>", "Security code (e.g. 000001.SZ)", "securityList"),
+    list("--wechat-group-id <id>", "WeChat group ID", "wechatGroupIdList"),
+    list("--industry <id>", "Industry ID -- citicIndustry codes (1008001xx) only; swIndustry codes and unknown values are rejected with 100005", "industryIdList"),
+    list("--category <name>", "Message type: text/image/documents/url", "categoryList"),
+    list("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", "tagList"),
+    format(), output(),
+  ],
+})
+query(vault, "wechat-chatroom-list", {
+  endpoint: "vault.wechat-chatroom.list",
+  fields: [
+    from(), size(),
+    // The API takes one comma-joined string, not a list.
+    field(new Option("--room-name <name>", "WeChat group name; repeat or comma-separate for multiple names").argParser(collectNames).default([]), (v: string[]) => ({ roomName: v.length > 0 ? v.join(",") : undefined })),
+    format(), output(),
+  ],
+})
 query(vault, "stock-pool-list", { endpoint: "vault.stock-pool.list", fields: [format(), output()] })
-vault.command("stock-pool-stocks")
-  .option("--pool-id <id>", "Pool ID; repeat for multiple; omit (or 'all') for all pools", collectList)
-  .option("--format <format>", "Output format", "table")
-  .option("--output <path>")
-  .action((options) => emit(options, (client) => client.call("vault.stock-pool.stocks", buildStockPoolStocksBody(options))))
+query(vault, "stock-pool-stocks", {
+  endpoint: "vault.stock-pool.stocks",
+  fields: [
+    // No default: Commander passes an option's default to the first collect as `previous`,
+    // so a ["all"] default would leak into every explicit list. Omitted means all pools.
+    field(new Option("--pool-id <id>", "Pool ID; repeat for multiple; omit (or 'all') for all pools").argParser(collectList), (v?: string[]) => ({ poolIdList: v?.length ? v : ["all"] })),
+    format(), output(),
+  ],
+})
 
 // ── stock-pool writes ──
 // These five change the user's own watchlists; every other command in the CLI only reads.

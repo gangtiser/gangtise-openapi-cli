@@ -147,10 +147,15 @@ describe("printData", () => {
     expect(stderr()).toContain("--format jsonl --output")
   })
 
-  it("still nudges for jsonl WITHOUT --output (stdout jsonl builds one big string)", async () => {
+  it("writes jsonl / csv to stdout in line batches, so no nudge and no single string", async () => {
+    // One string per result used to cap stdout at V8's max string length (~512 MiB): a
+    // redirected full-market pull ran out of room after the data was already fetched.
     const rows = Array.from({ length: 50_000 }, (_, i) => ({ id: i }))
     await printData({ total: rows.length, list: rows }, "jsonl")
-    expect(stderr()).toContain("--format jsonl --output")
+    expect(stderr()).not.toContain("in memory")
+    const writes = outSpy.mock.calls.map(([chunk]) => String(chunk))
+    expect(writes.length).toBeGreaterThan(1)
+    expect(writes.join("")).toBe(rows.map((row) => `${JSON.stringify(row)}\n`).join(""))
   })
 
   it("does not nudge for jsonl WITH --output (it streams row-by-row to disk)", async () => {
@@ -159,12 +164,14 @@ describe("printData", () => {
     expect(stderr()).not.toContain("in memory")
   })
 
-  it("nudges for a huge all-scalar csv --output (streamOutputToFile declines it, so it still builds a big string)", async () => {
-    // csv streaming needs object rows; an all-scalar list falls back to renderOutput,
-    // which builds the whole string — the '--output' alone must NOT silence the hint.
+  it("streams an all-scalar csv --output like any other (index/value rows)", async () => {
     const rows = Array.from({ length: 50_000 }, (_, i) => `code-${i}`)
-    await printData({ total: rows.length, list: rows }, "csv", path.join(dir, "scalars.csv"))
-    expect(stderr()).toContain("in memory")
+    const out = path.join(dir, "scalars.csv")
+    await printData({ total: rows.length, list: rows }, "csv", out)
+    expect(stderr()).not.toContain("in memory")
+    const text = await fs.readFile(out, "utf8")
+    expect(text.startsWith("\ufeffindex,value\n0,code-0\n")).toBe(true)
+    expect(text.endsWith("49999,code-49999\n")).toBe(true)
   })
 })
 
@@ -257,9 +264,8 @@ describe("printData export metadata sidecar and streamed results", () => {
     expect(meta.bytes).toBe(published.byteLength)
     expect(meta.sha256).toBe(createHash("sha256").update(published).digest("hex"))
     // `{"price":10}` and `{"price":20}` are the same length: a size comparison passes on
-    // the wrong file, which is exactly why the size alone is not the check. (The jsonl
-    // file carries no trailing newline, so the stand-in must not either.)
-    await fs.writeFile(out, '{"price":20}')
+    // the wrong file, which is exactly why the size alone is not the check.
+    await fs.writeFile(out, '{"price":20}\n')
     expect((await fs.stat(out)).size).toBe(meta.bytes)
     expect(createHash("sha256").update(await fs.readFile(out)).digest("hex")).not.toBe(meta.sha256)
   })
@@ -305,7 +311,11 @@ describe("printData export metadata sidecar and streamed results", () => {
     const realRename = fs.rename
     const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
       await realRename(from, to)
-      if (to === out) await fs.writeFile(out, '{"other":"run"}\n') // another export publishes over ours
+      if (to === out) {
+        // Another export publishes over ours — by rename, as every export does.
+        await fs.writeFile(`${out}.other`, '{"other":"run"}\n')
+        await realRename(`${out}.other`, out)
+      }
     })
     try {
       await printData({ total: 5, list: [{ a: 1 }], partial: true, failedPages: [{ from: 1, size: 50 }] }, "jsonl", out)
@@ -315,6 +325,27 @@ describe("printData export metadata sidecar and streamed results", () => {
     expect(process.exitCode).toBe(3)
     expect(stderr()).toContain("is not this command's output")
     expect(await readMeta(out)).toMatchObject({ complete: false, exitCode: 3 })
+  })
+
+  it("does not report a replacement on a changed inode alone when the content is ours (synthetic-inode filesystems)", async () => {
+    // SMB and some FUSE mounts synthesize inode numbers: the same file can stat differently
+    // twice. A different inode with our exact bytes must not become exit 4.
+    const out = path.join(dir, "same-bytes.jsonl")
+    const realRename = fs.rename
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      await realRename(from, to)
+      if (to === out) {
+        await fs.writeFile(`${out}.other`, await fs.readFile(out))
+        await realRename(`${out}.other`, out)
+      }
+    })
+    try {
+      await printData({ total: 1, list: [{ a: 1 }] }, "jsonl", out)
+    } finally {
+      renameSpy.mockRestore()
+    }
+    expect(process.exitCode).toBeUndefined()
+    expect(stderr()).not.toContain("is not this command's output")
   })
 
   it("does not flag an ordinary export as superseded", async () => {
@@ -329,7 +360,7 @@ describe("printData export metadata sidecar and streamed results", () => {
     const out = path.join(dir, "stale.jsonl")
     await fs.mkdir(`${out}.meta.json`, { recursive: true }) // rename onto a directory fails
     await expect(printData({ total: 1, list: [{ a: 1 }] }, "jsonl", out)).rejects.toThrow()
-    expect(await fs.readFile(out, "utf8")).toBe('{"a":1}')
+    expect(await fs.readFile(out, "utf8")).toBe('{"a":1}\n')
     expect(await stagingSiblings(`${out}.meta.json`)).toEqual([])
   })
 

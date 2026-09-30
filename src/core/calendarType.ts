@@ -6,6 +6,11 @@ import { runWithConcurrency } from "./transport.js"
  * `tradeDate` is the only one that makes a trading-day axis correct; the other two
  * mark an indicator whose values land on dates the trading calendar may not contain. */
 const TRADE_DATE_KEY = "tradeDate"
+// `fiscalYear` stays here although it names a forecast year, not a date: the indicators
+// that take it with `tradeDate` (frcst_*) carry values on every calendar day, holidays
+// included, and those values move (probed 2026-09-30: frcst_pe, 600519.SH,
+// 2025-09-25..10-15 — ND 21 of 21 cells filled, changing on 10-02 / 10-05 / 10-06 / 10-08;
+// TD keeps 11 and drops those changes). A trading-day axis would lose real values.
 const PERIOD_DATE_KEYS = ["reportDate", "fiscalYear"]
 
 /** How many `indicator search` probes run at once. They are free and read-only, and

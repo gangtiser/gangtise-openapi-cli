@@ -1,6 +1,7 @@
 import { Command, Option } from "commander"
 
 import { beijingDateString, collectList, dateArg, maybeArray, parseOptionalNumberOption } from "../core/args.js"
+import { COSTLY_FETCH_CREDITS } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
@@ -160,6 +161,7 @@ fundamental.command("earning-forecast")
   .option("--start-date <date>", "Start date (default: 1 year before end-date)", dateArg("--start-date"))
   .option("--end-date <date>", "End date (default: today)", dateArg("--end-date"))
   .option("--consensus <name>", "Consensus indicator: netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps", collectList, [])
+  .option("--yes", `Fetch a range estimated above ${COSTLY_FETCH_CREDITS} credits (billed per row; see the refusal for the estimate)`)
   .option("--format <format>", "Output format", "table")
   .option("--output <path>")
   .action((options) => emit(options, (client) => {
@@ -167,5 +169,7 @@ fundamental.command("earning-forecast")
   // Anchor the default window to endDate (as the help text promises), not to today —
   // a historical --end-date without --start-date should mean "the year before it".
   const startDate = options.startDate ?? new Date(new Date(`${endDate}T00:00:00Z`).getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // Priced before it is sent (client.ts, `estimateBilledUnits`): billed per row with the
+  // rows growing with the range, and --yes (read by emit) lets a costly range through.
   return client.call("fundamental.earning-forecast", { securityCode: options.securityCode, startDate, endDate, consensusList: maybeArray(options.consensus) })
 }))

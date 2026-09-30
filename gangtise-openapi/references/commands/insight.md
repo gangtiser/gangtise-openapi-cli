@@ -2,9 +2,9 @@
 
 `insight ... list` 大多共享：`--keyword <text>` `--start-time <datetime>` `--end-time <datetime>` `--from <n>` `--size <n>`。**例外**：`highlight list` 与 `qa list` 没有 `--keyword`；`report-image list` 用 `--top` 而不是 `--from` / `--size`；`performance-calendar list` 用 `--start-date` / `--end-date` 且没有 `--keyword`
 
-按条计费的列表省略 `--size` 时，CLI 先估算全量积分，超过 1000 积分报错退出 1（报错写明估算值）；确认后加 `--yes` 拉全量，或改传 `--size N`。
+按条计费的列表省略 `--size` 时，CLI 先估算全量积分，超过 1000 积分报错退出 1（报错写明估算值）；确认后加 `--yes` 拉全量，或改传 `--size N`。显式 `--size` 按 `min(--size, total) × 单价` 估算仍超过 1000 积分时同样拦截。
 
-时间格式：`"YYYY-MM-DD HH:mm:ss"`（datetime，需引号）。**`--end-time` 写到当天末尾 `23:59:59`**——只写日期时，A 股公告按当日 00:00:00 处理，截止日当天的数据取不到。
+时间格式：`"YYYY-MM-DD HH:mm:ss"`（datetime，需引号）。**`--end-time` 写到当天末尾 `23:59:59` 最稳**——A 股公告只写日期时 CLI 按当日 23:59:59 换算，其余列表把时间串原样交给接口。
 
 支持 `--rank-type` 的命令：opinion / summary / **pamirs-summary** / research / foreign-report / announcement / announcement-hk / announcement-us / foreign-opinion / independent-opinion / official-account。
 

@@ -90,12 +90,21 @@ export async function runWithConcurrency<T, R>(
   const limit = Math.max(1, Math.min(concurrency, items.length))
   const results: R[] = new Array(items.length)
   let next = 0
+  // Once one item has failed, no worker takes another: the call is going to reject, and
+  // anything started after that is work nobody will read — on a billed endpoint, credits
+  // spent for a result that is thrown away. Items already in flight finish on their own.
+  let failed = false
 
   async function worker(): Promise<void> {
-    while (true) {
+    while (!failed) {
       const index = next++
       if (index >= items.length) return
-      results[index] = await fn(items[index], index)
+      try {
+        results[index] = await fn(items[index], index)
+      } catch (error) {
+        failed = true
+        throw error
+      }
     }
   }
 
@@ -191,6 +200,15 @@ export function resolvePageConcurrency(raw: string | undefined, fallback = 5, ma
   return Math.min(parsed, max)
 }
 
+/** Total deadline of one request, as a multiple of its (idle) timeout. The idle timeouts
+ * alone let a server that sends a few bytes per interval hold a request open indefinitely.
+ * JSON answers are small, so twice the timeout leaves room for a slow link. A file transfer
+ * (download, upload) can legitimately run long on a slow link, and the idle timeout already
+ * catches a stalled one, so its bound is only there to end a trickle: sixty times the
+ * timeout (30 min at the default) still lets 50 MB through at about 28 KB/s. */
+export const JSON_TOTAL_FACTOR = 2
+export const TRANSFER_TOTAL_FACTOR = 60
+
 /** Fan-out width for pagination and kline shards — one env knob tunes both. */
 // Default 5: measured against 1 / 10 / 16 on a sharded full-market kline pull and a long
 // paginated listing, 5 took most of the speed-up over serial, while wider fan-outs gained
@@ -232,9 +250,6 @@ const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN
 export type RetryPolicy = "default" | "no-replay" | "no-999999"
 
 function isRetryableError(error: unknown, policy: RetryPolicy): boolean {
-  if (error && typeof error === "object" && (error as { __retryable?: boolean }).__retryable === true) {
-    return true
-  }
   if (error instanceof ApiError) {
     if (error.code && TERMINAL_API_CODES.has(error.code)) return false
     if (error.statusCode === 429) return true
@@ -254,8 +269,19 @@ function isRetryableError(error: unknown, policy: RetryPolicy): boolean {
   return false
 }
 
-export function markRetryable<E extends object>(error: E): E {
-  return Object.assign(error, { __retryable: true })
+/** Replays one auth recovery can ask for: a token someone else refreshed or one from the
+ * cache file, then one login. A backstop — the recovery itself (client.ts) stops sooner. */
+const MAX_AUTH_REPLAYS = 2
+
+/** Mark an error as "replay with the recovered token". Counted apart from the transient
+ * retries: a 429 and a dead cached token earlier in the same request must not use up the
+ * replay that would send it with the token the recovery just obtained. */
+export function markAuthReplay<E extends object>(error: E): E {
+  return Object.assign(error, { __authReplay: true })
+}
+
+function isAuthReplay(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { __authReplay?: boolean }).__authReplay === true)
 }
 
 /** Errors worth waiting out (anything the default policy would retry): transient
@@ -278,11 +304,19 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
   const baseDelay = options.baseDelayMs ?? 400
   const maxDelay = options.maxDelayMs ?? 4_000
   let attempt = 0
+  let authReplays = 0
 
   while (true) {
     try {
       return await fn()
     } catch (error) {
+      // No backoff: nothing is wrong with the server, the request just goes out again with
+      // the token the recovery obtained.
+      if (isAuthReplay(error)) {
+        if (authReplays++ >= MAX_AUTH_REPLAYS) throw error
+        if (verboseEnabled) process.stderr.write(`[gangtise] replaying with a recovered token (${authReplays}/${MAX_AUTH_REPLAYS}) after: ${error instanceof Error ? error.message.slice(0, 120) : String(error)}\n`)
+        continue
+      }
       if (attempt >= retries || !isRetryableError(error, options.policy ?? "default")) throw error
       // A server-sent Retry-After (429) wins over exponential backoff, but is capped
       // so it can't stall the CLI; otherwise fall back to jittered exponential backoff.

@@ -11,12 +11,13 @@
 // A diff here is a doc / skill update waiting to happen, not (necessarily) a bug.
 //
 // Needs credentials (GANGTISE_ACCESS_KEY / GANGTISE_SECRET_KEY, or GANGTISE_TOKEN).
-// Most probes are free. The ones in PAID_PROBES are billed per row, so each fetches a
-// single row: a run costs a few credits. Values are NOT compared — only names and
-// null-ness — so a normal trading day and a holiday produce the same snapshot. Row order
-// is not part of the contract either: everything keyed by security is sorted before
-// comparison. The paid list probes record column names only: which row comes back is
-// "the newest one", so its null pattern changes with the data, not with the contract.
+// Most probes are free. The ones in PAID_PROBES are billed: the list probes per row, so each
+// fetches a single row, and the bond / fund ones per call (0.4). A run costs about ten credits.
+// Values are NOT compared — only names and null-ness — so a normal trading day and a
+// holiday produce the same snapshot. Row order is not part of the contract either:
+// everything keyed by security is sorted before comparison. The paid list probes record
+// column names only: which row comes back is "the newest one", so its null pattern changes
+// with the data, not with the contract.
 //
 // GANGTISE_CONTRACT_CLI / GANGTISE_CONTRACT_SNAPSHOT override the CLI script and the
 // snapshot path — the test suite drives this file against a stand-in CLI through them.
@@ -112,6 +113,15 @@ const probes = {
   "insight.foreign-opinion.list": () => ({ columns: columns(rows(cli(["insight", "foreign-opinion", "list", "--size", "1"]))) }),
   "insight.highlight.list": () => ({ columns: columns(rows(cli(["insight", "highlight", "list", "--size", "1"]))) }),
   "bond.basic-info": () => ({ columns: columns(rows(cli(["bond", "basic-info", "--security", "019742.SH"]))) }),
+  // 0.4 per call. A fixed past report date, so the rows exist on every run. The docs tell
+  // users to strip the thousands separators from holderCount; its type is recorded so a
+  // server that starts answering a number shows up here.
+  "fund.basic-info": () => ({ columns: columns(rows(cli(["fund", "basic-info", "--security", "005827.OF"]))) }),
+  "fund.holder-structure": () => {
+    const list = rows(cli(["fund", "holder-structure", "--security", "005827.OF", "--start-date", "2026-06-30", "--end-date", "2026-06-30"]))
+    return { columns: columns(list), holderCountType: typeof list[0]?.holderCount }
+  },
+  "fund.stock-portfolio": () => ({ columns: columns(rows(cli(["fund", "stock-portfolio", "--security", "005827.OF", "--start-date", "2026-06-30", "--end-date", "2026-06-30"]))) }),
   // Free. `quote index-day-kline` refuses `all` locally because this endpoint answers it
   // with an empty list. Sent through `raw call` (which has no such check) so a server that
   // starts answering it again shows up here as a change — the cue to lift the refusal.
@@ -119,9 +129,10 @@ const probes = {
     answersAll: rows(cli(["raw", "call", "quote.index-day-kline", "--body", JSON.stringify({ securityList: ["all"], startDate: START, endDate: END })])).length > 0,
   }),
 }
-/** Billed per row; each fetches one. Named here so the cost is visible in one place. */
-const PAID_PROBES = ["insight.opinion.list", "insight.foreign-opinion.list", "insight.highlight.list", "bond.basic-info"]
-process.stderr.write(`contract probe: ${Object.keys(probes).length} probes, ${PAID_PROBES.length} of them paid (one row each)\n`)
+/** Billed: the lists per row (each fetches one), bond / fund per call. Named here so the
+ * cost is visible in one place. */
+const PAID_PROBES = ["insight.opinion.list", "insight.foreign-opinion.list", "insight.highlight.list", "bond.basic-info", "fund.basic-info", "fund.holder-structure", "fund.stock-portfolio"]
+process.stderr.write(`contract probe: ${Object.keys(probes).length} probes, ${PAID_PROBES.length} of them paid\n`)
 
 const update = process.argv.includes("--update")
 const previous = existsSync(SNAPSHOT) ? JSON.parse(readFileSync(SNAPSHOT, "utf8")) : {}

@@ -574,6 +574,25 @@ describe("ENDPOINTS", () => {
       "bond.issuer-rating-change",
       "bond.issuance-plan",
       "bond.exercise-notice",
+      // The whole fund family is 0.4 per call.
+      "fund.basic-info",
+      "fund.nav",
+      "fund.fee-rate",
+      "fund.manager-info",
+      "fund.manager-history",
+      "fund.asset-allocation",
+      "fund.asset-size",
+      "fund.holder-structure",
+      "fund.top10-holders",
+      "fund.stock-portfolio",
+      "fund.industry-allocation",
+      "fund.bond-portfolio",
+      "fund.bond-type-allocation",
+      "fund.fund-portfolio",
+      "fund.fund-type-allocation",
+      "fund.etf-pcf-header",
+      "fund.etf-pcf-components",
+      "fund.etf-share-change",
       // The one entry here that is NOT about billing (creating a pool is free):
       // duplicate pool names are rejected, so replaying a create whose first
       // attempt succeeded answers 230006 and reports the success as a failure.
@@ -626,6 +645,21 @@ describe("ENDPOINTS", () => {
       .filter((ep) => ep.billing && !["call", "page", "document"].includes(ep.billing.per) && !ep.pagination?.enabled && ep.billing.maxUnits === undefined)
       .map((ep) => ep.key)
     expect(unbounded).toEqual([])
+  })
+
+  it("prices every request with no upper bound on what it bills before it is sent", () => {
+    // maxUnits = Infinity says "one request can bill any amount": without an estimator the
+    // client has nothing to hold such a request to the credit guard with, on any entry point.
+    const unpriced = Object.values(ENDPOINTS)
+      .filter((ep) => ep.billing?.maxUnits === Number.POSITIVE_INFINITY && !ep.estimateBilledUnits)
+      .map((ep) => ep.key)
+    expect(unpriced).toEqual([])
+    // And the one there is reads a range the way --start-date does, refusing what it cannot read.
+    const estimate = ENDPOINTS["fundamental.earning-forecast"].estimateBilledUnits!
+    expect(estimate({ startDate: "2026-09-28", endDate: "2026-10-02" })).toBe(15)
+    expect(estimate({ startDate: "2026/09/28", endDate: "20261002" })).toBe(15)
+    expect(() => estimate({ startDate: "09-28-2026", endDate: "2026-10-02" })).toThrow()
+    expect(() => estimate({ startDate: 20260928, endDate: "2026-10-02" })).toThrow()
   })
 
   it("bills the three bond rating endpoints by quantity, at most 10 units a call", () => {

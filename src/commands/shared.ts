@@ -1,14 +1,17 @@
 /** Plumbing shared by every command group: client acquisition, the print pipeline,
  * downloads, the time-filter option set, and the guards more than one group needs. */
+import fs from "node:fs/promises"
+import path from "node:path"
+
 import { Command, Option } from "commander"
 
 import { QUOTE_MAX_LIMIT } from "../core/quoteSharding.js"
 import { collectList, dateArg, datetimeArg, maybeArray, numberListArg, parseChoiceList, parseFrom, parseNumberOption, parseOptionalNumberOption, parseSize } from "../core/args.js"
 import { loadConfig } from "../core/config.js"
-import { releaseClaim, resolveTitle, saveDownloadResult, uniquePath } from "../core/download.js"
+import { placeStreamedDownload, releaseClaim, resolveTitle, saveDownloadResult, uniquePath, type DownloadResult } from "../core/download.js"
 import { ENDPOINTS } from "../core/endpoints.js"
 import { ValidationError } from "../core/errors.js"
-import { parseOutputFormat } from "../core/output.js"
+import { parseOutputFormat, stagingPath } from "../core/output.js"
 import { printData } from "../core/printer.js"
 import { ExportSink, getRowSink } from "../core/rowSink.js"
 import type { GangtiseClient } from "../core/client.js"
@@ -161,7 +164,23 @@ export async function runDownload(
     await saveDownloadResult(result, options.fallbackName, options.output)
     return
   }
-  const result = await client.call(endpointKey, options.body, query)
+  // Streamed to a temporary name next to where the file will land, so a large file never
+  // sits in memory while its name is worked out (the name can depend on the response and
+  // the title cache). JSON / text / {url} answers come back in memory as before.
+  const temp = stagingPath(path.resolve(".gangtise-download"), "part")
+  const result = await client.call(endpointKey, options.body, query, { streamTo: temp })
+  const streamed = result as DownloadResult
+  if (typeof streamed?.savedPath === "string") {
+    let named: string | undefined
+    try {
+      named = options.resolveOutputPath ? await options.resolveOutputPath(result) : undefined
+    } catch (error) {
+      await fs.unlink(streamed.savedPath).catch(() => {})
+      throw error
+    }
+    process.stdout.write(`${await placeStreamedDownload({ ...streamed, savedPath: streamed.savedPath }, options.fallbackName, named)}\n`)
+    return
+  }
   const resolved = options.resolveOutputPath ? await options.resolveOutputPath(result) : undefined
   // Title-derived names are auto-generated too — dedupe them like the fallback names.
   // uniquePath claims the name by creating the final file itself as an empty
@@ -242,6 +261,10 @@ export function assertConfirmed(endpointKey: string, confirmed: boolean, target:
   throw new ValidationError(`${destructive.warning} 确认要对 ${target} 执行就加上 --yes。`)
 }
 
+/** Where the research-area filter takes the CITIC industry set and the gangtise direction
+ * set but not the SW set, which comes back empty rather than rejected. */
+export const RESEARCH_AREA_CITIC_OR_DIRECTION = "Research area ID: citicIndustry code (1008001xx) or gangtiseIndustry direction code (122000xxx: macro/strategy/fixed-income/quant/overseas). swIndustry (104xx0000) returns 0 here"
+
 // ─── declared query commands ───
 
 /** One option of a query command together with the request-body entry it feeds. The two
@@ -257,9 +280,9 @@ export interface Field {
 export const field = (option: Option, body?: Field["body"]): Field => ({ option, body })
 
 /** `--yes` on a list billed per row: lets a fetch without --size go past the credit guard
- * (COSTLY_FETCH_CREDITS in client.ts). Not part of the request body. */
+ * (COSTLY_FETCH_CREDITS in endpoints.ts). Not part of the request body. */
 export const confirmCostly = (): Field =>
-  field(new Option("--yes", "Fetch every row even when a fetch without --size is estimated above the credit guard (the list is billed per row)"))
+  field(new Option("--yes", "Fetch past the credit guard: a fetch without --size, or with a large one, estimated above 1000 credits (the list is billed per row)"))
 
 /** Sent as given. */
 export const value = (flags: string, description: string | undefined, key: string): Field =>
@@ -279,6 +302,17 @@ export const date = (flags: string, description: string, key: string, opts: { re
 /** Repeatable or comma-separated; left out of the body when empty. */
 export const list = (flags: string, description: string, key: string): Field =>
   field(new Option(flags, description).argParser(collectList).default([]), (v: string[]) => ({ [key]: maybeArray(v) }))
+
+/** Repeatable or comma-separated; Commander refuses the command without it. No default,
+ * or the empty default would count as given. Present but empty (`--security ""`) is
+ * refused too: the server would get an empty list. */
+export const requiredList = (flags: string, description: string, key: string, parse: (value: string, previous?: string[]) => string[] = collectList): Field => {
+  const option = new Option(flags, description).argParser(parse).makeOptionMandatory()
+  return field(option, (v: string[]) => {
+    if (!v.length) throw new ValidationError(`${option.long} is empty: pass at least one value`)
+    return { [key]: v }
+  })
+}
 
 /** Repeatable numbers; left out of the body when empty. */
 export const numberList = (flags: string, description: string, key: string): Field => {
@@ -338,9 +372,10 @@ export const startTime = (description = "Start time", toBody: TimeValue = asType
 export const endTime = (description = "End time", toBody: TimeValue = asTyped): Field =>
   field(new Option("--end-time <datetime>", description).argParser(datetimeArg("--end-time")), (v) => ({ endTime: toBody(v, "--end-time") }))
 
-/** The five options every insight list ends with, in that order. */
-export const timeFilters = (toBody: TimeValue = asTyped): Field[] =>
-  [from(), size(), startTime("Start time", toBody), endTime("End time", toBody), value("--keyword <keyword>", "Keyword", "keyword")]
+/** The five options every insight list ends with, in that order. `toEndBody` converts the
+ * end of the window, where a bare date has to mean the whole day. */
+export const timeFilters = (toBody: TimeValue = asTyped, toEndBody: TimeValue = toBody): Field[] =>
+  [from(), size(), startTime("Start time", toBody), endTime("End time", toEndBody), value("--keyword <keyword>", "Keyword", "keyword")]
 
 export const requestBody = (fields: Field[], options: Record<string, unknown>): Record<string, unknown> =>
   Object.assign({}, ...fields.map((f) => f.body?.(options[f.option.attributeName()]) ?? {}))
@@ -360,8 +395,11 @@ export function query(parent: Command, name: string, spec: {
   const defaultEndpoint = ENDPOINTS[typeof spec.endpoint === "string" ? spec.endpoint : spec.endpoint({})]
   const fields = defaultEndpoint?.pagination?.enabled && defaultEndpoint.billing?.per === "row" ? [...spec.fields, confirmCostly()] : spec.fields
   for (const f of fields) command.addOption(f.option)
-  return command.action((options) => emit(options, (client) => client.call(
-    typeof spec.endpoint === "string" ? spec.endpoint : spec.endpoint(options),
-    requestBody(fields, options),
-  ), spec.cache))
+  return command.action(async (options) => {
+    // Built before a client exists: a value refused locally costs no undici load and no
+    // network, and the format check in emit() still runs before anything is fetched.
+    const body = requestBody(fields, options)
+    const endpoint = typeof spec.endpoint === "string" ? spec.endpoint : spec.endpoint(options)
+    return emit(options, (client) => client.call(endpoint, body), spec.cache)
+  })
 }

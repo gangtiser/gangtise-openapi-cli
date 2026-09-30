@@ -47,6 +47,8 @@ if (group === "quote" && command === "realtime") {
   out = { total: 0, list: [] }
 } else if (group === "bond" && command === "basic-info") {
   out = { total: 1, list: [{ securityCode: values("--security")[0], couponRate: 1 }] }
+} else if (group === "fund" && ["basic-info", "holder-structure", "stock-portfolio"].includes(command)) {
+  out = { list: [{ fundCode: values("--security")[0], reportDate: "2026-06-30", holderCount: "1,000" }] }
 } else {
   process.stderr.write(`fake-gangtise: unhandled ${args.join(" ")}\n`)
   process.exit(2)

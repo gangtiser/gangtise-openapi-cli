@@ -2,6 +2,54 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.44.0 — 2026-09-30
+
+**新增公募基金 `fund` 命令组（18 个命令）；参数、额度保护、导出与下载的一批修正。**
+
+1. **命令**：
+   - 资料与经理：`basic-info`（分类、管理人与托管人、成立与存续、申赎规则、业绩基准、风险等级、跟踪指数；`--field` 选列）/ `fee-rate`（`--fee-type` 选类型，按条件分档多行）/ `manager-info`（`--manager` 按姓名精确匹配，同名经理全部返回，用 `currentCompany` 区分）/ `manager-history`（`endDate` 为 `null` 即现任）
+   - 净值与规模：`nav`（单位 / 累计 / 复权净值与复权因子；货币基金另有七日年化与万份收益）/ `asset-size` / `holder-structure` / `top10-holders`（仅上市基金）
+   - 配置与持仓：`asset-allocation`（`--asset-level level1|level2`）/ `stock-portfolio` / `industry-allocation`（`--industry-standard swIndustry|citicIndustry`；二者都有 `--position-type top|all`，`all` 仅中报、年报披露）/ `bond-portfolio` / `bond-type-allocation` / `fund-portfolio` / `fund-type-allocation`
+   - ETF：`etf-pcf-header` / `etf-pcf-components`（只有最新一份申赎清单）/ `etf-share-change`（逐交易日份额与规模）
+2. **计费**：全部 **0.4 积分/次**，与返回行数、基金只数无关；空结果与报错不扣。**超时 / 5xx 不自动重发**（避免重复扣费），偶发 `999999` 同参数重跑即可。
+3. **基金代码**：`--security` 可重复或逗号分隔，用带大写后缀的交易代码（场外 `.OF`，场内 `.SH` / `.SZ`）。**代码不存在、不带后缀、后缀小写或传成股票代码都返回空结果、不报错**，拿到空先核对代码。LOF / ETF 的场内与场外代码都能查，返回的简称随代码不同。
+4. **日期与窗口**：`--start-date` / `--end-date` 在持仓、规模、持有人类命令上筛报告期，在 `nav` / `etf-share-change` 上筛交易日。两端都不传取账号可回溯窗口内的全部；起点早于窗口时整批返回 `110003`，不会只返回窗口内那一段；起 > 止报 `110002`。
+5. **行数上限**：不分页，一次返回全部。单次超过 10000 行时整批报 `100006`、不返回部分结果，减少基金只数或缩短区间分批查。
+6. **枚举参数**：`--position-type` / `--industry-standard` / `--fee-type` / `--asset-level` 写错时接口报 `100003` 并点名参数与取值，不会按默认值取数。
+7. **取数前注意**：
+   - 各命令单位不同：`nav` 与 `asset-allocation` 为元，`asset-size` 为万份 / 万元，`stock-portfolio` 为万股 / 万元，`bond-portfolio` 为万张 / 万元，`manager-info` 的在管规模为亿元
+   - `holder-structure` 的 `holderCount` 是带千分位逗号的字符串（如 `"2,219,140"`），数值计算与排序前先去掉逗号
+   - `stock-portfolio` / `bond-portfolio` / `fund-portfolio` 只返回证券简称、不返回代码
+   - `fund-type-allocation` 没有持仓类型参数：季报期只含重仓基金（`positionType: top`），中报、年报为全部持基（`all`）
+   - `bond-type-allocation` 里 `金融债券` 包含 `政策性金融债券`，按券种加总会重复计算
+   - ETF 的 `top10-holders` 可能多一行 `serialNumber = 11`，是该 ETF 的联接基金；只要前十名按 `serialNumber <= 10` 过滤
+   - `manager-info` 的 `workingYears` 与 `careerStartDate` 推算出的年限可能对不上，需要准确的从业年限时按 `careerStartDate` 计算
+8. **参数与额度**：
+   - 代码、ID、字段名类参数除逗号外也按顿号、分号、空格分隔，重复值自动去掉（此前 `--security 600519.SH,600519.SH` 会把每行输出两遍）；名称类参数（`--manager` / `--issuer` / `--room-name` / `--knowledge-name`）只按逗号分隔，名称里的空格和顿号原样保留
+   - **只收一个值的参数重复传直接报错**（此前 `--security-code A --security-code B` 只查 B，照样扣费）
+   - `fund` 命令的 `--security` / `--manager` 给了空值（`--security ""`）在本地报错，不发请求
+   - 按条计费列表显式传的 `--size` 按 `min(--size, total) × 单价` 估算超过 1000 积分时，与省略 `--size` 一样报错、要 `--yes`（`--size 100000` 不再能绕过额度保护）
+   - `fundamental earning-forecast` 按日期区间估算积分（工作日数 × 3 条 × 0.5），超过 1000 积分报错、要 `--yes`；`raw call fundamental.earning-forecast` 同样受这条限制，请求里的日期按 `--start-date` 的规则读（斜杠、紧凑写法可以，年在后的与读不出的拒绝，加 `--yes` 可原样发出）
+   - `insight announcement list` 与 `ai knowledge-batch` 的 `--end-time` 只写日期时按当日 23:59:59 换算（此前按 0 点，`--start-time D --end-time D` 是一个空窗口）
+   - `--indicator-param` 里键名以 `Date` 结尾的值（`reportDate` / `tradeDate` 等）与 `--date` 一样校验：年在前的三种写法统一成 `YYYY-MM-DD`，年在后的拒绝
+   - `tool web-search` 带 `--include-content` 而不传 `--size` 时默认取 5 条（此前默认 10 条、直接报错）
+9. **行情**：全市场分片中早于账号可回溯窗口的分片（`110003`）跳过、不再中止其余分片，stderr 说明跳过了哪段，结果与 `.meta.json` 里列在 `outOfWindowShards`；分片失败的警告写出首个错误码，并分开计数「失败」与「因此未发送」
+10. **导出与输出**：
+    - jsonl / csv 文件一律以换行结尾（此前 1000 行以下的文件没有，两个文件 `cat` 拼接会粘成一行）
+    - 输出到 stdout 的 jsonl / csv 按批写出，不再拼成一个大字符串（超大结果重定向到文件时不再因字符串长度上限失败）
+    - csv 里 `-3.5%`、`+5.2%`、`-1,234.5`、`-` 这类数值样式的值不再加前导 `'`；含运算符或字母的值仍按公式注入防护转义
+    - 没有数据行的 csv 在列名已知时写出表头
+    - `--format table --output` 写文件时不再截断长单元格
+    - 判断同一 `--output` 是否被另一次导出替换时，文件仍是本次发布的那一个就不再回读整个文件（退出码 4 的含义不变）
+11. **下载**：接口返回下载链接时，不带 `--output` 也会下载到自动命名的文件（此前只打印链接），扩展名取自链接（此前标题缓存命中时 PDF 会存成 `.json`）；不带 `--output` 的下载先写入临时文件再改名，大文件不再整份放在内存里
+12. **其他**：
+    - 单次请求除原有的「多久没收到数据」超时外，另有总时长上限：普通请求为 `GANGTISE_TIMEOUT_MS` 的 2 倍，下载与上传为 60 倍（下载链接的跟随下载原为 10 倍，一并放宽）（此前服务端持续慢速返回时请求可以一直不结束）
+    - `raw call` 的 `--body` 不是合法 JSON 时只报出错位置，重复传时也不回显，不再把 body（可能含凭证）打印到 stderr
+    - 环境变量设成空字符串按未设置处理（此前 `GANGTISE_BASE_URL=` 会让请求发往空地址）
+    - token 失效后，先用本进程其他请求或其他进程已刷新好的 token，不再重复登录；取来的 token 也失效时仍会登录一次。换 token 后的重发不占用网络重试次数，先遇到限流也不会把它耗掉
+    - 异步生成终态失败时的提示按错误信息区分：指向参数或内容的先改再提交，「业务处理失败」与参数无关
+13. **维护者**：`query()` 新增必填多值字段 `requiredList`，请求体（含本地校验）在建立客户端之前生成；`lookup` 命令直接读本地表；群消息、股票池与热点话题四个命令改用 `query()` 声明；命令组清单集中在 `src/commands/groups.ts`；整份写盘统一为 `writeFileAtomic`，jsonl / csv 的三条写出路径共用一个行生成器，边写边算摘要；超时 / 5xx 不重放的端点增至 64 个。
+
 ### v0.43.1 — 2026-09-27
 
 **EDE `fiscalYear` 漏传的口径说明；翻页去重与观点正文的完整性修正；债券评级计费说明统一。**

@@ -2,10 +2,10 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { stagingSiblings } from "../fixtures/staging.js"
-import { countOutputRows, renderOutput, saveOutputIfNeeded, streamOutputToFile } from "../../src/core/output.js"
+import { countOutputRows, csvEscape, digestBuffer, renderOutput, saveOutputIfNeeded, streamOutputToFile, writeFileAtomic } from "../../src/core/output.js"
 
 describe("streamOutputToFile error handling", () => {
   const dir = path.join(os.tmpdir(), `gangtise-output-test-${process.pid}`)
@@ -79,6 +79,13 @@ describe("streamOutputToFile error handling", () => {
     expect(rendered).toContain("…")
   })
 
+  it("keeps every table cell whole when rendering for a file", () => {
+    // --format table --output: a cut cell in a file is lost data, not layout.
+    const rendered = renderOutput([{ id: 1, note: "x".repeat(500) }], "table", { clampCells: false })
+    expect(rendered).toContain("x".repeat(500))
+    expect(rendered).not.toContain("…")
+  })
+
   it("escapes backslashes before pipes so a literal \\| cell keeps the markdown column count", () => {
     // Escaping only "|" turns a literal `\|` into `\\|`: GFM reads that as an
     // escaped backslash followed by a BARE pipe — the row grows an extra column.
@@ -114,17 +121,30 @@ describe("streamOutputToFile error handling", () => {
     expect(lines[4]).toBe('3,"x,y"')
   })
 
-  it("returns null below the 1000-row streaming threshold (caller falls back to join)", async () => {
-    expect(await streamOutputToFile({ total: 2, list: [{ a: 1 }] }, "jsonl", path.join(dir, "small.jsonl"))).toBeNull()
+  it("writes a small result the same way as a large one, newline-terminated, with a digest of the file's bytes", async () => {
+    // One path for every size: a small file used to be joined without a final newline, so
+    // two of them concatenated with `cat` ran one record into the next.
+    const target = path.join(dir, "small.jsonl")
+    const digest = await streamOutputToFile({ total: 2, list: [{ a: 1 }, { a: 2 }] }, "jsonl", target)
+    const bytes = await fs.readFile(target)
+    expect(bytes.toString("utf8")).toBe('{"a":1}\n{"a":2}\n')
+    expect(digest).toEqual(digestBuffer(bytes))
   })
 
-  it("falls back to non-streaming csv for an all-scalar list instead of writing a BOM-only file", async () => {
-    // renderOutput shapes scalars into index/value rows; the streaming path has no
-    // object rows to derive columns from and used to write just the BOM header.
-    const scalars = Array.from({ length: 1000 }, (_, i) => `code-${i}`)
+  it("shapes an all-scalar csv list into index/value rows, like the in-memory render", async () => {
     const target = path.join(dir, "scalars.csv")
-    expect(await streamOutputToFile({ total: 1000, list: scalars }, "csv", target)).toBeNull()
-    await expect(fs.access(target)).rejects.toThrow() // nothing half-written either
+    await streamOutputToFile({ total: 2, list: ["code-0", "code-1"] }, "csv", target)
+    expect(await fs.readFile(target, "utf8")).toBe("\ufeffindex,value\n0,code-0\n1,code-1\n")
+    expect(renderOutput({ total: 2, list: ["code-0", "code-1"] }, "csv")).toBe("index,value\n0,code-0\n1,code-1")
+  })
+
+  it("writes the header of a row-less csv when the columns are known, and nothing otherwise", async () => {
+    const withColumns = path.join(dir, "empty-cols.csv")
+    await streamOutputToFile({ total: 0, list: [] }, "csv", withColumns, ["securityCode", "tradeDate"])
+    expect(await fs.readFile(withColumns, "utf8")).toBe("\ufeffsecurityCode,tradeDate\n")
+    const without = path.join(dir, "empty.csv")
+    await streamOutputToFile({ total: 0, list: [] }, "csv", without)
+    expect(await fs.readFile(without, "utf8")).toBe("")
   })
 
   it("prefixes the streamed csv with a BOM for Excel", async () => {
@@ -225,6 +245,14 @@ describe("renderOutput", () => {
     expect(lines[1]).toBe("1323,-3.5,-1.2e8,'-1+cmd,'@x")
   })
 
+  it("leaves number-shaped values with separators, a percent sign, or a lone sign alone", () => {
+    // Real cells the old finite-number test escaped: a percent change, a thousands-separated
+    // amount, a "-" placeholder. Anything with an operator or a letter past the exponent is
+    // still escaped.
+    for (const kept of ["-3.5%", "+5.2%", "-1,234.5", "-", "+", "-1e3"]) expect(csvEscape(kept), kept).not.toMatch(/^'/)
+    for (const escaped of ["-1+cmd", "-e", "-A1", "+SUM(1)", "=1", "@x"]) expect(csvEscape(escaped), escaped).toMatch(/^'/)
+  })
+
   it("renders a very large table without overflowing the call stack", () => {
     // renderTable used Math.max(...cellWidths); spreading a per-row array this big
     // overflows the stack. table is the DEFAULT format for huge results
@@ -322,5 +350,37 @@ describe("jsonl record selection is one rule across the streaming threshold", ()
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("writeFileAtomic", () => {
+  const dir = path.join(os.tmpdir(), `gangtise-atomic-${process.pid}`)
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  it("leaves neither a fragment nor the old file damaged when the write fails part-way", async () => {
+    // The title cache wrote its staging file outside the cleanup: a full disk left the
+    // fragment behind for good.
+    await fs.mkdir(dir, { recursive: true })
+    const target = path.join(dir, "cache.json")
+    await fs.writeFile(target, "OLD")
+    const realWrite = fs.writeFile
+    vi.spyOn(fs, "writeFile").mockImplementationOnce(async (file, _data, opts) => {
+      await realWrite(file as string, "PARTIAL", opts as never)
+      throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" })
+    })
+    await expect(writeFileAtomic(target, "NEW", { mode: 0o600, suffix: "tmp" })).rejects.toThrow("no space")
+    expect(await fs.readdir(dir)).toEqual(["cache.json"])
+    expect(await fs.readFile(target, "utf8")).toBe("OLD")
+  })
+
+  it("publishes the new content with the requested mode", async () => {
+    await fs.mkdir(dir, { recursive: true })
+    const target = path.join(dir, "token.json")
+    await writeFileAtomic(target, "NEW", { mode: 0o600 })
+    expect(await fs.readFile(target, "utf8")).toBe("NEW")
+    if (process.platform !== "win32") expect((await fs.stat(target)).mode & 0o777).toBe(0o600)
   })
 })

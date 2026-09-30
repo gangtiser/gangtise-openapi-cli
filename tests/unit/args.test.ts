@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { collectKeyValue, collectList, collectText, dateArg, datetimeArg, isVersionNewer, beijingDateString, maybeArray, numberListArg, parseChoiceList, parseDateOption, parseDatetimeOption, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
+import { collectKeyValue, collectList, collectNames, collectText, dateArg, datetimeArg, isVersionNewer, beijingDateString, maybeArray, numberListArg, parseChoiceList, parseDateOption, parseDatetimeOption, parseEndTimestamp13, parseFrom, parseIndicatorParams, parseNumberOption, parseSize, parseTimestamp13, splitCsv, screenerExpressionIsEvaluable, toTimestamp13 } from "../../src/core/args.js"
 import { ValidationError } from "../../src/core/errors.js"
 
 describe("splitCsv", () => {
@@ -20,6 +20,20 @@ describe("splitCsv", () => {
   it("returns empty array for empty string", () => {
     expect(splitCsv("")).toEqual([])
   })
+
+  it("also splits on 、, semicolons and whitespace — pasted and dictated code lists use them", () => {
+    expect(splitCsv("600519.SH、000858.SZ；300750.SZ;601318.SH 00700.HK\t09988.HK")).toEqual(["600519.SH", "000858.SZ", "300750.SZ", "601318.SH", "00700.HK", "09988.HK"])
+  })
+})
+
+describe("collectNames", () => {
+  it("splits on commas only: a name keeps its space or 、", () => {
+    expect(collectNames("Morgan Stanley，研究所、策略群", ["国家电网有限公司"])).toEqual(["国家电网有限公司", "Morgan Stanley", "研究所、策略群"])
+  })
+
+  it("de-duplicates like collectList", () => {
+    expect(collectNames("张坤,张坤", ["张坤"])).toEqual(["张坤"])
+  })
 })
 
 describe("collectList", () => {
@@ -33,6 +47,26 @@ describe("collectList", () => {
 
   it("handles comma-separated input", () => {
     expect(collectList("a,b", ["c"])).toEqual(["c", "a", "b"])
+  })
+
+  it("drops a repeated value, keeping the first occurrence's place", () => {
+    // `--security A,A` would otherwise fetch A twice and print every row twice.
+    expect(collectList("b,a,d", ["a", "b", "c"])).toEqual(["a", "b", "c", "d"])
+  })
+})
+
+describe("parseEndTimestamp13", () => {
+  const BEIJING = 8 * 3_600_000
+  it("reads a bare end date as the last millisecond of that Beijing day, not its first", () => {
+    // `--start-time D --end-time D` used to be an empty window: both ends at 00:00.
+    expect(parseEndTimestamp13("2026-04-02", "--end-time")).toBe(Date.UTC(2026, 3, 3) - BEIJING - 1)
+    expect(parseEndTimestamp13("20260402", "--end-time")).toBe(Date.UTC(2026, 3, 3) - BEIJING - 1)
+  })
+
+  it("keeps an explicit time and an epoch exactly as the start form reads them", () => {
+    expect(parseEndTimestamp13("2026-04-02 10:30:00", "--end-time")).toBe(parseTimestamp13("2026-04-02 10:30:00", "--end-time"))
+    expect(parseEndTimestamp13("1775000000000", "--end-time")).toBe(1775000000000)
+    expect(parseEndTimestamp13(undefined, "--end-time")).toBeUndefined()
   })
 })
 
@@ -53,6 +87,16 @@ describe("collectText", () => {
   it("drops an all-whitespace occurrence instead of sending an empty query", () => {
     expect(collectText("   ", ["已有"])).toEqual(["已有"])
     expect(collectText("   ")).toEqual([])
+  })
+})
+
+describe("date values inside --indicator-param", () => {
+  it("normalize a year-first layout and refuse a year-last one, like --date", () => {
+    expect(parseIndicatorParams(["is_op_rev:reportDate=2025/06/30"])).toEqual([{ indicatorCode: "is_op_rev", parameters: [{ paramKey: "reportDate", paramValue: "2025-06-30" }] }])
+    expect(parseIndicatorParams(["qte_close:tradeDate=20260930"])?.[0].parameters[0].paramValue).toBe("2026-09-30")
+    expect(() => parseIndicatorParams(["is_op_rev:reportDate=30-06-2025"])).toThrow(ValidationError)
+    // Other keys pass through as written.
+    expect(parseIndicatorParams(["qte_close:adjustType=2"])?.[0].parameters[0].paramValue).toBe("2")
   })
 })
 

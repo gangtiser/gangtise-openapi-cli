@@ -37,6 +37,9 @@ let baseUrl: string
 // JPEG magic prefix so the download E2E test can assert the binary body
 // reaches disk byte-for-byte (not JSON-mangled or re-encoded).
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x01, 0x02, 0x03])
+/** How long the trickling stub answer ran before the client hung up (the total-deadline test). */
+let lastDripMs: number | undefined
+
 // "PK\x03\x04" — the file-parse result arrives as a ZIP stream, not JSON.
 const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00])
 
@@ -73,6 +76,25 @@ beforeAll(async () => {
           const count = Math.max(0, Math.min(size, total - from))
           res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total, list: Array.from({ length: count }, (_, i) => ({ reportId: String(from + i) })) } }))
         }, 150)
+        return
+      }
+      if ((req.url ?? "").includes("/fund/basic-info") && (body as { fundCodeList?: string[] } | undefined)?.fundCodeList?.includes("DRIP.OF")) {
+        // A server that keeps the connection alive with a few bytes at a time: the idle
+        // timeouts never fire, only a total deadline ends it.
+        let sent = 0
+        const dripStarted = Date.now()
+        const drip = setInterval(() => {
+          if (res.destroyed || ++sent > 40) {
+            clearInterval(drip)
+            if (!res.destroyed) res.end('"}}')
+            return
+          }
+          res.write(sent === 1 ? '{"code":"000000","msg":"ok","data":{"x":"' : "a")
+        }, 300)
+        res.on("close", () => {
+          clearInterval(drip)
+          lastDripMs = Date.now() - dripStarted
+        })
         return
       }
       if ((req.url ?? "").includes("/file-parse/submit")) {
@@ -903,6 +925,167 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect((captured[2].body as { siteList: string[] }).siteList).toEqual(["csrc.gov.cn"])
   }, 30_000)
 
+  it("ends a request the server keeps alive with a trickle, at the total deadline", async () => {
+    // Idle timeouts alone never fire when a few bytes arrive every interval.
+    lastDripMs = undefined
+    const { code, stderr } = await cli(["fund", "basic-info", "--security", "DRIP.OF", "--format", "json"], { GANGTISE_TIMEOUT_MS: "1000" })
+    expect(code).toBe(1)
+    expect(stderr).toMatch(/timeout|aborted/i)
+    // Timed on the server, from the first byte to the client hanging up: twice the 1 s
+    // timeout, far short of the 12 s the trickle runs — and free of process start-up and
+    // of how busy the machine is.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(lastDripMs).toBeDefined()
+    expect(lastDripMs).toBeLessThan(6000)
+  }, 30_000)
+
+  it("refuses a single-value option given twice, and sends an empty required list nowhere", async () => {
+    const twice = await cli(["ai", "one-pager", "--security-code", "600519.SH", "--security-code", "000858.SZ"])
+    expect(twice.code).not.toBe(0)
+    expect(twice.stderr).toContain("--security-code was given more than once")
+    expect((await cli(["fund", "nav", "--security", ""])).code).not.toBe(0)
+    expect((await cli(["fund", "manager-info", "--manager", ",， "])).code).not.toBe(0)
+    expect(captured).toHaveLength(0)
+    // Repeatable ones still accumulate — and drop repeats.
+    await cli(["quote", "realtime", "--security", "600519.SH", "--security", "600519.SH,000858.SZ", "--format", "json"])
+    expect((captured[0].body as { securityList: string[] }).securityList).toEqual(["600519.SH", "000858.SZ"])
+  }, 30_000)
+
+  it("raw call does not echo a --body it cannot parse (it may hold credentials)", async () => {
+    const { code, stderr } = await cli(["raw", "call", "auth.login", "--body", '{"accessKey":"SYNTHETIC_AK","secretKey":"SYNTHETIC_SK",}'])
+    expect(code).not.toBe(0)
+    expect(stderr).toContain("Invalid JSON in --body")
+    expect(stderr).not.toContain("SYNTHETIC_SK")
+    expect(stderr).not.toContain("SYNTHETIC_AK")
+    // Given twice, neither body may surface either (the repeated-option refusal).
+    const twice = await cli(["raw", "call", "auth.login", "--body", '{"secretKey":"SYNTHETIC_SK_1"}', "--body", '{"secretKey":"SYNTHETIC_SK_2"}'])
+    expect(twice.code).not.toBe(0)
+    expect(twice.stderr).toContain("--body was given more than once")
+    expect(twice.stderr).not.toContain("SYNTHETIC_SK_1")
+    expect(twice.stderr).not.toContain("SYNTHETIC_SK_2")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("earning-forecast prices an open range before sending it, and --yes lets it through", async () => {
+    const refused = await cli(["fundamental", "earning-forecast", "--security-code", "600519.SH", "--start-date", "2016-01-01", "--end-date", "2026-09-30"])
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toMatch(/about \d+ credits/)
+    expect(captured).toHaveLength(0)
+    // The default one-year window stays under the guard.
+    expect((await cli(["fundamental", "earning-forecast", "--security-code", "600519.SH", "--end-date", "2026-09-30", "--format", "json"])).code).toBe(0)
+    expect((await cli(["fundamental", "earning-forecast", "--security-code", "600519.SH", "--start-date", "2016-01-01", "--end-date", "2026-09-30", "--yes", "--format", "json"])).code).toBe(0)
+    expect(captured.map((r) => (r.body as { startDate: string }).startDate)).toEqual(["2025-09-30", "2016-01-01"])
+    expect((captured[1].body as Record<string, unknown>).yes).toBeUndefined()
+
+    // raw call is held to the same line: the check lives in the client, not the command.
+    captured.length = 0
+    const body = JSON.stringify({ securityCode: "600519.SH", startDate: "2016-01-01", endDate: "2026-09-30" })
+    const rawRefused = await cli(["raw", "call", "fundamental.earning-forecast", "--body", body])
+    expect(rawRefused.code).toBe(1)
+    expect(rawRefused.stderr).toMatch(/about \d+ credits/)
+    expect(captured).toHaveLength(0)
+    expect((await cli(["raw", "call", "fundamental.earning-forecast", "--body", body, "--yes"])).code).toBe(0)
+    expect(captured).toHaveLength(1)
+
+    // Any date spelling is priced like --start-date reads it, and one that cannot be read
+    // is refused, not priced at zero.
+    captured.length = 0
+    for (const [startDate, endDate, expected] of [
+      ["2016/01/01", "2026/09/30", /about \d+ credits/],
+      ["20160101", "20260930", /about \d+ credits/],
+      ["01-01-2016", "09-30-2026", /could not be priced/],
+      ["someday", "2026-09-30", /could not be priced/],
+    ] as const) {
+      const r = await cli(["raw", "call", "fundamental.earning-forecast", "--body", JSON.stringify({ securityCode: "600519.SH", startDate, endDate })])
+      expect(r.code, startDate).toBe(1)
+      expect(r.stderr, startDate).toMatch(expected)
+    }
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("web-search defaults --size to 5 with --include-content, and still refuses an explicit 6", async () => {
+    await cli(["tool", "web-search", "--query", "q", "--include-content", "--format", "json"])
+    expect((captured[0].body as { size: number }).size).toBe(5)
+    expect((await cli(["tool", "web-search", "--query", "q", "--include-content", "--size", "6"])).code).not.toBe(0)
+    expect(captured).toHaveLength(1)
+  }, 30_000)
+
+  it("a bare --end-time date counts to the end of that Beijing day on the two endpoints that take epoch millis", async () => {
+    await cli(["insight", "announcement", "list", "--start-time", "2026-04-01", "--end-time", "2026-04-01", "--size", "1", "--format", "json"])
+    await cli(["ai", "knowledge-batch", "--query", "q", "--start-time", "2026-04-01", "--end-time", "2026-04-01"])
+    const dayStart = Date.UTC(2026, 3, 1) - 8 * 3_600_000
+    for (const request of captured) {
+      expect((request.body as { startTime: number }).startTime).toBe(dayStart)
+      expect((request.body as { endTime: number }).endTime).toBe(dayStart + 86_400_000 - 1)
+    }
+    expect(captured).toHaveLength(2)
+  }, 30_000)
+
+  it("vault wechat / stock-pool lists map their flags to the documented fields", async () => {
+    await cli(["vault", "wechat-message-list", "--from", "5", "--size", "50", "--start-time", "2024-03-01 00:00:00", "--end-time", "2024-03-02 23:59:59",
+      "--keyword", "AI应用", "--security", "000001.SZ,000063.SH", "--wechat-group-id", "ueKEGyhdjFGkjyebh", "--wechat-group-id", "TYkuhyhdjFGkjyebh",
+      "--industry", "100800101,100800102", "--category", "text,url", "--tag", "roadShow", "--tag", "meetingSummary", "--format", "json"])
+    await cli(["vault", "wechat-chatroom-list", "--size", "50", "--room-name", "AI学习群,柚子消息共享群", "--room-name", "投研 分享群", "--format", "json"])
+    await cli(["vault", "stock-pool-stocks", "--pool-id", "123"])
+    await cli(["vault", "stock-pool-stocks", "--pool-id", "111", "--pool-id", "222"])
+    await cli(["vault", "stock-pool-stocks"])
+    await cli(["vault", "stock-pool-stocks", "--pool-id", "all"])
+    expect(captured.map((r) => r.body)).toEqual([
+      { from: 5, size: 50, startTime: "2024-03-01 00:00:00", endTime: "2024-03-02 23:59:59", keyword: "AI应用", securityList: ["000001.SZ", "000063.SH"], wechatGroupIdList: ["ueKEGyhdjFGkjyebh", "TYkuhyhdjFGkjyebh"], industryIdList: ["100800101", "100800102"], categoryList: ["text", "url"], tagList: ["roadShow", "meetingSummary"] },
+      // A name keeps its inner space: names split on commas only.
+      { from: 0, size: 50, roomName: "AI学习群,柚子消息共享群,投研 分享群" },
+      // No default ["all"] leaking into an explicit list; omitted or 'all' means every pool.
+      { poolIdList: ["123"] },
+      { poolIdList: ["111", "222"] },
+      { poolIdList: ["all"] },
+      { poolIdList: ["all"] },
+    ])
+  }, 60_000)
+
+  it("every fund command sends --security as fundCodeList to its own path, and nothing else by default", async () => {
+    const byCode = ["basic-info", "nav", "fee-rate", "manager-history", "asset-size", "holder-structure", "top10-holders", "asset-allocation", "stock-portfolio", "industry-allocation", "bond-portfolio", "bond-type-allocation", "fund-portfolio", "fund-type-allocation", "etf-pcf-header", "etf-pcf-components", "etf-share-change"]
+    for (const name of byCode) {
+      captured.length = 0
+      expect((await cli(["fund", name, "--security", "005827.OF,159967.SZ", "--format", "json"])).code, name).toBe(0)
+      const tail = name === "nav" ? "/application/open-quote/fund/nav" : `/application/open-fundamental/fund/${name}`
+      expect(captured.map((r) => [r.path, r.body]), name).toEqual([[tail, { fundCodeList: ["005827.OF", "159967.SZ"] }]])
+    }
+    captured.length = 0
+    await cli(["fund", "manager-info", "--manager", "张坤", "--manager", "葛兰", "--format", "json"])
+    expect(captured.map((r) => [r.path, r.body])).toEqual([["/application/open-fundamental/fund/manager-info", { managerNameList: ["张坤", "葛兰"] }]])
+  }, 60_000)
+
+  it("fund options map to the documented body fields, dates normalized to yyyy-MM-dd", async () => {
+    await cli(["fund", "basic-info", "--security", "005827.OF", "--field", "fundName", "--field", "setupDate"])
+    await cli(["fund", "nav", "--security", "159967.SZ", "--start-date", "2026/08/25", "--end-date", "20260827"])
+    await cli(["fund", "fee-rate", "--security", "003096.OF", "--fee-type", "managementFee,custodianFee"])
+    await cli(["fund", "asset-allocation", "--security", "005827.OF", "--start-date", "2026-06-30", "--end-date", "2026-06-30", "--asset-level", "level1"])
+    await cli(["fund", "stock-portfolio", "--security", "005827.OF", "--position-type", "all"])
+    await cli(["fund", "industry-allocation", "--security", "005827.OF", "--industry-standard", "citicIndustry", "--position-type", "all"])
+    await cli(["fund", "etf-share-change", "--security", "510300.SH", "--start-date", "2026-09-17", "--end-date", "2026-09-18"])
+    await cli(["fund", "nav", "--security", "159967.SZ", "--start-date", "2026-09-01"])
+    await cli(["fund", "stock-portfolio", "--security", "005827.OF", "--end-date", "2024-06-30"])
+    expect(captured.map((r) => r.body)).toEqual([
+      { fundCodeList: ["005827.OF"], fieldList: ["fundName", "setupDate"] },
+      { fundCodeList: ["159967.SZ"], startDate: "2026-08-25", endDate: "2026-08-27" },
+      { fundCodeList: ["003096.OF"], feeTypeList: ["managementFee", "custodianFee"] },
+      { fundCodeList: ["005827.OF"], startDate: "2026-06-30", endDate: "2026-06-30", assetLevelList: ["level1"] },
+      { fundCodeList: ["005827.OF"], positionType: "all" },
+      { fundCodeList: ["005827.OF"], industryStandard: "citicIndustry", positionType: "all" },
+      { fundCodeList: ["510300.SH"], startDate: "2026-09-17", endDate: "2026-09-18" },
+      // One end only: the other stays out of the body (the server takes it as open).
+      { fundCodeList: ["159967.SZ"], startDate: "2026-09-01" },
+      { fundCodeList: ["005827.OF"], endDate: "2024-06-30" },
+    ])
+  }, 30_000)
+
+  it("fund commands without --security / --manager, or with a year-last date, are refused before any metered request", async () => {
+    expect((await cli(["fund", "stock-portfolio"])).code).not.toBe(0)
+    expect((await cli(["fund", "manager-info"])).code).not.toBe(0)
+    expect((await cli(["fund", "nav", "--security", "159967.SZ", "--start-date", "01-09-2026"])).code).not.toBe(0)
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
   it("highlight list plans pages inside the 10000-row offset window and reports the rows past it", async () => {
     // A fetch-all from 9990 against total 12000: one page of 10, never a page that
     // straddles the window (which the server rejects outright).
@@ -1188,11 +1371,27 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect((JSON.parse(confirmed.stdout) as { list: unknown[] }).list).toHaveLength(300)
     expect((captured[0].body as Record<string, unknown>).yes).toBeUndefined()
 
+    // A --size whose own cost stays under the guard passes without a probe.
     captured.length = 0
-    const bounded = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", "60", "--format", "json"])
+    const bounded = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", "40", "--format", "json"])
     expect(bounded.code).toBe(0)
-    expect((JSON.parse(bounded.stdout) as { list: unknown[] }).list).toHaveLength(60)
+    expect((JSON.parse(bounded.stdout) as { list: unknown[] }).list).toHaveLength(40)
     expect(bounded.stderr).not.toContain("credit guard")
+
+    // One large enough to pass it by itself is priced like a fetch-all, on min(size, total):
+    // "--size 100000" as "everything" must not slip past the guard.
+    for (const [size, credits] of [["60", 1200], ["100000", 6000]] as const) {
+      captured.length = 0
+      const big = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", size, "--format", "json"])
+      expect(big.code, size).toBe(1)
+      expect(pages().map((c) => (c.body as { size: number }).size), size).toEqual([1])
+      expect(big.stderr, size).toContain(`about ${credits} credits`)
+      expect(big.stderr, size).toContain(`--size ${size}`)
+    }
+    captured.length = 0
+    const confirmedBig = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", "60", "--yes", "--format", "json"])
+    expect(confirmedBig.code).toBe(0)
+    expect((JSON.parse(confirmedBig.stdout) as { list: unknown[] }).list).toHaveLength(60)
   }, 30_000)
 
   it("vault wechat-message-list drops a row repeated across a page boundary and exits 3, also on a streamed export", async () => {

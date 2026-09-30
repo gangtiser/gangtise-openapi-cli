@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { stagingPath } from "./output.js"
+import { writeFileAtomic } from "./output.js"
 
 export const DEFAULT_TITLE_CACHE_PATH = path.join(os.homedir(), ".config", "gangtise", "title-cache.json")
 export const TITLE_LOOKUP_SIZE = 200
@@ -128,15 +128,7 @@ async function flush(filePath: string): Promise<void> {
     await mergeFromDisk(filePath, data)
     const snapshot = JSON.stringify(data)
     await fs.mkdir(path.dirname(filePath), { recursive: true })
-    // Atomic-ish: write to temp file then rename (rename is atomic within a fs).
-    const tmp = stagingPath(filePath, "tmp")
-    await fs.writeFile(tmp, snapshot, { encoding: "utf8", mode: 0o600 })
-    try {
-      await fs.rename(tmp, filePath)
-    } catch (error) {
-      await fs.unlink(tmp).catch(() => {})
-      throw error
-    }
+    await writeFileAtomic(filePath, snapshot, { mode: 0o600, suffix: "tmp" })
   }
 }
 
