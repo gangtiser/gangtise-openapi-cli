@@ -107,7 +107,7 @@ describe("ApiError", () => {
   })
 
   it("hints the both-dates-required second wall (缺少必填参数 tradeDate)", () => {
-    // K13: supplying reportDate suppresses CLI's tradeDate injection, so div_cash_yld
+    // Supplying reportDate suppresses CLI's tradeDate injection, so div_cash_yld
     // (both required) fails on the second date. Previously fell to 100001's generic
     // "对照命令 --help 检查必填项", which does not say --indicator-param.
     const hint = new ApiError("指标 div_cash_yld 缺少必填参数 tradeDate", "100001").hint ?? ""
@@ -170,8 +170,8 @@ describe("ApiError", () => {
     // pty_cn_name 不支持参数 tradeDate.
     //
     // Without this test the P2 mutation (drop ④'s guard + move the batch rule last)
-    // came back GREEN and was misread as "the guard is redundant" — the same
-    // green-mutation-means-no-coverage trap recorded in bug/closed.md K1.
+    // came back GREEN and was misread as "the guard is redundant" — a green mutation
+    // that only meant the shape had no test.
     const hint = new ApiError("指标 scr_code 不支持参数 reportDate; 指标 pty_cn_name 不支持参数 tradeDate", "100003").hint ?? ""
     expect(hint).toContain("失败的方式不同")
   })

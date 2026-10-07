@@ -159,8 +159,7 @@ addGenerationTask("viewpoint-debate", {
  * the documented limit rather than below it. The stretch from a full A-share batch up
  * to 6000 rests on that documented limit, not on a probe: exceeding the A-share count
  * takes a cross-market batch. If a request inside the documented limit ever answers
- * with an empty list, lower this again. Probes behind both the old ceiling and this
- * reversal: `bug/server-open.md` P1-12. */
+ * with an empty list, lower this again. */
 const STOCK_SUMMARY_MAX_SECURITIES = maxUnitsOf("ai.stock-summary.list")
 
 ai.command("stock-summary")

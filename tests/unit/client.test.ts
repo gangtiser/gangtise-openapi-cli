@@ -394,7 +394,7 @@ describe("GangtiseClient pagination", () => {
 
   describe("rows repeated across page boundaries", () => {
     // Page 2 (from 50) starts with page 1's last row again and skips row 51: a
-    // same-timestamp group reordered between the two requests (server-side P2-26).
+    // same-timestamp group reordered between the two requests.
     const shiftedPages = (secondPageHead: (i: number) => Record<string, unknown>) =>
       requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
         const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
@@ -905,6 +905,17 @@ describe("GangtiseClient pagination", () => {
     const result = await client.call("insight.research.download", undefined, { reportId: "9" }) as { filename?: string }
 
     expect(result.filename).toBe("增长100%.pdf")
+  })
+
+  it("prefers the UTF-8 filename* over a plain filename sent first", async () => {
+    const response = binaryResponse(new Uint8Array([1]))
+    response.headers["content-disposition"] = "attachment; filename=\"report.pdf\"; filename*=UTF-8''%E7%A0%94%E6%8A%A5.pdf"
+    requestMock.mockResolvedValueOnce(response)
+
+    const client = createClient()
+    const result = await client.call("insight.research.download", undefined, { reportId: "9" }) as { filename?: string }
+
+    expect(result.filename).toBe("研报.pdf")
   })
 
   it("returns built-in lookup data without making HTTP requests", async () => {

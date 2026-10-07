@@ -21,7 +21,7 @@ export interface EndpointDefinition {
    * row identical to one it has already kept under the same id: lists sorted on a
    * non-unique key (`msgTime`, `publishTime`) reorder a same-timestamp group between two
    * page requests, so the neighbouring pages both return some of it and miss the rest —
-   * the row count still equals `total` (probed 2026-09-25, server-side P2-26). Dropping the
+   * the row count still equals `total` (probed 2026-09-25). Dropping the
    * duplicate makes the count fall short, which marks the result partial. A row without
    * the field, or with the id of a DIFFERENT row, is always kept. An id that comes back on
    * a later page with different content marks the result partial too (`changedRows`) —
@@ -1230,7 +1230,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-vault/drive/copy",
     kind: "json",
     itemFailures: true,
-    description: "Copy drive files to the OTHER space (my drive <-> tenant drive)",
+    description: "Copy drive files or a folder to the OTHER space (my drive <-> tenant drive)",
     retry: "no-replay",
   },
 

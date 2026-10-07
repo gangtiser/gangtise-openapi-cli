@@ -213,7 +213,7 @@ export const TRANSFER_TOTAL_FACTOR = 60
 // Default 5: measured against 1 / 10 / 16 on a sharded full-market kline pull and a long
 // paginated listing, 5 took most of the speed-up over serial, while wider fan-outs gained
 // little more, doubled the per-request latency and made listing times swing. Re-measure
-// before changing it (numbers in bug/cli-backlog.md K63).
+// before changing it.
 export const PAGE_CONCURRENCY = resolvePageConcurrency(process.env.GANGTISE_PAGE_CONCURRENCY)
 
 const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])

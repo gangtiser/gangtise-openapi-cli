@@ -133,7 +133,7 @@ export interface ExportDigest {
  *
  * What neither can do: prove the data and the sidecar came from the same RUN. Two exports
  * with identical rows hash identically even when their queries, columns or `complete`
- * verdicts differ. See `bug/cli-backlog.md` K34.
+ * verdicts differ.
  *
  * `digestBuffer` is the same digest over bytes the caller still holds — same rule, no read
  * back. Prefer it whenever the content is already in memory: the streamed paths use the file
@@ -475,11 +475,6 @@ export interface LineSink {
  * and at most one drain wait per chunk instead of per row — per-row awaits were most of
  * the time a large export spent writing. */
 export const LINES_PER_WRITE = 1000
-
-/** writeLine for several lines at once (each still newline-terminated). */
-export function writeLines(stream: LineSink, lines: string[]): Promise<void> {
-  return lines.length === 0 ? Promise.resolve() : writeLine(stream, lines.join("\n"))
-}
 
 export function writeLine(stream: LineSink, line: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {

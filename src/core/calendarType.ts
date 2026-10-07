@@ -38,8 +38,8 @@ const PROBE_CONCURRENCY = 5
  * the whole point: guessing `ND` wrong only wastes cells, guessing `TD` wrong silently
  * empties the result.
  *
- * ⚠️ This is NOT the "auto-send reportDate" idea that was considered and declined
- * (`bug/cli-backlog.md` K9). That one rewrites a request PARAMETER, so getting it wrong
+ * ⚠️ This is NOT the "auto-send reportDate" idea that was considered and declined.
+ * That one rewrites a request PARAMETER, so getting it wrong
  * fetches the wrong numbers. This one picks a date AXIS, and getting it wrong falls back
  * to exactly what the server would have done anyway.
  *

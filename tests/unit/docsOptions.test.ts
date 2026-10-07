@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { promisify } from "node:util"
 
 import type { Command } from "commander"
 import { describe, expect, inject, it } from "vitest"
@@ -11,6 +9,7 @@ import { COMMAND_GROUPS } from "../../src/commands/groups.js"
 import { multiChoiceValues } from "../../src/commands/shared.js"
 import { ENDPOINTS } from "../../src/core/endpoints.js"
 import { commandForKey } from "../fixtures/commandForKey.js"
+import { runCapped } from "../fixtures/spawn.js"
 
 // Every `gangtise <group> <command> … --option` written in the shipped docs (README and the
 // agent skill) names an option that command really has. An agent copies these snippets as
@@ -21,12 +20,11 @@ import { commandForKey } from "../fixtures/commandForKey.js"
 // another `gangtise`, a comment `#`, or Chinese punctuation that starts prose), so options
 // named in the surrounding explanation are not attributed to the command.
 
-const run = promisify(execFile)
 const CLI = inject("cliPath")
 const ROOT = process.cwd()
 
 async function helpOf(pathArgs: string[]): Promise<string> {
-  const { stdout } = await run(process.execPath, [CLI, ...pathArgs, "--help"], {
+  const { stdout } = await runCapped(process.execPath, [CLI, ...pathArgs, "--help"], {
     env: { PATH: process.env.PATH, GANGTISE_TOKEN: "Bearer docs-options-test", GANGTISE_BASE_URL: "http://127.0.0.1:1" },
     cwd: os.tmpdir(),
     timeout: 20_000,

@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.44.0"
+version: "0.45.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -179,7 +179,7 @@ vault.stock-pool.create
 | 管理层讨论 / A·港·美股公告 / `alternative edb-*` 行业指标 | 前溯 **3 年** |
 | `insight pamirs-summary` 帕米尔纪要 | **不限**（但需单独购买专家纪要库） |
 
-⚠️ **实际窗口按账号配**，换接口绕不过去（`indicator` 与 `quote day-kline` 同界）。整段在界外返回 `110003`（不是空结果），把日期移进范围或联系客户经理。🔴 **区间跨过下界时各接口不同**：`quote` 日 K / 分钟 K / 资金流向与 `fundamental valuation-analysis` 从下界起返回、**不报错**（首行明显晚于起始日时 CLI 在 stderr 提示）；`indicator`、`bond` 与 `fund` 整批报 `110003`。**例外**：`quote minute-kline` 窗口短得多，整段在窗外返回空结果、不报错（CLI 在 stderr 提示）；`ai hot-topic` 超出账号可查范围时也返回空结果、不报错。
+⚠️ **实际窗口按账号配**，换接口绕不过去（`indicator` 与 `quote day-kline` 同界）。整段在界外返回 `110003`（不是空结果），把日期移进范围或联系客户经理。🔴 **区间跨过下界时各接口不同**：`quote` 日 K / 分钟 K / 资金流向与 `fundamental valuation-analysis` 从下界起返回、**不报错**（首行明显晚于起始日时 CLI 在 stderr 提示）；`indicator`、`bond` 与 `fund` 整批报 `110003`；`bond daily-quote` / `bond valuation` 的数据还可能比账号窗口短——区间早于数据起点时返回 `130001`，跨过数据起点时从有数据的那天起返回、不报错，核对首行日期。**例外**：`quote minute-kline` 窗口短得多且随日期滚动，整段在窗外返回空结果、不报错（CLI 在 stderr 提示）；`ai hot-topic` 超出账号可查范围时也返回空结果、不报错。
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -255,7 +255,7 @@ vault.stock-pool.create
 | 评级调整 / 评级变动历史 | `bond rating-change`（债项评级，最多 10 只）、`bond issuer-rating-change`（主体评级，`--security` 或 `--issuer` 二选一） |
 | 利率债发行计划 / 国债发行安排 | `bond issuance-plan`（**只按日期区间查，不收债券码**） |
 | 含权债行权 / 回售 / 赎回提示 | `bond exercise-notice` |
-| 基金资料 / 基金分类 / 管理人 / 成立日 / 业绩基准 / 跟踪指数 / 风险等级 | `fund basic-info`（`--security` 用 `005827.OF` / `159967.SZ` 这类带后缀代码；`--field` 写错**整批拒绝** `100003`） |
+| 基金资料 / 基金分类 / 管理人 / 成立日 / 业绩基准 / 跟踪指数 / 风险等级 | `fund basic-info`（`--security` 用 `005827.OF` / `159967.SZ` 这类带后缀代码；只知道名称时，场内基金用 `reference securities-search --keyword <场内简称或 6 位代码> --category fund` 换代码（全称常搜不到），场外 `.OF` 搜不到、需自备；`--field` 写错**整批拒绝** `100003`） |
 | 基金净值 / 复权净值 / 区间收益 / 货币基金七日年化 | `fund nav`（算收益用 `navAdjusted`） |
 | 基金费率 / 管理费 / 申购赎回费 | `fund fee-rate`（`feeRate` 是字符串） |
 | 基金经理画像（按人名） | `fund manager-info --manager <姓名>`（精确匹配，同名全返回，用 `currentCompany` 区分） |
@@ -272,7 +272,7 @@ vault.stock-pool.create
 | 联网搜索 / 查公开信息 / 政策原文 / 传闻核实 | `tool web-search`（1 积分/次；`--site` 定向站点、`--min-tier` 收信源、`--include-content` 取正文〔此时 `--size` ≤5〕） |
 | 云盘文件 | `vault drive-list / drive-download` |
 | 云盘目录 / 文件夹里有什么 | `vault drive-folder-list`（`--space-type 1` 我的云盘〔默认〕/ `2` 租户云盘，`--parent-id` 不传即根目录） |
-| 云盘上传 / 新建文件夹 / 重命名 / 移动 / 跨空间复制文件 / 删除（会改动账号数据） | `vault drive-upload / drive-create-folder / drive-rename / drive-move-file / drive-move-folder / drive-copy / drive-delete-file / drive-delete-folder`（删除须加 `--yes`；详见 `references/commands/vault.md`） |
+| 云盘上传 / 新建文件夹 / 重命名 / 移动 / 跨空间复制文件或文件夹 / 删除（会改动账号数据） | `vault drive-upload / drive-create-folder / drive-rename / drive-move-file / drive-move-folder / drive-copy / drive-delete-file / drive-delete-folder`（删除须加 `--yes`；详见 `references/commands/vault.md`） |
 | 录音速记 | `vault record-list / record-download` |
 | 我的会议（业绩会/策略会/路演内部记录） | `vault my-conference-list / my-conference-download` |
 | 微信群消息 | `vault wechat-message-list`（先 `vault wechat-chatroom-list` 拿群 ID） |

@@ -1,3 +1,4 @@
+import { isIPv4 } from "node:net"
 import os from "node:os"
 import path from "node:path"
 
@@ -17,6 +18,7 @@ export interface CliConfig {
 }
 
 let timeoutWarned = false
+let plainHttpWarned = false
 
 export function loadConfig(): CliConfig {
   const rawTimeout = process.env.GANGTISE_TIMEOUT_MS?.trim()
@@ -29,14 +31,36 @@ export function loadConfig(): CliConfig {
     process.stderr.write(`[gangtise] warning: GANGTISE_TIMEOUT_MS=${rawTimeout} is not in effect, using ${timeoutMs} ms: expected whole milliseconds from ${MIN_TIMEOUT_MS} to ${MAX_TIMEOUT_MS}\n`)
   }
 
+  const baseUrl = envValue("GANGTISE_BASE_URL") ?? DEFAULT_BASE_URL
+  warnIfPlainHttp(baseUrl)
+
   return {
-    baseUrl: envValue("GANGTISE_BASE_URL") ?? DEFAULT_BASE_URL,
+    baseUrl,
     timeoutMs,
     accessKey: envValue("GANGTISE_ACCESS_KEY"),
     secretKey: envValue("GANGTISE_SECRET_KEY"),
     token: envValue("GANGTISE_TOKEN"),
     tokenCachePath: envValue("GANGTISE_TOKEN_CACHE_PATH") ?? DEFAULT_TOKEN_CACHE_PATH,
   }
+}
+
+/** Said once per process: over plain http the login body carries the access key and secret,
+ * and every request the token, all unencrypted. Loopback is left alone — that is where a
+ * local proxy or a test stub lives. */
+function warnIfPlainHttp(baseUrl: string): void {
+  if (plainHttpWarned) return
+  let url: URL
+  try {
+    url = new URL(baseUrl)
+  } catch {
+    return
+  }
+  if (url.protocol !== "http:") return
+  const host = url.hostname.replace(/^\[|\]$/g, "")
+  // The 127. prefix only means loopback on an address: 127.proxy.example.com is a remote name.
+  if (host === "localhost" || host === "::1" || (isIPv4(host) && host.startsWith("127."))) return
+  plainHttpWarned = true
+  process.stderr.write(`[gangtise] warning: GANGTISE_BASE_URL uses plain http (${url.host}): the access key, secret and token are sent unencrypted. Use https unless this is a trusted local proxy.\n`)
 }
 
 /** An environment variable, with an empty or blank value treated as unset. `export

@@ -20,8 +20,7 @@ export const quote = new Command("quote").description("Quote APIs")
  *
  * These universes grow with listings, and the counts are not pinned here on purpose —
  * they drift. What to watch is the product: when a market's rows per trading day
- * approach 10K / shardDays, cut shardDays. The measured per-market counts, each with
- * the date it was taken, are in the `bug/` ledger.
+ * approach 10K / shardDays, cut shardDays.
  *
  * The unified `day-kline` dropped the old `all` keyword on 2026-08-14 in favour of the
  * three market keywords, which must each be sent alone. Of the menu-retired per-market

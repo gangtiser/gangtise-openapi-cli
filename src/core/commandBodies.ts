@@ -72,8 +72,7 @@ export function buildQuoteKlineBody(options: QuoteKlineOptions) {
  * value) — so an empty parameterList does not guarantee refusal. `reportDate` does
  * not enter into it either way; do NOT write the rule as "has no
  * tradeDate/reportDate", because the ~117 `is_*` report-period indicators declare
- * `[reportDate]` and DO refuse an injected `tradeDate`. (Both corrections came from
- * cross-session review, 2026-08-15.) Four exits:
+ * `[reportDate]` and DO refuse an injected `tradeDate`. Four exits:
  *
  *   has tradeDate                       → inject, nothing to do
  *   no tradeDate, has reportDate        → caller passes reportDate; DATE_PARAM_KEYS
@@ -83,7 +82,7 @@ export function buildQuoteKlineBody(options: QuoteKlineOptions) {
  *
  * The last two need the opt-out (`noQueryDate`, see args.ts). It works the same on
  * the screener since 2026-08-17 — before that the server silently dropped bindings
- * sent with `parameters: []`, so the spelling was refused there (`bug/closed.md` P1-7).
+ * sent with `parameters: []`, so the spelling was refused there.
  *
  * 🔴 The RULE is the only stable thing — any list is a snapshot, structurally.
  * `indicator search` REQUIRES a keyword (server answers `100001 缺少必填参数` to an
@@ -149,9 +148,9 @@ function withQueryDate(groups: IndicatorParamGroup[] | undefined, codes: string[
   return [...merged.values()].map(stripMarker)
 }
 
-/** `noQueryDate` is a parse-time marker, not a server field. Sending it would land
- * in `server-open.md` P1-2's grey zone, where one of the three behaviours for an
- * unsupported body field is to silently filter the result to nothing. */
+/** `noQueryDate` is a parse-time marker, not a server field. The server does not reject
+ * an unsupported body field, and one of the ways it handles one is to silently filter
+ * the result to nothing. */
 function stripMarker<T extends { noQueryDate?: true }>(item: T): Omit<T, "noQueryDate"> {
   const { noQueryDate, ...rest } = item
   return rest

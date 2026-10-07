@@ -194,14 +194,14 @@ const ERROR_HINTS: Record<string, string> = {
  *   ② 缺少必填参数 reportDate                        → add reportDate     (assertive)
  *   ③ 不支持参数 X; 缺少必填参数 tradeDate            → swap X → tradeDate (assertive)
  *   ④ 不支持参数 X  (半句, neither ② nor ③ half)     → UNKNOWN key        (must not assert)
- *   ⑤ 缺少必填参数 tradeDate                         → injection was off  (K13 path)
+ *   ⑤ 缺少必填参数 tradeDate                         → injection was off
  *
  * ④ only proves a key was refused. `scr_exchg_mkt` declares an EMPTY parameterList and
  * refuses reportDate as well; `div_cash_paid_ratio` wants `fiscalYear`. Through v0.34.1
  * a single regex OR-ed ① and ④ together, so ④ got ①'s assertive text and the user
  * followed it into `不支持参数 reportDate` — a shape with no rule at all.
  *
- * ③ is the mirror of ①, added 2026-08-16 after cross-session review: writing the keys
+ * ③ is the mirror of ①, added 2026-08-16 after review: writing the keys
  * the wrong way round (`qte_close:reportDate=...`) yields `不支持参数 reportDate; 缺少
  * 必填参数 tradeDate`, which ④ used to claim as "the server did not say which key" and
  * prescribed the `"<code>:"` opt-out — wrong AND a dead end (`100001 缺少必填参数
@@ -230,7 +230,7 @@ const ERROR_HINTS: Record<string, string> = {
  *               tradeDate; 指标 pty_cn_name 不支持参数 tradeDate`  → opposite fixes;
  *               the swap rule's "别用空冒号" is exactly what pty_cn_name needs
  *
- * Two rounds of cross-session review landed here. First the assertive hints spoke in
+ * Two rounds of review landed here. First the assertive hints spoke in
  * the singular about mixed batches (wrong for every indicator but one). Then gating on
  * distinct INDICATOR count over-corrected: a batch of several `is_*` — the most common
  * batch failure there is — got downgraded to generic triage even though one sentence

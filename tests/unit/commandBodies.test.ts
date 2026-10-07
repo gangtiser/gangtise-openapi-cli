@@ -135,9 +135,9 @@ describe("command request body builders", () => {
   })
 
   it("does not leak the noQueryDate marker into the request body", () => {
-    // It is a parse-time flag, not a server field. An unsupported body field lands in
-    // `server-open.md` P1-2's grey zone, where one of the three observed behaviours is
-    // to silently filter the result to nothing.
+    // It is a parse-time flag, not a server field. The server does not reject an
+    // unsupported body field, and one of the ways it handles one is to silently filter
+    // the result to nothing.
     const body = buildIndicatorCrossSectionBody({
       indicator: ["scr_exchg_mkt"],
       security: ["600519.SH"],

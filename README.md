@@ -6,6 +6,8 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.45.0 — 2026-10-07**：① **`vault drive-copy` 可复制整个文件夹**：`--folder-id` + `--target-parent-id`，连同子文件夹与文件复制到另一空间，返回 `{folderId, newFolderId}`；复制文件的写法不变，两组参数二选一。② **下载文件名**：响应同时给出 UTF-8 文件名与普通文件名时用 UTF-8 的那个。③ `GANGTISE_BASE_URL` 指向非本机地址却用 `http://` 时 stderr 提示一次（凭证会明文传输）。④ 文档：`bond daily-quote` / `bond valuation` 的数据可能比账号窗口短，**按年份取长序列时核对首行日期**；`bond announcement` 按日期查询时有代码的行都带后缀；基金只知道名称时怎么换代码；分钟 K 的可查历史是滚动的短窗口。
+
 - **v0.44.0 — 2026-09-30**：**新增 `fund` 公募基金 18 个命令，一律 0.4 积分/次**（按次，与返回行数、基金只数无关）：`basic-info` / `nav`（日频净值）/ `fee-rate` / `manager-info`（按姓名精确匹配，同名全返回）/ `manager-history` / `asset-size` / `holder-structure` / `top10-holders` / `asset-allocation` / `stock-portfolio` / `industry-allocation` / `bond-portfolio` / `bond-type-allocation` / `fund-portfolio` / `fund-type-allocation` / `etf-pcf-header` / `etf-pcf-components` / `etf-share-change`。`--security` 用带大写后缀的基金代码（场外 `.OF`，场内 `.SH` / `.SZ`），**代码不存在、不带后缀或后缀小写都返回空结果、不报错**。不分页：单次上限 10000 行，超出整批报 `100006`；日期两端都不传取账号可回溯窗口内的全部，起点早于窗口整批报 `110003`。**整族超时 / 5xx 不自动重发**（避免重复扣费）。取数前注意：各命令单位不同（元 / 万元 / 万份 / 万股）；`holder-structure` 的 `holderCount` 是带千分位的字符串；持仓明细只返回证券简称、不返回代码；`fund-type-allocation` 季报期只含重仓基金。逐条见 `gangtise-openapi/references/commands/fund.md`。**另有几处行为变化**：只收一个值的参数重复传直接报错；代码类列表也按顿号 / 分号 / 空格分隔并去重；显式 `--size` 与 `fundamental earning-forecast` 的日期区间估算超过 1000 积分同样要 `--yes`；jsonl / csv 文件一律以换行结尾，csv 不再给 `-3.5%` 这类值加 `'`；全市场分片早于账号窗口的部分跳过而不中止；接口返回下载链接时不带 `--output` 也会下载；A 股公告与 `ai knowledge-batch` 只写日期的 `--end-time` 按当日 23:59:59 换算；`--indicator-param` 里的日期值与 `--date` 同样校验；单次请求另有总时长上限（`GANGTISE_TIMEOUT_MS` 的 2 倍，下载与上传 60 倍）；环境变量设成空字符串按未设置处理。完整列表见 CHANGELOG。
 
 - **v0.43.1 — 2026-09-27**：① **EDE `fiscalYear` 漏传不报错**：预测类（`frcst_*`）与分红类（`div_cash_yr` 等）漏传时按服务端自定的默认年度取数，数看着正常但未必是你要的年度——**一律显式传 `fiscalYear`**；其余必填参数缺失仍报 `100001`。② **翻页去重**：同一 ID 的任一已出现版本再次出现都按重复去掉（计入 `duplicateRows`），不区分字段顺序。③ **观点 `detail`**：某一批夹有空元素或格式异常的元素时，这一批已返回的正文照常输出；空元素的 ID 列在 `missingIds`，其余没取到的列在 `unfetchedIds`（`unfetchedError` 带 traceId）。④ 文档：`finc_roe_avg_avg` 示例补 `reportDate`；债券三个评级命令的计费说明统一。
@@ -13,8 +15,6 @@ README 仅列最近 5 个版本摘要：
 - **v0.43.0 — 2026-09-26**：① **按条计费列表的额度保护**：省略 `--size` 时先拿到 `total` 估算全量积分（整页超过 50 积分的列表只先取 1 条），超过 1000 积分报错退出 1，加 `--yes` 或传 `--size N` 放行。② **翻页结果的完整性**：跨页重复的行去掉并标 `duplicateRows`；同一 ID 在后面的页内容变了，两版都保留并标 `changedRows`；`total` 正好等于偏移窗口时标 `totalCapped`；都退出 3。热点话题、纪要、A 股 / 港股公告、财报日历查不到内容时按空结果、退出 0（此前退出 3）。③ **`quote` 的 `--field` 在多只证券或全市场时自动补身份列**（日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、`realtime` 补 `securityCode`；单只不补），**多只证券只点一列的脚本输出会多出这些列**。④ **多证券日 K 合批**：按行数上限装入尽量多的证券，请求数大幅减少；全市场分片按工作日计（港股 2 个工作日一片），全市场关键字须同时给起止日期。⑤ **首行晚到提示**：行情首行比请求起点晚 14 天以上时 stderr 提示（上市较晚或越过回溯窗口）。⑥ **`ai stock-summary` 与 `fundamental earning-forecast` 超时 / 5xx 不再自动重试**（单次可能扣数千积分）。⑦ 四个枚举参数写错时本地报错；Ctrl-C / `kill` / 终端断开时清理暂存文件，进程以该信号结束（`$?` 为 130 / 143 / 129），脚本循环随之停下。⑧ Agent Skill 主文件精简，细节移到 `references/`。
 
 - **v0.42.0 — 2026-09-25**：① **数值参数只收十进制写法**：`--size 0x10`、`--size 1e3`、`--limit 5.0` 这类写法发请求前报错并点名参数（此前会被换算成 16 / 1000 / 5 照常发出）；数字列表类参数逐项要求整数。**脚本里用了这类写法的，请改成普通整数。** ② **接管道时保留退出码**：`gangtise … | head` 提前关掉读端时，以已判定的退出码（`3` / `4`）结束，此前一律 `0`；脚本用 `set -o pipefail` 即可看到。③ **`GANGTISE_TIMEOUT_MS` 只收整数毫秒**：低于 1 秒回退默认、高于 1 小时按 1 小时，所写数值没有按原样生效时 stderr 提示一次。④ 观点 `detail` 与估值分析的返回结构与约定不符时报错并附 trace，不再按空结果处理。⑤ `fundamental valuation-analysis` 的 `--field` 不含数值列、接口返回 0 行时，stderr 说明原因。⑥ 性能：大批量导出按块写盘；自动翻页时单个慢页对其余页的拖累更小；`GANGTISE_PAGE_CONCURRENCY` 设到 16 以上时并发随之增加。
-
-- **v0.41.1 — 2026-09-24**：① **`quote index-day-kline --security all` 改为直接报错**：该接口对 `all` 返回空结果、不报错，与「当天无数据」无法区分；报错信息写明原因与替代写法。指数日 K 请用 `quote day-kline` 逐个传代码；该接口的返回字段与 `day-kline` 相同、不含指数名称，名称用 `reference securities-search --keyword <指数代码> --category index` 返回的 `gtsName`。② **`fundamental valuation-analysis` 长区间不再被静默截断**：序列逐自然日一行（含周末），默认只取最近 2000 行，区间更长时开头会缺失——现在撞满即标 `partial`、退出码 3，并提示把 `--limit` 设到不小于区间天数（按 366 × 年数估算，如 5 年约 1830 行）；首行恰好就是 `--start-date` 时说明没丢，不标。起点早于账号回溯下界时该接口从下界起返回、不报错，CLI 在 stderr 提示首行晚于 `--start-date`。③ **估值分析 `--field` 不再可能错列**：CLI 发请求前对字段去重并去掉 `tradeDate`（它总在第一列返回）。旧版在 `--field` 同时含 `tradeDate`（或重复字段）与不存在的字段名时，会输出整体右移一列的数据且退出 0，**用过这类组合的估值结果请重跑**。④ 依赖 `undici` 升至 7.29.1（安全更新）。⑤ 文档：`fundamental valuation-analysis` 的 `--field` 至少要含一个数值列（`value` 等），只传 `tradeDate` 或只传不存在的名字时接口返回 0 行、不报错；`references/errors.md` 的退出码摘要补上 `4`。⑥ **Skill 安装命令改为可重复执行**：目标目录已存在时直接 `cp -r`，新版会被复制进嵌套的 `gangtise-openapi/gangtise-openapi/`、已安装的副本仍是旧版；这样更新过的，按「AI Agent Skill」段的新命令重新执行一次即可。
 
 ### 历史里程碑
 
@@ -80,7 +80,7 @@ export GANGTISE_TIMEOUT_MS=30000       # 请求超时，整数毫秒（默认 30
 export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.config/gangtise/token.json）
 ```
 
-环境变量设成空字符串（如 `GANGTISE_BASE_URL=`）按未设置处理，取默认值。
+环境变量设成空字符串（如 `GANGTISE_BASE_URL=`）按未设置处理，取默认值。`GANGTISE_BASE_URL` 指向非本机地址却用 `http://` 时，CLI 在 stderr 提示一次：登录与请求里的 AK / SK / token 会明文传输。
 
 如果没有 `GANGTISE_TOKEN`，CLI 会自动调用 token 接口并缓存到本地（`~/.config/gangtise/token.json`，权限 0600）。服务端判定 Token 失效时，先用其他进程已刷新并写入缓存的 token，不行再重新登录，然后重发请求；凭证本身错（AK/SK 不匹配）不重试，直接报错让你查环境变量。
 
@@ -230,7 +230,7 @@ install_skill ~/.hermes/skills               # Hermes
 | | `drive-folder-list` | 云盘目录浏览（某文件夹下的直接子文件夹与文件） |
 | | `drive-upload` / `drive-create-folder` / `drive-rename` | 上传文件、新建文件夹、重命名（均免费） |
 | | `drive-move-file` / `drive-move-folder` | 移动文件与文件夹（同一空间内） |
-| | `drive-copy` | 把文件复制到另一空间（我的云盘 ↔ 租户云盘；目前只支持文件） |
+| | `drive-copy` | 把文件或整个文件夹复制到另一空间（我的云盘 ↔ 租户云盘） |
 | | `drive-delete-file` / `drive-delete-folder` | 删除文件 / 文件夹（需 `--yes`；删文件夹连同其中内容一起删除，不可恢复） |
 | | `record-list` / `record-download` | 录音速记列表与下载 |
 | | `my-conference-list` / `my-conference-download` | 我的会议列表与下载 |
@@ -686,7 +686,7 @@ gangtise bond announcement --security 019742.SH --page-size 50
 gangtise bond announcement --start-date 2026-09-18 --end-date 2026-09-19 --page-no 2 --page-size 50
 ```
 
-> **`bond announcement` 需要手动翻页**：它是本系列唯一分页的接口，且响应**不返回 `total`**，因此不走 CLI 的自动翻页——`--page-no` 从 1 开始逐页递增，翻过末页返回空数组（退出码 0）即停；条件下一条都没有时第 1 页就返回 `130001`（退出码 1）。⚠️ 按日期区间查询时返回的 `securityCode` 不带市场后缀，要接着查其他债券命令，先用该行的 `securityName` 走 `reference securities-search` 换回带后缀的代码。其余债券命令一次返回全部匹配行。
+> **`bond announcement` 需要手动翻页**：它是本系列唯一分页的接口，且响应**不返回 `total`**，因此不走 CLI 的自动翻页——`--page-no` 从 1 开始逐页递增，翻过末页返回空数组（退出码 0）即停；条件下一条都没有时第 1 页就返回 `130001`（退出码 1）。按日期区间查询时，部分行的 `securityCode` 为空（不对应已上市证券的公告等），这类行无法接着查其他债券命令。其余债券命令一次返回全部匹配行。
 
 > **`bond issuer-info` 的行业有两套**：`swIndustry` 是申万「一级/二级」（如 `食品饮料/白酒Ⅱ`），`nationalIndustry` 是国民经济行业分类。评级列 `latestIssuerRating` 混合了境内与境外口径，做信用比较前一并取 `ratingAgency` 判断。
 
@@ -775,6 +775,8 @@ gangtise vault drive-move-file --file-id 49412 --file-id 43319 --target-folder-i
 gangtise vault drive-move-folder --folder-id 103 --target-parent-id root
 # 跨空间复制文件：个人云盘的文件复制到租户云盘某文件夹（root = 租户云盘根目录）
 gangtise vault drive-copy --file-id 49412 --file-id 43319 --target-folder-id 201
+# 跨空间复制整个文件夹（连同子文件夹与文件）到租户云盘根目录
+gangtise vault drive-copy --folder-id 103 --target-parent-id root
 # 删除（不可恢复，需 --yes；删文件夹会连同其中全部子文件夹与文件一起删除）
 gangtise vault drive-delete-file --file-id 49412 --yes
 gangtise vault drive-delete-folder --folder-id 103 --yes

@@ -33,7 +33,7 @@ export const SUPERSEDED_EXIT = EXIT_SUPERSEDED
  * and one of them is silently describing a file it did not write.
  *
  * This cannot PREVENT the overwrite (that needs a cross-process lock, whose stale-lock
- * handling would refuse legitimate exports — `bug/cli-backlog.md` K34 records why we don't).
+ * handling would refuse legitimate exports, so there is none).
  * What it does is tell the run that lost, instead of letting it exit 0 and hand a caller a
  * path holding someone else's data.
  *
@@ -132,7 +132,7 @@ interface StagedMeta {
  * against `sha256` — rather than assume it. Two processes exporting to the same --output
  * still publish independently, and the pair can end up crossed; the hash is what makes that
  * visible. It does not make it impossible, and identical rows hash identically even when the
- * two runs asked different questions — `bug/cli-backlog.md` K34 tracks what is left.
+ * two runs asked different questions.
  */
 async function stageExportMeta(output: string, format: OutputFormat, rows: number, columns: unknown[] | undefined, normalized: unknown, complete: boolean): Promise<StagedMeta> {
   const result = normalized && typeof normalized === "object" && !Array.isArray(normalized) ? { ...(normalized as Record<string, unknown>) } : {}

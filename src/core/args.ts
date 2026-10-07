@@ -189,8 +189,8 @@ function normalizeYearFirstDate(value: string): string | undefined {
  *   "07-01-2026" / "07/01/2026" -> 2026-07-01
  *
  * That is a platform convention, not a defect: both separators agree (an earlier
- * build read slash as DD/MM and hyphen as MM-DD — fixed 2026-08-15, `bug/closed.md`
- * P0-3), and it is documented in README + SKILL.md.
+ * build read slash as DD/MM and hyphen as MM-DD — fixed 2026-08-15), and it is
+ * documented in README + SKILL.md.
  *
  * The CLI still refuses year-last, and the asymmetry with year-first is the whole
  * point: `2026/07/01` means one day to every reader, while `01-07-2026` means

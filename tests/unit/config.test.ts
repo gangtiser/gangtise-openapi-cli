@@ -110,6 +110,31 @@ describe("loadConfig", () => {
     }
   })
 
+  it("warns once when GANGTISE_BASE_URL is plain http to a non-loopback host", async () => {
+    const warningsFor = async (url: string): Promise<string[]> => {
+      vi.resetModules()
+      const fresh = await import("../../src/core/config.js")
+      const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+      try {
+        process.env.GANGTISE_BASE_URL = url
+        fresh.loadConfig()
+        fresh.loadConfig()
+        return errSpy.mock.calls.map((c) => String(c[0]))
+      } finally {
+        errSpy.mockRestore()
+      }
+    }
+    const lines = await warningsFor("http://proxy.example.com:8080/gw")
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain("plain http (proxy.example.com:8080)")
+    const lookalike = await warningsFor("http://127.proxy.example.com")
+    expect(lookalike).toHaveLength(1)
+    expect(lookalike[0]).toContain("plain http (127.proxy.example.com)")
+    for (const url of ["https://proxy.example.com", "http://127.0.0.1:18765", "http://localhost:3000", "http://[::1]:8080"]) {
+      expect(await warningsFor(url), url).toEqual([])
+    }
+  })
+
   it("ignores a non-positive or non-numeric timeout", () => {
     process.env.GANGTISE_TIMEOUT_MS = "0"
     expect(loadConfig().timeoutMs).toBe(DEFAULT_TIMEOUT_MS)

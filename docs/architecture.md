@@ -41,7 +41,7 @@
 | Configuration | Authentication | **Core Dispatcher** |
 |:--|:--|:--|
 | `config.ts` | `auth.ts` | **`client.ts` · GangtiseClient** |
-| GANGTISE_BASE_URL / AK / SK / TIMEOUT | Token cache (0600) · AK/SK login · `isTokenCacheValid()` gated on a credential fingerprint (`accessKey` + `baseUrl`, hashed) so a cache minted for other credentials is a miss | **call() → requestPaginated / requestJson / download / uploadFile** |
+| GANGTISE_BASE_URL / AK / SK / TIMEOUT · one stderr warning when the base URL is plain http to a non-loopback host | Token cache (0600) · AK/SK login · `isTokenCacheValid()` gated on a credential fingerprint (`accessKey` + `baseUrl`, hashed) so a cache minted for other credentials is a miss | **call() → requestPaginated / requestJson / download / uploadFile** |
 
 ### Processing
 
@@ -134,7 +134,7 @@
 | **Fund** | `/application/open-fundamental/fund/` · NAV → `/application/open-quote/fund/nav` | basic-info / fee-rate / manager-info / manager-history / asset-size / holder-structure / top10-holders / asset-allocation / stock-portfolio / industry-allocation / bond-portfolio / bond-type-allocation / fund-portfolio / fund-type-allocation / etf-pcf-header / etf-pcf-components / etf-share-change (all `{list}`, no paging) |
 | **Indicator** | `/application/open-indicator/` | EDE/search / EDE/cross-section / EDE/time-series / screener |
 | **AI** | `/application/open-ai/` · knowledge-* → `/application/open-data/ai/` | stock-summary / knowledge-batch / knowledge-resource / security-clue / hot-topic / one-pager / investment-logic / peer-comparison / earnings-review / viewpoint-debate / theme-tracking / research-outline / management-discuss |
-| **Vault** | `/application/open-vault/` | drive (list / download / getFolderList / uploadFile / createFolder / rename / moveFile / moveFolder / copy (files only) / deleteFile / deleteFolder) / record / my-conference / wechatgroupmsg / stock-pool |
+| **Vault** | `/application/open-vault/` | drive (list / download / getFolderList / uploadFile / createFolder / rename / moveFile / moveFolder / copy (files, or a folder with its contents) / deleteFile / deleteFolder) / record / my-conference / wechatgroupmsg / stock-pool |
 | **Alternative** | `/application/open-alternative/` | EDB/search / EDB/getData / concept/v2/info / concept/v2/securities (v1 paths for `--full`) |
 | **Tool** | `/application/open-tool/` | file-parse/submit / file-parse/result / web-search/search |
 
@@ -144,6 +144,7 @@
 |:--|:--|
 | `~/.config/gangtise/token.json` | Cached OAuth token · expiresAt · 5min buffer · 0600 permissions |
 | `~/.config/gangtise/title-cache.json` | Download filename resolution · 24h TTL · id → title |
+| `~/.config/gangtise/update-check.json` | Latest published version seen by `--version` at a terminal · 24h TTL |
 
 ---
 

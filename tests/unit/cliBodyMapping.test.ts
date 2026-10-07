@@ -578,7 +578,7 @@ beforeAll(async () => {
         const from = b?.from ?? 0
         if (b?.keyword === "DUPS") {
           // 1200 messages sharing one timestamp; the page at 500 repeats row 499 in place of
-          // row 500 — the boundary reorder a non-unique sort key allows (P2-26).
+          // row 500 — the boundary reorder a non-unique sort key allows.
           const size = Math.min(b.size ?? 50, 1200 - from)
           const list = Array.from({ length: size }, (_, i) => ({ msgId: String(from + i), msgTime: "2026-08-17 15:41:07", content: `m${from + i}` }))
           if (from === 500) list[0] = { msgId: "499", msgTime: "2026-08-17 15:41:07", content: "m499" }
@@ -886,7 +886,20 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stderr).toContain("BAD1（文件不存在）")
   }, 30_000)
 
-  it("drive-copy sends a file copy only, and names the files that failed", async () => {
+  it("drive-copy picks copyType from the flags and refuses a mixed or half request locally", async () => {
+    expect((await cli(["vault", "drive-copy", "--file-id", "1", "--target-parent-id", "root"])).code).not.toBe(0)
+    expect((await cli(["vault", "drive-copy", "--folder-id", "201"])).code).not.toBe(0)
+    expect((await cli(["vault", "drive-copy", "--target-folder-id", "root"])).code).not.toBe(0)
+    expect((await cli(["vault", "drive-copy"])).code).not.toBe(0)
+    expect(captured).toHaveLength(0)
+
+    await cli(["vault", "drive-copy", "--folder-id", "201", "--target-parent-id", "root"])
+    expect(captured.map((r) => [r.path, r.body])).toEqual([
+      ["/application/open-vault/drive/copy", { copyType: "folder", folderId: "201", targetParentId: "root" }],
+    ])
+  }, 30_000)
+
+  it("drive-copy sends a file copy, and names the files that failed", async () => {
     expect((await cli(["vault", "drive-copy", "--file-id", "49412"])).code).not.toBe(0)
     expect(captured).toHaveLength(0)
 

@@ -2,6 +2,7 @@ import { Command, Option } from "commander"
 
 import { collectList, collectNames } from "../core/args.js"
 import { uploadDriveFile } from "../core/driveUpload.js"
+import { ValidationError } from "../core/errors.js"
 import { flagFailedItems } from "../core/normalize.js"
 import { emit, addDownloadCommand, assertConfirmed, field, value, required, list, numberList, format, output, from, size, startTime, endTime, query, RESEARCH_AREA_CITIC_OR_DIRECTION } from "./shared.js"
 
@@ -86,17 +87,30 @@ query(vault, "drive-move-folder", {
   ],
 })
 
-// Files only. The endpoint also takes copyType=folder, but that answers 000000 with a new
-// folder ID while leaving the copy empty (probed 2026-09-24), so it is not offered here.
-vault.command("drive-copy").description("Copy files to the OTHER space: my drive <-> tenant drive (free; same-space copies are rejected)")
-  .requiredOption("--file-id <id>", "Source file ID (repeat or comma-separate)", collectList)
-  .requiredOption("--target-folder-id <id>", "Destination folder ID in the other space, or 'root' for that space's root")
+vault.command("drive-copy").description("Copy files, or one folder with everything inside, to the OTHER space: my drive <-> tenant drive (free; same-space copies are rejected)")
+  .option("--file-id <id>", "Source file ID (repeat or comma-separate); use with --target-folder-id", collectList, [])
+  .option("--target-folder-id <id>", "Destination folder ID in the other space, or 'root' for that space's root")
+  .option("--folder-id <id>", "Source folder ID; use with --target-parent-id")
+  .option("--target-parent-id <id>", "Destination parent folder ID in the other space, or 'root' for that space's root")
   .option("--format <format>", "Output format", "json").option("--output <path>")
-  .action((options) => emit(options, async (client) => {
-    const data = await client.call("vault.drive.copy", { copyType: "file", fileIdList: options.fileId, targetFolderId: options.targetFolderId })
-    flagFailedItems(data, "vault drive-copy")
-    return data
-  }))
+  .action((options) => {
+    // Checked before a client is acquired: the endpoint takes one of two shapes, keyed on
+    // copyType, and a mixed request would only come back as a bare 100001/100003.
+    const byFile = options.fileId.length > 0 || options.targetFolderId !== undefined
+    const byFolder = options.folderId !== undefined || options.targetParentId !== undefined
+    if (byFile && byFolder) throw new ValidationError("pass either --file-id + --target-folder-id (copy files) or --folder-id + --target-parent-id (copy a folder), not both")
+    if (byFile && (!options.fileId.length || options.targetFolderId === undefined)) throw new ValidationError("copying files needs both --file-id and --target-folder-id")
+    if (byFolder && (options.folderId === undefined || options.targetParentId === undefined)) throw new ValidationError("copying a folder needs both --folder-id and --target-parent-id")
+    if (!byFile && !byFolder) throw new ValidationError("pass --file-id + --target-folder-id (copy files) or --folder-id + --target-parent-id (copy a folder)")
+    const body = byFile
+      ? { copyType: "file", fileIdList: options.fileId, targetFolderId: options.targetFolderId }
+      : { copyType: "folder", folderId: options.folderId, targetParentId: options.targetParentId }
+    return emit(options, async (client) => {
+      const data = await client.call("vault.drive.copy", body)
+      flagFailedItems(data, "vault drive-copy")
+      return data
+    })
+  })
 
 vault.command("drive-delete-file").description("Delete drive files — irreversible (free)")
   .requiredOption("--file-id <id>", "File ID to delete (repeat or comma-separate)", collectList)

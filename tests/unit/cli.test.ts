@@ -449,7 +449,7 @@ describe("download title lookup wiring", () => {
         listBodies.push(body)
         res.writeHead(200, { "content-type": "application/json" })
         if (listReturnsNull) {
-          // The shape that makes requestPaginated set exit 3 (K18's trigger).
+          // The shape that makes requestPaginated set exit 3.
           res.end(JSON.stringify({ code: "000000", status: true, data: null }))
           return
         }
@@ -549,7 +549,7 @@ describe("download title lookup wiring", () => {
   }, 45_000)
 
   it("keeps exit 0 when the opted-in lookup hits a malformed list response", async () => {
-    // K18 end to end. requestPaginated sets exit 3 on a first page with no
+    // End to end: requestPaginated sets exit 3 on a first page with no
     // {total,list}; that verdict is about the lookup, while the file itself arrived
     // intact — a script reading `!= 0` must not see this as a failed download.
     listReturnsNull = true

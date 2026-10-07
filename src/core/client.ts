@@ -54,10 +54,11 @@ const PROBE_ABOVE_CREDITS = 50
 const OFFSET_REFUSAL_CODES = new Set(["140002", "100006"])
 
 /** Several lists answer "nothing matched" with `list: null` instead of [] — hot-topic, summary,
- * the A-share and HK announcement lists, performance-calendar (probed 2026-09-25, server
- * P2-27). A numeric total of exactly 0 says what an empty list would, so it is read as one;
- * a null list under any other total, a string total or a missing list is still a broken
- * page and takes the unexpected-shape path. */
+ * the A-share and HK announcement lists, performance-calendar (probed 2026-09-25), and the
+ * roadshow / site-visit / forum lists (probed 2026-10-07). A numeric total of exactly 0
+ * says what an empty list would, so it is read as one; a null list under any other total,
+ * a string total or a missing list is still a broken page and takes the unexpected-shape
+ * path. */
 function readEmptyListAsArray(page: unknown): void {
   const rec = page as Record<string, unknown> | null
   if (rec && typeof rec === "object" && rec.total === 0 && rec.list === null) rec.list = []
@@ -994,15 +995,15 @@ export class GangtiseClient {
       }
 
       const contentDisposition = response.headers['content-disposition']
-      const filenameMatch = Array.isArray(contentDisposition)
-        ? contentDisposition[0]?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
-        : contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
+      const disposition = Array.isArray(contentDisposition) ? contentDisposition[0] : contentDisposition
+      // RFC 6266: when both are sent, filename* (UTF-8) wins over the plain filename, which
+      // is usually an ASCII fallback. One alternation would take whichever comes first.
+      const raw = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1] ?? disposition?.match(/filename="?([^";]+)"?/i)?.[1]
       // A plain filename= value with a bare % ("增长100%.pdf") is not valid URI
       // encoding — decodeURIComponent would throw and fail the whole download over
       // a cosmetic hint. Fall back to the raw value instead.
       let filename: string | undefined
-      if (filenameMatch) {
-        const raw = filenameMatch[1] || filenameMatch[2]
+      if (raw) {
         try {
           filename = decodeURIComponent(raw)
         } catch {

@@ -8,6 +8,7 @@ import { promisify } from "node:util"
 import { describe, expect, inject, it } from "vitest"
 
 import { ENDPOINTS } from "../../src/core/endpoints.js"
+import { runCapped } from "../fixtures/spawn.js"
 
 // The CLI's whole surface, pinned: the help text of every command node, and — for every
 // leaf command — what one synthesized invocation sends and prints against a local stub.
@@ -47,7 +48,7 @@ const BASE_ENV: NodeJS.ProcessEnv = {
 }
 
 async function helpOf(pathArgs: string[]): Promise<string> {
-  const { stdout } = await run(process.execPath, [CLI, ...pathArgs, "--help"], { env: { ...BASE_ENV, GANGTISE_BASE_URL: "http://127.0.0.1:1" }, cwd: os.tmpdir(), timeout: 20_000 })
+  const { stdout } = await runCapped(process.execPath, [CLI, ...pathArgs, "--help"], { env: { ...BASE_ENV, GANGTISE_BASE_URL: "http://127.0.0.1:1" }, cwd: os.tmpdir(), timeout: 20_000 })
   return stdout
 }
 
@@ -110,6 +111,7 @@ const OMIT: Record<string, string[]> = {
   "bond issuer-info": ["--issuer"],
   "bond issuer-rating-change": ["--issuer"],
   "bond announcement": ["--start-date", "--end-date"],
+  "vault drive-copy": ["--folder-id", "--target-parent-id"],
 }
 
 function synthesize(option: OptionInfo, tmp: string): string[] {

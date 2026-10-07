@@ -3195,7 +3195,8 @@ Commands:
                                      space (free)
   drive-move-folder [options]        Move a drive folder under another folder of
                                      the SAME space (free)
-  drive-copy [options]               Copy files to the OTHER space: my drive <->
+  drive-copy [options]               Copy files, or one folder with everything
+                                     inside, to the OTHER space: my drive <->
                                      tenant drive (free; same-space copies are
                                      rejected)
   drive-delete-file [options]        Delete drive files — irreversible (free)
@@ -3221,13 +3222,17 @@ Commands:
 exports[`CLI surface > help > help: gangtise vault drive-copy 1`] = `
 "Usage: gangtise vault drive-copy [options]
 
-Copy files to the OTHER space: my drive <-> tenant drive (free; same-space
-copies are rejected)
+Copy files, or one folder with everything inside, to the OTHER space: my drive
+<-> tenant drive (free; same-space copies are rejected)
 
 Options:
-  --file-id <id>           Source file ID (repeat or comma-separate)
+  --file-id <id>           Source file ID (repeat or comma-separate); use with
+                           --target-folder-id (default: [])
   --target-folder-id <id>  Destination folder ID in the other space, or 'root'
                            for that space's root
+  --folder-id <id>         Source folder ID; use with --target-parent-id
+  --target-parent-id <id>  Destination parent folder ID in the other space, or
+                           'root' for that space's root
   --format <format>        Output format (default: "json")
   --output <path>
   -h, --help               display help for command
@@ -5957,7 +5962,7 @@ vault.drive.delete-file                    POST    /application/open-vault/drive
 vault.drive.delete-folder                  POST    /application/open-vault/drive/deleteFolder                                      Delete a drive folder and everything inside it                                               
 vault.drive.move-file                      POST    /application/open-vault/drive/moveFile                                          Move drive files to a folder (same space only)                                               
 vault.drive.move-folder                    POST    /application/open-vault/drive/moveFolder                                        Move a drive folder under another folder (same space only)                                   
-vault.drive.copy                           POST    /application/open-vault/drive/copy                                              Copy drive files to the OTHER space (my drive <-> tenant drive)                              
+vault.drive.copy                           POST    /application/open-vault/drive/copy                                              Copy drive files or a folder to the OTHER space (my drive <-> tenant drive)                  
 vault.record.list                          POST    /application/open-vault/record/getList                                          List voice recording transcriptions                                                          
 vault.record.download                      GET     /application/open-vault/record/download/file                                    Download voice recording transcription file                                                  
 vault.my-conference.list                   POST    /application/open-vault/my-conference/getList                                   List my conferences                                                                          
@@ -6183,7 +6188,7 @@ exports[`CLI surface > invocations > bare: vault drive-copy 1`] = `
   ],
   "exit": 1,
   "requests": [],
-  "stderr": "error: required option '--file-id <id>' not specified
+  "stderr": "ValidationError: pass --file-id + --target-folder-id (copy files) or --folder-id + --target-parent-id (copy a folder)
 ",
   "stdout": "",
 }
@@ -14122,7 +14127,7 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "key": "vault.drive.copy",
     "method": "POST",
     "path": "/application/open-vault/drive/copy",
-    "description": "Copy drive files to the OTHER space (my drive <-> tenant drive)"
+    "description": "Copy drive files or a folder to the OTHER space (my drive <-> tenant drive)"
   },
   {
     "key": "vault.record.list",

@@ -86,7 +86,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault drive-create-folder | `{folderId, parentId, folderName, spaceType, createTime}` | `folderId` |
 | vault drive-rename | `{id, name}` | — |
 | vault drive-move-folder / drive-delete-folder | `{folderId, parentId}` / `{folderId}` | — |
-| vault drive-copy | `{successList, failList}` | `successList[]{fileId, newFileId}`（`newFileId` 是另一空间里副本的 ID）；`failList[]{fileId, failReason}`，非空时 `partial` + 退出码 3 |
+| vault drive-copy | 复制文件：`{successList, failList}`；复制文件夹：`{folderId, newFolderId}` | `successList[]{fileId, newFileId}`（`newFileId` 是另一空间里副本的 ID）；`failList[]{fileId, failReason}`，非空时 `partial` + 退出码 3。复制文件夹时 `newFolderId` 是另一空间里副本文件夹的 ID |
 | vault drive-move-file / drive-delete-file | `{successList, failList}` | `successList[]` 为文件 ID；`failList[]{fileId, failReason}`，非空时 `partial` + 退出码 3 |
 | vault record-list | `{list, total}` | `list[].recordId` / `list[].title` / `list[].category` / `list[].createTime` / `list[].recordDuration` |
 | vault record-download | 文件路径（stdout） | — |

@@ -26,6 +26,7 @@ gangtise vault drive-rename --type file|folder --id <id> --name <name>
 gangtise vault drive-move-file --file-id <id>... --target-folder-id <id|root>
 gangtise vault drive-move-folder --folder-id <id> --target-parent-id <id|root>
 gangtise vault drive-copy --file-id <id>... --target-folder-id <id|root>
+gangtise vault drive-copy --folder-id <id> --target-parent-id <id|root>
 gangtise vault drive-delete-file --file-id <id>... --yes
 gangtise vault drive-delete-folder --folder-id <id> --yes
 ```
@@ -36,7 +37,7 @@ gangtise vault drive-delete-folder --folder-id <id> --yes
 - `drive-upload`：单个文件 ≤100MB（CLI 本地先拦）；试用账号每天累计上传 ≤500MB（超出 `230008`）。`--title` 不传用本地文件名
 - 名称（`--name` / `--title`）≤200 个字符，按 UTF-16 计——中文算 1、emoji 算 2；超出 `230004`
 - **移动只能在同一空间内**：`drive-move-file` 里跨空间的文件进 `failList`（「空间不一致」）；`drive-move-folder` 移到其他空间、自身或其子文件夹报 `230005`
-- **跨空间用 `drive-copy`**：把文件在「我的云盘 ↔ 租户云盘」之间复制（可批量），源保留不动；`--target-folder-id` 必须在另一空间，`root` 即另一空间的根目录，同空间复制报 `100003`。返回 `successList[]{fileId, newFileId}`。**目前只支持复制文件**，整个文件夹的复制暂未提供
+- **跨空间用 `drive-copy`**：在「我的云盘 ↔ 租户云盘」之间复制，源保留不动，同空间复制报 `100003`。两种用法二选一：复制文件用 `--file-id`（可批量）+ `--target-folder-id`，返回 `successList[]{fileId, newFileId}`；复制整个文件夹用 `--folder-id` + `--target-parent-id`，连同其中的子文件夹与文件一起复制，返回 `{folderId, newFolderId}`。目标 ID 必须在另一空间，`root` 即另一空间的根目录
 - 🔴 **删除不可恢复，必须 `--yes`**：`drive-delete-file` 可批量；`drive-delete-folder` **连同其中全部子文件夹与文件一起删除**，删前先 `drive-folder-list --parent-id <id>` 看清里面有什么。拒绝后**不要自行补 `--yes` 重跑**，把要删的名称列给用户确认
 - **批量命令的部分失败**：`drive-delete-file` / `drive-move-file` / `drive-copy` 对单条失败仍返回成功，明细在 `failList`（`fileId` + `failReason`，如「文件不存在」）。CLI 把失败的 ID 写到 stderr、结果标 `partial` 并**退出 3**
 
