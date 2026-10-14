@@ -2,7 +2,7 @@
 
 **全部计费，0.4 积分起**：多数按次（与返回行数无关）；`rating-overview` 按条、`rating-change` 按有数据的债券只数、`issuer-rating-change` 按发行人计，见各命令。
 
-`--security` 收**标准债券代码**——`019742.SH` / `123456.SZ` / `220205.IB`（银行间）。**不接受简称或拼音**，传了按 `120001` 整批拒绝、不会退化成模糊匹配；只有简称时先 `reference securities-search --keyword <简称>` 换代码。可重复，也接受逗号分隔；有单次只数上限的命令按**去重后**的只数计。
+`--security` 收**标准债券代码**——`019742.SH` / `123456.SZ` / `220205.IB`（银行间）。**不接受简称或拼音**，传了按 `120001` 整批拒绝、不会退化成模糊匹配；只有简称时先 `reference securities-search --keyword <简称> --category bond` 换代码。可重复，也接受逗号分隔；有单次只数上限的命令按**去重后**的只数计。
 
 ⚠️ **超时 / 5xx 不自动重放**（避免重复扣费），偶发失败自行重跑。
 
@@ -131,4 +131,4 @@ gangtise bond announcement (--security <code>... | --start-date <d> --end-date <
 ## 相关常量
 
 债券字段里的枚举 ID 可通过 `reference constant-list --category <code>` 查全量：
-`bondType` 债券类型 | `interestRateType` 利率类型 | `interestFrequency` 付息频率 | `absUnderlyingAssetType` ABS 基础资产类型 | `ratingType` 评级类型 | `exchange` 交易市场。
+`bondType` 债券类型 | `interestRateType` 利率类型 | `interestFrequency` 付息频率 | `absUnderlyingAssetType` ABS 基础资产类型 | `ratingType` 评级类型 | `exchange` 交易市场 | `interestBondSubtype` 利率债子类型。⚠️ 同名字段 `bondType` 两套码：`basic-info` 用 `bondType`，`issuance-plan` 用 `interestBondSubtype`。

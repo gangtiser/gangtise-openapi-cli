@@ -27,7 +27,7 @@ interface AsyncContentClient {
 // The 2026-07-17 spec renumbers them to 140001 RESULT_GENERATING (409) and
 // 140002 PROCESSING_FAILED (500); those are listed ahead of the switchover
 // because the failure mode is expensive and silent — a `--wait` that does not
-// recognize the pending code aborts the poll on a job already billed 50 credits.
+// recognize the pending code aborts the poll on a job already billed.
 const PENDING_CODES = new Set(["410110", "140001"])
 const FAILED_CODES = new Set(["410111", "140002"])
 
@@ -51,7 +51,7 @@ function terminalFailureLine(error: unknown): string {
   const trace = api?.traceId ? ` [trace ${api.traceId}]` : ""
   const detail = api?.message ? `: ${api.message}` : ""
   // Name the *submit* endpoint explicitly: re-running a `*-check` is a free
-  // lookup, it is resubmitting the generation job that re-bills 50 credits for a
+  // lookup, it is resubmitting the generation job that re-bills for a
   // verdict that will not change (probed 2026-07-20 on sensitive content).
   // Same split as the 140002 hint in errors.ts: the msg says whether the parameters are
   // at fault. A plain 「业务处理失败」 is not about them, so "change the parameters" would

@@ -61,7 +61,7 @@ gangtise insight summary list [--search-type <n>] [--rank-type <n>] [--source <n
 gangtise insight summary download --summary-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- **积分**：列表 0.1/条；下载 50/篇
+- **积分**：列表 0.1/条；下载 30/篇
 
 - `--search-type`：`1` 标题搜索（默认，速度快）| `2` 全文搜索
 - `--source`：`1` 实时 | `2` 开放来源
@@ -96,7 +96,7 @@ gangtise insight pamirs-summary list [--search-type <n>] [--rank-type <n>] [--re
 gangtise insight pamirs-summary download --summary-id <id> [--file-type <n>] [--output <path>]
 ```
 
-帕米尔（Pamirs）是平台内一个特殊牵头机构的**专家纪要库**，走独立端点，不是 `summary list` 的一个筛选项。⚠️ **需单独购买专家纪要数据库**：未开通时 `list` 直接报 `999004`（不是返回空列表），**整库拿不到**。**不限制历史数据范围**（不受 3 个月窗口约束）。
+帕米尔（Pamirs）是平台内一个特殊牵头机构的**专家纪要库**，走独立端点，不是 `summary list` 的一个筛选项。⚠️ **需单独购买专家纪要数据库**：未开通时 `list` 直接报 `999004`（不是返回空列表），**整库拿不到**。**不限制历史数据范围**（不受纪要列表的窗口约束）。
 
 > 未开通该库时任何查询都直接报 `999004`，不必怀疑参数写错。
 
@@ -136,7 +136,7 @@ gangtise insight strategy list   [--institution <id>] [--location <id>]
 gangtise insight forum list      [--research-area <id>] [--location <id>]
 ```
 
-- **积分**：列表 **20/条**——务必带 `--size`
+- **积分**：列表 **10/条**——务必带 `--size`
 
 - 共用：`--keyword` `--start-time` `--end-time` `--from` `--size` `--location`
 - `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。传省份 ID 会命中该省
@@ -166,7 +166,7 @@ gangtise insight performance-calendar download --performance-report-id <id> [--o
 - 返回字段：`performanceReportId`（下载用）/ `securityCodeList[]`（A+H 同时上市会有多个代码）/ `securityName` / `category` / `publishDate` / `title` / `hasAttachment`
 - `publishDate` 返回的是 `yyyy-MM-dd 00:00:00`，取日期请截前 10 位
 - download：**只有 `hasAttachment: true` 的记录能下**（先 list 确认）；省略 `--output` 用 title-cache 里的真实标题命名，**未命中不自动回查**，退回服务端文件名或 `<type>-<id>`。要回查加 `--resolve-title`——拉 200 条、按 0.1/条 约 20 积分，取回的标题会写回缓存供同批复用
-- **积分**：list 0.1/条；download A 股 10/篇、港美股 20/篇
+- **积分**：list 0.1/条；download A 股 1/篇、港美股 2/篇
 
 ## 研报 `insight research list/download`
 
@@ -191,7 +191,7 @@ gangtise insight foreign-report list [--search-type <n>] [--rank-type <n>] [--se
 gangtise insight foreign-report download --report-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- **积分**：列表 0.1/条；下载 50/篇
+- **积分**：列表 0.1/条；下载 30/篇
 
 - `--region`：`cn` 中国 | `cnHk` 香港 | `us` 美国 | `jp` 日本 | `sea` 东南亚 | `gl` 全球 | `uk` 英国 | `kr` 韩国 | `in` 印度（完整列表见 `references/lookup-ids.md`）。⚠️ 写错区域码不会报错，会返回不按区域筛选的全量结果——传之前核对取值
 - `--category` / `--llm-tag` / `--rating` / `--rating-change`：同研报
@@ -204,7 +204,7 @@ gangtise insight announcement list [--search-type <n>] [--rank-type <n>] [--secu
 gangtise insight announcement download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- **积分**：列表 0.1/条；下载 10/篇
+- **积分**：列表 0.1/条；下载 1/篇
 
 - `--category`：公告分类 ID，用 `reference constant-list --category aShareAnnouncementCategory` 查。常用：`103910200` 财务报告、`103910700` 股权股本、`103910201` 业绩预告、`103910703` 质押冻结、`103910803` 股权激励、`103910818` 股份增减持、`103910823` 问询函（完整列表见 `references/lookup-ids.md`）
 - `--file-type`（download）：`1` 原始PDF | `2` Markdown
@@ -217,7 +217,7 @@ gangtise insight announcement-hk list [--search-type <n>] [--rank-type <n>] [--s
 gangtise insight announcement-hk download --announcement-id <id> [--file-type <n>] [--output <path>]
 ```
 
-- **积分**：列表 0.1/条；下载 20/篇
+- **积分**：列表 0.1/条；下载 2/篇
 
 - `--security`：港股代码，如 `01913.HK`（两位数字前缀需补零）
 - `--category`：港股公告类型 ID（见 `references/lookup-ids.md`）
@@ -233,7 +233,7 @@ gangtise insight announcement-us download --announcement-id <id> [--file-type <n
 - `--security`：美股代码，如 `TSLA.O`（可重复）
 - `--category`：美股公告分类 ID，用 `reference constant-list --category usShareAnnouncementCategory` 查（美股独立的 `103980xxx` 段，一级分类：财务报告 / 证券发行 / 重大事项 / 交易提示 / 股本股东 / 股东大会 / 一般公告）
 - `--file-type`（download）：`1` 原始PDF（默认）| `2` Markdown
-- **积分**：list 0.1/条；download 20/篇
+- **积分**：list 0.1/条；download 2/篇
 - `--security TSLA.O` 的 `sourceName` 为「美国证券交易委员会」
 
 ## 外资机构观点 `insight foreign-opinion list/detail`
@@ -261,7 +261,7 @@ gangtise insight independent-opinion list [--rank-type <n>] [--security <code>] 
 gangtise insight independent-opinion download --independent-opinion-id <id> --file-type <n> [--output <path>]
 ```
 
-- **积分**：列表 **5/条**——务必带 `--size`；下载 30/篇
+- **积分**：列表 **1/条**——务必带 `--size`；下载 30/篇
 
 - `--security`：境外证券代码，如 `GSK.N`
 - ⚠️ `--industry`：**只认申万码**（`104xx0000`），中信码报 `100005 枚举值非法`（同 `foreign-opinion`，见上）。返回记录的 `industryList[]` 两套码都带，回查挑申万那条

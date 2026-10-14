@@ -669,6 +669,12 @@ describe("ENDPOINTS", () => {
     expect(ENDPOINTS["bond.issuer-rating-change"].billing).toEqual({ per: "issuer", price: 0.4, maxUnits: 10 })
   })
 
+  it("bills edb-data per indicator, at most 10 a call — under the no-replay line", () => {
+    expect(ENDPOINTS["alternative.edb-data"].billing).toEqual({ per: "indicator", price: 30, maxUnits: 10 })
+    expect(worstRequestCredits(ENDPOINTS["alternative.edb-data"])).toBe(300)
+    expect(ENDPOINTS["alternative.edb-data"].retry).toBeUndefined()
+  })
+
   it("keeps every endpoint billed per call or per submitted page on no-replay", () => {
     // A replay after a timeout the server already answered runs — and bills — the call
     // again.
@@ -681,7 +687,7 @@ describe("ENDPOINTS", () => {
   it("prices every billed endpoint above zero, in a known unit", () => {
     for (const ep of Object.values(ENDPOINTS)) {
       if (!ep.billing) continue
-      expect(["call", "page", "row", "security", "issuer", "document"], ep.key).toContain(ep.billing.per)
+      expect(["call", "page", "row", "security", "issuer", "indicator", "document"], ep.key).toContain(ep.billing.per)
       expect(ep.billing.price, ep.key).toBeGreaterThan(0)
     }
   })

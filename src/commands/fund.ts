@@ -9,7 +9,7 @@ import { date, format, list, output, query, requiredList, value, type Field } fr
 // billing anything (probed 2026-09-30 on all four), so a local list could only go stale.
 export const fund = new Command("fund").description("Fund APIs: profiles, NAV, fees, managers, scale, holders, holdings and allocation, ETF creation/redemption")
 
-const code = (): Field => requiredList("--security <code>", "Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH (repeatable, comma-separated accepted)", "fundCodeList")
+const code = (): Field => requiredList("--security <code>", "Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH (repeatable, comma-separated accepted). From a fund name: 'reference securities-search --category fund', keeping only rows whose category is fund", "fundCodeList")
 /** `what` is the date the range filters on: report dates (quarter ends) or trade dates. */
 const range = (what: string): Field[] => [
   date("--start-date <date>", `${what} range start (yyyy-MM-dd); omit both ends for everything in your account's history window`, "startDate"),

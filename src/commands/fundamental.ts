@@ -47,22 +47,21 @@ query(fundamental, "main-business", {
 })
 const VALUATION_DEFAULT_LIMIT = 2000
 /** The fieldList actually sent: each name once, and no `tradeDate` unless it is all that
- * was asked for. The endpoint always answers with `tradeDate` first; asking for it anyway,
- * or naming a column twice, repeats that value in every row while the echoed field list
- * names it once, and an unknown name drops its value (probed 2026-09-25, three samples
- * each). One of each cancels out — `tradeDate,value,percentileRank,foo` came back with
- * every value one column to the right and the widths equal, so the width check passed it
- * at exit 0. With nothing that can add a value, an unknown name always leaves the rows
- * short, which the width check refuses. `tradeDate` alone is kept: dropping it would ask
- * for every column, and the endpoint answers it with no rows. */
+ * was asked for. The endpoint always answers with `tradeDate` first. It now answers an
+ * explicit `tradeDate` or a repeated name once and refuses an unknown name with 100005
+ * (probed 2026-10-14, three samples each). It used to repeat a value per extra name and
+ * drop one per unknown name (probed 2026-09-25), and one of each cancelled out with the
+ * widths equal, which the width check alone cannot catch — so the de-duplication stays.
+ * `tradeDate` alone is kept: dropping it would ask for every column, and the endpoint
+ * answers it with no rows. */
 function valuationFieldsToSend(fields: string[]): string[] {
   const unique = [...new Set(fields)]
   const values = unique.filter((field) => field !== "tradeDate")
   return values.length > 0 ? values : unique
 }
 /** Every column but `tradeDate`. A fieldList with none of them — `tradeDate` alone, or
- * only names the endpoint does not know — is answered with an empty list, not an error
- * (probed 2026-09-25, three samples each). */
+ * empty — is answered with an empty list, not an error (probed 2026-10-14, three samples
+ * each). */
 const VALUATION_VALUE_COLUMNS = ["value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]
 /** `tradeDate` of the first row, whatever shape the rows came in; undefined when absent
  * (e.g. --field left it out). */

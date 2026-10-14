@@ -2,7 +2,7 @@
 
 每个示例展示从用户语句到完整命令的全流程。示例集中在这里，Skill 主文件只放规则；遇到不确定的场景时来这里查同类。
 
-**日期占位**：`<今天>`、`<今天-7天>`、`<最新交易日>` 这类写法按实跑当天换算成 `YYYY-MM-DD`；写成具体日期的（如报告期末 `2025-12-31`）照抄即可。回溯窗口有限（研报、观点等约 3 个月），别把旧日期原样照抄。
+**日期占位**：`<今天>`、`<今天-7天>`、`<最新交易日>` 这类写法按实跑当天换算成 `YYYY-MM-DD`；写成具体日期的（如报告期末 `2025-12-31`）照抄即可。各接口能回溯多久不同（见 `SKILL.md`「数据范围」），别把旧日期原样照抄。
 
 ---
 
@@ -137,7 +137,7 @@
 1. 路由 → insight research list；公司名不在速查表
 2. 先调 reference securities-search：
      gangtise reference securities-search --keyword 蔚蓝生物 --category stock --top 3 --format json
-   返回 list[0].gtsCode = "603739.SH"
+   取第一条 category 为 stock 的 gtsCode = "603739.SH"（按简称查时同名可转债可能排在前面）
 3. 拼正式查询：
      gangtise insight research list --security 603739.SH --rank-type 2 \
        --start-time "<今天-7天> 00:00:00" --end-time "<今天> 23:59:59" --format json
@@ -188,9 +188,9 @@
    → 取 content 呈现
 5. 不能等那么久时去掉 --wait：提交返回 {dataId, status, hint}，之后手动查：
      gangtise ai earnings-review-check --data-id xxx --format json
-   - 若 {dataId, status: "pending", hint} → 过两分钟再查；**仍在生成时别重新提交**（重提再扣 50 积分），把 dataId 交给用户稍后查
+   - 若 {dataId, status: "pending", hint} → 过两分钟再查；**仍在生成时别重新提交**（重提再扣 20 积分），把 dataId 交给用户稍后查
    - 若 {date, content} → 取 content 呈现
-   - 若 410111（新码 140002）→ 终态失败，**不要重提同一任务**（会再扣 50 积分且结果相同）；改参数后再提交，或直接告知用户该期数据暂不可用
+   - 若 410111（新码 140002）→ 终态失败，**不要重提同一任务**（会再扣 20 积分且结果相同）；改参数后再提交，或直接告知用户该期数据暂不可用
 ```
 
 ## 例 13：题材画像 ＋ 成分股（先查 ID 再拉两接口）
@@ -343,7 +343,7 @@
      --market aShares --category performanceForecast \
      --size 50 --format json
    → list[].securityName / title / publishDate / performanceReportId / hasAttachment
-5. 用户要原文时：只有 hasAttachment: true 能下（A股 10 积分/篇）
+5. 用户要原文时：只有 hasAttachment: true 能下（A股 1 积分/篇）
    gangtise insight performance-calendar download --performance-report-id 33753017 --output ./预告.pdf
 ```
 

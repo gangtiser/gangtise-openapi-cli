@@ -8,7 +8,7 @@ query(reference, "securities-search", {
   endpoint: "reference.securities-search",
   fields: [
     required("--keyword <text>", "Search keyword (name/code/pinyin/English)", "keyword"),
-    choiceList("--category <type>", "Category: stock/dr/index/fund", "category", ["stock", "dr", "index", "fund"]),
+    choiceList("--category <type>", "Category: stock/dr/index/fund/bond. Convertible bonds can come back under any category — keep the rows whose returned category matches", "category", ["stock", "dr", "index", "fund", "bond"]),
     top(10),
     format(), output(),
   ],

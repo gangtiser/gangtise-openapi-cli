@@ -638,8 +638,8 @@ never both
 Options:
   --security <code>     Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                         (repeatable). Short names and pinyin are rejected —
-                        resolve them with 'reference securities-search' first
-                        (default: [])
+                        resolve them with 'reference securities-search
+                        --category bond' first (default: [])
   --field <field>       Field to return (repeatable); omit for all. An
                         unsupported name rejects the whole call with 100003
                         (default: [])
@@ -664,7 +664,8 @@ Bond static profiles: issuance, term, coupon, rating, guarantee, special terms
 Options:
   --security <code>  Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                      (repeatable). Short names and pinyin are rejected — resolve
-                     them with 'reference securities-search' first (default: [])
+                     them with 'reference securities-search --category bond'
+                     first (default: [])
   --field <field>    Field to return (repeatable); omit for all. An unsupported
                      name rejects the whole call with 100003 (default: [])
   --format <format>  Output format (default: "table")
@@ -681,8 +682,8 @@ Interest payment and redemption schedule per bond
 Options:
   --security <code>    Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                        (repeatable). Short names and pinyin are rejected —
-                       resolve them with 'reference securities-search' first
-                       (default: [])
+                       resolve them with 'reference securities-search --category
+                       bond' first (default: [])
   --field <field>      Field to return (repeatable); omit for all. An
                        unsupported name rejects the whole call with 100003
                        (default: [])
@@ -703,8 +704,8 @@ convexity
 Options:
   --security <code>    Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                        (repeatable). Short names and pinyin are rejected —
-                       resolve them with 'reference securities-search' first
-                       (default: [])
+                       resolve them with 'reference securities-search --category
+                       bond' first (default: [])
   --field <field>      Field to return (repeatable); omit for all. An
                        unsupported name rejects the whole call with 100003
                        (default: [])
@@ -724,8 +725,8 @@ Put/call exercise schedule and results for option-embedded bonds
 Options:
   --security <code>    Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                        (repeatable). Short names and pinyin are rejected —
-                       resolve them with 'reference securities-search' first
-                       (default: [])
+                       resolve them with 'reference securities-search --category
+                       bond' first (default: [])
   --field <field>      Field to return (repeatable); omit for all. An
                        unsupported name rejects the whole call with 100003
                        (default: [])
@@ -745,8 +746,8 @@ Issuance and re-issuance records: bidding, pricing, cover ratios
 Options:
   --security <code>    Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                        (repeatable). Short names and pinyin are rejected —
-                       resolve them with 'reference securities-search' first
-                       (default: [])
+                       resolve them with 'reference securities-search --category
+                       bond' first (default: [])
   --field <field>      Field to return (repeatable); omit for all. An
                        unsupported name rejects the whole call with 100003
                        (default: [])
@@ -783,7 +784,8 @@ Issuer profiles: nature, SW industry, registration, rating, outstanding bonds
 Options:
   --security <code>  Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                      (repeatable). Short names and pinyin are rejected — resolve
-                     them with 'reference securities-search' first (default: [])
+                     them with 'reference securities-search --category bond'
+                     first (default: [])
   --field <field>    Field to return (repeatable); omit for all. An unsupported
                      name rejects the whole call with 100003 (default: [])
   --format <format>  Output format (default: "table")
@@ -802,8 +804,8 @@ Issuer rating change history (at most 10 issuers matched per call)
 Options:
   --security <code>    Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                        (repeatable). Short names and pinyin are rejected —
-                       resolve them with 'reference securities-search' first
-                       (default: [])
+                       resolve them with 'reference securities-search --category
+                       bond' first (default: [])
   --field <field>      Field to return (repeatable); omit for all. An
                        unsupported name rejects the whole call with 100003
                        (default: [])
@@ -828,8 +830,8 @@ agency (max 10 bonds per call)
 Options:
   --security <code>    Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                        (repeatable). Short names and pinyin are rejected —
-                       resolve them with 'reference securities-search' first
-                       (default: [])
+                       resolve them with 'reference securities-search --category
+                       bond' first (default: [])
   --field <field>      Field to return (repeatable); omit for all. An
                        unsupported name rejects the whole call with 100003
                        (default: [])
@@ -850,7 +852,8 @@ Bond, issuer and guarantor ratings side by side
 Options:
   --security <code>  Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                      (repeatable). Short names and pinyin are rejected — resolve
-                     them with 'reference securities-search' first (default: [])
+                     them with 'reference securities-search --category bond'
+                     first (default: [])
   --field <field>    Field to return (repeatable); omit for all. An unsupported
                      name rejects the whole call with 100003 (default: [])
   --format <format>  Output format (default: "table")
@@ -867,8 +870,8 @@ Shanghai Clearing House valuations: price, yield, duration, convexity, PVBP
 Options:
   --security <code>           Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB
                               (repeatable). Short names and pinyin are rejected
-                              — resolve them with 'reference securities-search'
-                              first (default: [])
+                              — resolve them with 'reference securities-search
+                              --category bond' first (default: [])
   --field <field>             Field to return (repeatable); omit for all. An
                               unsupported name rejects the whole call with
                               100003 (default: [])
@@ -947,7 +950,9 @@ Asset allocation per report date: amount and % of total assets by asset type
 
 Options:
   --security <code>      Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                         (repeatable, comma-separated accepted)
+                         (repeatable, comma-separated accepted). From a fund
+                         name: 'reference securities-search --category fund',
+                         keeping only rows whose category is fund
   --start-date <date>    Report date range start (yyyy-MM-dd); omit both ends
                          for everything in your account's history window
   --end-date <date>      Report date range end (yyyy-MM-dd)
@@ -967,7 +972,9 @@ assets
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Report date range end (yyyy-MM-dd)
@@ -985,7 +992,9 @@ benchmark, risk level, tracked index
 
 Options:
   --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                     (repeatable, comma-separated accepted)
+                     (repeatable, comma-separated accepted). From a fund name:
+                     'reference securities-search --category fund', keeping only
+                     rows whose category is fund
   --field <field>    Field to return (repeatable); omit for all. An unsupported
                      name rejects the whole call with 100003 (default: [])
   --format <format>  Output format (default: "table")
@@ -1001,7 +1010,9 @@ Bond holdings per report date: quantity, value, % of NAV
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Report date range end (yyyy-MM-dd)
@@ -1018,7 +1029,9 @@ Bond holdings grouped by bond type, as % of NAV
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Report date range end (yyyy-MM-dd)
@@ -1036,7 +1049,9 @@ weights, cash substitution
 
 Options:
   --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                     (repeatable, comma-separated accepted)
+                     (repeatable, comma-separated accepted). From a fund name:
+                     'reference securities-search --category fund', keeping only
+                     rows whose category is fund
   --format <format>  Output format (default: "table")
   --output <path>
   -h, --help         display help for command
@@ -1051,7 +1066,9 @@ limits, cash components
 
 Options:
   --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                     (repeatable, comma-separated accepted)
+                     (repeatable, comma-separated accepted). From a fund name:
+                     'reference securities-search --category fund', keeping only
+                     rows whose category is fund
   --format <format>  Output format (default: "table")
   --output <path>
   -h, --help         display help for command
@@ -1065,7 +1082,9 @@ ETF shares and scale per trade date, with the change vs the previous one
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Trade date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Trade date range end (yyyy-MM-dd)
@@ -1082,7 +1101,9 @@ Current fee rates by type, one row per condition band (holding period, amount)
 
 Options:
   --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                     (repeatable, comma-separated accepted)
+                     (repeatable, comma-separated accepted). From a fund name:
+                     'reference securities-search --category fund', keeping only
+                     rows whose category is fund
   --fee-type <type>  purchaseFee / redemptionFee / managementFee / custodianFee
                      / saleFee (repeatable); omit for all (default: [])
   --format <format>  Output format (default: "table")
@@ -1098,7 +1119,9 @@ Fund-of-funds holdings of other funds: value and % of NAV
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Report date range end (yyyy-MM-dd)
@@ -1115,7 +1138,9 @@ Fund-of-funds holdings grouped by fund category (level 1), as % of NAV
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Report date range end (yyyy-MM-dd)
@@ -1132,7 +1157,9 @@ Holder count and institutional / individual / employee holdings per report date
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Report date range end (yyyy-MM-dd)
@@ -1149,7 +1176,9 @@ Stock holdings grouped by level-1 industry (SW or CITIC), as % of NAV
 
 Options:
   --security <code>           Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                              (repeatable, comma-separated accepted)
+                              (repeatable, comma-separated accepted). From a
+                              fund name: 'reference securities-search --category
+                              fund', keeping only rows whose category is fund
   --start-date <date>         Report date range start (yyyy-MM-dd); omit both
                               ends for everything in your account's history
                               window
@@ -1173,7 +1202,9 @@ Past and present managers of a fund: tenure, days managed, return over tenure
 
 Options:
   --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                     (repeatable, comma-separated accepted)
+                     (repeatable, comma-separated accepted). From a fund name:
+                     'reference securities-search --category fund', keeping only
+                     rows whose category is fund
   --format <format>  Output format (default: "table")
   --output <path>
   -h, --help         display help for command
@@ -1204,7 +1235,9 @@ funds add 7-day annualized yield and income per 10k units
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Trade date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Trade date range end (yyyy-MM-dd)
@@ -1222,7 +1255,9 @@ the previous report
 
 Options:
   --security <code>       Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                          (repeatable, comma-separated accepted)
+                          (repeatable, comma-separated accepted). From a fund
+                          name: 'reference securities-search --category fund',
+                          keeping only rows whose category is fund
   --start-date <date>     Report date range start (yyyy-MM-dd); omit both ends
                           for everything in your account's history window
   --end-date <date>       Report date range end (yyyy-MM-dd)
@@ -1242,7 +1277,9 @@ Top 10 holders of a listed fund (LOF / ETF) per report date
 
 Options:
   --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                       (repeatable, comma-separated accepted)
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
   --start-date <date>  Report date range start (yyyy-MM-dd); omit both ends for
                        everything in your account's history window
   --end-date <date>    Report date range end (yyyy-MM-dd)
@@ -3086,7 +3123,9 @@ exports[`CLI surface > help > help: gangtise reference securities-search 1`] = `
 
 Options:
   --keyword <text>   Search keyword (name/code/pinyin/English)
-  --category <type>  Category: stock/dr/index/fund (default: [])
+  --category <type>  Category: stock/dr/index/fund/bond. Convertible bonds can
+                     come back under any category — keep the rows whose returned
+                     category matches (default: [])
   --top <number>     Max results (default: 10, max: 10) (default: "10")
   --format <format>  Output format (default: "table")
   --output <path>
@@ -4933,7 +4972,7 @@ exports[`CLI surface > invocations > bare: insight independent-opinion list 1`] 
       "body": {
         "from": 0,
         "rankType": 1,
-        "size": 1,
+        "size": 50,
       },
       "method": "POST",
       "path": "/application/open-insight/independent-opinion/getList",
@@ -5853,7 +5892,7 @@ insight.site-visit.list                    POST    /application/open-insight/sch
 insight.strategy.list                      POST    /application/open-insight/schedule/strategy-meeting/getList                     List strategy meetings                                                                       
 insight.forum.list                         POST    /application/open-insight/schedule/forum/getList                                List forums                                                                                  
 insight.performance-calendar.list          POST    /application/open-insight/schedule/performance-calendar/getList                 List earnings calendar events (forecast / express / announcement)                            
-insight.performance-calendar.download      GET     /application/open-insight/schedule/performance-calendar/download/file           Download an earnings report file (A-share 10 credits, HK/US 20)                              
+insight.performance-calendar.download      GET     /application/open-insight/schedule/performance-calendar/download/file           Download an earnings report file (A-share 1 credit, HK/US 2)                                 
 insight.research.list                      POST    /application/open-insight/broker-report/getList                                 List broker research reports                                                                 
 insight.research.download                  GET     /application/open-insight/broker-report/download/file                           Download broker research report                                                              
 insight.foreign-report.list                POST    /application/open-insight/foreign-report/getList                                List foreign reports                                                                         
@@ -13473,7 +13512,7 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "key": "insight.performance-calendar.download",
     "method": "GET",
     "path": "/application/open-insight/schedule/performance-calendar/download/file",
-    "description": "Download an earnings report file (A-share 10 credits, HK/US 20)"
+    "description": "Download an earnings report file (A-share 1 credit, HK/US 2)"
   },
   {
     "key": "insight.research.list",

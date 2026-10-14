@@ -27,6 +27,7 @@ gangtise alternative edb-data --indicator-id <id> [--indicator-id <id2>] --start
 - `--indicator-id`（**至少 1 个**，最多 10 个——上限由接口校验，CLI 不拦）：指标 ID，来自 `edb-search` 返回的 `indicatorId`，可重复传
 - `--start-date`（**必选**）：开始日期，格式 `yyyy-MM-dd`
 - `--end-date`（**必选**）：结束日期，格式 `yyyy-MM-dd`
+- **积分**：30/指标（单次最多 10 个指标，即最多 300）
 - 返回格式：列表，每行为 `{date, <indicatorId1>: value, <indicatorId2>: value, ...}`
 - 日期列为字符串（如 `"2010-01-31"`），数值列为字符串数字（如 `"447184.41"`）
 

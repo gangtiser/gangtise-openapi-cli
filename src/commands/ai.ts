@@ -169,7 +169,7 @@ ai.command("stock-summary")
   .option("--output <path>")
   .action((options) => {
   // Guard against an empty --security: omitting it would send securityList:undefined,
-  // which the backend may treat as all-market (3 credits/row × thousands of rows).
+  // which the backend may treat as all-market (billed per row × thousands of rows).
   if (!options.security.length) throw new ValidationError(`--security is required: pass one or more security codes (A-share / HK), up to ${STOCK_SUMMARY_MAX_SECURITIES} per call`)
   if (options.security.length > STOCK_SUMMARY_MAX_SECURITIES) {
     throw new ValidationError(`ai stock-summary: ${options.security.length} securities in one call — the endpoint takes at most ${STOCK_SUMMARY_MAX_SECURITIES}. Split the codes into batches of at most ${STOCK_SUMMARY_MAX_SECURITIES} and run one call per batch.`)

@@ -13,7 +13,7 @@
 | 错误码 | 含义 | CLI 行为 | Agent 是否介入 |
 |--------|------|---------|--------------|
 | `100003` | 参数值非法——**最宽的兜底码**：类型错、`limit` 越界都归这里。**msg 通常已指明字段**（如「请求体字段类型不匹配: size 期望类型 Integer」「limit 最小为 1，最大为 10000」），先读 msg 再猜 | — | 按 msg 指的字段改；msg 没指明才对照 `--help` 查枚举拼写，**不要重试同命令** |
-| `999999` | 系统错误。`indicator`（EDE）的「无数据」不用此码（无数据是保留行列的占位单元格 `null`，见 `commands/indicator.md`；代码或参数名写错报 `100003`、缺必填参数报 `100001`，都会点名；例外是漏传 `fiscalYear` 不报错，见 `commands/indicator.md`「必填参数」），所以这个码基本只剩真故障 | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | 确认参数无误仍报此码即服务端故障 |
+| `999999` | 系统错误。`indicator`（EDE）的「无数据」不用此码（无数据是保留行列的占位单元格 `null`，见 `commands/indicator.md`；代码或参数名写错报 `100003`、缺必填参数报 `100001`，都会点名），所以这个码基本只剩真故障 | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | 确认参数无误仍报此码即服务端故障 |
 | `410110` | **异步生成中**（HTTP 400，旧码）。新码 `140001`，CLI 两码都认 | 轮询视为 pending | 继续等 |
 | `410111` | **异步生成失败**（HTTP 400，旧码）。新码 `140002`，CLI 两码都认 | 终态 | **不重试**，换参数 |
 | `130002` | 资源不存在——下载类的常见码：`reportId` 不存在 / 非数字多归此码。另有更具体的 `130003`（资源未生成 / 无附件）；`--file-type` 写错由 CLI 在本地报错、不发请求 | — | 确认 ID 有效且本账号可见；换 `--file-type` 或换一篇验证 |
@@ -43,7 +43,7 @@
 - **非法证券代码**：`quote day-kline` / `realtime` / `minute-kline` / `fund-flow` 与 Fundamental 系都会报 `120001`，按报错核对后缀即可。⚠️ **三个已弃用的旧端点 `quote day-kline-hk` / `day-kline-us` / `index-day-kline` 则返回空结果**，与"该票该区间真无数据"无法区分——**用这三个拿到空结果时先回头核对代码后缀**。它们的能力已并入统一 `day-kline`（支持 A 股 / 港股 / 美股 / 沪深 ETF / 交易所指数 / 概念指数 `.GT` / 行业指数 `.CI` `.SWI` / 全球指数），新代码直接用 `day-kline`
 - **枚举值拼错不一定报错**：`--search-type` / `--rank-type` 传非法值报 `100005`；但 `insight foreign-report --region` 写错区域码会返回全量、不报错，拿到「看着正常」的结果。⚠️ **「该端点根本没有这个参数」同样静默**：经 `raw call` 手写请求体时，传端点不支持的字段名（如给 `opinion` 传 `searchType`——它只有 `--rank-type`）会被丢弃、按未传处理，返回未经筛选的结果（专用命令对不存在的选项直接报 unknown option）。**CLI 本地拦截的**：全部 `--search-type` / `--rank-type`、全部 `--file-type`（`foreign-report` 为 1–4、其余 1–2）、`pamirs-summary` 与财报日历的 `--category` / `--market`、`--top` 上限、`reference securities-search` / `institution-search` / `official-account-search` 的 `--category`、`vault record-download` / `my-conference-download` 的 `--content-type`、`ai hot-topic --category`、`ai security-clue --source`。**其余取值（如 `foreign-report --region`、`--llm-tag`、`theme-tracking --type`）CLI 不拦**，写之前对照 `--help` 与对应命令文档核对拼写——**拼错的筛选条件会伪装成「结果正常」**
 - **股票池写操作的单条失败不报错**：`vault stock-pool-add-stock` / `stock-pool-remove-stock` / `stock-pool-delete` 是逐条处理的，证券代码不存在这类单条失败仍返回成功信封（`code` 为 `000000`），失败明细在 `failList` 里。**CLI 已拦**：`failList` 非空时 stderr 列出失败项、结果标 `partial`、退出码 3。绕过 CLI 直连接口时要自己读 `failList`，别只看 `code`
-- **`viewpoint-debate` 的观点过不了平台的敏感词检测时不会被提前拦截**——不返回 `240002`，而是照常受理、扣 50 积分、生成阶段才以 `410111` 失败；同样的内容重提仍会失败。**提交前自己把关措辞**
+- **`viewpoint-debate` 的观点过不了平台的敏感词检测时不会被提前拦截**——不返回 `240002`，而是照常受理、扣 20 积分、生成阶段才以 `410111` 失败；同样的内容重提仍会失败。**提交前自己把关措辞**
 
 ## 官方文档列出、但未见触发的码
 
@@ -116,7 +116,7 @@
 3. 账号是否到期 / 异常：`gangtise auth login` 会真的登录一次，到期或禁用时报 `999012` / `999013`（`auth status` 只看本地缓存，判断不了）
 
 **异步任务 `410111` 反复**（生成失败，终态）
-1. `viewpoint-debate`：先检查观点措辞——过不了敏感词检测的内容不会被提前拦截，会扣 50 积分再以 `410111` 失败；换个说法再提交，同样的内容重试仍会失败
+1. `viewpoint-debate`：先检查观点措辞——过不了敏感词检测的内容不会被提前拦截，会扣 20 积分再以 `410111` 失败；换个说法再提交，同样的内容重试仍会失败
 2. `earnings-review`：换更早的 `--period`（如 `2025q3` → `2025interim`）
 3. `--period` 用已发布的报告期（如 `2025q3` / `2025interim` / `2025annual`）
 4. 若提交阶段就返回 `240001`（财报期未披露），说明该期不可查且**未扣积分**，别再换参数试
@@ -137,5 +137,7 @@
 **下载文件名乱码 / 截断** → terminal locale 或 shell quoting 问题 → 显式 `--output ./<title>.<ext>` 避开。
 
 **同一公司既是股票又是 DR** → `securities-search` 默认返回所有分类 → 加 `--category stock` 收敛。
+
+**`--category stock` / `fund` 的结果里出现 `category: bond`** → 可转债不受 `--category` 约束、按简称查时常排第一（如「甬金」→ `113636.SH 甬金转债`） → 只取 `category` 等于所查类别的行；查股票可改用公司全称，查基金换更具体的基金简称。债券代码传给基金命令返回空结果、不报错，传给股票行情 / 财报报 `120001`。
 
 **`sector-constituents` 返回 0 条** → sectorId 不对（题材 conceptId 与板块 sectorId 是两套 ID，不通用）→ 先 `reference sector-search --keyword <名>` 拿 `sectorId` 重试。

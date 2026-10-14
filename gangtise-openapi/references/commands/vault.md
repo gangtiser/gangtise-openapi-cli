@@ -62,7 +62,8 @@ gangtise vault my-conference-list [--keyword <text>] [--research-area <id>] [--s
 gangtise vault my-conference-download --conference-id <id> --content-type <type> [--output <path>] [--resolve-title]
 ```
 
-- **积分**：列表 0.1/条；下载 50/篇（超时不自动重发）
+- **积分**：列表 0.1/条；下载 30/篇（超时不自动重发）
+- **可查范围：前溯 1 个月**（各档相同）
 
 - `--category`：`earningsCall` 业绩会 | `strategyMeeting` 策略会 | `fundRoadshow` 基金路演 | `shareholdersMeeting` 股东大会 | `maMeeting` 并购会议 | `specialMeeting` 特别会议 | `companyAnalysis` 公司分析 | `industryAnalysis` 行业分析 | `other`（可重复）
 - `--source`：录制来源 `1`=企微会议助理 | `2`=会议服务微信群（可重复；不传返回全部）

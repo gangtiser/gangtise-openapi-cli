@@ -537,11 +537,14 @@ beforeAll(async () => {
         // MOST RECENT rows, as the server does. LONG.XX has 5 daily rows, anything else 2.
         const KNOWN = ["tradeDate", "value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]
         const req = body as { fieldList?: string[]; securityCode?: string; indicator?: string; limit?: number } | undefined
-        // Like the live endpoint (probed 2026-09-25, three samples each): the echoed field
-        // list is `tradeDate` then the requested names, de-duplicated, unknown ones kept;
-        // each row is the date then one value per requested name in request order — so an
-        // explicit `tradeDate` or a repeated name adds a value, and an unknown name adds
-        // none. A request with no value column answers an empty list.
+        // The shape the live endpoint had when probed 2026-09-25 (three samples each): the
+        // echoed field list is `tradeDate` then the requested names, de-duplicated, unknown
+        // ones kept; each row is the date then one value per requested name in request
+        // order — so an explicit `tradeDate` or a repeated name adds a value, and an unknown
+        // name adds none. The live endpoint now answers each name once and refuses an
+        // unknown one with 100005 (probed 2026-10-14); the old shape stays here so the
+        // CLI's de-duplication and width check keep their tests. A request with no value
+        // column answers an empty list, as it still does live.
         const requested = req?.fieldList
         const fieldList = requested ? ["tradeDate", ...new Set(requested.filter((f) => f !== "tradeDate"))] : KNOWN
         const days = req?.securityCode === "LONG.XX" ? 5 : 2
@@ -564,7 +567,7 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/schedule/roadshow/getList") && (body as { keyword?: string } | undefined)?.keyword === "PRICEY") {
-        // 300 roadshows at 20 credits each: a fetch without --size is priced at 6000.
+        // 300 roadshows at 10 credits each: a fetch without --size is priced at 3000.
         const b = body as { from?: number; size?: number }
         const from = b.from ?? 0
         const count = Math.max(0, Math.min(b.size ?? 50, 300 - from))
@@ -1352,12 +1355,12 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
 
   it("a per-row billed list without --size is refused after a one-row probe when the whole fetch passes the credit guard", async () => {
     const pages = () => captured.filter((c) => c.path.includes("/schedule/roadshow/getList"))
-    // 300 rows at 20 credits: a full first page would cost 1000, so the total is learned from
-    // one row, then the 6000-credit fetch is refused with both ways on.
+    // 300 rows at 10 credits: a full first page would cost 500, so the total is learned from
+    // one row, then the 3000-credit fetch is refused with both ways on.
     const refused = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--format", "json"])
     expect(refused.code).toBe(1)
     expect(pages().map((c) => (c.body as { size: number }).size)).toEqual([1])
-    expect(refused.stderr).toContain("about 6000 credits")
+    expect(refused.stderr).toContain("about 3000 credits")
     expect(refused.stderr).toContain("--yes")
     expect(refused.stdout).toBe("")
 
@@ -1393,7 +1396,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
 
     // One large enough to pass it by itself is priced like a fetch-all, on min(size, total):
     // "--size 100000" as "everything" must not slip past the guard.
-    for (const [size, credits] of [["60", 1200], ["100000", 6000]] as const) {
+    for (const [size, credits] of [["120", 1200], ["100000", 3000]] as const) {
       captured.length = 0
       const big = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", size, "--format", "json"])
       expect(big.code, size).toBe(1)
@@ -1402,9 +1405,9 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       expect(big.stderr, size).toContain(`--size ${size}`)
     }
     captured.length = 0
-    const confirmedBig = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", "60", "--yes", "--format", "json"])
+    const confirmedBig = await cli(["insight", "roadshow", "list", "--keyword", "PRICEY", "--size", "120", "--yes", "--format", "json"])
     expect(confirmedBig.code).toBe(0)
-    expect((JSON.parse(confirmedBig.stdout) as { list: unknown[] }).list).toHaveLength(60)
+    expect((JSON.parse(confirmedBig.stdout) as { list: unknown[] }).list).toHaveLength(120)
   }, 30_000)
 
   it("vault wechat-message-list drops a row repeated across a page boundary and exits 3, also on a streamed export", async () => {
@@ -2984,7 +2987,7 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
 
   it("valuation-analysis sends each field once and never tradeDate, so the rows stay in line", async () => {
     // The endpoint returns tradeDate on its own; asking for it, or for a column twice,
-    // repeats a value in every row while the field list names it once.
+    // has repeated a value in every row while the field list named it once.
     const valueSent = async (args: string[]) => {
       captured.length = 0
       const { code, stdout } = await cli(["fundamental", "valuation-analysis", "--security-code", "600519.SH", "--indicator", "peTtm", ...args, "--format", "json"])

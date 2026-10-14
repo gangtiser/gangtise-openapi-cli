@@ -2,6 +2,30 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.46.0 — 2026-10-14
+
+**证券搜索新增债券分类；计费单价按平台最新价目更新；数据范围按官方权限表逐命令列出；字段名写错与必填参数漏传的报错口径更新。**
+
+1. **`reference securities-search --category bond`**：按代码或简称搜交易所可转债、国债、地方债、金融债与银行间债券（后缀 `.SH` / `.SZ` / `.IB`）。债券代码用于 `bond` 命令组，`quote`、公告等其余命令不收债券代码。
+   - ⚠️ **可转债可能出现在任何 `--category` 的结果里**：按公司简称查 `stock` 时同名可转债常排第一（如「甬金」→ `113636.SH 甬金转债` 排在 `603995.SH 甬金股份` 之前）。**只取返回行 `category` 等于所查类别的那一行**，别直接取第一条；查基金同理——债券代码传给 `fund` 命令会返回空结果、不报错
+   - `bond` / `fund` 的 `--security` 与 `securities-search --category` 的 `--help` 写明了换代码的方法
+2. **场外基金可按名称搜到**：`--category fund` 同时返回场内（`.SH` / `.SZ`）与场外（`.OF`）代码，同一基金的不同份额一起返回，按 `gtsName` 区分后取一个。
+3. **计费单价**（按平台最新价目，额度保护与文档同步）：
+   - AI 生成：`one-pager` / `investment-logic` / `peer-comparison` / `research-outline` / `theme-tracking` 10/次；`earnings-review` / `viewpoint-debate` 20/次；`management-discuss-announcement` 5/次
+   - `ai hot-topic` 10/篇；`ai stock-summary` 1/条
+   - 路演 / 调研 / 策略会 / 论坛列表 10/条；`independent-opinion list` 1/条
+   - 下载：纪要 / 外资研报 / 我的会议 30/篇；A 股公告 1/篇、港美股公告 2/篇；财报日历 A 股 1/篇、港美股 2/篇
+   - `alternative edb-data` 30/指标（单次最多 10 个指标）
+   - 按条计费列表的额度保护随单价变化：路演四件套省略 `--size` 时约 100 条以上才触发 1000 积分的拦截；独立观点列表不再先取 1 条估算
+   - `indicator screener` 的计费基数按筛选前的范围 × 指标数保守估算，实际以平台账单为准
+4. **数据范围**：`SKILL.md` 的数据范围表按官方权限表改为逐命令列出正式 / 试用两档（如纪要、观点、外资研报、公众号正式 1 年，内资研报 3 年，公告与财报日历 5 年，路演等历史 1 年 + 未来日程，会议线索 1 年，分钟 K 与我的会议 1 个月，盈利预测 1 年）；分钟 K、盈利预测、我的会议、热点话题的命令文档补上范围。**规划查询区间按表来，别自行缩短。**
+5. **报错口径**：
+   - `indicator`：`parameterList` 标必填的 `fiscalYear` 漏传时报 `100001` 并点名，与其他必填参数一致
+   - `fundamental main-business` / `valuation-analysis`：`--field` 写了不存在的名字（含 `securityCode`）整条报 `100005` 并点名；`valuation-analysis` 只传 `tradeDate` 仍返回 0 行、不报错（CLI 在 stderr 提示）
+   - 列式响应的字段数与 `fieldList` 对不上时，报错文案改为「响应结构异常」，先去掉 `--field` 重试，仍报错再报障
+   - `indicator cross-section` / `time-series` 返回的证券顺序不作保证，一律按 `security` 字段取值
+6. **常量分类**：新增 `interestBondSubtype`（利率债子类型），对应 `bond issuance-plan` 的 `bondType`；`bond basic-info` 的 `bondType` 仍用 `bondType` 这一套码。
+
 ### v0.45.0 — 2026-10-07
 
 **云盘跨空间复制支持整个文件夹；下载文件名优先用 UTF-8 文件名；明文 http 的 `GANGTISE_BASE_URL` 会提示；债券、基金与分钟 K 的文档按现行为更新。**

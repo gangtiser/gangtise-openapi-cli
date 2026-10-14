@@ -10,19 +10,15 @@ function traceSuffix(source: unknown): string {
 
 /** 按位置把列式响应的一行值拍平成对象。
  *
- * 上游对「fieldList 里有该接口不存在的字段名」有两套处理（实测 2026-07-24，realtime 一项
- * 2026-09-05 复测已换边）：day-kline / minute-kline / fund-flow / realtime 把名和值一起丢、
- * 三大报表补 null——长度仍相等，拍平安全，少列的那一半由 `flagMissingFields` 兜；但
- * main-business / valuation-analysis 是**值只按有效字段返回、字段名却按请求原样回显**
- * （main-business 请求 3 列回显 6 项、每行 3 值）。长度一旦不等，按位置拍平就会把值贴到
- * 错误的字段上——不报错、数字看着还合理、却完全是另一个指标。静默错列必须变成显式失败。
- *
- * 文案不能一口咬定「字段名传错」：`alternative edb-data` 走同一个拍平却根本没有
- * `--field`（只有 `--indicator-id`），那里长度不等只可能是上游响应结构变了。 */
+ * 上游对「fieldList 里有该接口不存在的字段名」：day-kline / minute-kline / fund-flow /
+ * realtime 把名和值一起丢、三大报表补 null——长度仍相等，少列由 `flagMissingFields` 兜；
+ * main-business / valuation-analysis 报 100005（实测 2026-10-14）。这两个接口曾只按有效
+ * 字段返回值、字段名照请求回显，长度不等时按位置拍平会把值贴到错误的字段上，不报错、
+ * 数字看着还合理。所以长度检查保留：长度不等一律当作响应结构异常、显式失败。 */
 export function zipFieldRow(fields: unknown[], row: unknown[], source?: unknown): Record<string, unknown> {
   if (row.length !== fields.length) {
     throw new ValidationError(
-      `响应字段数与 fieldList 不匹配（fieldList ${fields.length} 项、该行返回 ${row.length} 个值）——按位置拍平会把值贴到错误的字段上，已拒绝输出。带 --field 的命令多为传了该接口不存在的字段名（上游只返回有效字段的值、字段名却按请求回显）：核对 --field 取值（如 quote realtime 没有 close，最新价是 latestPrice），不确定就不传 --field（返回全量字段最稳）。没有 --field 的命令（如 alternative edb-data）出现此错，是上游响应结构异常，请报障${traceSuffix(source)}。`,
+      `响应字段数与 fieldList 不匹配（fieldList ${fields.length} 项、该行返回 ${row.length} 个值）——按位置拍平会把值贴到错误的字段上，已拒绝输出。这是响应结构异常：带 --field 的命令先去掉 --field 重试（返回全量字段最稳）；没有 --field 的命令（如 alternative edb-data）或去掉后仍报此错，请报障${traceSuffix(source)}。`,
     )
   }
   return fields.reduce<Record<string, unknown>>((acc, field, index) => {

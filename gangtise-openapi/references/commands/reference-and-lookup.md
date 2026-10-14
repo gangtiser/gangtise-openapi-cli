@@ -8,7 +8,9 @@ gangtise reference securities-search --keyword <text> [--category <type>] [--top
 
 - 用途：把公司名/简称/代码/拼音/英文名/曾用名 → `gtsCode`，是 `ai security-clue --gts-code` 等接口的前置查询
 - `--keyword`（**必选**）：支持多维度匹配（中文名/简称/证券代码/拼音首字母/英文名/曾用名）
-- `--category`（可重复）：`stock` | `dr` 存托凭证 | `index` | `fund`（不传则查所有）
+- `--category`（可重复）：`stock` | `dr` 存托凭证 | `index` | `fund` | `bond`（不传则查所有）
+  - `bond` 覆盖交易所可转债、国债、地方债、金融债与银行间债券（后缀 `.SH` / `.SZ` / `.IB`），按代码或简称查（如 `113636.SH`、`甬金转债`）。债券代码用于 `bond` 命令组；`quote` 行情、公告等其余命令不收债券代码（传了报 `120001`）
+  - 🔴 **可转债在任何 `--category` 下都可能出现**：按公司简称查 `stock` 时，同名可转债常排第一（「甬金」→ `113636.SH 甬金转债` 在 `603995.SH 甬金股份` 之前）。**取第一条 `category` 等于所查类别的行**，别直接取 `list[0]`；用公司全称查时一般只返回正股
 - `--top`：默认 10，**上限 10**
 - 返回字段：`gtsCode` / `gtsName` / `category` / `matchScore` / `matchType`
   - `matchType`：`code` 代码 | `abbr` 简称 | `pinyin` 拼音 | `prev` 曾用名 | `engName` 英文名
@@ -18,6 +20,7 @@ gangtise reference securities-search --keyword <text> [--category <type>] [--top
 gangtise reference securities-search --keyword 茅台 --category stock --top 3
 gangtise reference securities-search --keyword 600519
 gangtise reference securities-search --keyword gzmt
+gangtise reference securities-search --keyword 甬金转债 --category bond
 ```
 
 ## 首席 ID 搜索 `reference chiefs-search`
@@ -91,7 +94,7 @@ gangtise reference constant-category [--format json]
 
 - 用途：全量导出常量分类及每个分类适用于哪些接口的哪些参数（无需传参，免积分）
 - 返回 `{total, list}`，`list[]` 字段：`category`（分类代码）/ `categoryName` / `structureType`（`flat` 平铺 | `tree` 树形）/ `maxLevel` / `usageScopes[]`（`apiName` + `paramName`）
-- 分类清单以 `reference constant-category` 的实际返回为准（服务端会随新接口上线增补）。截至 2026-09 的分类：
+- 分类清单以 `reference constant-category` 的实际返回为准（服务端会随新接口上线增补）。截至 2026-10 的分类：
 
 | category | 名称 | 结构 | 用于参数 |
 |----------|------|------|---------|
@@ -112,6 +115,7 @@ gangtise reference constant-category [--format json]
 | `absUnderlyingAssetType` | ABS 基础资产类型 | flat | `bond basic-info` 的 `absUnderlyingAssetType` |
 | `ratingType` | 评级类型 | flat | `bond rating-*` 的 `ratingType` |
 | `exchange` | 交易市场 | flat | `bond` 各命令的 `exchange` |
+| `interestBondSubtype` | 利率债子类型 | flat | `bond issuance-plan` 的 `bondType`（`basic-info` 的 `bondType` 用 `bondType` 这一套） |
 
 > **行业 / 研究方向过滤——选哪套 category（⭐ 以此处为准）：**
 >

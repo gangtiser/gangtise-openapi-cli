@@ -21,7 +21,7 @@ function requireBondCodes(codes: string[], max?: number): string[] {
 }
 
 const bondSecurityOption = (command: Command) => command
-  .option("--security <code>", "Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB (repeatable). Short names and pinyin are rejected — resolve them with 'reference securities-search' first", collectList, [])
+  .option("--security <code>", "Bond code, e.g. 019742.SH / 123456.SZ / 220205.IB (repeatable). Short names and pinyin are rejected — resolve them with 'reference securities-search --category bond' first", collectList, [])
   .option("--field <field>", "Field to return (repeatable); omit for all. An unsupported name rejects the whole call with 100003", collectList, [])
   .option("--format <format>", "Output format", "table").option("--output <path>")
 

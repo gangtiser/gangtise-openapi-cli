@@ -2,7 +2,7 @@
 
 通用：`--field` 可重复（`--field open --field close`），可用字段见 `references/fields.md`。
 
-**`--field` 字段名必须核对**：上游对不存在的字段名有两套处理——day-kline / minute-kline / fund-flow / realtime 把字段名和值**一起丢掉**（不报错，结果里就是少一列）；`fundamental main-business` / `valuation-analysis` 则**只丢值、字段名照请求回显**，按位置拍平就把值贴到了错误的字段上。CLI 对后一种长度不匹配直接失败（退出码 1），不输出错位数据；对前一种比对请求与返回的列名，**缺列就标 `partial` + `missingFields`、退出码 3 并在 stderr 点名是哪几列**（字段名写错或已下线，按 `references/fields.md` 核对）。**不确定字段名就别传 `--field`**（返回全量最稳）。另外 `--field` 只返回点名的列，所以**多只证券或全市场关键字**时 CLI 会补上区分行所需的列并在 stderr 说明：日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、实时行情补 `securityCode`（需要时点自己加 `tradeDate` / `tradeTime`）；单只证券按点名的列原样返回。`fund-flow` 由服务端自动附带 `securityCode` / `tradeDate`。
+**`--field` 字段名必须核对**：day-kline / minute-kline / fund-flow / realtime 对不存在的字段名把字段名和值**一起丢掉**（不报错，结果里就是少一列）。CLI 比对请求与返回的列名，**缺列就标 `partial` + `missingFields`、退出码 3 并在 stderr 点名是哪几列**（字段名写错或已下线，按 `references/fields.md` 核对）。**不确定字段名就别传 `--field`**（返回全量最稳）。另外 `--field` 只返回点名的列，所以**多只证券或全市场关键字**时 CLI 会补上区分行所需的列并在 stderr 说明：日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、实时行情补 `securityCode`（需要时点自己加 `tradeDate` / `tradeTime`）；单只证券按点名的列原样返回。`fund-flow` 由服务端自动附带 `securityCode` / `tradeDate`。
 
 **关键规则**：查"最近"K线必须显式 `--start-date`/`--end-date` 拉范围，再从 `tradeDate` 取尾部最近 N 条；不要只用 `--limit N`（会截取查询窗口开头）。
 
@@ -133,6 +133,7 @@ gangtise quote minute-kline --security <code> [--start-time <datetime>] [--end-t
 - 支持**沪深** A 股个股（`.SH` / `.SZ`，不含北交所）、沪深 ETF（`512800.SH`）、交易所指数（`.SH` / `.SZ`）、概念指数（`.GT`）、行业指数（`.CI` / `.SWI`）、全球指数（`SPX.SPI` / `N225.NKI` / `HSI.HI`…，清单见日 K 一节）；**必须传 `--security`**（缺了 CLI 在本地报错）
 - `--security` 可重复传多只：接口一次只收一只，CLI 逐只并发请求后按传入顺序合并；任一只撞上 `--limit` 时结果标 `partial` + `truncatedSecurities`、退出码 3
 - `--start-time` / `--end-time`：`yyyy-MM-dd HH:mm:ss`（兼容 `yyyy-MM-dd` 自动补全）
+- **可查范围：最近 1 个月**，随日期滚动（各档相同）；整段早于窗口返回空结果、不报错
 - `--limit` 默认 6000，上限 10000
 - 常用字段：`securityCode` `tradeTime` `open` `high` `low` `close` `change` `pctChange` `volume` `amount`
 - **全球指数**：`volume` / `amount` 为 `null`；`tradeTime` 与 `--start-time` / `--end-time` 都按**交易所当地时间**（如日经225 一天的分钟线是 `09:01`–`15:30`，德国 DAX 是 `09:01`–`17:30`）

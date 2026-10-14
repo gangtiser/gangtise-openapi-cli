@@ -2,7 +2,7 @@
 
 通用：所有命令都需 `--security-code`（如 `600519.SH`，注意是 `--security-code` 不是 `--security`）。`--field` 可重复，可用字段见 `references/fields.md`；A / 港 / 美股三大报表命令都在省略 `--field` 时返回完整报表，指定后只保留基础字段与所选科目。
 
-**`--field` 字段名必须核对**：三大报表遇到不存在的字段名会补 `null`（安全），但 `main-business` / `valuation-analysis` 是**只丢值、字段名照请求回显**，`fieldList` 比行长，按位置拍平会把值贴到错误的字段上。CLI 长度不匹配就直接失败（退出码 1），不输出错位数据。不确定字段名就别传 `--field`。
+**`--field` 字段名必须核对**：三大报表遇到不存在的字段名会补 `null`，`main-business` / `valuation-analysis` 整条报 `100005` 并点名写错的名字。不确定字段名就别传 `--field`。
 
 ⚠️ **别把这个行为套到 `quote` 系上**——那边是**字段名和值一起消失**、列数与值数始终对得上，CLI 的处理也不同（标 `partial` + `missingFields`、退出码 3）。两族的完整对照见 `references/fields.md` 顶部。
 
@@ -95,7 +95,7 @@ gangtise fundamental valuation-analysis --security-code <code> --indicator <name
 - 🔴 **序列按自然日逐日一行（含周末）**，行数超过 `--limit` 时接口**保留最近的行、丢掉区间开头**。CLI 撞满即标 `partial`、退出码 3 并在 stderr 说明（首行恰好就是 `--start-date` 时说明没丢，不标）。取长区间把 `--limit` 设到不小于区间天数：取 N 年就设 `--limit` ≥ 366 × N（且不早于账号权限窗口的起点）
 - 🔴 **`--start-date` 早于账号回溯下界时，接口从下界起返回、不报错**（整段都在界外才报 `110003`）。首行晚于 `--start-date` 时 CLI 在 stderr 提示——可能是该证券上市较晚，也可能是撞了权限窗口，看首行日期判断
 - `--skip-null`：丢弃 `value`/`percentileRank` 为 null 的行（最新交易日可能未入库）
-- **返回字段只有 7 个**：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`，**没有 `securityCode`**。🔴 `--field` 里**至少要有一个数值列**（`tradeDate` 以外的 6 个）：只传 `tradeDate`、只传不存在的名字（含 `securityCode`）时接口返回 0 行、**不报错**，读起来像「这只票没有估值数据」（CLI 会在 stderr 提示原因）；数值列与不存在的名字混传时，回显的字段比每行的值多，CLI 直接报错退出 1。`tradeDate` 总在第一列返回，不用写进 `--field`（写了 CLI 会在发请求前去掉；同一字段写两次也只发一次）。**建议不传 `--field`**，证券代码本来就是你自己传进去的
+- **返回字段只有 7 个**：`tradeDate` `value` `percentileRank` `average` `median` `upper1Std` `lower1Std`，**没有 `securityCode`**。🔴 `--field` 里**至少要有一个数值列**（`tradeDate` 以外的 6 个）：只传 `tradeDate` 时接口返回 0 行、**不报错**，读起来像「这只票没有估值数据」（CLI 会在 stderr 提示原因）；不存在的名字（含 `securityCode`）整条报 `100005` 并点名。`tradeDate` 总在第一列返回，不用写进 `--field`。**建议不传 `--field`**，证券代码本来就是你自己传进去的
 
 ## A股盈利预测 `fundamental earning-forecast`
 
@@ -105,6 +105,7 @@ gangtise fundamental earning-forecast --security-code <code> [--start-date <date
 
 - **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股盈利预测 / 一致预期始终走本命令，不走 EDE；EDE 搜索目前没有一致预期语义，搜到的基本 / 稀释 EPS 是已实现值，不能冒充预测 EPS。港 / 美股盈利预测当前 CLI 不支持
 - `--start-date` / `--end-date`：默认截至北京时间的今天、向前一年
+- **可查范围：前溯 1 年**（各档相同，个别账号更长，以实际返回为准）
 - `--consensus` 可重复：`netIncome` 归母净利润 | `netIncomeYoy` 同比增速 | `eps` 每股收益 | `pe` 市盈率 | `bps` 每股净资产 | `pb` 市净率 | `peg` PEG | `roe` 净资产收益率 | `ps` 市销率
 - **`roe` 的单位是百分比（%）**：`35.6` 即 35.6%，**不要再做 ÷100 之类的单位换算**——换算后的数字看着仍像个 ROE，不会报错
 - 返回结构：`{securityCode, securityName, updateList: [{date, fieldList: [{forecastYear, ...consensus}]}]}` — 每个日期固定返回 3 年预测（如 `2026E` / `2027E` / `2028E`）

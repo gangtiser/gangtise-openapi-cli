@@ -49,7 +49,7 @@ gangtise ai investment-logic --security-code <code>
 gangtise ai peer-comparison  --security-code <code>
 ```
 
-- **积分**：50/次（按次计费，重复调用每次都扣；超时不自动重发）
+- **积分**：10/次（按次计费，重复调用每次都扣；超时不自动重发）
 
 - 都支持 A 股 / 港股
 - 返回 `{content: "markdown"}`（`one-pager` 另带 `date`，即一页通的生成日期；取的是该公司最新一份）— 直接呈现 content
@@ -61,10 +61,10 @@ gangtise ai peer-comparison  --security-code <code>
 gangtise ai stock-summary --security <code> [--security <code2> ...]
 ```
 
-- `--security`（**必选**，可重复）：**只收具体证券代码**，单次最多 6000 个（接口上限，CLI 同值拦截，超过报错并提示分批）——全 A 股可一次提交完，但**按返回条数 3 积分/条计**，数千只就是上万积分，提交前先把估算总价告诉用户
+- `--security`（**必选**，可重复）：**只收具体证券代码**，单次最多 6000 个（接口上限，CLI 同值拦截，超过报错并提示分批）——全 A 股可一次提交完，但**按返回条数 1 积分/条计**，数千只就是数千积分，提交前先把估算总价告诉用户
 - 🔴 **不支持全市场批量**：`aShares` / `hkStocks` 这类市场关键词不被接受，CLI 会本地报错（服务端对它们返 `120001`，读起来像代码写错，容易误判）。需要覆盖一批标的就先用 `reference securities-search` 或自有清单取到代码，再分批传入
 - **仅支持 A 股和港股**
-- **积分**：`3`/条；个股若无看点总结则不在返回列表中，也不扣分——所以**返回行数少于提交数是正常的**，不是丢了数据。超时 / 5xx **不自动重试**（一次最多可扣 18000 积分，重放可能重复扣分）：CLI 已给它 120 秒超时下限；失败后先确认再重跑
+- **积分**：`1`/条；个股若无看点总结则不在返回列表中，也不扣分——所以**返回行数少于提交数是正常的**，不是丢了数据。超时 / 5xx **不自动重试**（一次最多可扣 6000 积分，重放可能重复扣分）：CLI 已给它 120 秒超时下限；失败后先确认再重跑
 - 🔴 **整批返 0 行别直接读成「这批都没有看点」**：它与「确实都没有看点」长得一样。挑其中一两只单查确认后再下结论
 - 返回字段：`securityCode` / `securityName` / `summary`（精炼投研总结）/ `date`（更新日期 `yyyy-MM-dd`）
 
@@ -79,7 +79,7 @@ gangtise ai stock-summary --security 600519.SH --security 00700.HK --format json
 gangtise ai research-outline --security-code <code>
 ```
 
-- **积分**：50/次（按次计费；超时不自动重发）
+- **积分**：10/次（按次计费；超时不自动重发）
 
 - 仅 A 股
 - 返回 `{content: "markdown"}`
@@ -91,7 +91,7 @@ gangtise ai earnings-review --security-code <code> --period <period> [--wait]
 gangtise ai earnings-review-check --data-id <id>
 ```
 
-- **积分**：提交 50/次（按次计费；超时不自动重发，重提会再扣一次）
+- **积分**：提交 20/次（按次计费；超时不自动重发，重提会再扣一次）
 
 - `--period`：`年份+报告期`，如 `2025q3`（q1/interim/q3/annual），仅 A 股，覆盖最近 6 期
 - `--wait`（**推荐**）：阻塞等待到出结果（最长约 5 分钟：14 次指数退避轮询 5s→30s，累计 ≈316s）——**用它时把工具/命令超时设到 ≥360s**，否则外层先超时
@@ -107,7 +107,7 @@ gangtise ai viewpoint-debate --viewpoint <text> [--wait]
 gangtise ai viewpoint-debate-check --data-id <id>
 ```
 
-- **积分**：提交 50/次（按次计费；超时不自动重发，重提会再扣一次）
+- **积分**：提交 20/次（按次计费；超时不自动重发，重提会再扣一次）
 
 - `--viewpoint`：观点文本，**上限 1000 字**
 - 双向逻辑校验：看多→拆解风险，看空→挖反转
@@ -120,7 +120,7 @@ gangtise ai viewpoint-debate-check --data-id <id>
 gangtise ai theme-tracking --theme-id <id> --date <yyyy-MM-dd> [--type <name>]
 ```
 
-- **积分**：50/次（按次计费；超时不自动重发）
+- **积分**：10/次（按次计费；超时不自动重发）
 
 - `--theme-id`（**必选**）：用 `gangtise reference concept-search --keyword <主题名>` 查，取 `conceptId`（题材与主题共用 ID 体系）
 - `--date`（**必选**）：支持近 30 天
@@ -144,8 +144,8 @@ gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <nam
 - `--category`：`morningBriefing` 早报 | `noonBriefing` 午报 | `afternoonFlash` 盘中快报 | `eveningBriefing` 晚报（可重复，默认全部；其他取值 CLI 在本地拒绝——接口对错值不报错，结果看着像正常查询）
 - `--with-related-securities` / `--with-close-reading`：默认开启；`--no-with-related-securities` / `--no-with-close-reading` 显式排除（响应里相应字段置空）
 - 自动翻页，单页最大 20
-- 🔴 **计费 50/篇，按返回条数计**（不是按调用次数）。📌 **一「篇」= 一整份报告**（一份早报 / 午报 / 盘中快报 / 晚报），**不是报告里的一条话题**——一份报告通常包含多条热点话题，`--category` 选的也是报告类型而不是话题。所以一页 20 条 = 20 份报告 = 1000 积分：**先用 `--start-date`/`--end-date` + `--category` 把范围收窄，再考虑要不要全量**（省略 `--size` 时 CLI 先取 1 篇拿到总数来估算，超过 1000 积分报错，确认要全量加 `--yes`；结果多于 1 篇时这 1 篇会多计一次，知道要几篇就直接传 `--size`）
-- **可查的历史范围跟账号权限走**：试用档是滚动的「当前 −1 个月」，正式/定制档更长。超出范围的日期**返回空结果、不报错**——拿到空先确认是不是撞了本账号的窗口，别当成「那天没有报告」
+- 🔴 **计费 10/篇，按返回条数计**（不是按调用次数）。📌 **一「篇」= 一整份报告**（一份早报 / 午报 / 盘中快报 / 晚报），**不是报告里的一条话题**——一份报告通常包含多条热点话题，`--category` 选的也是报告类型而不是话题。所以一页 20 条 = 20 份报告 = 200 积分：**先用 `--start-date`/`--end-date` + `--category` 把范围收窄，再考虑要不要全量**（省略 `--size` 时 CLI 先取 1 篇拿到总数来估算，超过 1000 积分报错，确认要全量加 `--yes`；结果多于 1 篇时这 1 篇会多计一次，知道要几篇就直接传 `--size`）
+- **可查的历史范围是前溯 3 个月**（各档相同）。超出范围的日期**返回空结果、不报错**——拿到空先确认是不是撞了本账号的窗口，别当成「那天没有报告」
 
 ## 管理层讨论-财报 `ai management-discuss-announcement`
 
@@ -153,7 +153,7 @@ gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <nam
 gangtise ai management-discuss-announcement --report-date <date> --security-code <code> --dimension <name>
 ```
 
-- **积分**：10/次（按次计费；超时不自动重发）
+- **积分**：5/次（按次计费；超时不自动重发）
 
 - `--report-date`（**严格**）：仅接受 `xxxx-06-30`（半年报）/ `xxxx-12-31`（年报）
 - `--dimension`（**必选**）：`businessOperation` 业务经营与行业 | `financialPerformance` 财务与经营成果 | `developmentAndRisk` 发展规划与风险 | `all` 返回报告中完整的管理层讨论内容（内容可能过长，谨慎使用）
