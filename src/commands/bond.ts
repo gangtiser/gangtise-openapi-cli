@@ -3,7 +3,11 @@ import { Command, Option } from "commander"
 import { collectList, collectNames, dateArg, maybeArray, parseNumberOption } from "../core/args.js"
 import { maxUnitsOf } from "../core/endpoints.js"
 import { ValidationError } from "../core/errors.js"
-import { emit } from "./shared.js"
+import { emit, noteLateStart } from "./shared.js"
+
+// A bond range past the account's history window is refused (110003), not clipped, so a
+// late first row means the bond listed later or its data starts later.
+const BOND_LATE_CAUSE = "The bond may have listed later, or this data starts later than the requested range — the endpoint returns from its first day of data without an error."
 
 // ─── bond ───
 // Every bond endpoint is metered (0.4 credits per call, or per row / bond / issuer on
@@ -46,13 +50,21 @@ addBondRange("exercise-notice", "bond.exercise-notice", "Put/call exercise sched
 bondSecurityOption(bond.command("daily-quote").description("Daily close quotes (exchange + CFETS): dirty/clean price, YTM, duration, convexity"))
   .requiredOption("--start-date <date>", "Trade date range start (yyyy-MM-dd)", dateArg("--start-date"))
   .requiredOption("--end-date <date>", "Trade date range end (yyyy-MM-dd)", dateArg("--end-date"))
-  .action((options) => emit(options, (client) => client.call("bond.daily-quote", { securityList: requireBondCodes(options.security), startDate: options.startDate, endDate: options.endDate, fieldList: maybeArray(options.field) })))
+  .action((options) => emit(options, async (client) => {
+    const data = await client.call("bond.daily-quote", { securityList: requireBondCodes(options.security), startDate: options.startDate, endDate: options.endDate, fieldList: maybeArray(options.field) })
+    noteLateStart(data, options.startDate, "tradeDate", "bond daily-quote", BOND_LATE_CAUSE)
+    return data
+  }))
 
 bondSecurityOption(bond.command("valuation").description("Shanghai Clearing House valuations: price, yield, duration, convexity, PVBP"))
   .requiredOption("--start-date <date>", "Valuation date range start (yyyy-MM-dd)", dateArg("--start-date"))
   .requiredOption("--end-date <date>", "Valuation date range end (yyyy-MM-dd)", dateArg("--end-date"))
   .addOption(new Option("--confidence-level <level>", "Valuation confidence; defaults to 推荐 server-side, which already filters out 不推荐").choices(["推荐", "不推荐"]))
-  .action((options) => emit(options, (client) => client.call("bond.valuation", { securityList: requireBondCodes(options.security), startDate: options.startDate, endDate: options.endDate, confidenceLevel: options.confidenceLevel, fieldList: maybeArray(options.field) })))
+  .action((options) => emit(options, async (client) => {
+    const data = await client.call("bond.valuation", { securityList: requireBondCodes(options.security), startDate: options.startDate, endDate: options.endDate, confidenceLevel: options.confidenceLevel, fieldList: maybeArray(options.field) })
+    noteLateStart(data, options.startDate, "tradeDate", "bond valuation", BOND_LATE_CAUSE)
+    return data
+  }))
 
 /** The two issuer-keyed commands: `--security` (bond codes → their issuers) and
  * `--issuer` (fuzzy name match, one best hit per name) are mutually exclusive

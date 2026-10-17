@@ -20,8 +20,8 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 
 | 命令 | data 结构 | 关键提取字段 |
 |------|----------|------------|
-| insight opinion list | `{list, total}` | `list[].chiefOpinionId`（`detail` 用）/ `list[].title` / `list[].brief`（正文前 200 字）/ `list[].publishTime` / `list[].author{chiefId, chiefName, researchAreaList, brokerID, brokerName}`（机构点评类 `chiefId` / `chiefName` 为 `null`）/ `list[].securityList[]{securityCode, securityName}` / `list[].industryList[]{industryCode, industryName}` / `list[].conceptList[]{conceptId, conceptName}` / `list[].llmTagList` |
-| insight opinion list --with-content | `{list, total}`（旧版结构） | 同上但**没有顶层 `title` / `brief`**；标题与正文在 `list[].contentList.title` / `list[].contentList.content`（对象，不是数组） |
+| insight opinion list | `{list, total}` | `list[].chiefOpinionId`（`detail` 用）/ `list[].title` / `list[].brief`（正文前 200 字）/ `list[].publishTime` / `list[].author{chiefId, chiefName, researchAreaList, brokerID, brokerName}`（机构点评类 `chiefId` / `chiefName` 为 `null`）/ `list[].securityList[]{securityCode, securityName}` / `list[].industryList[]{industryCode, industryName}` / `list[].conceptList[]{conceptId, conceptName}` / `list[].categoryList` / `list[].llmTagList` / `list[].brokerTagList`（无标签为 `[]`） |
+| insight opinion list --with-content | `{list, total}`（旧版结构） | 同上但**没有顶层 `title` / `brief`，也没有 `categoryList` / `brokerTagList`**；标题与正文在 `list[].contentList.title` / `list[].contentList.content`（对象，不是数组） |
 | insight opinion detail | `{total, list}`；缺失时另有 `missingIds` / `unfetchedIds` / `unfetchedError` + `partial` | `list[]` 同 list 的字段 + `content`（正文全文） |
 | insight summary list | `{list, total}` | `list[].summaryId` / `list[].title` / `list[].publishTime` |
 | insight summary download | 文件路径（stdout） | — |

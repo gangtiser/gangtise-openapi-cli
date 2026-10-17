@@ -9,7 +9,7 @@
 
 | 请求形态 | 优先接口 |
 | :--- | :--- |
-| 单证券的财务 / 股东 / 主营，或 A股单证券估值 | 对应 `fundamental` 专用命令；多数免费，且字段口径固定 |
+| 单证券的财务 / 股东 / 主营，或 A股单证券估值 | 对应 `fundamental` 专用命令；多数免费，且字段口径固定。多证券批量取股东户数 / 户均持股 / 前十大与第 N 大股东走 EDE，见下方「股东结构指标」 |
 | 多证券批量取一组**已实现**财务 / 估值指标 | 先 `indicator search`，通过下方三项校验后用 `cross-section` / `time-series` 一次拉取，避免逐只循环 |
 | A股盈利预测 / 一致预期（含预测 EPS） | `fundamental earning-forecast`；EDE 搜到的基本 / 稀释 EPS 是已实现值，不能替代预测 |
 | A股估值历史分位 | `fundamental valuation-analysis` |
@@ -369,6 +369,31 @@ gangtise indicator cross-section --indicator scr_indu_citic --indicator scr_indu
 与 `scr_indu` 的取舍：**只要一套体系就用组合指标**（少一个必填参数，且 `industryLevel` 可省），**要在同一次请求里横比多套体系**才用 `scr_indu`（换 `industryType` 即可，不必记三个编码）。恒生体系没有组合指标，仍走 `scr_indu:industryType=3`。
 
 **`finc_pb_mrq`（市净率 MRQ）是日频指标**：每个交易日都有数且逐日变动，别按报告期末取（那会拿到几个月前的陈值）。
+
+### 股东结构指标（`shr_*`）
+
+`scopeList` 只有 **A 股**。两种日期口径，按 `parameterList` 区分：
+
+| 维度 | 按交易日（`tradeDate`，取截至该日最新披露的值） | 按报告期（`reportDate`） |
+| :--- | :--- | :--- |
+| 股东户数 | `shr_hld` 股东户数、`shr_hld_tot` 股东总户数、`shr_hld_g_rti` / `shr_hld_tot_g_rti` 区间增长率（另需 `sDate`）、`shr_hld_chg_dt` 最新变更日期、`shr_hld_dcl_dt` 最新披露日期 | `shr_hld_rp`、`shr_hld_tot_rp` |
+| 户均持股 | `shr_avg_qty` 数量、`shr_avg_pct` 比例、`shr_avg_qty_g_rti` / `shr_avg_pct_g_rti` 区间增长率（另需 `sDate`） | `shr_avg_qty_rp`、`shr_avg_pct_rp`；半年 / 季度增长率 `shr_avg_qty_hyrg_rp` / `shr_avg_qty_qtrg_rp` / `shr_avg_pct_hyrg_rp` / `shr_avg_pct_qtrg_rp`；`shr_avg_pct_chg_rp` 较上一报告期变化 |
+| 前十大股东 | — | `shr_top10_hld_name` 名称、`shr_top10_hld_pct` 持股比例合计、`shr_top10_hld_qty` 持股数量合计 |
+| 大股东（前十大里指定排名的一位） | — | `shr_top_hld_name` 名称、`shr_top_hld_pct` 持股比例、`shr_top_hld_qty` 持股数量、`shr_top_hld_cat` 类型、`shr_top_hld_typ` 性质、`shr_top_hld_ntr` 持股股本性质 |
+
+- 🔴 **两个必填参数要显式传**，漏传报 `100001`：大股东系列的 `rank`（前十大股东里的排名，`1` = 第一大股东）；户均持股系列的 `shareType`（`1` 流通股 / `2` 总股本）——`parameterList` 给 `shareType` 列了默认值 `1`，但仍须显式传
+- 单只证券要前十大股东逐个明细，用 `fundamental top-holders`（免费）；EDE 适合多证券批量取汇总值或第 N 大股东
+
+```bash
+gangtise indicator cross-section --indicator shr_top_hld_name --indicator shr_top_hld_pct \
+  --indicator-param "shr_top_hld_name:reportDate=2025-12-31" --indicator-param "shr_top_hld_name:rank=1" \
+  --indicator-param "shr_top_hld_pct:reportDate=2025-12-31" --indicator-param "shr_top_hld_pct:rank=1" \
+  --security 600519.SH --security 000001.SZ --date 2025-12-31
+# 茅台 2025 年报第一大股东「中国贵州茅台酒厂(集团)有限责任公司」54.4038%
+
+gangtise indicator cross-section --indicator shr_hld --indicator shr_avg_qty \
+  --indicator-param "shr_avg_qty:shareType=2" --security 600519.SH --date 2026-10-15
+```
 
 ## 取数最佳实践
 

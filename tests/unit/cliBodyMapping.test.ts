@@ -255,6 +255,12 @@ beforeAll(async () => {
             : { fieldList: ["date", "S00000093"], dataList: [["20260131", "826.1"], ["20260228", "580.6"]] } }))
         return
       }
+      if (/\/bond\/(daily-quote-exchange-cfets|valuation-shclearing)/.test(req.url ?? "")) {
+        // Bond daily quotes and valuations: columnar, securityCode / tradeDate always first.
+        // Rows are dated 2026-06-03. Matched before "/daily", which the quote path contains.
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 1, fieldList: ["securityCode", "tradeDate", "ytm"], list: [["019742.SH", "2026-06-03", 1.8]] } }))
+        return
+      }
       if ((req.url ?? "").includes("/daily")) {
         // The kline endpoints (unified and retired). Unlike fund-flow, ONLY the requested
         // columns come back — no implicit securityCode / tradeDate (probed 2026-09-05:
@@ -742,8 +748,27 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect((await cli(["insight", "opinion", "list", "--size", "1", "--format", "json"])).code).toBe(0)
     expect(captured[0].path).toBe("/application/open-insight/chief-opinion/v2/getList")
     captured.length = 0
+    expect((await cli(["insight", "opinion", "list", "--size", "1", "--with-content", "--llm-tag", "earningsReview", "--format", "json"])).code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/chief-opinion/getList")
+    expect(captured[0].body).toMatchObject({ llmTagList: ["earningsReview"] })
+    captured.length = 0
     expect((await cli(["insight", "foreign-opinion", "list", "--size", "1", "--with-content", "--format", "json"])).code).toBe(0)
     expect(captured[0].path).toBe("/application/open-insight/foreign-opinion/getList")
+  }, 30_000)
+
+  it("opinion list refuses --category / --broker-tag with --with-content, whose v1 list ignores them", async () => {
+    for (const args of [
+      ["insight", "opinion", "list", "--with-content", "--category", "earningsReview", "--size", "1"],
+      ["insight", "opinion", "list", "--with-content", "--broker-tag", "topBroker", "--size", "1"],
+    ]) {
+      const { code, stderr } = await cli(args)
+      expect(code, args.join(" ")).not.toBe(0)
+      expect(stderr).toContain("--with-content")
+    }
+    expect(captured).toHaveLength(0)
+    expect((await cli(["insight", "opinion", "list", "--category", "earningsReview", "--broker-tag", "topBroker", "--size", "1", "--format", "json"])).code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-insight/chief-opinion/v2/getList")
+    expect(captured[0].body).toMatchObject({ categoryList: ["earningsReview"], brokerTagList: ["topBroker"] })
   }, 30_000)
 
   it("opinion detail batches IDs 20 per call, de-duplicated, and names the IDs that came back empty", async () => {
@@ -2504,6 +2529,33 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     const empty = await cli(["quote", "minute-kline", "--security", "EMPTY.SH", "--start-time", "2026-06-01 09:30:00", "--end-time", "2026-06-01 15:00:00", "--format", "json"])
     expect(empty.code).toBe(0)
     expect(empty.stderr).toContain("no minute bars came back")
+  }, 30_000)
+
+  it("bond daily-quote notes a series that starts well after the requested start", async () => {
+    // The stub's bond rows are dated 2026-06-03.
+    const late = await cli(["bond", "daily-quote", "--security", "019742.SH", "--start-date", "2026-01-02", "--end-date", "2026-06-05", "--format", "json"])
+    expect(late.code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-quote/bond/daily-quote-exchange-cfets")
+    expect(late.stderr).toContain("bond daily-quote starts at 2026-06-03, 152 days after the requested start 2026-01-02")
+    // A bond range past the account window is refused, not clipped: the window reading does not apply.
+    expect(late.stderr).toContain("The bond may have listed later")
+    expect(late.stderr).not.toContain("history window")
+    const onTime = await cli(["bond", "daily-quote", "--security", "019742.SH", "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--format", "json"])
+    expect(onTime.code).toBe(0)
+    expect(onTime.stderr).not.toContain("after the requested start")
+  }, 30_000)
+
+  it("bond valuation notes a series that starts well after the requested start", async () => {
+    const late = await cli(["bond", "valuation", "--security", "019742.SH", "--start-date", "2026-01-02", "--end-date", "2026-06-05", "--format", "json"])
+    expect(late.code).toBe(0)
+    expect(captured[0].path).toBe("/application/open-fundamental/bond/valuation-shclearing")
+    expect(late.stderr).toContain("bond valuation starts at 2026-06-03, 152 days after the requested start 2026-01-02")
+    // A bond range past the account window is refused, not clipped: the window reading does not apply.
+    expect(late.stderr).toContain("The bond may have listed later")
+    expect(late.stderr).not.toContain("history window")
+    const onTime = await cli(["bond", "valuation", "--security", "019742.SH", "--start-date", "2026-06-01", "--end-date", "2026-06-05", "--format", "json"])
+    expect(onTime.code).toBe(0)
+    expect(onTime.stderr).not.toContain("after the requested start")
   }, 30_000)
 
   it("the late-start note stays quiet after a failed shard, and holds for an unrelated incomplete result", async () => {

@@ -2270,12 +2270,24 @@ Options:
   --broker <id>            Broker ID (default: [])
   --industry <id>          Industry ID (default: [])
   --concept <id>           Concept ID (default: [])
-  --llm-tag <tag>          Semantic tag (default: [])
+  --category <name>        Opinion category:
+                           earningsReview/abnormalReview/researchUpdate/tradingDesk/industryAnalysis
+                           (default: [])
+  --llm-tag <tag>          Research tag, several = any of them. Recommendation:
+                           strongRcmd/undervalued/highElasticity/highDividend/reversal/bottom/beatExpect/expectGap/oversold/targetPrice/certainty;
+                           earnings:
+                           highGrowth/withProfitForecast/withGuidance/marginalImprovement;
+                           supply chain:
+                           priceHike/tightSupplyDemand/capacityRelease/newOrder/orderSurge/keyCustomer/soleSupplier/coreSupplier/industryEntry;
+                           moat: leader/moat/scarcity/breakthrough (default: [])
+  --broker-tag <tag>       Broker tag: topBroker/newFortune (default: [])
   --source <source>        Source (default: [])
   --with-content           Return the full body inline (v1 list, 30 credits/row)
                            instead of the 200-char brief (1 credit/row). v1
                            shape: title and body sit under contentList.title /
-                           contentList.content, and there is no brief
+                           contentList.content, and there is no brief. Takes no
+                           --category / --broker-tag, and --llm-tag only
+                           strongRcmd/earningsReview/topBroker/newFortune
   --format <format>        Output format (default: "table")
   --output <path>          Output path
   --from <number>          Starting offset (default: "0")
@@ -10864,11 +10876,14 @@ exports[`CLI surface > invocations > full: insight opinion list 1`] = `
     "industry-v",
     "--concept",
     "concept-v",
+    "--category",
+    "category-v",
     "--llm-tag",
     "llm-tag-v",
+    "--broker-tag",
+    "broker-tag-v",
     "--source",
     "source-v",
-    "--with-content",
     "--from",
     "2",
     "--size",
@@ -10889,6 +10904,12 @@ exports[`CLI surface > invocations > full: insight opinion list 1`] = `
       "body": {
         "brokerList": [
           "broker-v",
+        ],
+        "brokerTagList": [
+          "broker-tag-v",
+        ],
+        "categoryList": [
+          "category-v",
         ],
         "chiefList": [
           "chief-v",
@@ -10919,7 +10940,7 @@ exports[`CLI surface > invocations > full: insight opinion list 1`] = `
         "startTime": "2026-06-01 09:30:00",
       },
       "method": "POST",
-      "path": "/application/open-insight/chief-opinion/getList",
+      "path": "/application/open-insight/chief-opinion/v2/getList",
     },
   ],
   "stderr": "",

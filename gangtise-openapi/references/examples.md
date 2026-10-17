@@ -35,7 +35,7 @@
 
 ```
 1. 路由 → insight opinion list
-2. "最近" → Insight 默认 7 天；"AI" → --keyword AI
+2. "最近" → Insight 默认 7 天；"AI" → --keyword AI（用户限定「业绩点评」「超预期」「头部券商」这类 → --category / --llm-tag / --broker-tag，取值见 commands/insight.md）
 3. Pre-flight：模糊时间已映射，认证 OK，无歧义
 4. gangtise insight opinion list \
      --keyword AI \

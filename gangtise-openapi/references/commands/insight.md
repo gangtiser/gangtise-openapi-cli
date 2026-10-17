@@ -38,7 +38,7 @@
 ## 内资机构观点 `insight opinion list/detail`
 
 ```bash
-gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--llm-tag <tag>] [--source <src>] [--rank-type <n>] [--with-content]
+gangtise insight opinion list [--keyword <text>] [--research-area <id>] [--chief <id>] [--security <code>] [--broker <id>] [--industry <id>] [--concept <id>] [--category <name>] [--llm-tag <tag>] [--broker-tag <tag>] [--source <src>] [--rank-type <n>] [--with-content]
 gangtise insight opinion detail --chief-opinion-id <id> [--chief-opinion-id <id>...]
 ```
 
@@ -47,10 +47,18 @@ gangtise insight opinion detail --chief-opinion-id <id> [--chief-opinion-id <id>
 - 🔴 **列表只含摘要**：`brief` 是正文前 200 字的截断，**1 积分/条**。要正文用 `detail` 按 `chiefOpinionId` 取（`content`，**30 积分/条**，按返回条数计）；或 `list --with-content` 让列表直接带正文（30 积分/条）。只需判断相关性、做筛选时看 `brief` 就够，别默认加 `--with-content`
 - `detail` 与 `--with-content` 都按返回条数计费，**超时 / 5xx 不自动重发**（重发可能对已交付的正文再计一次费），偶发失败自行重跑
 - ⚠️ **`--with-content` 返回的是旧版结构**：标题与正文在 `contentList.title` / `contentList.content`（`contentList` 是对象，不是数组），顶层没有 `title` / `brief`。按 `content` 字段名取会取不到；要统一成 `detail` 的结构就走 `list` + `detail`
+- ⚠️ **`--with-content` 的筛选项与默认列表不同**：不支持 `--category` / `--broker-tag`（同时传本地直接报错：旧版列表不认这两个字段，会按 30/条返回未经筛选的结果）；`--llm-tag` 只收 `strongRcmd` / `earningsReview` / `topBroker` / `newFortune` 四个值，下面的投研业务标签除 `strongRcmd` 外传给它都报 `100005`。返回行也没有 `categoryList` / `brokerTagList`。既要按类别 / 标签筛、又要正文，走 `list` + `detail`
 - `detail`：ID 可重复传或逗号分隔，CLI 去重后按 **20 个一批**自动拆分请求。**没有有效正文的 ID 不报错、直接跳过**（ID 写错时即如此；刚发布的观点也可能暂时取不到，稍后重取）。CLI 比对请求与返回，缺的 ID 列在 `missingIds`；某一批请求失败或返回异常时，已取到的正文（包括这一批里已返回的）照常输出，没取到的 ID 列在 `unfetchedIds`、原因在 `unfetchedError`，只需对这些 ID 重跑。两种情况都标 `partial`、**退出 3**
-- 返回字段（list）：`chiefOpinionId` / `publishTime` / `title` / `brief` / `author{chiefId, chiefName, researchAreaList, brokerID, brokerName}` / `securityList[]` / `industryList[]` / `conceptList[]` / `llmTagList`；`detail` 另加 `content`。`author.chiefId` / `chiefName` 在机构点评类观点上为 `null`
+- 返回字段（list）：`chiefOpinionId` / `publishTime` / `title` / `brief` / `author{chiefId, chiefName, researchAreaList, brokerID, brokerName}` / `securityList[]` / `industryList[]` / `conceptList[]` / `categoryList` / `llmTagList` / `brokerTagList`（三个标签字段取值同下方筛选项的英文标识，无标签时为 `[]`）；`detail` 另加 `content`。`author.chiefId` / `chiefName` 在机构点评类观点上为 `null`
 
-- `--llm-tag`：`strongRcmd` 强烈推荐 | `earningsReview` 业绩点评 | `topBroker` 头部券商 | `newFortune` 新财富团队
+- `--category`（观点类别）：`earningsReview` 业绩点评 | `abnormalReview` 异动点评 | `researchUpdate` 调研/访谈更新 | `tradingDesk` 交易台 | `industryAnalysis` 行业分析。一条观点可同时属于多个类别
+- `--llm-tag`（投研业务标签）：
+  - 推荐：`strongRcmd` 强烈推荐 | `undervalued` 低估值 | `highElasticity` 高弹性 | `highDividend` 高股息 | `reversal` 拐点/反转 | `bottom` 底部 | `beatExpect` 超预期 | `expectGap` 预期差 | `oversold` 错杀/超跌 | `targetPrice` 目标股价/市值 | `certainty` 确定性
+  - 业绩侧：`highGrowth` 高增 | `withProfitForecast` 含盈利预测 | `withGuidance` 含指引 | `marginalImprovement` 边际改善
+  - 产业链：`priceHike` 涨价 | `tightSupplyDemand` 供需趋紧 | `capacityRelease` 产能释放 | `newOrder` 新订单 | `orderSurge` 订单高增/大单 | `keyCustomer` 大客户 | `soleSupplier` 独供/一供 | `coreSupplier` 核心供应商 | `industryEntry` 产业导入
+  - 壁垒：`leader` 龙头 | `moat` 壁垒 | `scarcity` 稀缺性 | `breakthrough` 突破
+- `--broker-tag`（机构标签）：`topBroker` 头部券商 | `newFortune` 新财富团队
+- 三个标签选项传非法值报 `100005`。**同一选项传多个值取并集**（命中任一即返回）：`--llm-tag strongRcmd --llm-tag beatExpect` 是「强烈推荐或超预期」，不是「两者都有」；要两者都有，取回后按返回行的 `llmTagList` 自行过滤
 - `--source`：`realTime` 实时 | `openSource` 开放来源
 - `--industry`：用 `citicIndustry` 码 `1008001xx`；申万码 `104xx0000` 也生效，但**两套码的行业成分不同、取回的结果集不一致**，同一批查询别混用。`--research-area`：行业用 `citicIndustry` 码 `1008001xx`、方向用 `gangtiseIndustry` 码 `122000xxx`，**申万码在本端点返 0**。详见 `reference-and-lookup.md`
 

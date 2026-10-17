@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.46.0"
+version: "0.47.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -196,7 +196,7 @@ vault.stock-pool.create
 | `vault my-conference-list` / `my-conference-download` | **1 个月** | 1 个月 |
 | `vault` 其余（速记 / 群消息 / 股票池 / 云盘） | **不限** | 不限 |
 
-⚠️ **实际窗口按账号配**，换接口绕不过去（`indicator` 与 `quote day-kline` 同界）。整段在界外返回 `110003`（不是空结果），把日期移进范围或联系客户经理。🔴 **区间跨过下界时各接口不同**：`quote` 日 K / 分钟 K / 资金流向与 `fundamental valuation-analysis` 从下界起返回、**不报错**（首行明显晚于起始日时 CLI 在 stderr 提示）；`indicator`、`bond` 与 `fund` 整批报 `110003`；`bond daily-quote` / `bond valuation` 的数据还可能比账号窗口短——区间早于数据起点时返回 `130001`，跨过数据起点时从有数据的那天起返回、不报错，核对首行日期。**例外**：`quote minute-kline` 窗口只有 1 个月且随日期滚动，整段在窗外返回空结果、不报错（CLI 在 stderr 提示）；`ai hot-topic` 超出账号可查范围时也返回空结果、不报错。
+⚠️ **实际窗口按账号配**，换接口绕不过去（`indicator` 与 `quote day-kline` 同界）。整段在界外返回 `110003`（不是空结果），把日期移进范围或联系客户经理。🔴 **区间跨过下界时各接口不同**：`quote` 日 K / 分钟 K / 资金流向与 `fundamental valuation-analysis` 从下界起返回、**不报错**（首行明显晚于起始日时 CLI 在 stderr 提示）；`indicator`、`bond` 与 `fund` 整批报 `110003`；`bond daily-quote` / `bond valuation` 的数据还可能比账号窗口短——区间早于数据起点时返回 `130001`，跨过数据起点时从有数据的那天起返回、不报错（首行明显晚于起始日时 CLI 在 stderr 提示），核对首行日期。上面两处 stderr 提示都只看整批最早的首行：多只同查时有一只够早就不提示，逐只的起点按 `securityCode` 核对。**例外**：`quote minute-kline` 窗口只有 1 个月且随日期滚动，整段在窗外返回空结果、不报错（CLI 在 stderr 提示）；`ai hot-topic` 超出账号可查范围时也返回空结果、不报错。
 
 ### 下载规则（`--file-type` / `--content-type`）
 
@@ -224,7 +224,7 @@ vault.stock-pool.create
 |---------|------|
 | 研报 / 券商报告 | `insight research list` |
 | 外资研报 | `insight foreign-report list` |
-| 首席观点 / 内资机构观点 / 分析师观点 | `insight opinion list`（只含摘要 `brief`，1/条）；要正文 → `insight opinion detail --chief-opinion-id`（30/条） |
+| 首席观点 / 内资机构观点 / 分析师观点 | `insight opinion list`（只含摘要 `brief`，1/条）；要正文 → `insight opinion detail --chief-opinion-id`（30/条）。按观点类别（业绩点评 / 异动点评…）、投研标签（强烈推荐 / 超预期 / 涨价 / 龙头…）、机构标签（头部券商 / 新财富）筛 → `--category` / `--llm-tag` / `--broker-tag`，取值见 `insight.md` |
 | 外资机构观点 / 外资券商观点 | `insight foreign-opinion list`（摘要 + 中文摘要）；要原文与译文 → `insight foreign-opinion detail --foreign-opinion-id`（30/条） |
 | 外资独立观点 / 独立分析师观点 | `insight independent-opinion list` |
 | 纪要 / 会议纪要（外部） | `insight summary list` |
@@ -326,7 +326,7 @@ vault.stock-pool.create
   - 日期参数**只看 `parameterList` 必填哪个**：`tradeDate` → `--date`，`reportDate` → `--indicator-param "code:reportDate=..."`（多数报告期类要后者，但 `_ttm` 整族要 `tradeDate`）；两个都必填（如 `div_cash_yld`）就两个都用 `--indicator-param` 显式给，只给 `reportDate` 时 `--date` 不再注入、会报 `100001`。`parameterList` 要 `fiscalYear` 的（预测类 `frcst_*`、分红类 `div_cash_yr` 等）显式给，漏传报 `100001` 并点名。日频估值（`finc_pe_ttm` / `finc_pb_mrq`）用最新交易日，用报告期末日期会取到陈值；参数名同样以 `parameterList` 为准（复权是 `adjustType`）
   - 结果**按 `security` 字段取值**，别按请求下标对位（证券的返回顺序不作保证）；批量回填加 `--key-by code`
   - 估值历史：EDE 与 `valuation-analysis` 的财报口径切换时点与财报版本都不同，做分位 / 回测两边都拉交叉核
-- "业绩点评"双义消歧：**检索已有**的业绩点评：研报走 `insight research list --llm-tag earningsReview`（0.1/条；`--llm-tag` 只有 `opinion` / `research` / `foreign-report` 三个列表有），业绩会纪要走 `insight summary list --category earningsCall`；**AI 现生成**一份走 `ai earnings-review`（异步、20/次）。不确定问一句
+- "业绩点评"双义消歧：**检索已有**的业绩点评：研报走 `insight research list --llm-tag earningsReview`（0.1/条；`--llm-tag` 只有 `opinion` / `research` / `foreign-report` 三个列表有），首席观点走 `insight opinion list --category earningsReview`（1/条；观点的「业绩点评」是类别，不是 `--llm-tag`），业绩会纪要走 `insight summary list --category earningsCall`；**AI 现生成**一份走 `ai earnings-review`（异步、20/次）。不确定问一句
 
 ## 公司名 → 证券代码
 

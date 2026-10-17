@@ -6,6 +6,8 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.47.0 — 2026-10-17**：① **`insight opinion list` 新增 `--category`（观点类别：业绩点评 / 异动点评 / 调研访谈更新 / 交易台 / 行业分析）与 `--broker-tag`（头部券商 / 新财富团队）**，返回行带 `categoryList` / `brokerTagList`。② **`--llm-tag` 改为 28 项投研业务标签**（强烈推荐、超预期、涨价、龙头等，取值见 `--help`）；⚠️ **存量脚本要改**：业绩点评、头部券商、新财富团队改用 `--category earningsReview` / `--broker-tag topBroker` / `--broker-tag newFortune`，传给 `--llm-tag` 报 `100005`。同一选项传多个值取并集。③ `--with-content` 不支持 `--category` / `--broker-tag`（本地报错、不发请求），其 `--llm-tag` 仍只收旧的四个值；要按新标签筛又要正文，用 `list` + `detail`。④ **`bond daily-quote` / `bond valuation` 首行比起始日晚超过 14 天时 stderr 提示**（上市较晚或数据起点较晚；多只同查只看整批最早的首行，逐只起点按 `securityCode` 核对）。⑤ 文档：股东结构类 EDE 指标（`shr_*`），大股东系列须传 `rank`、户均持股系列须传 `shareType`。
+
 - **v0.46.0 — 2026-10-14**：① **`reference securities-search --category bond`**：按代码或简称搜债券，代码用于 `bond` 命令组。⚠️ **可转债可能出现在任何 `--category` 的结果里**（按简称查股票时常排第一），**只取返回行 `category` 等于所查类别的那一行**；债券代码传给 `fund` 命令会返回空结果、不报错。② **场外基金可按名称搜到**（`--category fund` 同时返回 `.OF` 与场内代码）。③ **计费单价按平台最新价目更新**：一页通等 AI 生成 10/次、业绩点评 / 观点 PK 20/次、热点话题 10/篇、个股看点 1/条、路演四件套 10/条、独立观点列表 1/条、纪要 / 外资研报 / 我的会议下载 30/篇、公告下载 A 股 1 / 港美股 2、`edb-data` 30/指标；额度保护随之调整。④ **数据范围**：`SKILL.md` 按官方权限表逐命令列出正式 / 试用两档，规划查询区间按表来。⑤ **报错口径**：EDE 漏传必填的 `fiscalYear` 报 `100001`；`main-business` / `valuation-analysis` 的 `--field` 写错名字报 `100005`；`screener` 计费按筛选前范围保守估算。完整列表见 CHANGELOG。
 
 - **v0.45.0 — 2026-10-07**：① **`vault drive-copy` 可复制整个文件夹**：`--folder-id` + `--target-parent-id`，连同子文件夹与文件复制到另一空间，返回 `{folderId, newFolderId}`；复制文件的写法不变，两组参数二选一。② **下载文件名**：响应同时给出 UTF-8 文件名与普通文件名时用 UTF-8 的那个。③ `GANGTISE_BASE_URL` 指向非本机地址却用 `http://` 时 stderr 提示一次（凭证会明文传输）。④ 文档：`bond daily-quote` / `bond valuation` 的数据可能比账号窗口短，**按年份取长序列时核对首行日期**；`bond announcement` 按日期查询时有代码的行都带后缀；基金只知道名称时怎么换代码；分钟 K 的可查历史是滚动的短窗口。
@@ -14,10 +16,9 @@ README 仅列最近 5 个版本摘要：
 
 - **v0.43.1 — 2026-09-27**：① **EDE `fiscalYear` 漏传不报错**：预测类（`frcst_*`）与分红类（`div_cash_yr` 等）漏传时按服务端自定的默认年度取数，数看着正常但未必是你要的年度——**一律显式传 `fiscalYear`**；其余必填参数缺失仍报 `100001`。② **翻页去重**：同一 ID 的任一已出现版本再次出现都按重复去掉（计入 `duplicateRows`），不区分字段顺序。③ **观点 `detail`**：某一批夹有空元素或格式异常的元素时，这一批已返回的正文照常输出；空元素的 ID 列在 `missingIds`，其余没取到的列在 `unfetchedIds`（`unfetchedError` 带 traceId）。④ 文档：`finc_roe_avg_avg` 示例补 `reportDate`；债券三个评级命令的计费说明统一。
 
-- **v0.43.0 — 2026-09-26**：① **按条计费列表的额度保护**：省略 `--size` 时先拿到 `total` 估算全量积分（整页超过 50 积分的列表只先取 1 条），超过 1000 积分报错退出 1，加 `--yes` 或传 `--size N` 放行。② **翻页结果的完整性**：跨页重复的行去掉并标 `duplicateRows`；同一 ID 在后面的页内容变了，两版都保留并标 `changedRows`；`total` 正好等于偏移窗口时标 `totalCapped`；都退出 3。热点话题、纪要、A 股 / 港股公告、财报日历查不到内容时按空结果、退出 0（此前退出 3）。③ **`quote` 的 `--field` 在多只证券或全市场时自动补身份列**（日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、`realtime` 补 `securityCode`；单只不补），**多只证券只点一列的脚本输出会多出这些列**。④ **多证券日 K 合批**：按行数上限装入尽量多的证券，请求数大幅减少；全市场分片按工作日计（港股 2 个工作日一片），全市场关键字须同时给起止日期。⑤ **首行晚到提示**：行情首行比请求起点晚 14 天以上时 stderr 提示（上市较晚或越过回溯窗口）。⑥ **`ai stock-summary` 与 `fundamental earning-forecast` 超时 / 5xx 不再自动重试**（单次可能扣数千积分）。⑦ 四个枚举参数写错时本地报错；Ctrl-C / `kill` / 终端断开时清理暂存文件，进程以该信号结束（`$?` 为 130 / 143 / 129），脚本循环随之停下。⑧ Agent Skill 主文件精简，细节移到 `references/`。
-
 ### 历史里程碑
 
+- **v0.43.0**：按条计费列表的额度保护（省略 `--size` 时估算超过 1000 积分须 `--yes`）；翻页结果的跨页重复、版本变化与 `total` 封顶检测。
 - **v0.42.0**：数值参数只收十进制写法（`0x10` / `1e3` 这类写法发请求前报错）；接管道时保留退出码 `3` / `4`。
 - **v0.41.0**：新增债券 12 个命令与云盘管理 9 个命令；观点列表改走 v2（列表只含摘要 1 积分/条，正文按 ID 另取）；新增会议线索与联网搜索。
 - **v0.40.0**：自选股股票池可增删改（首批写操作，删池须显式 `--yes`）；`indicator time-series` 自动判定日期轴；Token 缓存绑定签发它的凭证。
@@ -149,7 +150,7 @@ install_skill ~/.hermes/skills               # Hermes
 |------|--------|------|
 | **Auth** | `login` / `status` | 认证登录、状态查询 |
 | **Lookup** | `broker-org list` / `meeting-org list` | 券商/会议机构本地全量枚举表（按名称找 ID 优先 `reference institution-search`；行业/区域/公告分类/题材/申万码用 Reference 接口查） |
-| **Insight** | `opinion list` / `detail` | 内资机构观点（列表只含摘要 1 积分/条；`detail` 按 ID 取正文 30 积分/条；`list --with-content` 列表直接带正文 30 积分/条） |
+| **Insight** | `opinion list` / `detail` | 内资机构观点（列表只含摘要 1 积分/条；`detail` 按 ID 取正文 30 积分/条；`list --with-content` 列表直接带正文 30 积分/条；可按 `--category` 观点类别 / `--llm-tag` 投研标签 / `--broker-tag` 机构标签筛） |
 | | `summary list` / `download` | 纪要（含下载，支持 `--file-type` 选原始/HTML） |
 | | `pamirs-summary list` / `download` | 帕米尔专家纪要（需单独购买专家纪要库；筛选项比 `summary` 少，无 `--source`/`--institution`/`--participant-role`） |
 | | `roadshow list` | 路演 |
@@ -468,6 +469,8 @@ gangtise insight opinion list --keyword AI --size 20
 gangtise insight opinion detail --chief-opinion-id 4047400241800281391 --chief-opinion-id 2581139
 # 想让列表直接带正文（30 积分/条）；注意内资旧版结构：标题与正文在 contentList.title / contentList.content
 gangtise insight opinion list --keyword AI --size 20 --with-content
+# 按观点类别 / 投研业务标签 / 机构标签筛（同一选项传多个值取并集；--with-content 不支持 --category / --broker-tag）
+gangtise insight opinion list --category earningsReview --llm-tag beatExpect --broker-tag topBroker --size 20
 gangtise insight summary list --keyword 算力
 
 # 帕米尔专家纪要（需单独购买专家纪要库；全文搜索 + 时间倒序）

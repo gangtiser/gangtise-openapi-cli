@@ -30,7 +30,15 @@ const qa = new Command("qa")
 const reportImage = new Command("report-image")
 
 query(opinion, "list", {
-  endpoint: (options) => options.withContent ? "insight.opinion.list-with-content" : "insight.opinion.list",
+  endpoint: (options) => {
+    if (!options.withContent) return "insight.opinion.list"
+    // The v1 list predates categoryList / brokerTagList and drops them unread: the filter
+    // would silently widen to every opinion, billed at 30 credits a row.
+    if ((options.category as string[]).length || (options.brokerTag as string[]).length) {
+      throw new ValidationError("--category / --broker-tag do not work with --with-content: its v1 list ignores them and would return unfiltered rows at 30 credits/row. Filter with 'opinion list', then fetch bodies with 'opinion detail'")
+    }
+    return "insight.opinion.list-with-content"
+  },
   fields: [
     rankType(),
     list("--research-area <id>", RESEARCH_AREA_CITIC_OR_DIRECTION, "researchAreaList"),
@@ -39,9 +47,11 @@ query(opinion, "list", {
     list("--broker <id>", "Broker ID", "brokerList"),
     list("--industry <id>", "Industry ID", "industryList"),
     list("--concept <id>", "Concept ID", "conceptList"),
-    list("--llm-tag <tag>", "Semantic tag", "llmTagList"),
+    list("--category <name>", "Opinion category: earningsReview/abnormalReview/researchUpdate/tradingDesk/industryAnalysis", "categoryList"),
+    list("--llm-tag <tag>", "Research tag, several = any of them. Recommendation: strongRcmd/undervalued/highElasticity/highDividend/reversal/bottom/beatExpect/expectGap/oversold/targetPrice/certainty; earnings: highGrowth/withProfitForecast/withGuidance/marginalImprovement; supply chain: priceHike/tightSupplyDemand/capacityRelease/newOrder/orderSurge/keyCustomer/soleSupplier/coreSupplier/industryEntry; moat: leader/moat/scarcity/breakthrough", "llmTagList"),
+    list("--broker-tag <tag>", "Broker tag: topBroker/newFortune", "brokerTagList"),
     list("--source <source>", "Source", "sourceList"),
-    flag("--with-content", "Return the full body inline (v1 list, 30 credits/row) instead of the 200-char brief (1 credit/row). v1 shape: title and body sit under contentList.title / contentList.content, and there is no brief"),
+    flag("--with-content", "Return the full body inline (v1 list, 30 credits/row) instead of the 200-char brief (1 credit/row). v1 shape: title and body sit under contentList.title / contentList.content, and there is no brief. Takes no --category / --broker-tag, and --llm-tag only strongRcmd/earningsReview/topBroker/newFortune"),
     format(), output("Output path"),
     ...timeFilters(),
   ],

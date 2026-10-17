@@ -2,6 +2,20 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.47.0 — 2026-10-17
+
+**内资观点列表新增观点类别与机构标签筛选，投研标签换为新的 28 项；债券行情与估值的首行晚于起始日时给出提示；数据指标文档补充股东结构类指标。**
+
+1. **`insight opinion list` 新增 `--category`（观点类别）与 `--broker-tag`（机构标签）**，返回行同时带 `categoryList` / `brokerTagList` 两个字段（无标签时为 `[]`）：
+   - `--category`：`earningsReview` 业绩点评 / `abnormalReview` 异动点评 / `researchUpdate` 调研/访谈更新 / `tradingDesk` 交易台 / `industryAnalysis` 行业分析；一条观点可同时属于多个类别
+   - `--broker-tag`：`topBroker` 头部券商 / `newFortune` 新财富团队
+2. **`--llm-tag` 改为投研业务标签**，分推荐 / 业绩侧 / 产业链 / 壁垒四组共 28 项（如 `strongRcmd` 强烈推荐、`beatExpect` 超预期、`priceHike` 涨价、`leader` 龙头），完整取值见 `--help` 与 `references/commands/insight.md`。
+   - ⚠️ **存量脚本要改**：「业绩点评」「头部券商」「新财富团队」改用 `--category earningsReview`、`--broker-tag topBroker`、`--broker-tag newFortune`，继续传给 `--llm-tag` 会报 `100005`
+   - 同一选项传多个值取并集（命中任一即返回）；要同时带两个标签，取回后按返回行的 `llmTagList` 过滤
+3. **`--with-content` 不支持 `--category` / `--broker-tag`**：同时传会在本地报错、不发请求；它的 `--llm-tag` 只收 `strongRcmd` / `earningsReview` / `topBroker` / `newFortune`，返回行也不带两个新字段。既要按新标签筛、又要正文，用 `opinion list` 筛选后再 `opinion detail` 取正文。
+4. **`bond daily-quote` / `bond valuation`**：返回的首行比 `--start-date` 晚超过 14 天时在 stderr 提示（债券上市较晚，或数据起点晚于所查区间），退出码不变。提示只看整批最早的首行：多只同查时有一只数据够早就不会提示，逐只的起点按 `securityCode` 核对。
+5. **数据指标文档**：`indicator.md` 新增股东结构类指标（`shr_*`，A 股）——股东户数、户均持股、前十大股东合计、第 N 大股东的名称 / 持股 / 性质。大股东系列须传 `rank`（`1` = 第一大股东），户均持股系列须传 `shareType`（`1` 流通股 / `2` 总股本），漏传报 `100001`。
+
 ### v0.46.0 — 2026-10-14
 
 **证券搜索新增债券分类；计费单价按平台最新价目更新；数据范围按官方权限表逐命令列出；字段名写错与必填参数漏传的报错口径更新。**
@@ -111,7 +125,7 @@
 3. **`quote` 的 `--field` 在多只证券或全市场时自动补身份列**：缺的列补到最前并在 stderr 说明——日 K 补 `securityCode` / `tradeDate`、分钟 K 补 `securityCode` / `tradeTime`、`realtime` 补 `securityCode`；单只证券不补。**多只证券只点一列的脚本，输出会多出这些列。**
 4. **多证券日 K 合批**：「证券数 × 交易日数」达到 `--limit` 时，按行数上限把尽量多的证券装进一个请求（未传 `--limit` 时按 10000 算），组内按传入顺序合并，请求数按组计而不是按证券计。每组都规划在行数上限以下，所以完整的一组不会因为行数恰好等于上限被判截断；单只证券的行数达到 `--limit` 时仍按截断处理。
 5. **全市场分片按工作日计**：A 股 / 美股 1 个工作日一片、港股 2 个工作日一片，周末不再单独发请求。全市场关键字（`aShares` / `hkStocks` / `usStocks`）必须同时给 `--start-date` 与 `--end-date`，缺一个在发请求前报错。
-6. **首行晚到提示**：`quote` 日 K、分钟 K、资金流向的首行比请求起点晚 14 天以上时，stderr 提示（上市较晚，或区间越过了账号的回溯窗口）；分钟 K 整段为空时提示分钟数据的窗口较短。导出到文件时同样提示。
+6. **首行晚到提示**：`quote` 日 K、分钟 K、资金流向的首行比请求起点晚超过 14 天时，stderr 提示（上市较晚，或区间越过了账号的回溯窗口）；分钟 K 整段为空时提示分钟数据的窗口较短。导出到文件时同样提示。
 7. **不自动重发的端点**：`ai stock-summary` 与 `fundamental earning-forecast` 超时 / 5xx 不再自动重试——一次请求可能扣数千积分，重发可能重复扣费。`ai stock-summary` 有 120 秒超时下限。
 8. **枚举取值本地校验**：`vault record-download` / `my-conference-download` 的 `--content-type`、`ai hot-topic --category`、`ai security-clue --source` 写错时在本地报错、不发请求。其余本地校验的枚举，报错信息列出本版本已知的取值。
 9. **中断**：Ctrl-C、`kill` 或终端断开时，删除本次导出的暂存文件和还没写入内容的下载占位文件（它带着成品文件名，留下会被当成已下载），进程以该信号结束（shell 里 `$?` 为 130 / 143 / 129），脚本里的循环会随之停下。

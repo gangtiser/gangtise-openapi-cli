@@ -131,8 +131,9 @@ export function earliestRowDate(data: unknown, field: string): string | undefine
  * endpoints answer a range that reaches past the account's history window with what lies
  * inside it and no error (minute bars have a much shorter window than daily bars), so a
  * clipped series otherwise looks like a complete one. A security that listed later reads
- * the same, which is why this is a note and leaves the exit code alone. */
-export function noteLateStart(data: unknown, requestedStart: string | undefined, field: string, label: string): void {
+ * the same, which is why this is a note and leaves the exit code alone. `cause` replaces
+ * the explanation where the window reading does not apply. */
+export function noteLateStart(data: unknown, requestedStart: string | undefined, field: string, label: string, cause = "The security may have listed or resumed trading later, or the range reaches past your account's history window for this data — the endpoint returns what lies inside the window without an error."): void {
   // A failed date shard can make the series start late for that reason alone; its own
   // warning already names the gap, so this note would only misattribute it. Other
   // incomplete results (a missing column, a row cap) keep the note: they name a
@@ -145,7 +146,7 @@ export function noteLateStart(data: unknown, requestedStart: string | undefined,
   if (!first || !/^\d{4}-\d{2}-\d{2}$/.test(first)) return
   const lateDays = (Date.parse(`${first}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
   if (lateDays <= LATE_START_DAYS) return
-  process.stderr.write(`[gangtise] note: ${label} starts at ${first}, ${lateDays} days after the requested start ${start}. The security may have listed or resumed trading later, or the range reaches past your account's history window for this data — the endpoint returns what lies inside the window without an error.\n`)
+  process.stderr.write(`[gangtise] note: ${label} starts at ${first}, ${lateDays} days after the requested start ${start}. ${cause}\n`)
 }
 
 /**

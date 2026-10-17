@@ -112,6 +112,7 @@ const OMIT: Record<string, string[]> = {
   "bond issuer-rating-change": ["--issuer"],
   "bond announcement": ["--start-date", "--end-date"],
   "vault drive-copy": ["--folder-id", "--target-parent-id"],
+  "insight opinion list": ["--with-content"],
 }
 
 function synthesize(option: OptionInfo, tmp: string): string[] {
