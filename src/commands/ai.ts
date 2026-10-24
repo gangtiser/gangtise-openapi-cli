@@ -7,7 +7,7 @@ import { ValidationError } from "../core/errors.js"
 import { markFailed } from "../core/exitStatus.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
-import { emit, withClient, runDownload, multiChoice, field, required, date, list, choiceList, flag, format, output, from, size, requestBody, query } from "./shared.js"
+import { emit, withClient, runDownload, multiChoice, field, required, date, list, choiceList, flag, format, output, from, size, startTime, endTime, requestBody, query } from "./shared.js"
 import { checkMarketKeywords } from "./quote.js"
 import type { Field } from "./shared.js"
 
@@ -142,6 +142,32 @@ query(ai, "management-discuss-earnings-call", {
     date("--report-date <date>", "Report date (yyyy-MM-dd, e.g. 2025-06-30)", "reportDate", { required: true }),
     required("--security-code <code>", "Security code (e.g. 000001.SZ)", "securityCode"),
     field(new Option("--dimension <name>", "Discussion dimension").choices(["businessOperation", "financialPerformance", "developmentAndRisk"]).makeOptionMandatory(), (v) => ({ discussionDimension: v })),
+    format("json"), output(),
+  ],
+})
+// Management sentiment: one row per security × earnings call, newest first. Without
+// --security every covered security comes back, billed per row.
+for (const [name, endpoint, description] of [
+  ["management-sentiment-indicator", "ai.management-sentiment-indicator", "Management sentiment scores per earnings call: responsiveness / polarity / conviction (0-5), overall and by question type (5 credits/row)"],
+  ["management-sentiment-conclusion", "ai.management-sentiment-conclusion", "Management sentiment conclusions per earnings call, with the changes against the previous call (5 credits/row)"],
+]) {
+  query(ai, name, {
+    description,
+    endpoint,
+    fields: [
+      from(), size("Total rows to return; omit to fetch all (max page 100). Billed per row — bound this on wide ranges"),
+      startTime("Publish time from (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)"), endTime("Publish time to (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss; a bare date covers the whole day)"),
+      list("--security <code>", "Security code, e.g. 300285.SZ (repeatable); omit for all. One invalid code rejects the whole call (120001)", "securityList"),
+      format("json"), output(),
+    ],
+  })
+}
+query(ai, "management-sentiment-detail", {
+  description: "Per-Q&A sentiment scores and the quotes behind them, for one earnings call (10 credits/call)",
+  endpoint: "ai.management-sentiment-detail",
+  fields: [
+    required("--source-id <id>", "source.sourceId from management-sentiment-indicator / -conclusion", "sourceId"),
+    field(new Option("--source-type <type>", "source.sourceType from the same row").default("conference"), (v) => ({ sourceType: v })),
     format("json"), output(),
   ],
 })

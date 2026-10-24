@@ -29,7 +29,7 @@ const bondSecurityOption = (command: Command) => command
   .option("--field <field>", "Field to return (repeatable); omit for all. An unsupported name rejects the whole call with 100003", collectList, [])
   .option("--format <format>", "Output format", "table").option("--output <path>")
 
-/** securityList + optional date range + fieldList — the shape four of the twelve share. */
+/** securityList + optional date range + fieldList — the shape four of the thirteen share. */
 const addBondRange = (name: string, endpointKey: string, describe: string, rangeHelp: string, max?: number) =>
   bondSecurityOption(bond.command(name).description(describe))
     .option("--start-date <date>", `${rangeHelp} start (yyyy-MM-dd); omit for all history`, dateArg("--start-date"))
@@ -112,3 +112,23 @@ bondSecurityOption(bond.command("announcement").description("Bond announcements,
       fieldList: maybeArray(options.field),
     })
   }))
+
+// Three ways in, exactly one per call: a default-date range (both ends, at most one
+// calendar year apart — the server checks that, 110002), bond codes, or ONE issuer name.
+// Checked here so a comma-joined pair of issuers cannot go out as one fuzzy-matched name.
+bond.command("default-list").description("Defaulted bonds: by default-date range (at most 1 year), by bond codes, or by one issuer — pick one")
+  .option("--start-date <date>", "Default date range start (yyyy-MM-dd); needs --end-date", dateArg("--start-date"))
+  .option("--end-date <date>", "Default date range end (yyyy-MM-dd), at most one year after --start-date", dateArg("--end-date"))
+  .option("--security <code>", "Bond code, e.g. 169687.SH / 220205.IB (repeatable, no per-call limit)", collectList, [])
+  .option("--issuer <name>", "One issuer, by full name. A short name is matched to a single closest issuer, which may not be the one meant — check issuerName in the result", collectNames, [])
+  .option("--field <field>", "Field to return (repeatable); omit for all. An unsupported name rejects the whole call with 100005", collectList, [])
+  .option("--format <format>", "Output format", "table").option("--output <path>")
+  .action((options) => {
+    const byDate = Boolean(options.startDate || options.endDate)
+    const modes = [byDate, options.security.length > 0, options.issuer.length > 0].filter(Boolean).length
+    if (modes > 1) throw new ValidationError("bond default-list: --start-date/--end-date, --security and --issuer are mutually exclusive — pick one")
+    if (modes === 0) throw new ValidationError("bond default-list: pass --start-date with --end-date (default date range), --security (bond codes) or --issuer (one issuer)")
+    if (byDate && !(options.startDate && options.endDate)) throw new ValidationError("bond default-list: --start-date and --end-date go together")
+    if (options.issuer.length > 1) throw new ValidationError(`bond default-list: ${options.issuer.length} issuers given — the endpoint takes one per call. Run one call per issuer.`)
+    return emit(options, (client) => client.call("bond.default-list", { startDate: options.startDate, endDate: options.endDate, securityList: maybeArray(options.security), issuerNameList: maybeArray(options.issuer), fieldList: maybeArray(options.field) }))
+  })

@@ -1159,6 +1159,41 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured).toHaveLength(0)
   }, 30_000)
 
+  it("bond default-list sends exactly one selector, and refuses none, two, half a range or two issuers before any request", async () => {
+    await cli(["bond", "default-list", "--start-date", "2026/09/01", "--end-date", "20261020", "--format", "json"])
+    await cli(["bond", "default-list", "--security", "169687.SH,146589.SH", "--format", "json"])
+    await cli(["bond", "default-list", "--issuer", "上海世茂股份有限公司", "--field", "issuerName", "--format", "json"])
+    expect(captured.map((r) => [r.path, r.body])).toEqual([
+      ["/application/open-fundamental/bond/default-list", { startDate: "2026-09-01", endDate: "2026-10-20" }],
+      ["/application/open-fundamental/bond/default-list", { securityList: ["169687.SH", "146589.SH"] }],
+      ["/application/open-fundamental/bond/default-list", { issuerNameList: ["上海世茂股份有限公司"], fieldList: ["issuerName"] }],
+    ])
+    captured.length = 0
+    expect((await cli(["bond", "default-list"])).code).not.toBe(0)
+    expect((await cli(["bond", "default-list", "--start-date", "2026-09-01", "--end-date", "2026-10-20", "--security", "169687.SH"])).code).not.toBe(0)
+    expect((await cli(["bond", "default-list", "--security", "169687.SH", "--issuer", "上海世茂股份有限公司"])).code).not.toBe(0)
+    expect((await cli(["bond", "default-list", "--start-date", "2026-09-01"])).code).not.toBe(0)
+    // A comma-joined pair would otherwise go out as one name for the server to fuzzy-match.
+    const pair = await cli(["bond", "default-list", "--issuer", "上海世茂股份有限公司,上海世茂建设有限公司"])
+    expect(pair.code).not.toBe(0)
+    expect(pair.stderr).toContain("one per call")
+    expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("management-sentiment lists map their filters, page at 100 and probe one row first when unbounded; detail defaults sourceType", async () => {
+    await cli(["ai", "management-sentiment-indicator", "--security", "300285.SZ", "--start-time", "2026/08/01", "--end-time", "2026-08-31 23:59:59", "--size", "150"])
+    await cli(["ai", "management-sentiment-conclusion", "--security", "300285.SZ", "--size", "5"])
+    // Without --size: a full page bills 500 credits, so the credit guard learns the total from one row.
+    await cli(["ai", "management-sentiment-indicator"])
+    await cli(["ai", "management-sentiment-detail", "--source-id", "554030"])
+    expect(captured.map((r) => [r.path, r.body])).toEqual([
+      ["/application/open-ai/management-sentiment/company/indicator", { from: 0, size: 100, startTime: "2026-08-01", endTime: "2026-08-31 23:59:59", securityList: ["300285.SZ"] }],
+      ["/application/open-ai/management-sentiment/company/conclusion", { from: 0, size: 5, securityList: ["300285.SZ"] }],
+      ["/application/open-ai/management-sentiment/company/indicator", { from: 0, size: 1 }],
+      ["/application/open-ai/management-sentiment/company/detail", { sourceId: "554030", sourceType: "conference" }],
+    ])
+  }, 30_000)
+
   it("insight announcement list converts both date forms to the same local-midnight epoch millis", async () => {
     const { code } = await cli([
       "insight", "announcement", "list",

@@ -100,6 +100,7 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "bond issuer-rating-change",
   "bond issuance-plan",
   "bond announcement",
+  "bond default-list",
   "fund",
   "fund basic-info",
   "fund nav",
@@ -168,6 +169,9 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "ai hot-topic",
   "ai management-discuss-announcement",
   "ai management-discuss-earnings-call",
+  "ai management-sentiment-indicator",
+  "ai management-sentiment-conclusion",
+  "ai management-sentiment-detail",
   "ai viewpoint-debate",
   "ai viewpoint-debate-check",
   "ai stock-summary",
@@ -246,6 +250,9 @@ Commands:
   hot-topic [options]
   management-discuss-announcement [options]
   management-discuss-earnings-call [options]
+  management-sentiment-indicator [options]    Management sentiment scores per earnings call: responsiveness / polarity / conviction (0-5), overall and by question type (5 credits/row)
+  management-sentiment-conclusion [options]   Management sentiment conclusions per earnings call, with the changes against the previous call (5 credits/row)
+  management-sentiment-detail [options]       Per-Q&A sentiment scores and the quotes behind them, for one earnings call (10 credits/call)
   viewpoint-debate [options]
   viewpoint-debate-check [options]
   stock-summary [options]                     Stock highlights: refined research summary per security (A-share / HK)
@@ -370,6 +377,73 @@ Options:
   --format <format>       Output format (default: "json")
   --output <path>
   -h, --help              display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise ai management-sentiment-conclusion 1`] = `
+"Usage: gangtise ai management-sentiment-conclusion [options]
+
+Management sentiment conclusions per earnings call, with the changes against the
+previous call (5 credits/row)
+
+Options:
+  --from <number>          Starting offset (default: "0")
+  --size <number>          Total rows to return; omit to fetch all (max page
+                           100). Billed per row — bound this on wide ranges
+  --start-time <datetime>  Publish time from (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)
+  --end-time <datetime>    Publish time to (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss; a
+                           bare date covers the whole day)
+  --security <code>        Security code, e.g. 300285.SZ (repeatable); omit for
+                           all. One invalid code rejects the whole call (120001)
+                           (default: [])
+  --format <format>        Output format (default: "json")
+  --output <path>
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
+  -h, --help               display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise ai management-sentiment-detail 1`] = `
+"Usage: gangtise ai management-sentiment-detail [options]
+
+Per-Q&A sentiment scores and the quotes behind them, for one earnings call (10
+credits/call)
+
+Options:
+  --source-id <id>      source.sourceId from management-sentiment-indicator /
+                        -conclusion
+  --source-type <type>  source.sourceType from the same row (default:
+                        "conference")
+  --format <format>     Output format (default: "json")
+  --output <path>
+  -h, --help            display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise ai management-sentiment-indicator 1`] = `
+"Usage: gangtise ai management-sentiment-indicator [options]
+
+Management sentiment scores per earnings call: responsiveness / polarity /
+conviction (0-5), overall and by question type (5 credits/row)
+
+Options:
+  --from <number>          Starting offset (default: "0")
+  --size <number>          Total rows to return; omit to fetch all (max page
+                           100). Billed per row — bound this on wide ranges
+  --start-time <datetime>  Publish time from (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)
+  --end-time <datetime>    Publish time to (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss; a
+                           bare date covers the whole day)
+  --security <code>        Security code, e.g. 300285.SZ (repeatable); omit for
+                           all. One invalid code rejects the whole call (120001)
+                           (default: [])
+  --format <format>        Output format (default: "json")
+  --output <path>
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
+  -h, --help               display help for command
 "
 `;
 
@@ -625,6 +699,9 @@ Commands:
   announcement [options]          Bond announcements, paged. Filter by bond
                                   codes OR by announcement date range, never
                                   both
+  default-list [options]          Defaulted bonds: by default-date range (at
+                                  most 1 year), by bond codes, or by one issuer
+                                  — pick one
   help [command]                  display help for command
 "
 `;
@@ -713,6 +790,30 @@ Options:
   --output <path>
   --start-date <date>  Trade date range start (yyyy-MM-dd)
   --end-date <date>    Trade date range end (yyyy-MM-dd)
+  -h, --help           display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise bond default-list 1`] = `
+"Usage: gangtise bond default-list [options]
+
+Defaulted bonds: by default-date range (at most 1 year), by bond codes, or by
+one issuer — pick one
+
+Options:
+  --start-date <date>  Default date range start (yyyy-MM-dd); needs --end-date
+  --end-date <date>    Default date range end (yyyy-MM-dd), at most one year
+                       after --start-date
+  --security <code>    Bond code, e.g. 169687.SH / 220205.IB (repeatable, no
+                       per-call limit) (default: [])
+  --issuer <name>      One issuer, by full name. A short name is matched to a
+                       single closest issuer, which may not be the one meant —
+                       check issuerName in the result (default: [])
+  --field <field>      Field to return (repeatable); omit for all. An
+                       unsupported name rejects the whole call with 100005
+                       (default: [])
+  --format <format>    Output format (default: "table")
+  --output <path>
   -h, --help           display help for command
 "
 `;
@@ -3792,6 +3893,84 @@ exports[`CLI surface > invocations > bare: ai management-discuss-earnings-call 1
 }
 `;
 
+exports[`CLI surface > invocations > bare: ai management-sentiment-conclusion 1`] = `
+{
+  "argv": [
+    "ai",
+    "management-sentiment-conclusion",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "from": 0,
+        "size": 1,
+      },
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/conclusion",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > bare: ai management-sentiment-detail 1`] = `
+{
+  "argv": [
+    "ai",
+    "management-sentiment-detail",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--source-id <id>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: ai management-sentiment-indicator 1`] = `
+{
+  "argv": [
+    "ai",
+    "management-sentiment-indicator",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "from": 0,
+        "size": 1,
+      },
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/indicator",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
 exports[`CLI surface > invocations > bare: ai one-pager 1`] = `
 {
   "argv": [
@@ -4048,6 +4227,20 @@ exports[`CLI surface > invocations > bare: bond daily-quote 1`] = `
   "exit": 1,
   "requests": [],
   "stderr": "error: required option '--start-date <date>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: bond default-list 1`] = `
+{
+  "argv": [
+    "bond",
+    "default-list",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "ValidationError: bond default-list: pass --start-date with --end-date (default date range), --security (bond codes) or --issuer (one issuer)
 ",
   "stdout": "",
 }
@@ -5969,6 +6162,7 @@ bond.rating-change                         POST    /application/open-fundamental
 bond.issuer-rating-change                  POST    /application/open-fundamental/bond/issuer-rating-change                         Query issuer rating change history (by bond code or issuer name)                             
 bond.issuance-plan                         POST    /application/open-fundamental/bond/issuance-plan                                Query the rate-bond issuance calendar over a date range                                      
 bond.exercise-notice                       POST    /application/open-fundamental/bond/exercise-notice                              Query put/call exercise schedules and results for option-embedded bonds                      
+bond.default-list                          POST    /application/open-fundamental/bond/default-list                                 Query bond default records (by default-date range, bond codes or one issuer)                 
 fund.basic-info                            POST    /application/open-fundamental/fund/basic-info                                   Query fund profiles (category, manager, subscription rules, benchmark, tracked index)        
 fund.nav                                   POST    /application/open-quote/fund/nav                                                Query fund daily NAV (unit / accumulated / adjusted; money-market yields)                    
 fund.fee-rate                              POST    /application/open-fundamental/fund/fee-rate                                     Query fund fee rates (purchase / redemption / management / custodian / sales service)        
@@ -6001,6 +6195,9 @@ ai.research-outline                        POST    /application/open-ai/agent/re
 ai.hot-topic                               POST    /application/open-ai/hot-topic/getList                                          List hot topic reports                                                                       
 ai.management-discuss-announcement         POST    /application/open-ai/management-discuss/from-announcement                       Management discussion from financial reports (half-year/annual)                              
 ai.management-discuss-earnings-call        POST    /application/open-ai/management-discuss/from-earningsCall                       Management discussion from earnings calls                                                    
+ai.management-sentiment-indicator          POST    /application/open-ai/management-sentiment/company/indicator                     Management sentiment scores per earnings call (responsiveness / polarity / conviction)       
+ai.management-sentiment-conclusion         POST    /application/open-ai/management-sentiment/company/conclusion                    Management sentiment conclusions per earnings call, with changes against the previous call   
+ai.management-sentiment-detail             POST    /application/open-ai/management-sentiment/company/detail                        Per-Q&A management sentiment scores and their supporting quotes, for one earnings call       
 ai.viewpoint-debate.get-id                 POST    /application/open-ai/agent/viewpoint-debate-getid                               Get viewpoint debate ID                                                                      
 ai.viewpoint-debate.get-content            POST    /application/open-ai/agent/viewpoint-debate-getcontent                          Get viewpoint debate content                                                                 
 vault.drive.list                           POST    /application/open-vault/drive/getList                                           List vault drive files                                                                       
@@ -6989,6 +7186,144 @@ exports[`CLI surface > invocations > full: ai management-discuss-earnings-call 1
 }
 `;
 
+exports[`CLI surface > invocations > full: ai management-sentiment-conclusion 1`] = `
+{
+  "argv": [
+    "ai",
+    "management-sentiment-conclusion",
+    "--from",
+    "2",
+    "--size",
+    "3",
+    "--start-time",
+    "2026-06-01 09:30:00",
+    "--end-time",
+    "2026-06-03 15:00:00",
+    "--security",
+    "600519.SH",
+    "--yes",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endTime": "2026-06-03 15:00:00",
+        "from": 2,
+        "securityList": [
+          "600519.SH",
+        ],
+        "size": 3,
+        "startTime": "2026-06-01 09:30:00",
+      },
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/conclusion",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: ai management-sentiment-detail 1`] = `
+{
+  "argv": [
+    "ai",
+    "management-sentiment-detail",
+    "--source-id",
+    "source-id-v",
+    "--source-type",
+    "source-type-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "sourceId": "source-id-v",
+        "sourceType": "source-type-v",
+      },
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/detail",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: ai management-sentiment-indicator 1`] = `
+{
+  "argv": [
+    "ai",
+    "management-sentiment-indicator",
+    "--from",
+    "2",
+    "--size",
+    "3",
+    "--start-time",
+    "2026-06-01 09:30:00",
+    "--end-time",
+    "2026-06-03 15:00:00",
+    "--security",
+    "600519.SH",
+    "--yes",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endTime": "2026-06-03 15:00:00",
+        "from": 2,
+        "securityList": [
+          "600519.SH",
+        ],
+        "size": 3,
+        "startTime": "2026-06-01 09:30:00",
+      },
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/indicator",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
 exports[`CLI surface > invocations > full: ai one-pager 1`] = `
 {
   "argv": [
@@ -7663,6 +7998,49 @@ exports[`CLI surface > invocations > full: bond daily-quote 1`] = `
       },
       "method": "POST",
       "path": "/application/open-quote/bond/daily-quote-exchange-cfets",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: bond default-list 1`] = `
+{
+  "argv": [
+    "bond",
+    "default-list",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--field",
+    "field-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fieldList": [
+          "field-v",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/default-list",
     },
   ],
   "stderr": "",
@@ -13920,6 +14298,12 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "description": "Query put/call exercise schedules and results for option-embedded bonds"
   },
   {
+    "key": "bond.default-list",
+    "method": "POST",
+    "path": "/application/open-fundamental/bond/default-list",
+    "description": "Query bond default records (by default-date range, bond codes or one issuer)"
+  },
+  {
     "key": "fund.basic-info",
     "method": "POST",
     "path": "/application/open-fundamental/fund/basic-info",
@@ -14110,6 +14494,24 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "method": "POST",
     "path": "/application/open-ai/management-discuss/from-earningsCall",
     "description": "Management discussion from earnings calls"
+  },
+  {
+    "key": "ai.management-sentiment-indicator",
+    "method": "POST",
+    "path": "/application/open-ai/management-sentiment/company/indicator",
+    "description": "Management sentiment scores per earnings call (responsiveness / polarity / conviction)"
+  },
+  {
+    "key": "ai.management-sentiment-conclusion",
+    "method": "POST",
+    "path": "/application/open-ai/management-sentiment/company/conclusion",
+    "description": "Management sentiment conclusions per earnings call, with changes against the previous call"
+  },
+  {
+    "key": "ai.management-sentiment-detail",
+    "method": "POST",
+    "path": "/application/open-ai/management-sentiment/company/detail",
+    "description": "Per-Q&A management sentiment scores and their supporting quotes, for one earnings call"
   },
   {
     "key": "ai.viewpoint-debate.get-id",

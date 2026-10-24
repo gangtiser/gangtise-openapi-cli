@@ -102,6 +102,22 @@ gangtise bond issuance-plan --start-date <d> --end-date <d> [--field <name>]
 
 🔴 **只按日期区间查，不收债券码**，日期必填。默认返回 `issueDate`。返回计划年份、发行人、债券性质与类型、期限、计划发行量、利率类型、付息频率、是否跨市场。
 
+## `default-list` 违约债券
+
+```bash
+gangtise bond default-list (--start-date <d> --end-date <d> | --security <code>... | --issuer <name>) [--field <name>]
+```
+
+🔴 **三种查法三选一**，同传或都不传 CLI 先本地拦下：
+
+- **按违约日期**：`--start-date` 与 `--end-date` 必须同时给，区间不超过 1 个自然年（`2025-01-01`～`2026-01-01` 可以，`2026-01-02` 报 `110002`）
+- **按债券**：`--security` 不限只数，没有违约记录的代码不产生行
+- **按发行人**：`--issuer` **一次一个**（传多个或用逗号拼在一起 CLI 本地报错，分次调用）。⚠️ **用发行人全称**：传简称也会返回结果，但只返回最匹配的**一家**——如「上海世茂」只返回上海世茂建设有限公司的记录，同样有违约记录的上海世茂股份有限公司不在其中。拿到结果先核对 `issuerName` 是不是要查的那家
+
+默认返回 `securityCode` + `defaultDate`，其余字段：`securityName` / `defaultAmount` 违约金额（**亿元**）/ `issuerName` 发行人全称 / `defaultReason` 违约原因，缺值为 `null`。按违约日期降序、代码升序，同一只债券每次违约一行。🔴 **`--field` 写错报 `100005`**（其余 `bond` 命令是 `100003`），同样整批拒绝并点名。
+
+历史范围不限。条件下一条记录都没有时返回 `130001`（见下「空结果」）。
+
 ## `announcement` 债券公告
 
 ```bash

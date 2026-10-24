@@ -15,6 +15,7 @@
 | A股估值历史分位 | `fundamental valuation-analysis` |
 | **估值指标的历史序列**（分位 / 回测 / 择时） | 两个接口口径不同、都要交叉核——EDE 按正式财报披露日切换财报口径，`valuation-analysis` 按业绩快报切，见下方专门小节 |
 | 开高低收 / 成交量等行情与 K 线 | `quote`；免费且支持多证券批量。**换接口不换口径**：`quote` 的 `volume` 与 EDE `qte_vol` 逐位相同（A股 / 港股 / 美股，单位均为股）。EDE 只在 `quote` 不提供的口径上才需要——周 / 月 / 季 / 年 / 区间成交量 |
+| 单只基金的净值 / 持仓 / 规模 / 经理 | `fund` 命令组；多只基金批量取分类、复权净值与风险收益指标才用 EDE，见下方「基金指标」 |
 | 单证券资金流向（要占比字段） | `quote fund-flow`；免费，且有 EDE 没有的 `*Ratio` 占比。多证券批量取某一两个档位才用 EDE 的 `flow_*` |
 | 单证券三大报表全部科目 | 对应 `fundamental` 利润表 / 资产负债表 / 现金流量表命令 |
 
@@ -61,7 +62,7 @@ gangtise indicator cross-section --indicator <code> [--indicator <code2>] \
     | 无 `tradeDate`、`parameterList` 为空 | 只加 `--indicator-param "<code>:"` |
 
     - **空冒号那条与真实参数可以共存**：`"div_cash_yr:" "div_cash_yr:fiscalYear=2025"` 两条一起给，前者只关掉日期注入，不会把 `fiscalYear` 清掉
-    - **哪些指标属于后两种**：已知是 `pty_*`（公司属性：注册地址 / 法定代表人 / 经营范围 / 公司简介…）与 `scr_*`（证券属性：证券简称 / ISIN / 上市市场 / 上市板块 / 上市日期…）两族，加上 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg`。🔴 **这只是当前已知的快照，不是完整清单**——`indicator search` 必须给关键词、`--limit` 上限 100 且没有翻页，所以指标库无法整体枚举。**永远以 `parameterList` 为准**；要重新生成某一族用 `indicator search --keyword <前缀>_ --limit 100`，返回条数小于 100 即该族已列全
+    - **哪些指标属于后两种**：已知是 `pty_*`（公司属性：注册地址 / 法定代表人 / 经营范围 / 公司简介…）与 `scr_*`（证券属性：证券简称 / ISIN / 上市市场 / 上市板块 / 上市日期…）两族，加上 `div_cash_paid_ratio` / `div_cash_yr` / `pty_shr_reg` 与基金的 `fund_main_code` / `fund_estb_dt`。🔴 **这只是当前已知的快照，不是完整清单**——`indicator search` 必须给关键词、`--limit` 上限 100 且没有翻页，所以指标库无法整体枚举。**永远以 `parameterList` 为准**；要重新生成某一族用 `indicator search --keyword <前缀>_ --limit 100`，返回条数小于 100 即该族已列全
     - ⚠️ **别把「有 `fiscalYear`」当成「不要 `tradeDate`」**——`frcst_pe` / `frcst_shnp` / `frcst_op_rev` 等预测类指标 `parameterList` 里**两个都是必填**，照常用 `--date` 再加一条 `fiscalYear`，**不要**加空冒号那条
     - ⚠️ **也别把「有 `reportDate`」当成「不受影响」**——报告期类指标同样拒收注入的 `tradeDate`，只是解法（自己传 `reportDate`）刚好顺带关掉了注入
   - 🔴 **吃 `reportDate` 的指标必须显式传 `reportDate`**：`--indicator-param "code:reportDate=2024-12-31"`。服务端不接受 `tradeDate`——只给 `--date` 会报 `100003「指标 xxx 不支持参数 tradeDate; 指标 xxx 缺少必填参数 reportDate」`。哪些指标属于这一类看 `indicator search` 的 `parameterList`：`reportDate` 标 `required: true` 且列表里没有 `tradeDate` 的就是。利润表 / 资产负债表 / 现金流量表类（`is_*` 等）都在此列；行情与估值类（`qte_*` / `finc_*`）仍用 `--date` 即可。CLI 检测到你已为某指标传了 `tradeDate` 或 `reportDate` 就不再注入 `--date`，所以补上 `--indicator-param` 就能正常取数
@@ -140,7 +141,7 @@ gangtise indicator screener --indicator <F1:code> [--indicator <F2:code2>] \
   - 文本：`contains` / `notcontains`（不区分大小写，**仅对 `dataType: string` 的指标有效**）
   - 逻辑：`&&` `||`，分组 `(` `)`
 - `--date`（**必选**）：下发为**每个**指标的 `tradeDate`（已带 `tradeDate`/`reportDate` 的不覆盖）。绝大多数指标必填 `tradeDate`，漏传服务端报 `100001`，所以必填
-- 🔴 **`parameterList` 里一个日期参数都没有的指标（`pty_*` / `scr_*` 静态属性两族、`div_cash_paid_ratio` / `div_cash_yr`、`pty_shr_reg`）必须显式声明「不要日期」**：写 `--indicator-param "F1:"`（冒号后什么都不写）。不写的话 `--date` 会给它注入 `tradeDate`，而这些指标不接受该参数，**整条请求**报 `100003 指标 xxx 不支持参数 tradeDate`。`F1:` 与真参数可组合，`div_cash_*` 要同时给 `F1:` 和 `F1:fiscalYear=2025`。这与 `cross-section` 的 `"code:"` 是同一个写法。注意只有**没有任何日期参数**的指标需要，报告期类（`is_*` 等）给 `F1:reportDate=...` 即可
+- 🔴 **`parameterList` 里一个日期参数都没有的指标（`pty_*` / `scr_*` 静态属性两族、`div_cash_paid_ratio` / `div_cash_yr`、`pty_shr_reg`、`fund_main_code` / `fund_estb_dt`）必须显式声明「不要日期」**：写 `--indicator-param "F1:"`（冒号后什么都不写）。不写的话 `--date` 会给它注入 `tradeDate`，而这些指标不接受该参数，**整条请求**报 `100003 指标 xxx 不支持参数 tradeDate`。`F1:` 与真参数可组合，`div_cash_*` 要同时给 `F1:` 和 `F1:fiscalYear=2025`。这与 `cross-section` 的 `"code:"` 是同一个写法。注意只有**没有任何日期参数**的指标需要，报告期类（`is_*` 等）给 `F1:reportDate=...` 即可
 - `--indicator-param`：格式是 **`F1:key=value`（按变量，不是按 code）**。引用了没绑定的变量会直接报错，不会静默丢弃
 - `--expression` 里引用未绑定的变量，CLI **本地就拦**（不发请求、不计费）；服务端也会报 `100003`
 - **输出（宽表）**：同 `cross-section`，每行一只**命中**的证券，列为 `security / name / <各指标名>…`；无命中返回空表
@@ -393,6 +394,33 @@ gangtise indicator cross-section --indicator shr_top_hld_name --indicator shr_to
 
 gangtise indicator cross-section --indicator shr_hld --indicator shr_avg_qty \
   --indicator-param "shr_avg_qty:shareType=2" --security 600519.SH --date 2026-10-15
+```
+
+### 基金指标
+
+`--security` 传基金代码（场外 `.OF`，场内 `.SH` / `.SZ`，如 `005827.OF` / `510300.SH`）。
+
+| 类别 | 指标 | 日期参数 |
+| :-- | :-- | :-- |
+| 基础属性与分类（`scopeList` 只有基金） | `fund_main_code` 基金主代码（A / C 等份额归到主份额，如 `000004.OF` → `000003.OF`）、`fund_estb_dt` 成立日期 | 没有日期参数，带 `--indicator-param "<code>:"` |
+| | `fund_opr_st` 运行状态、`fund_cls1_typ` / `fund_cls2_typ` Gangtise 基金一级 / 二级分类、`fund_adj_nav` 复权单位净值 | `tradeDate`（`--date`） |
+| 业绩与风险（区间指标，`sDate` 到 `tradeDate`） | 只有基金：`fund_calmar` 卡玛比率、`fund_ret_rank` 收益率同类排名（文本，如 `"5/120"`）/ `fund_ret_rank_pct` 排名百分位。股票与基金通用（部分也覆盖指数，看 `scopeList`）：`finc_ann_ret` 年化收益率、`finc_avg_ret` / `finc_avg_ret_ann` 平均收益率、`finc_vol` / `finc_vol_ann` 波动率、`finc_intvl_max_dd` 区间最大回撤、`finc_sharpe` / `finc_sharpe_ann`、`finc_treynor` / `finc_treynor_ann`、`finc_jensen` / `finc_jensen_ann`、`finc_alpha`、`finc_beta`、`finc_corr` 相关系数、`finc_unsys_risk` 非系统风险 | `sDate`（`--indicator-param "<code>:sDate=..."`）+ `tradeDate`（`--date`） |
+
+- 🔴 **区间指标的其余参数一律显式传**，漏传报 `100001`（`parameterList` 列了默认值也一样）：`changePeriod` 变化周期、`yieldType`（`0` 普通 / `1` 对数收益率）、`riskFreeRate`（`0` = 常数 0）、`benchmarkCode` 基准代码（Alpha / Beta / 相关系数 / Jensen / Treynor / 非系统风险要）、`industryLevel`（同类排名按哪一级分类）。每个指标要哪几个以 `parameterList` 为准
+- ⚠️ **`changePeriod` 列出的默认值 `6`（区间）不是每个指标都收**：Sharpe 等的 `description` 写明只支持日 / 周 / 月 / 年（`0` / `1` / `2` / `5`），传 `6` 报 `100003`
+- `finc_intvl_max_dd` 返回负的百分数（`-19.23` 即 -19.23%），无回撤为 `0`；`fund_estb_dt` 返回 `yyyyMMdd` 整数（如 `20180905`），不是日期字符串
+- 这批区间指标的 `scopeList` 标着「不支持指标时间序列接口」，用 `cross-section` 取
+- 单只基金的净值序列、持仓、规模走 `fund` 命令组；EDE 适合多只基金横向比
+
+```bash
+gangtise indicator cross-section --indicator fund_cls2_typ --indicator fund_adj_nav \
+  --indicator finc_intvl_max_dd --indicator-param "finc_intvl_max_dd:sDate=2025-10-24" \
+  --security 005827.OF --security 510300.SH --date 2026-10-23
+
+gangtise indicator cross-section --indicator finc_sharpe_ann \
+  --indicator-param "finc_sharpe_ann:sDate=2025-10-24" --indicator-param "finc_sharpe_ann:changePeriod=0" \
+  --indicator-param "finc_sharpe_ann:yieldType=0" --indicator-param "finc_sharpe_ann:riskFreeRate=0" \
+  --security 005827.OF --security 510300.SH --date 2026-10-23
 ```
 
 ## 取数最佳实践

@@ -111,6 +111,7 @@ const OMIT: Record<string, string[]> = {
   "bond issuer-info": ["--issuer"],
   "bond issuer-rating-change": ["--issuer"],
   "bond announcement": ["--start-date", "--end-date"],
+  "bond default-list": ["--security", "--issuer"],
   "vault drive-copy": ["--folder-id", "--target-parent-id"],
   "insight opinion list": ["--with-content"],
 }

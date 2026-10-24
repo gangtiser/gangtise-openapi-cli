@@ -4,6 +4,8 @@
 export const SPECIAL_COMMANDS: Record<string, string> = {
   "ai.security-clue.list": "ai security-clue",
   "ai.hot-topic": "ai hot-topic",
+  "ai.management-sentiment-indicator": "ai management-sentiment-indicator",
+  "ai.management-sentiment-conclusion": "ai management-sentiment-conclusion",
   // The v1 lists back `--with-content` on the same command as the v2 ones.
   "insight.opinion.list-with-content": "insight opinion list",
   "insight.foreign-opinion.list-with-content": "insight foreign-opinion list",

@@ -29,8 +29,10 @@ export interface EndpointDefinition {
    * row key for this list.
    * A field that is not unique yet never shows that on one page would still flag every
    * fetch whose repeated pair straddles a page boundary, so a field not seen in real
-   * responses as the record's id is declared with `rowIdUnverified`. */
-  rowId?: string
+   * responses as the record's id is declared with `rowIdUnverified`.
+   * Several dotted paths (`source.sourceId`) together form the id of a row that no single
+   * field identifies. */
+  rowId?: string | readonly string[]
   /** `rowId` comes from the response description only. Whole-row repeats are still
    * dropped; a repeat with different content is not counted (see `rowId`). */
   rowIdUnverified?: true
@@ -723,7 +725,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
   },
 
   // ─── bond ───
-  // All twelve are metered (0.4 credits per call, per the 2026-09 spec; three of
+  // All thirteen are metered (0.4 credits per call per the spec; three of
   // them per row / per bond / per issuer instead). Metered + replayable is the
   // combination that double-bills, hence `no-replay` across the family.
   // These answer COLUMNAR: `data` is `{fieldList, list}` where each row is an
@@ -833,6 +835,15 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-fundamental/bond/exercise-notice",
     kind: "json",
     description: "Query put/call exercise schedules and results for option-embedded bonds",
+    billing: { per: "call", price: 0.4 },
+    retry: "no-replay",
+    expects: "list",
+  },
+  "bond.default-list": {
+    method: "POST",
+    path: "/application/open-fundamental/bond/default-list",
+    kind: "json",
+    description: "Query bond default records (by default-date range, bond codes or one issuer)",
     billing: { per: "call", price: 0.4 },
     retry: "no-replay",
     expects: "list",
@@ -1128,6 +1139,43 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     billing: { per: "call", price: 10 },
     timeoutMs: 120_000,
     retry: "no-replay",
+  },
+  // Management sentiment: one row per security × earnings call, newest first. The two
+  // lists page at 100 (size 101 → 100006) and report the real count (from = total → 0 rows;
+  // both probed 2026-10-24); at 5 per row a full page bills 500, under
+  // NO_REPLAY_ABOVE_CREDITS, so they keep the default retry like security-clue. A row is
+  // identified by its security and its source call together (the response description's
+  // granularity; not yet seen unique across a full page).
+  "ai.management-sentiment-indicator": {
+    method: "POST",
+    path: "/application/open-ai/management-sentiment/company/indicator",
+    kind: "json",
+    description: "Management sentiment scores per earnings call (responsiveness / polarity / conviction)",
+    billing: { per: "row", price: 5 },
+    pagination: { enabled: true, maxPageSize: 100 },
+    rowId: ["securityCode", "source.sourceType", "source.sourceId"],
+    rowIdUnverified: true,
+    expects: "list",
+  },
+  "ai.management-sentiment-conclusion": {
+    method: "POST",
+    path: "/application/open-ai/management-sentiment/company/conclusion",
+    kind: "json",
+    description: "Management sentiment conclusions per earnings call, with changes against the previous call",
+    billing: { per: "row", price: 5 },
+    pagination: { enabled: true, maxPageSize: 100 },
+    rowId: ["securityCode", "source.sourceType", "source.sourceId"],
+    rowIdUnverified: true,
+    expects: "list",
+  },
+  "ai.management-sentiment-detail": {
+    method: "POST",
+    path: "/application/open-ai/management-sentiment/company/detail",
+    kind: "json",
+    description: "Per-Q&A management sentiment scores and their supporting quotes, for one earnings call",
+    billing: { per: "call", price: 10 },
+    retry: "no-replay",
+    expects: "list",
   },
   "ai.viewpoint-debate.get-id": {
     method: "POST",

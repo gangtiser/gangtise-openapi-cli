@@ -439,7 +439,9 @@ export class GangtiseClient {
     // A row already kept, seen again whole on a neighbouring page (see `rowId` in
     // endpoints.ts): the same as ANY version kept under its id, not just the first. Only
     // the id and a digest per version are held, not the row itself.
-    const rowId = endpoint.rowId
+    const rowIdFields = endpoint.rowId === undefined ? [] : [endpoint.rowId].flat()
+    const rowId = rowIdFields.length > 0 ? rowIdFields.join(" + ") : undefined
+    const rowIdPaths = rowIdFields.map((path) => path.split("."))
     const seen = rowId ? new Map<string, Set<string>>() : undefined
     let duplicateRows = 0
     // An id seen again with different content on a LATER page: a row that moved or
@@ -453,10 +455,10 @@ export class GangtiseClient {
       if (!seen || !rowId) return rows
       const onThisPage = new Map<string, Set<string>>()
       return rows.filter((row) => {
-        const id = row && typeof row === "object" ? (row as Record<string, unknown>)[rowId] : undefined
-        if (id === undefined || id === null) return true
+        const ids = rowIdPaths.map((path) => path.reduce<unknown>((v, k) => v && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined, row))
+        if (ids.some((id) => id === undefined || id === null)) return true
         const digest = createHash("sha1").update(stableStringify(row)).digest("base64")
-        const key = String(id)
+        const key = ids.length === 1 ? String(ids[0]) : JSON.stringify(ids.map(String))
         const pageVersions = onThisPage.get(key)
         if (pageVersions && !pageVersions.has(digest)) idIsRowKey = false
         if (pageVersions) pageVersions.add(digest)

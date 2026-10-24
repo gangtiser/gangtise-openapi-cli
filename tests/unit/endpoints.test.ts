@@ -20,7 +20,7 @@ describe("ENDPOINTS", () => {
     // An unverified id is not trusted to flag a changed row (client.ts), so dropping the
     // mark from one of these lists would let a non-unique id mark every fetch partial.
     const unverified = Object.values(ENDPOINTS).filter((ep) => ep.rowIdUnverified).map((ep) => ep.key).sort()
-    expect(unverified).toEqual(["insight.forum.list", "insight.independent-opinion.list", "insight.roadshow.list", "insight.site-visit.list", "insight.strategy.list"])
+    expect(unverified).toEqual(["ai.management-sentiment-conclusion", "ai.management-sentiment-indicator", "insight.forum.list", "insight.independent-opinion.list", "insight.roadshow.list", "insight.site-visit.list", "insight.strategy.list"])
     for (const ep of Object.values(ENDPOINTS)) if (ep.rowIdUnverified) expect(ep.rowId, ep.key).toBeDefined()
   })
 
@@ -167,6 +167,22 @@ describe("ENDPOINTS", () => {
     expect(ep.method).toBe("POST")
     expect(ep.path).toBe("/application/open-ai/management-discuss/from-announcement")
     expect(ep.kind).toBe("json")
+  })
+
+  it("includes the management-sentiment endpoints: two lists billed per row at page 100, a per-call detail", () => {
+    for (const name of ["indicator", "conclusion"]) {
+      const ep = ENDPOINTS[`ai.management-sentiment-${name}`]
+      expect(ep.path).toBe(`/application/open-ai/management-sentiment/company/${name}`)
+      expect(ep.pagination).toEqual({ enabled: true, maxPageSize: 100 })
+      expect(ep.billing).toEqual({ per: "row", price: 5 })
+      expect(ep.rowId).toEqual(["securityCode", "source.sourceType", "source.sourceId"])
+      // A full page bills 500, under the no-replay line.
+      expect(ep.retry).toBeUndefined()
+    }
+    const detail = ENDPOINTS["ai.management-sentiment-detail"]
+    expect(detail.path).toBe("/application/open-ai/management-sentiment/company/detail")
+    expect(detail.pagination).toBeUndefined()
+    expect(detail.billing).toEqual({ per: "call", price: 10 })
   })
 
   it("includes management-discuss-earnings-call endpoint", () => {
@@ -529,6 +545,7 @@ describe("ENDPOINTS", () => {
       "ai.research-outline",
       "ai.management-discuss-announcement",
       "ai.management-discuss-earnings-call",
+      "ai.management-sentiment-detail",
       "ai.hot-topic",
       "ai.knowledge-batch",
       "ai.earnings-review.get-id",
@@ -574,6 +591,7 @@ describe("ENDPOINTS", () => {
       "bond.issuer-rating-change",
       "bond.issuance-plan",
       "bond.exercise-notice",
+      "bond.default-list",
       // The whole fund family is 0.4 per call.
       "fund.basic-info",
       "fund.nav",

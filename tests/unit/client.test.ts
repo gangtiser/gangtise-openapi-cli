@@ -520,6 +520,36 @@ describe("GangtiseClient pagination", () => {
       }
     })
 
+    it.each(["ai.management-sentiment-indicator", "ai.management-sentiment-conclusion"])("drops a whole-row repeat on %s, keyed by security and source call", async (key) => {
+      // Two pages of 100: page 2 opens with page 1's last row again. A row without its
+      // source (rows 10 and 11, identical) has no id and is kept both times.
+      const row = (i: number) => i === 10 || i === 11
+        ? { securityCode: "000001.SZ", source: null, score: 0 }
+        : { securityCode: `${i}.SZ`, source: { sourceType: "conference", sourceId: String(i) }, score: i }
+      requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
+        const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
+        const from = body.from ?? 0
+        const list = Array.from({ length: Math.max(0, Math.min(body.size ?? 100, 200 - from)) }, (_, i) => row(from + i + 1))
+        if (from === 100) list[0] = row(100)
+        return Promise.resolve(jsonResponse({ total: 200, list }))
+      })
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const previousExit = process.exitCode
+      try {
+        const client = createClient()
+        client.allowCostlyFetch = true
+        const result = await client.call(key, { from: 0 }) as { list: Array<{ source: unknown }>; partial?: boolean; duplicateRows?: number; changedRows?: number }
+        expect(result.list).toHaveLength(199)
+        expect(result.list.filter((r) => r.source === null)).toHaveLength(2)
+        expect(result.duplicateRows).toBe(1)
+        expect(result.changedRows).toBeUndefined()
+        expect(result.partial).toBe(true)
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
+    })
+
     // Page 1 ends with id "a" as v1; page 2 opens with the two rows given.
     const secondPageOpens = (first: string, second: string) =>
       requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
