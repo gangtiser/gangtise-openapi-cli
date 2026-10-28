@@ -306,6 +306,7 @@ const NO_RESPONSE_SCHEMA_ROW: Record<string, string> = {
   "ai viewpoint-debate-check": "the async-task pattern at the top of the file",
   "tool file-parse-check": "the download pattern at the top of the file",
   "ai knowledge-resource-download": "the download pattern at the top of the file",
+  "update": "installs the CLI itself; prints progress, not data",
 }
 
 /** Whether a first-column cell of response-schema.md covers a leaf command. The file
@@ -348,7 +349,9 @@ describe("CLI surface", () => {
   describe.concurrent("invocations", () => {
     for (const node of LEAVES) {
       const label = node.path.join(" ")
-      if (label === "raw call") continue
+      // `update` asks the real npm registry and runs `npm install -g`; its wiring is covered
+      // with both stood in (updateCommand.test.ts).
+      if (label === "raw call" || label === "update") continue
       it(`bare: ${label}`, async ({ expect }) => {
         expect(await invoke(node.path)).toMatchSnapshot()
       }, 60_000)

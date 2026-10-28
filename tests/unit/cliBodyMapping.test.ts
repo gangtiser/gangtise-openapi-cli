@@ -146,6 +146,32 @@ beforeAll(async () => {
         res.end(page(3000, (i) => ({ performanceReportId: String(i), title: "t" })))
         return
       }
+      // ETF components answer names only (2026-10-27): an A+H pair under one name (the H row
+      // first) and a cash line, plus the search and quote answers the CLI matches them with.
+      if ((req.url ?? "").includes("/fund/etf-pcf-components")) {
+        res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { list: [
+          { fundCode: "517180.SH", serialNumber: 1, componentName: "中国移动", close: 77.3 },
+          { fundCode: "517180.SH", serialNumber: 2, componentName: "中国移动", close: 101.3 },
+          { fundCode: "517180.SH", serialNumber: 3, componentName: "申赎现金", close: null },
+        ] } }))
+        return
+      }
+      if ((req.url ?? "").includes("/sectors/constituents") && ["1000000002", "1000002615", "1000002618"].includes(String((body as { sectorId?: string } | undefined)?.sectorId))) {
+        const list = { "1000000002": [{ gtsCode: "600941.SH", gtsName: "中国移动" }], "1000002615": [{ gtsCode: "00941.HK", gtsName: "中国移动" }], "1000002618": [{ gtsCode: "TRI.O", gtsName: "Thomson Reuters" }] }[(body as { sectorId: "1000000002" }).sectorId]
+        res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { total: list.length, list } }))
+        return
+      }
+      if ((req.url ?? "").includes("/securities/search") && /中国移动|申赎现金/.test(String((body as { keyword?: string } | undefined)?.keyword))) {
+        const list = (body as { keyword: string }).keyword === "中国移动"
+          ? [{ gtsCode: "600941.SH", gtsName: "中国移动", category: "stock" }, { gtsCode: "00941.HK", gtsName: "中国移动", category: "stock" }]
+          : []
+        res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { returnedCount: list.length, list } }))
+        return
+      }
+      if ((req.url ?? "").includes("/quote/realtime") && (body as { securityList?: string[] } | undefined)?.securityList?.includes("00941.HK")) {
+        res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { total: 2, fieldList: ["securityCode", "preClose", "latestPrice"], list: [["600941.SH", 101.3, 100.7], ["00941.HK", 77.3, 78.1]] } }))
+        return
+      }
       if ((req.url ?? "").includes("/quote/realtime")) {
         const requested = (body as { securityList?: string[]; fieldList?: string[] } | undefined)
         if (requested?.fieldList?.includes("close")) {
@@ -1087,7 +1113,9 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     const byCode = ["basic-info", "nav", "fee-rate", "manager-history", "asset-size", "holder-structure", "top10-holders", "asset-allocation", "stock-portfolio", "industry-allocation", "bond-portfolio", "bond-type-allocation", "fund-portfolio", "fund-type-allocation", "etf-pcf-header", "etf-pcf-components", "etf-share-change"]
     for (const name of byCode) {
       captured.length = 0
-      expect((await cli(["fund", name, "--security", "005827.OF,159967.SZ", "--format", "json"])).code, name).toBe(0)
+      // etf-pcf-components also looks up each component name; those requests have their own test.
+      const extra = name === "etf-pcf-components" ? ["--no-component-code"] : []
+      expect((await cli(["fund", name, "--security", "005827.OF,159967.SZ", ...extra, "--format", "json"])).code, name).toBe(0)
       const tail = name === "nav" ? "/application/open-quote/fund/nav" : `/application/open-fundamental/fund/${name}`
       expect(captured.map((r) => [r.path, r.body]), name).toEqual([[tail, { fundCodeList: ["005827.OF", "159967.SZ"] }]])
     }
@@ -1157,6 +1185,34 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect((await cli(["bond", "announcement"])).code).not.toBe(0)
     expect((await cli(["bond", "cash-flow"])).code).not.toBe(0)
     expect(captured).toHaveLength(0)
+  }, 30_000)
+
+  it("fund etf-pcf-components fills componentCode from each name, telling an A+H pair apart by price; --no-component-code sends the one request", async () => {
+    const filled = await cli(["fund", "etf-pcf-components", "--security", "517180.SH", "--format", "json"])
+    expect(filled.code).toBe(0)
+    // Same shape as without the matching: fund answers print as a bare row array.
+    const rows = JSON.parse(filled.stdout) as Array<Record<string, unknown>>
+    expect(rows.map((r) => [r.serialNumber, r.componentName, r.componentCode])).toEqual([[1, "中国移动", "00941.HK"], [2, "中国移动", "600941.SH"], [3, "申赎现金", null]])
+    expect(Object.keys(rows[0]).indexOf("componentCode")).toBe(Object.keys(rows[0]).indexOf("serialNumber") + 1)
+    expect(filled.stderr).toContain("componentCode is the CLI's match for each name")
+    expect(filled.stderr).toContain("2 of 3 rows. Left null (cash lines, commodities, names without a confident match): 517180.SH 申赎现金")
+    // The three market lists once; only the name they do not carry is searched.
+    expect(captured.map((c) => [c.path, c.body]).sort()).toEqual([
+      ["/application/open-fundamental/fund/etf-pcf-components", { fundCodeList: ["517180.SH"] }],
+      ["/application/open-quote/quote/realtime", { securityList: ["600941.SH", "00941.HK"] }],
+      ["/application/open-reference/sectors/constituents", { sectorId: "1000000002" }],
+      ["/application/open-reference/sectors/constituents", { sectorId: "1000002615" }],
+      ["/application/open-reference/sectors/constituents", { sectorId: "1000002618" }],
+      ["/application/open-reference/securities/search", { keyword: "申赎现金", top: 10 }],
+    ])
+
+    captured.length = 0
+    const raw = await cli(["fund", "etf-pcf-components", "--security", "517180.SH", "--no-component-code", "--format", "json"])
+    expect(raw.code).toBe(0)
+    expect(captured.map((c) => c.path)).toEqual(["/application/open-fundamental/fund/etf-pcf-components"])
+    expect(captured[0].body).toEqual({ fundCodeList: ["517180.SH"] })
+    expect((JSON.parse(raw.stdout) as Array<Record<string, unknown>>)[0]).not.toHaveProperty("componentCode")
+    expect(raw.stderr).not.toContain("componentCode")
   }, 30_000)
 
   it("bond default-list sends exactly one selector, and refuses none, two, half a range or two issuers before any request", async () => {

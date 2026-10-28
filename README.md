@@ -6,6 +6,8 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **v0.49.0 — 2026-10-28**：① **新增 `gangtise update`**：一条命令更新到最新版（从 npmjs.org `npm install -g`），并替换 `~/.claude` / `~/.codex` / `~/.openclaw/workspace` / `~/.hermes` 下版本较旧的 Agent Skill 副本；`--check` 只查不装，`--no-skill` 不动 skill 副本。② **新版本提示**：在终端里运行任何命令时，若已有新版本，结束后 stderr 提示一行（同一新版本约一天一次）；版本信息在后台刷新、命令不等网络，脚本 / Agent / CI 中不提示，`GANGTISE_NO_UPDATE_CHECK=1` 关闭。③ **管理层情绪的 `publishTime` 现为北京时间**，与 `--start-time` / `--end-time` 同一口径；按 v0.48.0 说明「先加 8 小时」处理过的脚本要去掉这一步。④ **路演 / 调研 / 策略会 / 论坛列表的翻页去重改按各自的 ID**（`roadshowId` / `siteVisitId` / `strategyMeetingId` / `forumId`）：跨页重复的行会被去掉、结果标为不完整（退出码 3），提示缩短时间范围重拉；`response-schema.md` 同步更正这四个列表的字段名。⑤ **公募基金**：`fund holder-structure` 的 `holderCount` 现为整数，按 v0.44.0 说明「先去千分位逗号再转数字」的处理要去掉（对整数做字符串替换会报错）；`fund etf-pcf-components` 的接口只返回成分名称，CLI 按名称匹配补上 `componentCode`（带市场后缀，如 `600519.SH` / `00941.HK`；用该行收盘价核对，A+H 同名两行分别匹配；现金行等匹配不到的为 `null`，stderr 列出），`--no-component-code` 关闭。⑥ `ai security-clue` 的 `--query-mode` / `--gts-code` 补充帮助说明。
+
 - **v0.48.0 — 2026-10-24**：① **新增管理层情绪三个命令**：`ai management-sentiment-indicator`（每场业绩会的正面回应程度 / 回复乐观度 / 回复确定度评分与按问题类型拆分）、`ai management-sentiment-conclusion`（情绪结论与较上一场的问答对照），各 5 积分/条、自动翻页；`ai management-sentiment-detail` 按列表返回的 `source.sourceId` 取逐条问答评分与依据，10 积分/次。⚠️ 返回的 `publishTime` 比北京时间早 8 小时（时间筛选按北京时间），按时刻展示或按日期归档前先加 8 小时。② **新增 `bond default-list` 违约债券**（0.4 积分/次）：按违约日期区间（不超过 1 年）/ `--security` / `--issuer` 三选一；`--issuer` 一次一个、用发行人全称，简称只返回最匹配的一家主体，核对 `issuerName`。③ 文档：EDE 基金指标（分类、复权净值、区间收益与风险指标、同类排名），区间指标的参数须显式传。④ 依赖 `undici` 升级到 7.30.1（含上游安全修复）。
 
 - **v0.47.0 — 2026-10-17**：① **`insight opinion list` 新增 `--category`（观点类别：业绩点评 / 异动点评 / 调研访谈更新 / 交易台 / 行业分析）与 `--broker-tag`（头部券商 / 新财富团队）**，返回行带 `categoryList` / `brokerTagList`。② **`--llm-tag` 改为 28 项投研业务标签**（强烈推荐、超预期、涨价、龙头等，取值见 `--help`）；⚠️ **存量脚本要改**：业绩点评、头部券商、新财富团队改用 `--category earningsReview` / `--broker-tag topBroker` / `--broker-tag newFortune`，传给 `--llm-tag` 报 `100005`。同一选项传多个值取并集。③ `--with-content` 不支持 `--category` / `--broker-tag`（本地报错、不发请求），其 `--llm-tag` 仍只收旧的四个值；要按新标签筛又要正文，用 `list` + `detail`。④ **`bond daily-quote` / `bond valuation` 首行比起始日晚超过 14 天时 stderr 提示**（上市较晚或数据起点较晚；多只同查只看整批最早的首行，逐只起点按 `securityCode` 核对）。⑤ 文档：股东结构类 EDE 指标（`shr_*`），大股东系列须传 `rank`、户均持股系列须传 `shareType`。
@@ -14,10 +16,9 @@ README 仅列最近 5 个版本摘要：
 
 - **v0.45.0 — 2026-10-07**：① **`vault drive-copy` 可复制整个文件夹**：`--folder-id` + `--target-parent-id`，连同子文件夹与文件复制到另一空间，返回 `{folderId, newFolderId}`；复制文件的写法不变，两组参数二选一。② **下载文件名**：响应同时给出 UTF-8 文件名与普通文件名时用 UTF-8 的那个。③ `GANGTISE_BASE_URL` 指向非本机地址却用 `http://` 时 stderr 提示一次（凭证会明文传输）。④ 文档：`bond daily-quote` / `bond valuation` 的数据可能比账号窗口短，**按年份取长序列时核对首行日期**；`bond announcement` 按日期查询时有代码的行都带后缀；基金只知道名称时怎么换代码；分钟 K 的可查历史是滚动的短窗口。
 
-- **v0.44.0 — 2026-09-30**：**新增 `fund` 公募基金 18 个命令，一律 0.4 积分/次**（按次，与返回行数、基金只数无关）：`basic-info` / `nav`（日频净值）/ `fee-rate` / `manager-info`（按姓名精确匹配，同名全返回）/ `manager-history` / `asset-size` / `holder-structure` / `top10-holders` / `asset-allocation` / `stock-portfolio` / `industry-allocation` / `bond-portfolio` / `bond-type-allocation` / `fund-portfolio` / `fund-type-allocation` / `etf-pcf-header` / `etf-pcf-components` / `etf-share-change`。`--security` 用带大写后缀的基金代码（场外 `.OF`，场内 `.SH` / `.SZ`），**代码不存在、不带后缀或后缀小写都返回空结果、不报错**。不分页：单次上限 10000 行，超出整批报 `100006`；日期两端都不传取账号可回溯窗口内的全部，起点早于窗口整批报 `110003`。**整族超时 / 5xx 不自动重发**（避免重复扣费）。取数前注意：各命令单位不同（元 / 万元 / 万份 / 万股）；`holder-structure` 的 `holderCount` 是带千分位的字符串；持仓明细只返回证券简称、不返回代码；`fund-type-allocation` 季报期只含重仓基金。逐条见 `gangtise-openapi/references/commands/fund.md`。**另有几处行为变化**：只收一个值的参数重复传直接报错；代码类列表也按顿号 / 分号 / 空格分隔并去重；显式 `--size` 与 `fundamental earning-forecast` 的日期区间估算超过 1000 积分同样要 `--yes`；jsonl / csv 文件一律以换行结尾，csv 不再给 `-3.5%` 这类值加 `'`；全市场分片早于账号窗口的部分跳过而不中止；接口返回下载链接时不带 `--output` 也会下载；A 股公告与 `ai knowledge-batch` 只写日期的 `--end-time` 按当日 23:59:59 换算；`--indicator-param` 里的日期值与 `--date` 同样校验；单次请求另有总时长上限（`GANGTISE_TIMEOUT_MS` 的 2 倍，下载与上传 60 倍）；环境变量设成空字符串按未设置处理。完整列表见 CHANGELOG。
-
 ### 历史里程碑
 
+- **v0.44.0**：新增公募基金 `fund` 命令组 18 个命令（0.4 积分/次），额度保护覆盖显式 `--size`。
 - **v0.43.0**：按条计费列表的额度保护（省略 `--size` 时估算超过 1000 积分须 `--yes`）；翻页结果的跨页重复、版本变化与 `total` 封顶检测。
 - **v0.42.0**：数值参数只收十进制写法（`0x10` / `1e3` 这类写法发请求前报错）；接管道时保留退出码 `3` / `4`。
 - **v0.41.0**：新增债券 12 个命令与云盘管理 9 个命令；观点列表改走 v2（列表只含摘要 1 积分/条，正文按 ID 另取）；新增会议线索与联网搜索。
@@ -48,13 +49,17 @@ npm install -g gangtise-openapi-cli
 gangtise --help
 ```
 
-更新到最新版（在终端里运行 `gangtise --version` 会与线上版本比对并提示，比对结果一天内复用）：
+更新到最新版：
 
 ```bash
-npm update -g gangtise-openapi-cli
+gangtise update            # 从 npmjs.org 安装最新版（npm install -g），并更新已安装的 Agent Skill 副本
+gangtise update --check    # 只查看有没有新版本，不安装
 ```
 
-> 更新后若使用 Agent Skill：包内 skill 已随包更新，但复制到 `~/.claude/skills/` 等目录的副本是快照，**需重新执行下方「安装」段的复制命令**才能让 AI 助手拿到新版 skill。
+- `update` 命令从 v0.49.0 起提供，更早的版本先运行一次 `npm install -g gangtise-openapi-cli@latest`
+- `gangtise update` 只更新通过 `npm install -g` 安装的 CLI；从仓库 clone 运行的，按原方式 `git pull` 后重新构建。npm 报权限错误（`EACCES`）时，按提示用 `sudo npm install -g …` 安装后，再运行一次 `gangtise update` 更新 Agent Skill 副本
+- Agent Skill：`~/.claude/skills/`、`~/.codex/skills/`、`~/.openclaw/workspace/skills/`、`~/.hermes/skills/` 下版本低于新版的 `gangtise-openapi` 副本会被替换（**对副本做过的本地修改会被覆盖**）；版本相同或更新的副本、符号链接、以及其他目录下的副本不动。加 `--no-skill` 则不碰 skill 副本
+- 在终端里运行任何命令时，若已有新版本，命令结束后 stderr 提示一行（同一个新版本大约一天提示一次）。版本信息在后台刷新，命令本身不等待网络；输出不是终端时（脚本、Agent、CI）不提示。设 `GANGTISE_NO_UPDATE_CHECK=1` 可关闭提示与后台查询
 
 本地开发：
 
@@ -80,6 +85,7 @@ export GANGTISE_PAGE_CONCURRENCY=5     # 翻页/分片并发数（默认 5，上
 export GANGTISE_VERBOSE=1              # 打印每个请求的耗时与字节数
 export GANGTISE_TIMEOUT_MS=30000       # 请求超时，整数毫秒（默认 30s；上限 1 小时；低于 1 秒或写法非法时用默认值；未按所写数值生效时在 stderr 提示）。按「多久没收到数据」计时，另有单次请求总时长上限：普通请求为它的 2 倍，下载与上传为 60 倍。one-pager 等生成类命令至少 120 秒、上传类至少 300 秒，设得更短不生效
 export GANGTISE_TOKEN_CACHE_PATH=...   # 覆盖 token 缓存路径（默认 ~/.config/gangtise/token.json）
+export GANGTISE_NO_UPDATE_CHECK=1      # 关闭新版本提示与后台版本查询
 ```
 
 环境变量设成空字符串（如 `GANGTISE_BASE_URL=`）按未设置处理，取默认值。`GANGTISE_BASE_URL` 指向非本机地址却用 `http://` 时，CLI 在 stderr 提示一次：登录与请求里的 AK / SK / token 会明文传输。
@@ -137,7 +143,7 @@ install_skill ~/.hermes/skills               # Hermes
 
 > 从仓库 clone 开发时，把 `$SKILL_SRC` 换成仓库内 `gangtise-openapi` 目录的绝对路径即可。
 
-> **版本更新**：`SKILL.md` 头部的 `version` 字段与 CLI 版本一致。`npm update -g gangtise-openapi-cli` 之后重新执行上面这段，再看已安装副本的 `version` 是否与 `gangtise --version` 相同。对已安装副本做过的本地修改会被覆盖。
+> **版本更新**：`SKILL.md` 头部的 `version` 字段与 CLI 版本一致。`gangtise update` 会一并替换上面四个目录里版本较旧的副本；装在其他目录的副本，更新 CLI 后重新执行上面这段，再看已安装副本的 `version` 是否与 `gangtise --version` 相同。对已安装副本做过的本地修改会被覆盖。
 
 安装后，可以用自然语言触发，例如：
 - "帮我查今天所有的研报"
@@ -272,6 +278,7 @@ install_skill ~/.hermes/skills               # Hermes
 - `gangtise reference ...`
 - `gangtise tool ...`
 - `gangtise raw call ...` / `gangtise raw list`
+- `gangtise update`（更新 CLI 与 Agent Skill 副本）
 
 ## 推荐工作流
 
@@ -735,7 +742,7 @@ gangtise fund etf-share-change --security 510300.SH --start-date 2026-09-01 --en
 
 > **基金命令一律按次计费 0.4 积分**（与返回行数、基金只数无关，多只基金合并成一次调用最省），超时 / 5xx 不自动重放。不分页：单次上限 10000 行，超出整批报 `100006`，减少只数或缩短区间分批查。**代码不存在、不带后缀或后缀小写都返回空结果、不报错**——拿到空先核对代码。日期两端都不传 = 取账号可回溯窗口内的全部；起点早于窗口整批报 `110003`。
 
-> **取数前注意**：各命令单位不同（`nav` / `asset-allocation` 为元，`asset-size` 为万份 / 万元，持仓明细为万股 / 万张 / 万元）；`holder-structure` 的 `holderCount` 是带千分位的字符串；持仓明细只返回证券简称、不返回代码；`fund-type-allocation` 季报期只含重仓基金（`positionType: top`），中报 / 年报为全部持基（`all`）。逐条见 `gangtise-openapi/references/commands/fund.md`。
+> **取数前注意**：各命令单位不同（`nav` / `asset-allocation` 为元，`asset-size` 为万份 / 万元，持仓明细为万股 / 万张 / 万元）；持仓明细只返回证券简称、不返回代码；ETF 申赎成分的 `componentCode` 由 CLI 按名称匹配补上（匹配不到为 `null`，`--no-component-code` 关闭）；`fund-type-allocation` 季报期只含重仓基金（`positionType: top`），中报 / 年报为全部持基（`all`）。逐条见 `gangtise-openapi/references/commands/fund.md`。
 
 ### AI
 
@@ -762,7 +769,7 @@ gangtise ai management-discuss-announcement --report-date 2025-12-31 --security-
 gangtise ai management-discuss-announcement --report-date 2025-12-31 --security-code 000001.SZ --dimension all
 # 管理层讨论-业绩会
 gangtise ai management-discuss-earnings-call --report-date 2025-06-30 --security-code 000001.SZ --dimension financialPerformance
-# 管理层情绪：指标与结论按条计费（5 积分/条），记得带 --size；返回的 publishTime 比北京时间早 8 小时
+# 管理层情绪：指标与结论按条计费（5 积分/条），记得带 --size；publishTime 与时间筛选都是北京时间
 gangtise ai management-sentiment-indicator --security 300285.SZ --size 5
 gangtise ai management-sentiment-conclusion --security 300285.SZ --start-time 2026-08-01 --end-time 2026-08-31 --size 5
 # 逐条问答的评分与依据：--source-id 取上面返回的 source.sourceId（10 积分/次）

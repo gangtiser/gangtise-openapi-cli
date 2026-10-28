@@ -47,7 +47,7 @@ function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[]
   const parts: string[] = []
   if (indicators.length > 0) parts.push(`indicators ${indicators.join(", ")}`)
   if (securities.length > 0) parts.push(`securities ${securities.join(", ")}`)
-  process.stderr.write(`[gangtise] warning: the response omits ${parts.join(" and ")} entirely — no row/column at all, not a null one. A code the server merely has no data for still comes back as null, so this normally means the code itself was not recognised: check it for typos and, for securities, for the wrong market suffix (US tickers are .O/.N, not .US). Result marked partial (exit 3).\n`)
+  process.stderr.write(`[gangtise] warning: the response omits ${parts.join(" and ")} entirely — no row/column at all, not a null one. A code the server merely has no data for still comes back as null, so this normally means the code itself was not recognised: check it for typos and, for securities, for the wrong market suffix (US tickers are .O/.N/.A, not .US). Result marked partial (exit 3).\n`)
 }
 
 /** `--indicator` / `--security` are repeatable, so Commander cannot mark them

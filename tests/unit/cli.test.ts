@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process"
+import { existsSync } from "node:fs"
 import fsp from "node:fs/promises"
 import http from "node:http"
 import type { AddressInfo } from "node:net"
@@ -676,4 +677,50 @@ describe("startup cost", () => {
     expect(code).toBe(0)
     expect(out).toBe(`${pkg.version}\n`)
   }, 30_000)
+})
+
+describe("new-version notice", () => {
+  // The notice is for a person at a terminal, so only a pseudo-terminal can show it: `script`
+  // provides one (BSD syntax on macOS, util-linux on Linux). Skipped where it is missing.
+  const scriptAvailable = process.platform !== "win32" && (process.env.PATH ?? "").split(path.delimiter).some((dir) => existsSync(path.join(dir, "script")))
+  const quote = (arg: string) => `'${arg.replace(/'/g, "'\\''")}'`
+
+  async function atTerminal(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+    const command = [process.execPath, CLI, ...args]
+    const scriptArgs = process.platform === "darwin" ? ["-q", "/dev/null", ...command] : ["-qec", command.map(quote).join(" "), "/dev/null"]
+    // stdin from /dev/null: `script` sets up the terminal from its own stdin, and a pipe
+    // (what execFile gives it) is refused.
+    const child = spawn("script", scriptArgs, { stdio: ["ignore", "pipe", "pipe"], timeout: 25_000, env: { ...process.env, ...env } })
+    let out = ""
+    child.stdout.on("data", (chunk: Buffer) => { out += chunk.toString("utf8") })
+    child.stderr.on("data", (chunk: Buffer) => { out += chunk.toString("utf8") })
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve))
+    expect(code, out).toBe(0)
+    return out
+  }
+
+  async function homeKnowing(latest: string): Promise<string> {
+    const home = await fsp.mkdtemp(path.join(os.tmpdir(), "gangtise-notice-"))
+    await fsp.mkdir(path.join(home, ".config", "gangtise"), { recursive: true })
+    // Kept just now, so no background refresh starts and nothing reaches the registry.
+    await fsp.writeFile(path.join(home, ".config", "gangtise", "update-check.json"), JSON.stringify({ checkedAt: Date.now(), latest }))
+    return home
+  }
+
+  // A bundled table: a real command that needs neither credentials nor the network.
+  const LOCAL = ["lookup", "broker-org", "list", "--format", "json"]
+
+  it.skipIf(!scriptAvailable)("tells a person at a terminal once, and is silent with GANGTISE_NO_UPDATE_CHECK or off a terminal", async () => {
+    const home = await homeKnowing("999.0.0")
+    try {
+      // CI is cleared: the runner sets it, and the notice stays quiet under CI by design.
+      const env = { HOME: home, CI: "", GANGTISE_NO_UPDATE_CHECK: "" }
+      expect(await atTerminal(LOCAL, { ...env, GANGTISE_NO_UPDATE_CHECK: "1" })).not.toContain("Update available")
+      expect((await run(process.execPath, [CLI, ...LOCAL], { env: { ...process.env, ...env } })).stderr).not.toContain("Update available")
+      expect(await atTerminal(LOCAL, env)).toContain("Update available: ")
+      expect(await atTerminal(LOCAL, env)).not.toContain("Update available")
+    } finally {
+      await fsp.rm(home, { recursive: true, force: true })
+    }
+  }, 60_000)
 })

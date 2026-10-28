@@ -186,7 +186,7 @@ gangtise ai management-sentiment-detail     --source-id <id> [--source-type <typ
 - `--security`：可重复，只收具体代码（`aShares` 这类市场关键词报 `120001`），任一代码非法整批报 `120001`。**不传 = 全部证券**——按条计费，省略 `--size` 时 CLI 先取 1 条拿到总数估算，超过 1000 积分报错退出，确认后加 `--yes`
 - `--start-time` / `--end-time`：按发布时间筛，写 `yyyy-MM-dd`、`yyyy-MM-dd HH:mm:ss` 或 10 / 13 位时间戳——**写日期时间就要带秒**（`HH:mm` 报 `110001`）；只写日期的 `--end-time` 含当天整天
 - `--from` / `--size`：自动翻页（单页 100）；省略 `--size` 拉全量
-- 🔴 **返回的 `publishTime`（含 `conclusion` 里的 `previousSource.publishTime`）比北京时间早 8 小时**：北京时间 20:30 开的业绩会返回 `12:30:00`。`--start-time` / `--end-time` 按北京时间筛（`--start-time "2026-10-23 20:00:00"` 取得到这一场）。展示时刻、与纪要 / 路演按时间对齐、按日期归档前先加 8 小时——否则北京时间 0–8 点开的会会落到前一天
+- `publishTime`（含 `conclusion` 里的 `previousSource.publishTime`）是北京时间，与 `--start-time` / `--end-time` 的筛选同一口径（北京时间 20:30 开的业绩会返回 `20:30:00`，`--start-time "2026-10-23 20:00:00"` 取得到这一场）
 
 **`indicator`**：整场评分 `sentimentResponsiveness` / `sentimentPolarity` / `sentimentConviction`（0–5，两位小数）、有效问答数 `qaCount`、回避 / 风险 / 低确定度三个占比 `qaEvasionRatio` / `qaRiskRatio` / `qaUncertaintyRatio`（**百分数**：`7.14` 即 7.14%，分母是 `qaCount`），以及按问题类型拆分的 `questionCategoryList`。
 

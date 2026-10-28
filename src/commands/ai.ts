@@ -77,8 +77,8 @@ query(ai, "security-clue", {
     from(), size(),
     field(new Option("--start-time <datetime>", "Start time").argParser(datetimeArg("--start-time")).makeOptionMandatory(), (v) => ({ startTime: v })),
     field(new Option("--end-time <datetime>", "End time").argParser(datetimeArg("--end-time")).makeOptionMandatory(), (v) => ({ endTime: v })),
-    field(new Option("--query-mode <mode>").choices(["bySecurity", "byIndustry"]).makeOptionMandatory(), (v) => ({ queryMode: v })),
-    list("--gts-code <code>", "GTS code", "gtsCodeList"),
+    field(new Option("--query-mode <mode>", "bySecurity: --gts-code takes stock codes; byIndustry: Shenwan industry codes").choices(["bySecurity", "byIndustry"]).makeOptionMandatory(), (v) => ({ queryMode: v })),
+    list("--gts-code <code>", "Stock code (e.g. 600519.SH) or Shenwan industry code (e.g. 821035.SWI), per --query-mode; repeatable", "gtsCodeList"),
     // Checked locally: an unknown value is not refused but ignored — the answer is the
     // unfiltered set (probed 2026-09-25: no source and "bogusSource" both total 8,
     // "announcement" 0), so a misspelling reads as an ordinary, fully billed answer.

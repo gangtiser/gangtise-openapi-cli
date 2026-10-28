@@ -5,20 +5,23 @@ import { ACCUMULATING_PARSERS, unknownChoiceMessage } from "./core/args.js"
 import { ApiError, ValidationError } from "./core/errors.js"
 import { removeStagingFiles } from "./core/output.js"
 import { isVerbose, setVerbose } from "./core/transport.js"
-import { checkForUpdate } from "./core/updateCheck.js"
+import { checkForUpdate, noticeUpdate } from "./core/updateCheck.js"
 import { CLI_VERSION } from "./version.js"
 import { COMMAND_GROUPS } from "./commands/groups.js"
 import { decidedExitCode, markFailed } from "./core/exitStatus.js"
 
 const program = new Command()
+/** The command whose action ran, once one has. */
+let ranCommand: Command | undefined
 
 program
   .name("gangtise")
   .description("Gangtise OpenAPI CLI")
   .version(CLI_VERSION)
   .option("--verbose", "Print per-request timings to stderr (also: GANGTISE_VERBOSE=1)")
-  .hook("preAction", (thisCommand) => {
+  .hook("preAction", (thisCommand, actionCommand) => {
     if (thisCommand.opts().verbose) setVerbose(true)
+    ranCommand = actionCommand
   })
 
 // Registration order is the order `gangtise --help` lists the groups in.
@@ -168,7 +171,7 @@ async function main() {
     // day (updateCheck.ts). The check is bounded as a whole,
     // then the process leaves — an aborted fetch could otherwise keep a socket or a DNS lookup
     // holding it open past the fetch's own timeout.
-    if (process.stdout.isTTY) {
+    if (process.stdout.isTTY && !process.env.GANGTISE_NO_UPDATE_CHECK) {
       await Promise.race([checkForUpdate(CLI_VERSION), new Promise((resolve) => setTimeout(resolve, 2500))])
       process.exit(0)
     }
@@ -193,6 +196,11 @@ async function main() {
     }
     process.stderr.write("Unknown error\n")
     markFailed()
+  } finally {
+    // A person at a terminal hears about a newer version; scripts, agents and CI (stderr not a
+    // terminal) never do. Reads a kept answer only — the command does not wait on the network.
+    // Not after `update` itself, whose own output says it.
+    if (process.stderr.isTTY && !process.env.CI && !process.env.GANGTISE_NO_UPDATE_CHECK && ranCommand?.name() !== "update") noticeUpdate(CLI_VERSION)
   }
 }
 

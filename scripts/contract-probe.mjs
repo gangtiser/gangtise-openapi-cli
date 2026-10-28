@@ -113,15 +113,27 @@ const probes = {
   "insight.foreign-opinion.list": () => ({ columns: columns(rows(cli(["insight", "foreign-opinion", "list", "--size", "1"]))) }),
   "insight.highlight.list": () => ({ columns: columns(rows(cli(["insight", "highlight", "list", "--size", "1"]))) }),
   "bond.basic-info": () => ({ columns: columns(rows(cli(["bond", "basic-info", "--security", "019742.SH"]))) }),
-  // 0.4 per call. A fixed past report date, so the rows exist on every run. The docs tell
-  // users to strip the thousands separators from holderCount; its type is recorded so a
-  // server that starts answering a number shows up here.
+  // 0.4 per call. A fixed past report date, so the rows exist on every run. holderCount's
+  // type is recorded: the docs say it is an integer, and it once came back as a string with
+  // thousands separators.
   "fund.basic-info": () => ({ columns: columns(rows(cli(["fund", "basic-info", "--security", "005827.OF"]))) }),
   "fund.holder-structure": () => {
     const list = rows(cli(["fund", "holder-structure", "--security", "005827.OF", "--start-date", "2026-06-30", "--end-date", "2026-06-30"]))
     return { columns: columns(list), holderCountType: typeof list[0]?.holderCount }
   },
   "fund.stock-portfolio": () => ({ columns: columns(rows(cli(["fund", "stock-portfolio", "--security", "005827.OF", "--start-date", "2026-06-30", "--end-date", "2026-06-30"]))) }),
+  // 0.4 per call; the latest list only (no date parameter). Columns only, as the API answers
+  // them (without the componentCode the CLI fills in): the docs say which fields a component
+  // row carries, and the code has already been dropped once.
+  "fund.etf-pcf-components": () => ({ columns: columns(rows(cli(["fund", "etf-pcf-components", "--security", "510300.SH", "--no-component-code"]))) }),
+  // Free. `fund etf-pcf-components` matches component names against these three whole-market
+  // sectors (全部A股 / 全部港股 / 全部美股), read by id. One renumbered or emptied makes the
+  // matching fall back to a search per name — still correct, much slower — so a change here
+  // is the cue to update the ids in etfComponents.ts. Counts move daily and are not recorded.
+  "reference.sector-constituents.markets": () => sortedObject(["1000000002", "1000002615", "1000002618"].map((id) => {
+    const list = rows(cli(["reference", "sector-constituents", "--sector-id", id]))
+    return [id, { columns: columns(list), listed: list.length > 0 }]
+  })),
   // Free. `quote index-day-kline` refuses `all` locally because this endpoint answers it
   // with an empty list. Sent through `raw call` (which has no such check) so a server that
   // starts answering it again shows up here as a change — the cue to lift the refusal.
@@ -131,7 +143,7 @@ const probes = {
 }
 /** Billed: the lists per row (each fetches one), bond / fund per call. Named here so the
  * cost is visible in one place. */
-const PAID_PROBES = ["insight.opinion.list", "insight.foreign-opinion.list", "insight.highlight.list", "bond.basic-info", "fund.basic-info", "fund.holder-structure", "fund.stock-portfolio"]
+const PAID_PROBES = ["insight.opinion.list", "insight.foreign-opinion.list", "insight.highlight.list", "bond.basic-info", "fund.basic-info", "fund.holder-structure", "fund.stock-portfolio", "fund.etf-pcf-components"]
 process.stderr.write(`contract probe: ${Object.keys(probes).length} probes, ${PAID_PROBES.length} of them paid\n`)
 
 const update = process.argv.includes("--update")

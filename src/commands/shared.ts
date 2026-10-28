@@ -387,6 +387,8 @@ export function query(parent: Command, name: string, spec: {
   endpoint: string | ((options: Record<string, unknown>) => string)
   fields: Field[]
   cache?: TitleCacheConfig
+  /** Reworks the answer before it is printed (a field the API no longer returns, say). */
+  shape?: (data: unknown, client: GangtiseClient, options: Record<string, unknown>) => Promise<unknown>
 }): Command {
   const command = parent.command(name)
   if (spec.description) command.description(spec.description)
@@ -401,6 +403,7 @@ export function query(parent: Command, name: string, spec: {
     // network, and the format check in emit() still runs before anything is fetched.
     const body = requestBody(fields, options)
     const endpoint = typeof spec.endpoint === "string" ? spec.endpoint : spec.endpoint(options)
-    return emit(options, (client) => client.call(endpoint, body), spec.cache)
+    const shape = spec.shape
+    return emit(options, shape ? async (client) => shape(await client.call(endpoint, body), client, options) : (client) => client.call(endpoint, body), spec.cache)
   })
 }

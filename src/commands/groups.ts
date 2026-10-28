@@ -10,9 +10,10 @@ import { quote } from "./quote.js"
 import { raw } from "./raw.js"
 import { reference } from "./reference.js"
 import { tool } from "./tool.js"
+import { update } from "./update.js"
 import { vault } from "./vault.js"
 
 /** Every command group, in the order `gangtise --help` lists them. The one list: cli.ts
  * registers these and the docs guards walk them, so a new group cannot reach one and not
  * the other. */
-export const COMMAND_GROUPS = [auth, lookup, insight, quote, fundamental, bond, fund, reference, vault, ai, alternative, indicator, tool, raw]
+export const COMMAND_GROUPS = [auth, lookup, insight, quote, fundamental, bond, fund, reference, vault, ai, alternative, indicator, tool, raw, update]

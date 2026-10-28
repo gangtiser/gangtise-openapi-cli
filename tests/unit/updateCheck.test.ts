@@ -2,9 +2,9 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
-import { latestVersion, UPDATE_CHECK_TTL_MS } from "../../src/core/updateCheck.js"
+import { latestVersion, noticeUpdate, REFRESH_RETRY_MS, UPDATE_CHECK_TTL_MS } from "../../src/core/updateCheck.js"
 
 describe("latestVersion", () => {
   let dir: string
@@ -62,5 +62,94 @@ describe("latestVersion", () => {
     await expect(fs.access(cachePath)).rejects.toThrow()
     registryAnswers("9.9.9")
     expect(await latestVersion(cachePath, 2000, 2_000)).toBe("9.9.9")
+  })
+
+  it("asks the registry even under a fresh kept answer when told to", async () => {
+    registryAnswers("9.9.9")
+    await latestVersion(cachePath, 2000, 1_000)
+    registryAnswers("10.0.0")
+    expect(await latestVersion(cachePath, 2000, 1_001, true)).toBe("10.0.0")
+    expect(JSON.parse(await fs.readFile(cachePath, "utf8"))).toEqual({ checkedAt: 1_001, latest: "10.0.0" })
+  })
+})
+
+describe("noticeUpdate", () => {
+  let dir: string
+  let cachePath: string
+  let errSpy: MockInstance<typeof process.stderr.write>
+  const refresh = vi.fn()
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-notice-"))
+    cachePath = path.join(dir, "update-check.json")
+    refresh.mockReset()
+    errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+  })
+
+  afterEach(async () => {
+    errSpy.mockRestore()
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  const keep = (answer: Record<string, unknown>) => fs.writeFile(cachePath, JSON.stringify(answer))
+  const printed = () => errSpy.mock.calls.map((call) => String(call[0])).join("")
+
+  it("mentions a newer kept version once, then stays quiet until a new answer is kept", async () => {
+    await keep({ checkedAt: 1_000, latest: "0.50.0" })
+    noticeUpdate("0.48.0", cachePath, 2_000, refresh)
+    expect(printed()).toBe("Update available: 0.48.0 → 0.50.0. Run: gangtise update\n")
+    noticeUpdate("0.48.0", cachePath, 3_000, refresh)
+    expect(errSpy).toHaveBeenCalledTimes(1)
+    expect(refresh).not.toHaveBeenCalled()
+    await keep({ checkedAt: 4_000, latest: "0.51.0" })
+    noticeUpdate("0.48.0", cachePath, 5_000, refresh)
+    expect(errSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it("says nothing when the kept version is not newer", async () => {
+    await keep({ checkedAt: 1_000, latest: "0.48.0" })
+    noticeUpdate("0.48.0", cachePath, 2_000, refresh)
+    await keep({ checkedAt: 1_000, latest: "0.47.0" })
+    noticeUpdate("0.48.0", cachePath, 2_000, refresh)
+    expect(errSpy).not.toHaveBeenCalled()
+  })
+
+  it("refreshes in the background when nothing is kept or the answer is a day old, and never asks the registry itself", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      noticeUpdate("0.48.0", cachePath, 1_000, refresh)
+      expect(refresh).toHaveBeenCalledWith(cachePath)
+      await keep({ checkedAt: 1_000, latest: "0.50.0" })
+      noticeUpdate("0.48.0", cachePath, 1_000 + UPDATE_CHECK_TTL_MS, refresh)
+      expect(refresh).toHaveBeenCalledTimes(2)
+      // A day-old answer is still worth mentioning while the refresh runs.
+      expect(printed()).toContain("0.50.0")
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("starts one background refresh an hour while the registry gives no answer", async () => {
+    noticeUpdate("0.48.0", cachePath, 1_000, refresh)
+    noticeUpdate("0.48.0", cachePath, 2_000, refresh)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    noticeUpdate("0.48.0", cachePath, 1_000 + REFRESH_RETRY_MS, refresh)
+    expect(refresh).toHaveBeenCalledTimes(2)
+    // A day-old answer: refreshed once an hour too, and still mentioned once.
+    await keep({ checkedAt: 1_000, latest: "0.50.0" })
+    const dayOld = 1_000 + UPDATE_CHECK_TTL_MS
+    noticeUpdate("0.48.0", cachePath, dayOld, refresh)
+    noticeUpdate("0.48.0", cachePath, dayOld + 1_000, refresh)
+    expect(refresh).toHaveBeenCalledTimes(3)
+    expect(errSpy).toHaveBeenCalledTimes(1)
+    noticeUpdate("0.48.0", cachePath, dayOld + REFRESH_RETRY_MS, refresh)
+    expect(refresh).toHaveBeenCalledTimes(4)
+  })
+
+  it("keeps nothing and starts nothing without a home directory", () => {
+    noticeUpdate("0.48.0", path.join(".config", "gangtise", "update-check.json"), 1_000, refresh)
+    expect(refresh).not.toHaveBeenCalled()
   })
 })

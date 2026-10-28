@@ -1,6 +1,6 @@
 ---
 name: gangtise-openapi
-version: "0.48.0"
+version: "0.49.0"
 description: |-
   通过 gangtise CLI 直接调用 Gangtise OpenAPI，拉取投研原始数据、批量导出、下载文件、调用 AI 能力。
 
@@ -10,7 +10,7 @@ description: |-
 
   **不适用**：不脱离 OpenAPI 自行撰写研报、编造投研结论或做自由问答——观点总结、多空 PK 等 AI 产物本 skill 只经由 Gangtise 平台 AI 接口获取，不自行生成
 
-  **前置**：依赖 gangtise CLI，未安装时提示用户 `npm install -g gangtise-openapi-cli`
+  **前置**：依赖 gangtise CLI，未安装时提示用户 `npm install -g gangtise-openapi-cli`；升级用 `gangtise update`
 ---
 
 # Gangtise OpenAPI CLI
@@ -252,7 +252,7 @@ vault.stock-pool.create
 | 热点话题 / 早午晚报 | `ai hot-topic` |
 | 管理层讨论（财报） | `ai management-discuss-announcement` |
 | 管理层讨论（业绩会） | `ai management-discuss-earnings-call` |
-| 管理层情绪 / 业绩会问答是否回避 · 乐观 · 确定 / 情绪较上一场的变化 | `ai management-sentiment-indicator`（三维评分，5/条）/ `ai management-sentiment-conclusion`（结论文本与较上一场的对比，5/条）；逐条问答与判断依据 → `ai management-sentiment-detail --source-id <source.sourceId>`（10/次）。⚠️ 返回的 `publishTime` 比北京时间早 8 小时，见 `ai.md` |
+| 管理层情绪 / 业绩会问答是否回避 · 乐观 · 确定 / 情绪较上一场的变化 | `ai management-sentiment-indicator`（三维评分，5/条）/ `ai management-sentiment-conclusion`（结论文本与较上一场的对比，5/条）；逐条问答与判断依据 → `ai management-sentiment-detail --source-id <source.sourceId>`（10/次） |
 | 日 K（历史，A 股 / 港股 / 美股 / 沪深 ETF / 各类指数含全球指数，可混查） | `quote day-kline` |
 | 沪深京指数日 K / 要指数名称 | `quote day-kline` 逐个传指数代码（**没有一次拿全部指数的写法**，`index-day-kline --security all` 会被 CLI 拒绝）；指数名称用 `reference securities-search --keyword <指数代码> --category index`（返回 `gtsName`） |
 | ~~港股 / 美股日 K~~ | ⚠️ 已弃用，用 `quote day-kline`（`day-kline-hk` / `day-kline-us` 仍可调但不校验代码） |
@@ -284,13 +284,13 @@ vault.stock-pool.create
 | 基金经理画像（按人名） | `fund manager-info --manager <姓名>`（精确匹配，同名全返回，用 `currentCompany` 区分） |
 | 某只基金的历任 / 现任经理 | `fund manager-history`（`endDate` 为 `null` = 现任） |
 | 基金规模 / 份额变动 / 申赎份额 | `fund asset-size`（报告期口径）；ETF 逐日份额与规模 → `fund etf-share-change` |
-| 基金持有人结构 / 机构占比 / 前十大持有人 | `fund holder-structure`（`holderCount` 是带千分位的字符串）、`fund top10-holders`（仅上市基金） |
+| 基金持有人结构 / 机构占比 / 前十大持有人 | `fund holder-structure`、`fund top10-holders`（仅上市基金） |
 | 基金资产配置 / 股票仓位 / 债券仓位 | `fund asset-allocation` |
 | 基金重仓股 / 全部持股 / 持仓明细 | `fund stock-portfolio`（`--position-type all` 仅中报、年报有；只返回股票简称、无代码） |
 | 基金行业配置 / 行业分布 | `fund industry-allocation`（申万 / 中信一级二选一） |
 | 基金持债 / 券种分布 | `fund bond-portfolio` / `fund bond-type-allocation` |
 | FOF 持有的基金 / 持有基金类型分布 | `fund fund-portfolio` / `fund fund-type-allocation` |
-| ETF 申购赎回清单 / 成分股 / 现金差额 | `fund etf-pcf-components` / `fund etf-pcf-header`（**只有最新一份清单**，无历史） |
+| ETF 申购赎回清单 / 成分股 / 现金差额 | `fund etf-pcf-components` / `fund etf-pcf-header`（**只有最新一份清单**，无历史；成分代码 `componentCode` 由 CLI 按名称匹配补上，现金行等匹配不到的为 `null`） |
 | 会议线索 / 会议要点 / 核心结论信息流 / 今天有什么会 | `insight highlight list`（🔴 **5 积分/条**，必须带 `--size`；`content` 是 HTML 片段） |
 | 联网搜索 / 查公开信息 / 政策原文 / 传闻核实 | `tool web-search`（1 积分/次；`--site` 定向站点、`--min-tier` 收信源、`--include-content` 取正文〔此时 `--size` ≤5〕） |
 | 云盘文件 | `vault drive-list / drive-download` |
@@ -430,7 +430,7 @@ gangtise reference securities-search --keyword <公司名> --category stock --to
 | `0000001008` / `999002` | token 失效 | CLI 自动换 token（必要时重新登录）后重发，无 AK/SK 时提示重新登录 |
 | `100006` | 查询/下载数量超限 | 缩短日期范围或调小 `--size`/`--limit`；`fund` 没有这两个参数，减少 `--security` 只数或缩短区间 |
 
-其他场景：CLI 未安装 → `npm install -g gangtise-openapi-cli`；空结果 → 扩大时间范围 / 换关键词 / 去掉部分筛选；模糊公司名匹配多只 → 列出让用户选；下载路径冲突 → 询问覆盖。
+其他场景：CLI 未安装 → `npm install -g gangtise-openapi-cli`；命令或选项报不存在、`gangtise --version` 低于本文件头部的 `version` → 跑 `gangtise update --check`，有新版就请用户运行 `gangtise update`（会一并更新本 skill 的副本）；报 `update` 命令不存在（0.49.0 之前的版本）则请用户运行 `npm install -g gangtise-openapi-cli@latest`。别自行安装；空结果 → 扩大时间范围 / 换关键词 / 去掉部分筛选；模糊公司名匹配多只 → 列出让用户选；下载路径冲突 → 询问覆盖。
 
 ## 详细参数
 

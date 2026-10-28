@@ -631,14 +631,14 @@ describe("GangtiseClient pagination", () => {
     })
 
     it("counts no changed row on a list whose id field is not verified", async () => {
-      // insight.roadshow.list declares `id` from the response description only: a pair of
+      // insight.roadshow.list's `roadshowId` is not verified to be unique: a pair of
       // records sharing it across a page boundary must not mark every run partial.
       requestMock.mockImplementation((_url: unknown, opts: { body?: string } | undefined) => {
         const body = JSON.parse(opts?.body ?? "{}") as { from?: number; size?: number }
         const from = body.from ?? 0
         const ids = Array.from({ length: Math.max(0, Math.min(body.size ?? 50, 100 - from)) }, (_, i) => from + i + 1)
-        const list: Array<Record<string, unknown>> = ids.map((i) => ({ id: String(i), title: `t${i}` }))
-        if (from === 50) list[0] = { id: "50", title: "another record under id 50" }
+        const list: Array<Record<string, unknown>> = ids.map((i) => ({ roadshowId: String(i), title: `t${i}` }))
+        if (from === 50) list[0] = { roadshowId: "50", title: "another record under id 50" }
         return Promise.resolve(jsonResponse({ total: 100, list }))
       })
       const client = createClient()
@@ -647,6 +647,27 @@ describe("GangtiseClient pagination", () => {
       expect(result.list).toHaveLength(100)
       expect(result.changedRows).toBeUndefined()
       expect(result.partial).toBeUndefined()
+    })
+
+    it("drops a page-boundary repeat on each schedule list by the id field its rows carry", async () => {
+      // The four schedule lists name their id after the list (roadshowId, …); a row has no
+      // `id`, and a row without the declared field is never compared.
+      const lists = [["insight.roadshow.list", "roadshowId"], ["insight.site-visit.list", "siteVisitId"], ["insight.strategy.list", "strategyMeetingId"], ["insight.forum.list", "forumId"]] as const
+      const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const previousExit = process.exitCode
+      try {
+        for (const [key, idField] of lists) {
+          boundaryRows(idField, (from) => from === 0 || from === 50 ? { [idField]: "a", title: "t" } : undefined)
+          const client = createClient()
+          client.allowCostlyFetch = true
+          const result = await client.call(key, { from: 0 }) as { list: Array<Record<string, unknown>>; duplicateRows?: number }
+          expect(result.list.filter((r) => r[idField] === "a"), key).toHaveLength(1)
+          expect(result.duplicateRows, key).toBe(1)
+        }
+      } finally {
+        process.exitCode = previousExit
+        errSpy.mockRestore()
+      }
     })
 
     it("leaves a list without a declared row id untouched", async () => {

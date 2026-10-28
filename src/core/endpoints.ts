@@ -275,7 +275,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     description: "List roadshows",
     billing: { per: "row", price: 10 },
     pagination: { enabled: true, maxPageSize: 50 },
-    rowId: "id",
+    rowId: "roadshowId",
     rowIdUnverified: true,
   },
   "insight.site-visit.list": {
@@ -285,7 +285,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     description: "List site visits",
     billing: { per: "row", price: 10 },
     pagination: { enabled: true, maxPageSize: 50 },
-    rowId: "id",
+    rowId: "siteVisitId",
     rowIdUnverified: true,
   },
   "insight.strategy.list": {
@@ -295,7 +295,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     description: "List strategy meetings",
     billing: { per: "row", price: 10 },
     pagination: { enabled: true, maxPageSize: 50 },
-    rowId: "id",
+    rowId: "strategyMeetingId",
     rowIdUnverified: true,
   },
   "insight.forum.list": {
@@ -305,7 +305,7 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     description: "List forums",
     billing: { per: "row", price: 10 },
     pagination: { enabled: true, maxPageSize: 50 },
-    rowId: "id",
+    rowId: "forumId",
     rowIdUnverified: true,
   },
   "insight.performance-calendar.list": {

@@ -34,7 +34,7 @@ gangtise indicator search --keyword <text> [--limit <n>]
 - **市场范围按指标判断**：`scopeList` 会返回实际覆盖范围，且指标之间不同；不能笼统写成每个指标都覆盖 A / 港 / 美股。覆盖面在持续扩，别把抽查结论当常量：例如 `qte_mkt_cptl`/`shr_tot` 覆盖 A/港/美股，`finc_pe_ttm` / `finc_pb_mrq` 覆盖 A/港股，`is_op_rev_ttm`/`is_shnp_ttm` 覆盖 A/港股。目标列表含任一 scope 外证券时，本批 EDE 校验不通过，应回退专用接口
 - **`scopeList[].usageRestriction`**：该指标在具体接口上的限制，`null` = 无限制。⚠️ **它是提示不是硬约束**——标着「不支持指标时间序列接口」的 `qte_vol_intvl` 调时序照样返数据、不会被拦下。当成「口径可能不对、结果别当真」看，别指望它会报错
 - ⚠️ **`scopeList` 是声明不是保证**：它可能**超前于数据**（声明覆盖但该市场暂无数据），也可能**滞后于数据**（已有数据尚未声明）。**「某某仍无数据」这类否定结论过期得和正面结论一样快**，照着它走会白白拒掉一个现在能跑的查询，而且不报错。**判断成本很低**：无数据会保留行列、给一个占位单元格，抽查一行就能看出覆盖情况；code 写错则直接报 `100003`，两种情形不会混淆。占位值统一是 `null`（详见下方「缺数据 vs 代码写错」）
-- 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE)：用 `AAPL.O`，`AAPL.US` 取不到数据
+- 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE) / `.A`(NYSE American，原 AMEX)：用 `AAPL.O`，`AAPL.US` 取不到数据
 
 ```bash
 gangtise indicator search --keyword 营业收入 --limit 10 --format json   # 做语义 + scopeList + parameterList 三项校验
@@ -49,7 +49,7 @@ gangtise indicator cross-section --indicator <code> [--indicator <code2>] \
 ```
 
 - `--indicator`（**至少 1 个**）：指标编码，来自 `search`，可重复传多个
-- `--security`（**至少 1 个**）：证券代码，如 `600519.SH`（A股）/ `09992.HK`（港股）/ `AAPL.O`（美股，用 `.O`/`.N` 后缀，非 `.US`），可重复传多个。**也接受板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，如 `1000000287` 中信白酒 → 展开成它的全部成分股），代码与板块可混传，服务端取并集去重。⚠️ 中信行业码那类 9 位 ID（`100800109`）**不是** `sectorId`，传进去返 0 只
+- `--security`（**至少 1 个**）：证券代码，如 `600519.SH`（A股）/ `09992.HK`（港股）/ `AAPL.O`（美股，用 `.O`/`.N`/`.A` 后缀，非 `.US`），可重复传多个。**也接受板块 ID**（`reference sector-search` 返回的 10 位 `sectorId`，如 `1000000287` 中信白酒 → 展开成它的全部成分股），代码与板块可混传，服务端取并集去重。⚠️ 中信行业码那类 9 位 ID（`100800109`）**不是** `sectorId`，传进去返 0 只
 - `--date`（**必选**）：数据日期 `yyyy-MM-dd`。**CLI 把它下发为每个指标各自的 `tradeDate`**（接口没有根级 date）。日期语义按指标分两类——财务报表指标=报告期末（可为非交易日；**⚠️ `_ttm` 后缀整族例外，走交易日，见下方「日期路由」**）、`finc_pe_ttm` / `finc_pb_mrq` 等日频估值=交易日（详见下方「日期路由」）
   - `--date` 必填：绝大多数指标必填 `tradeDate`，漏传服务端报 `100001` 并点名缺哪个参数，所以 CLI 要求带上、下发给每个指标。（`screener` 的 `--date` 也必填，同理）
   - 🔴 **判据一句话：该指标的 `parameterList` 里有 `tradeDate` 就不用管；没有，`--date` 下发的 `tradeDate` 就可能被拒。** 按这条走，四种情形四种写法（`parameterList` 从 `indicator search --keyword <code> --format json` 读，别按 code 前缀推断）：

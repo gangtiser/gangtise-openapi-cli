@@ -192,6 +192,7 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "raw",
   "raw call",
   "raw list",
+  "update",
 ]
 `;
 
@@ -201,30 +202,34 @@ exports[`CLI surface > help > help: gangtise 1`] = `
 Gangtise OpenAPI CLI
 
 Options:
-  -V, --version   output the version number
-  --verbose       Print per-request timings to stderr (also: GANGTISE_VERBOSE=1)
-  -h, --help      display help for command
+  -V, --version     output the version number
+  --verbose         Print per-request timings to stderr (also:
+                    GANGTISE_VERBOSE=1)
+  -h, --help        display help for command
 
 Commands:
-  auth            Authentication commands
-  lookup          Local lookup tables (IDs not covered by 'reference
-                  constant-list')
-  insight         Insight APIs
-  quote           Quote APIs
-  fundamental     Fundamental APIs
-  bond            Bond APIs: profiles, issuers, quotes, valuations, cash flows,
-                  ratings, announcements
-  fund            Fund APIs: profiles, NAV, fees, managers, scale, holders,
-                  holdings and allocation, ETF creation/redemption
-  reference       Reference data APIs
-  vault           Vault APIs
-  ai              AI APIs
-  alternative     Alternative data APIs
-  indicator       Data indicator (EDE) APIs: search codes, cross-section,
-                  time-series, screener
-  tool            Research tool APIs: PDF parsing
-  raw             Raw API calls
-  help [command]  display help for command
+  auth              Authentication commands
+  lookup            Local lookup tables (IDs not covered by 'reference
+                    constant-list')
+  insight           Insight APIs
+  quote             Quote APIs
+  fundamental       Fundamental APIs
+  bond              Bond APIs: profiles, issuers, quotes, valuations, cash
+                    flows, ratings, announcements
+  fund              Fund APIs: profiles, NAV, fees, managers, scale, holders,
+                    holdings and allocation, ETF creation/redemption
+  reference         Reference data APIs
+  vault             Vault APIs
+  ai                AI APIs
+  alternative       Alternative data APIs
+  indicator         Data indicator (EDE) APIs: search codes, cross-section,
+                    time-series, screener
+  tool              Research tool APIs: PDF parsing
+  raw               Raw API calls
+  update [options]  Update to the latest published version (npm install -g),
+                    then refresh older copies of the Agent Skill installed for
+                    Claude Code / Codex / OpenClaw / Hermes
+  help [command]    display help for command
 "
 `;
 
@@ -488,8 +493,12 @@ Options:
   --size <number>          Total rows to return; omit to fetch all
   --start-time <datetime>  Start time
   --end-time <datetime>    End time
-  --query-mode <mode>      (choices: "bySecurity", "byIndustry")
-  --gts-code <code>        GTS code (default: [])
+  --query-mode <mode>      bySecurity: --gts-code takes stock codes; byIndustry:
+                           Shenwan industry codes (choices: "bySecurity",
+                           "byIndustry")
+  --gts-code <code>        Stock code (e.g. 600519.SH) or Shenwan industry code
+                           (e.g. 821035.SWI), per --query-mode; repeatable
+                           (default: [])
   --source <name>          Source: researchReport/conference/announcement/view
                            (repeat) (default: [])
   --format <format>        Output format (default: "table")
@@ -1037,7 +1046,8 @@ Commands:
                                   cash components
   etf-pcf-components [options]    ETF creation/redemption component list for the
                                   latest trade date: quantities, weights, cash
-                                  substitution
+                                  substitution. componentCode is matched by the
+                                  CLI from each component name
   etf-share-change [options]      ETF shares and scale per trade date, with the
                                   change vs the previous one
   help [command]                  display help for command
@@ -1146,16 +1156,19 @@ exports[`CLI surface > help > help: gangtise fund etf-pcf-components 1`] = `
 "Usage: gangtise fund etf-pcf-components [options]
 
 ETF creation/redemption component list for the latest trade date: quantities,
-weights, cash substitution
+weights, cash substitution. componentCode is matched by the CLI from each
+component name
 
 Options:
-  --security <code>  Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
-                     (repeatable, comma-separated accepted). From a fund name:
-                     'reference securities-search --category fund', keeping only
-                     rows whose category is fund
-  --format <format>  Output format (default: "table")
+  --security <code>    Fund code, e.g. 005827.OF / 159967.SZ / 510300.SH
+                       (repeatable, comma-separated accepted). From a fund name:
+                       'reference securities-search --category fund', keeping
+                       only rows whose category is fund
+  --format <format>    Output format (default: "table")
   --output <path>
-  -h, --help         display help for command
+  --no-component-code  Skip matching componentCode: no download of the
+                       securities list, no name searches, no quote request
+  -h, --help           display help for command
 "
 `;
 
@@ -3320,6 +3333,19 @@ Options:
   --format <format>             Output format (default: "table")
   --output <path>
   -h, --help                    display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise update 1`] = `
+"Usage: gangtise update [options]
+
+Update to the latest published version (npm install -g), then refresh older
+copies of the Agent Skill installed for Claude Code / Codex / OpenClaw / Hermes
+
+Options:
+  --check     Only report whether a newer version is published; install nothing
+  --no-skill  Leave the Agent Skill copies as they are
+  -h, --help  display help for command
 "
 `;
 

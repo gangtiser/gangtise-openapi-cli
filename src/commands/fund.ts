@@ -1,7 +1,8 @@
 import { Command } from "commander"
 
 import { collectNames } from "../core/args.js"
-import { date, format, list, output, query, requiredList, value, type Field } from "./shared.js"
+import { addComponentCodes, clientLookup } from "../core/etfComponents.js"
+import { date, flag, format, list, output, query, requiredList, value, type Field } from "./shared.js"
 
 // ─── fund ───
 // One request per command, no paging (see the fund block in endpoints.ts). The enum
@@ -98,9 +99,10 @@ query(fund, "etf-pcf-header", {
   fields: [code(), format(), output()],
 })
 query(fund, "etf-pcf-components", {
-  description: "ETF creation/redemption component list for the latest trade date: quantities, weights, cash substitution",
+  description: "ETF creation/redemption component list for the latest trade date: quantities, weights, cash substitution. componentCode is matched by the CLI from each component name",
   endpoint: "fund.etf-pcf-components",
-  fields: [code(), format(), output()],
+  fields: [code(), format(), output(), flag("--no-component-code", "Skip matching componentCode: no download of the securities list, no name searches, no quote request")],
+  shape: (data, client, options) => options.componentCode === false ? Promise.resolve(data) : addComponentCodes(data, clientLookup(client)),
 })
 query(fund, "etf-share-change", {
   description: "ETF shares and scale per trade date, with the change vs the previous one",

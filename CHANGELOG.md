@@ -2,6 +2,26 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.49.0 — 2026-10-28
+
+**新增 `gangtise update` 一条命令更新 CLI 与 Agent Skill，终端里有新版本时提示；管理层情绪的 `publishTime` 现为北京时间；日程类四个列表的翻页去重改按各自的 ID；基金持有人户数改为整数；ETF 申赎成分的代码改由 CLI 按名称匹配补上。**
+
+1. **`gangtise update`**：从 npmjs.org 查最新版本，较新时执行 `npm install -g gangtise-openapi-cli@<版本>`，装完核对安装目录里的版本。
+   - 同时替换 `~/.claude/skills/`、`~/.codex/skills/`、`~/.openclaw/workspace/skills/`、`~/.hermes/skills/` 下版本低于新版的 `gangtise-openapi` 副本（对副本的本地修改会被覆盖）；版本相同或更新的副本、符号链接、其他目录下的副本不动。CLI 已是最新时只做这一步
+   - `--check` 只报告有没有新版本；`--no-skill` 不碰 skill 副本
+   - 只更新 `npm install -g` 的安装；从仓库 clone、npx 或项目依赖运行时报错并说明按原方式更新。npm 权限不足（`EACCES`）时给出 `sudo npm install -g …` 的完整命令
+2. **新版本提示**：在终端里运行任何命令时，若已知有新版本，命令结束后在 stderr 提示一行 `Update available: … Run: gangtise update`，同一新版本大约一天提示一次。
+   - 版本信息一天刷新一次，在后台进程里查询，命令本身不等待网络
+   - stderr 不是终端（脚本、Agent、CI）或设了 `CI` 时不提示；`GANGTISE_NO_UPDATE_CHECK=1` 关闭提示与后台查询（也关闭 `gangtise --version` 的联网比对）
+   - `gangtise --version` 的提示改为 `Run: gangtise update`
+3. **管理层情绪**：`ai management-sentiment-indicator` / `-conclusion` 返回的 `publishTime`（含 `previousSource.publishTime`）现为北京时间，与 `--start-time` / `--end-time` 同一口径。⚠️ 按 v0.48.0 说明「先加 8 小时」处理过的脚本要去掉这一步，否则会多出 8 小时。
+4. **`insight roadshow` / `site-visit` / `strategy` / `forum list` 的翻页去重**：改按各列表实际返回的 ID 字段（`roadshowId` / `siteVisitId` / `strategyMeetingId` / `forumId`）比对。此前这四个列表的去重没有生效，跨页重复的行会原样保留；现在会被去掉，结果标为不完整（`partial` + `duplicateRows`，退出码 3），stderr 提示缩短时间范围重拉。
+5. **公募基金返回字段变化**（文档随之更新）：
+   - `fund holder-structure` 的 `holderCount` 现为整数（如 `2219140`）。⚠️ 按 v0.44.0 说明「先去掉千分位逗号再转数字」的处理要去掉——对整数做字符串替换会报错
+   - `fund etf-pcf-components`：接口只返回成分名称 `componentName`，不再返回成分代码。CLI 按名称匹配补上 `componentCode`：按名称找证券（先查 A 股 / 港股 / 美股证券列表，没有再搜索），再用该行的 `close` 核对候选证券的最新价或昨收，核对不上的（清单价格滞后于行情、停牌等）改按清单价格所属那天的收盘价核对，A 股与港股各自定日期（A+H 型 ETF 里同名的 A 股与 H 股两行据此分开）；价格定不了时（债券、停牌、除权除息当天、行情查询失败），成分都在同一市场的 ETF 取该市场里名称完全一致的那只，同市场多只时取与 ETF 同一交易所的，A+H 等跨市场 ETF 里这类行为 `null`；现金行、商品与简称对不上的为 `null`，stderr 列出。⚠️ 代码现在**带市场后缀**（`600519.SH`，此前接口返回的是 `600519`）。额外请求都免费：下载一次 A 股 / 港股 / 美股证券列表（3 次请求）在本地匹配，列表里没有的名称才逐个搜索，另加一两次实时行情查询，有实时价格核对不上的行时（清单价格滞后、停牌、除权除息等）再加一次日 K 查询；`--no-component-code` 关闭
+   - `fund etf-pcf-components` 的成分 `close` 是清单给出的价格，日期可能早于 `tradeDate` 的前一交易日、一天之内会更新，同一清单里 A 股与港股也可能不同；用价格计算请以行情为准
+6. **文档**：`response-schema.md` 更正上述四个日程列表的字段（各自的 ID、`startTime` / `endTime` / `location`，机构在 `institutionList[]`）；`ai security-clue` 的 `--query-mode` / `--gts-code` 补充帮助说明。
+
 ### v0.48.0 — 2026-10-24
 
 **新增管理层情绪三个命令与违约债券查询；数据指标文档补充基金类指标。**
