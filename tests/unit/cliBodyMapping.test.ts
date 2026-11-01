@@ -168,6 +168,11 @@ beforeAll(async () => {
         res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { returnedCount: list.length, list } }))
         return
       }
+      if ((req.url ?? "").includes("/kline/daily") && (body as { securityList?: string[] } | undefined)?.securityList?.includes("00941.HK")) {
+        // Recent closes of the A/H pair: each listing's rules the other row out.
+        res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { total: 4, fieldList: ["securityCode", "tradeDate", "close"], list: [["600941.SH", "2026-10-26", 101.3], ["600941.SH", "2026-10-27", 100.7], ["00941.HK", "2026-10-26", 77.3], ["00941.HK", "2026-10-27", 78.1]] } }))
+        return
+      }
       if ((req.url ?? "").includes("/quote/realtime") && (body as { securityList?: string[] } | undefined)?.securityList?.includes("00941.HK")) {
         res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { total: 2, fieldList: ["securityCode", "preClose", "latestPrice"], list: [["600941.SH", 101.3, 100.7], ["00941.HK", 77.3, 78.1]] } }))
         return
@@ -245,6 +250,18 @@ beforeAll(async () => {
         // endpoint (an empty range is `{total: 0, list: []}`), so it must not print as one.
         // The traceId rides on the envelope only: the error must still surface it.
         res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-null-1", data: null }))
+        return
+      }
+      if ((req.url ?? "").includes("/fund-flow/sector-daily")) {
+        // Three fixed rows so a truncation test can drive rows-vs-limit with --limit 3.
+        // A fieldList of key columns only is answered with no rows (probed 2026-11-01).
+        const asked = (body as { fieldList?: string[] } | undefined)?.fieldList
+        if (asked?.every((f) => f === "sectorId" || f === "tradeDate")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 0, list: [] } }))
+          return
+        }
+        const list = ["2026-10-30", "2026-10-29", "2026-10-28"].map((day) => ["1000001141", day, -1.5])
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: list.length, fieldList: ["sectorId", "tradeDate", "sectorMainNetInflow"], list } }))
         return
       }
       if ((req.url ?? "").includes("/fund-flow/daily")) {
@@ -356,9 +373,8 @@ beforeAll(async () => {
         return
       }
       if ((req.url ?? "").includes("/EDE/search")) {
-        // Feeds resolveCalendarType. The keyword IS the indicator code, and the server
-        // answers with near-matches too, so the decoy entry makes sure the CLI picks
-        // its row by exact indicatorCode rather than taking the first hit.
+        // The keyword IS the indicator code, and the server answers with near-matches
+        // too, hence the decoy entry next to the exact one.
         const keyword = (body as { keyword?: string } | undefined)?.keyword ?? ""
         const PARAMS: Record<string, string[]> = {
           finc_pe_ttm: ["tradeDate"],
@@ -377,6 +393,14 @@ beforeAll(async () => {
         // envelope is discarded or the failure arrives untraceable.
         if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("NULLDATA.XX")) {
           res.end(JSON.stringify({ code: "000000", msg: "ok", traceId: "trace-ede-null", data: { code: "000000", status: true, data: null } }))
+          return
+        }
+        // EMPTY.XX: the all-empty answer a range with no date of its calendar gets
+        // (is_op_rev over May with no --calendar-type, probed 2026-11-01).
+        if (((body as { indicatorCodeList?: string[] } | undefined)?.indicatorCodeList ?? []).includes("EMPTY.XX")) {
+          res.end(JSON.stringify({ code: "000000", msg: "ok", data: { code: "000000", status: true, data: {
+            securityCodeList: [], securityNameList: [], indicatorList: [], dates: [], values: [],
+          } } }))
           return
         }
         // BROKEN.XX: every other axis present and well-formed, only `dates` is
@@ -488,6 +512,17 @@ beforeAll(async () => {
       // default payload and the test fails for a reason that has nothing to do with it.
       if ((req.url ?? "").includes("-getid")) {
         res.end(JSON.stringify({ code: "000000", msg: "ok", status: true, data: { dataId: "TASK-12345" } }))
+        return
+      }
+      if (/\/stock-pool\/(get|add|update|delete)Note/.test(req.url ?? "")) {
+        // deleteNote reports per-item failures inside a 000000 envelope like the pool
+        // writes; BAD* stands in for a note whose delete the server could not complete.
+        const url = req.url ?? ""
+        const ids = (body as { stockNoteIdList?: string[] } | undefined)?.stockNoteIdList ?? []
+        const data = url.includes("/deleteNote")
+          ? { successList: ids.filter((id) => !id.startsWith("BAD")), failList: ids.filter((id) => id.startsWith("BAD")).map((stockNoteId) => ({ stockNoteId, failReason: "笔记删除失败，请重试" })) }
+          : url.includes("/getNoteList") ? { total: 0, list: [] } : {}
+        res.end(JSON.stringify({ code: "000000", msg: "操作成功", status: true, data }))
         return
       }
       if ((req.url ?? "").includes("/stock-pool/")) {
@@ -769,6 +804,80 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(captured[0].path).toBe("/application/open-vault/stock-pool/deletePool")
     expect(captured[0].body).toEqual({ poolIdList: ["808477293", "808477294"] })
   }, 30_000)
+
+  it("stock-pool reads send --space-type as a number, and nothing when it is omitted", async () => {
+    await cli(["vault", "stock-pool-list", "--space-type", "2", "--format", "json"])
+    await cli(["vault", "stock-pool-list", "--format", "json"])
+    await cli(["vault", "stock-pool-stocks", "--space-type", "2", "--pool-id", "437665998", "--format", "json"])
+    await cli(["vault", "stock-pool-stocks", "--space-type", "2", "--format", "json"])
+    expect(captured.map((c) => [c.path.split("/").pop(), c.body])).toEqual([
+      ["getPoolList", { spaceType: 2 }],
+      ["getPoolList", {}],
+      ["getStockList", { spaceType: 2, poolIdList: ["437665998"] }],
+      ["getStockList", { spaceType: 2, poolIdList: ["all"] }],
+    ])
+  }, 30_000)
+
+  it("stock-note-list sends one filter: all notes by default, --security, or --note-id", async () => {
+    await cli(["vault", "stock-note-list"])
+    await cli(["vault", "stock-note-list", "--security", "688106.SH,600111.SH", "--size", "20"])
+    await cli(["vault", "stock-note-list", "--note-id", "1737", "--note-id", "1738", "--from", "20"])
+    expect(captured.map((c) => [c.path, c.body])).toEqual([
+      ["/application/open-vault/stock-pool/getNoteList", { securityList: ["all"], from: 0, size: 50 }],
+      ["/application/open-vault/stock-pool/getNoteList", { securityList: ["688106.SH", "600111.SH"], from: 0, size: 20 }],
+      ["/application/open-vault/stock-pool/getNoteList", { stockNoteIdList: ["1737", "1738"], from: 20, size: 50 }],
+    ])
+    captured.length = 0
+    const both = await cli(["vault", "stock-note-list", "--security", "600519.SH", "--note-id", "1737"])
+    expect(both.code).toBe(1)
+    expect(both.stderr).toContain("not both")
+    expect(captured, "refused before any request").toHaveLength(0)
+  }, 30_000)
+
+  it("stock-note writes map their flags to the documented fields", async () => {
+    expect((await cli(["vault", "stock-note-add", "--security", "688106.SH,600111.SH", "--content", "line 1\nline 2"])).code).toBe(0)
+    expect((await cli(["vault", "stock-note-update", "--note-id", "1835", "--content", "new text"])).code).toBe(0)
+    expect(captured.map((c) => [c.path, c.body])).toEqual([
+      ["/application/open-vault/stock-pool/addNote", { securityList: ["688106.SH", "600111.SH"], content: "line 1\nline 2" }],
+      ["/application/open-vault/stock-pool/updateNote", { stockNoteId: "1835", content: "new text" }],
+    ])
+  }, 30_000)
+
+  it("stock-note-delete needs --yes, and a failList inside a 000000 success exits 3", async () => {
+    const refused = await cli(["vault", "stock-note-delete", "--note-id", "1835"])
+    expect(refused.code).toBe(1)
+    expect(captured, "the refusal must happen before any request").toHaveLength(0)
+
+    const { code, stderr } = await cli(["vault", "stock-note-delete", "--note-id", "1835,BAD1", "--yes"])
+    expect(captured.map((c) => [c.path, c.body])).toEqual([["/application/open-vault/stock-pool/deleteNote", { stockNoteIdList: ["1835", "BAD1"] }]])
+    expect(code).toBe(3)
+    expect(stderr).toContain("BAD1（笔记删除失败，请重试）")
+  }, 30_000)
+
+  it("quote sector-fund-flow maps its flags, sends the default limit, and flags a full answer", async () => {
+    const { code } = await cli([
+      "quote", "sector-fund-flow", "--sector", "1000001141,1000001065",
+      "--start-date", "2026-10-28", "--end-date", "2026-10-30", "--field", "sectorMainNetInflow", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect(captured.map((c) => [c.path, c.body])).toEqual([["/application/open-quote/fund-flow/sector-daily", {
+      sectorList: ["1000001141", "1000001065"], startDate: "2026-10-28", endDate: "2026-10-30", limit: 6000, fieldList: ["sectorMainNetInflow"],
+    }]])
+    const capped = await cli(["quote", "sector-fund-flow", "--sector", "1000001141", "--limit", "3", "--format", "json"])
+    expect(capped.code).toBe(3)
+    expect(capped.stderr).toContain("3-row limit")
+    expect(capped.stderr).not.toContain("no fund-flow column")
+    const keysOnly = await cli(["quote", "sector-fund-flow", "--sector", "1000001141", "--field", "tradeDate", "--format", "json"])
+    expect(keysOnly.code).toBe(0)
+    expect(keysOnly.stderr).toContain("no fund-flow column (tradeDate)")
+  }, 30_000)
+
+  it("schedule lists send --publish-start-time / --publish-end-time as publishStartTime / publishEndTime", async () => {
+    for (const command of ["roadshow", "site-visit", "strategy", "forum"]) {
+      expect((await cli(["insight", command, "list", "--publish-start-time", "2026-10-29 12:00:00", "--publish-end-time", "2026-10-30", "--size", "1", "--format", "json"])).code, command).toBe(0)
+    }
+    expect(captured.map((c) => [c.path.split("/").at(-2), c.body])).toEqual(["roadshow", "site-visit", "strategy-meeting", "forum"].map((name) => [name, { from: 0, size: 1, publishStartTime: "2026-10-29 12:00:00", publishEndTime: "2026-10-30" }]))
+  }, 60_000)
 
   it("opinion lists go to the v2 brief-only path; --with-content goes to the v1 list", async () => {
     expect((await cli(["insight", "opinion", "list", "--size", "1", "--format", "json"])).code).toBe(0)
@@ -1196,8 +1305,11 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(Object.keys(rows[0]).indexOf("componentCode")).toBe(Object.keys(rows[0]).indexOf("serialNumber") + 1)
     expect(filled.stderr).toContain("componentCode is the CLI's match for each name")
     expect(filled.stderr).toContain("2 of 3 rows. Left null (cash lines, commodities, names without a confident match): 517180.SH 申赎现金")
-    // The three market lists once; only the name they do not carry is searched.
-    expect(captured.map((c) => [c.path, c.body]).sort()).toEqual([
+    // The three market lists once; only the name they do not carry is searched. The A/H
+    // pair's realtime match counts once the other listing's recent closes rule it out.
+    const kline = captured.filter((c) => c.path === "/application/open-quote/kline/daily")
+    expect(kline.map((c) => (c.body as { securityList: string[] }).securityList)).toEqual([["600941.SH", "00941.HK"]])
+    expect(captured.filter((c) => !kline.includes(c)).map((c) => [c.path, c.body]).sort()).toEqual([
       ["/application/open-fundamental/fund/etf-pcf-components", { fundCodeList: ["517180.SH"] }],
       ["/application/open-quote/quote/realtime", { securityList: ["600941.SH", "00941.HK"] }],
       ["/application/open-reference/sectors/constituents", { sectorId: "1000000002" }],
@@ -2180,53 +2292,29 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(stderr).not.toContain("warning")
   }, 30_000)
 
-  // --- the auto-selected calendar, through the real CLI ---
-  //
-  // calendarType.test.ts covers the decision itself against a stubbed client, which says
-  // nothing about whether the command still consults it or still puts the answer on the wire.
-  // Deleting the two lines in the time-series action leaves that suite fully green, so
-  // these three are the only thing standing between a refactor and a silent return to
-  // "every quote series pays for its weekends".
-  it("time-series sends calendarType=TD when every indicator takes tradeDate", async () => {
-    const { code, stderr } = await cli([
+  // --- the date axis is the server's to pick when --calendar-type is omitted ---
+  it("time-series sends no calendarType when the flag is omitted, and looks nothing up first", async () => {
+    const { code } = await cli([
       "indicator", "time-series", "--indicator", "finc_pe_ttm",
       "--security", "600519.SH", "--security", "000858.SZ",
       "--start-date", "2026-05-18", "--end-date", "2026-05-18",
       "--format", "json",
     ])
     expect(code).toBe(0)
-    const series = captured.filter((c) => c.path.includes("/EDE/time-series"))
-    expect(series).toHaveLength(1)
-    expect((series[0].body as { calendarType?: string }).calendarType).toBe("TD")
-    expect(stderr).toContain("calendarType=TD")
+    expect(captured.map((c) => c.path)).toEqual(["/application/open-indicator/EDE/time-series"])
+    expect(captured[0].body).not.toHaveProperty("calendarType")
   }, 30_000)
 
-  it("time-series leaves calendarType off as soon as one indicator takes a report period", async () => {
-    // The whole point of the asymmetry: TD would answer is_op_rev with an all-null grid
-    // and exit 0. Staying off means the server applies ND and the report-period rows survive.
+  it("an explicit --calendar-type is sent as given", async () => {
     const { code } = await cli([
       "indicator", "time-series", "--indicator", "is_op_rev",
       "--security", "600519.SH", "--security", "000858.SZ",
-      "--start-date", "2026-05-18", "--end-date", "2026-05-18",
-      "--indicator-param", "is_op_rev:reportDate=2026-03-31", "--format", "json",
+      "--start-date", "2024-01-01", "--end-date", "2024-12-31",
+      "--calendar-type", "RD", "--format", "json",
     ])
     expect(code).toBe(0)
-    const series = captured.filter((c) => c.path.includes("/EDE/time-series"))
-    expect(series).toHaveLength(1)
-    expect((series[0].body as { calendarType?: string }).calendarType).toBeUndefined()
-  }, 30_000)
-
-  it("an explicit --calendar-type is an instruction: it is sent as given and costs no probe", async () => {
-    const { code } = await cli([
-      "indicator", "time-series", "--indicator", "finc_pe_ttm",
-      "--security", "600519.SH", "--security", "000858.SZ",
-      "--start-date", "2026-05-18", "--end-date", "2026-05-18",
-      "--calendar-type", "ND", "--format", "json",
-    ])
-    expect(code).toBe(0)
-    const series = captured.filter((c) => c.path.includes("/EDE/time-series"))
-    expect((series[0].body as { calendarType?: string }).calendarType).toBe("ND")
-    expect(captured.filter((c) => c.path.includes("/EDE/search")), "an explicit value needs no lookup").toHaveLength(0)
+    expect(captured.map((c) => c.path)).toEqual(["/application/open-indicator/EDE/time-series"])
+    expect((captured[0].body as { calendarType?: string }).calendarType).toBe("RD")
   }, 30_000)
 
   it("indicator cross-section forwards a valid --indicator-param instead of injecting tradeDate over it", async () => {
@@ -2314,6 +2402,30 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
     expect(payload).not.toHaveProperty("omittedSecurities")
     expect(payload.total).toBe(0)
     expect(stderr).toContain("no data at all") // an empty answer is neither a null cell nor a 100003, so it is called out
+    expect(stderr).not.toContain("--calendar-type")
+  }, 30_000)
+
+  it("points an empty time series at its date axis, not at the codes first", async () => {
+    // A range with no date of the series' calendar (no report-period end, a holiday
+    // run) answers the same empty matrix a code problem would.
+    const { code, stdout, stderr } = await cli([
+      "indicator", "time-series",
+      "--indicator", "EMPTY.XX", "--security", "600519.SH",
+      "--start-date", "2026-05-01", "--end-date", "2026-05-31", "--format", "json",
+    ])
+    expect(code).toBe(0)
+    expect((JSON.parse(stdout) as Record<string, unknown>).total).toBe(0)
+    expect(stderr).toContain("no report-period end")
+    expect(stderr).toContain("--calendar-type ND")
+    // Asked for ND already: every day of the range is on the axis, so the generic note.
+    const nd = await cli([
+      "indicator", "time-series",
+      "--indicator", "EMPTY.XX", "--security", "600519.SH",
+      "--start-date", "2026-05-01", "--end-date", "2026-05-31", "--calendar-type", "ND", "--format", "json",
+    ])
+    expect(nd.code).toBe(0)
+    expect(nd.stderr).toContain("no data at all")
+    expect(nd.stderr).not.toContain("--calendar-type ND")
   }, 30_000)
 
   it("fails loudly with a traceId when a required axis is null instead of passing the payload through", async () => {

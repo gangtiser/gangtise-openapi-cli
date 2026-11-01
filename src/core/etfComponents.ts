@@ -9,10 +9,14 @@
  * Kong, US, A+H, bond, gold): first against the quote's latest price and previous close, then,
  * for rows the quote does not settle, against the closes of the day the list's prices in that
  * listing's market belong to (`listDates`). The price tells apart the A and H listings of one
- * company, which an A+H ETF lists as two rows under the same name. Where no price decides (an
- * ex-dividend day, a suspension, a bond with no quote), an exact name match stands only in an
- * ETF whose components all trade in one market — the ETF's own exchange breaking a tie within
- * it; in an ETF holding several markets the row stays null, as does anything else still open.
+ * company, which an A+H ETF lists as two rows under the same name. Where the candidates span
+ * markets, a quote that agrees counts only once the other market's listing is ruled out by its
+ * recent closes: a list whose prices lag the quote can equal the other listing's quote by chance.
+ * Where no price decides (an ex-dividend day, a suspension, a bond with no quote), an exact name
+ * match stands only in an ETF known to trade in one market — the ETF's own exchange breaking a
+ * tie within it. That is not known while any row still open could be in two markets (an A/H
+ * name, or a Hong Kong listing whose name starts with the row's), or a name's lookup failed;
+ * then, as in an ETF holding several markets, the rows the prices did not settle stay null.
  */
 import { beijingDateString } from "./args.js"
 import { normalizeRows } from "./normalize.js"
@@ -83,7 +87,8 @@ async function candidatesFor(name: string, lookup: CodeLookup): Promise<Candidat
     const bySuffix = (await Promise.all(["O", "N"].map((suffix) => lookup.search(`${key}.${suffix}`))))
       .flatMap((rows) => toCandidates(rows))
       .filter((c) => ticker(c.code) === key)
-    exact.push(...bySuffix)
+    // Both searches can find the same listing: one candidate, not a tie with itself.
+    for (const c of bySuffix) if (!exact.some((e) => e.code === c.code)) exact.push(c)
   }
   const prefix = base(key).length >= 2 ? found.filter((c) => !exact.includes(c) && base(c.name).startsWith(base(key))) : []
   return [...exact, ...prefix.map((c) => ({ ...c, prefix: true }))]
@@ -110,18 +115,18 @@ function narrow(candidates: Candidate[], etf: EtfContext): string | null {
  * undefined for an ETF that holds several (an A+H ETF), or before that is known. */
 interface EtfContext { market?: string; exchange: string; used: Set<string> }
 
-/** The listing whose price agrees with the row's close: exact matches first, then prefix
+/** The listings whose price agrees with the row's close: exact matches first, then prefix
  * matches. Undefined when none agrees — and when a listing of the tier has no price to check
  * (none, or 0 while suspended) and `unchecked` says it could still be the row: a match beside
  * it settles nothing. */
-function byPrice(row: Row, candidates: Candidate[], prices: Map<string, number[]>, etf: EtfContext, unchecked: (c: Candidate) => boolean): string | null | undefined {
+function byPrice(row: Row, candidates: Candidate[], prices: Map<string, number[]>, etf: EtfContext, unchecked: (c: Candidate) => boolean): Candidate[] | undefined {
   const close = typeof row.close === "number" ? row.close : undefined
   if (close === undefined) return undefined
   const open = candidates.filter((c) => !etf.used.has(c.code))
   for (const tier of [open.filter((c) => !c.prefix), open.filter((c) => c.prefix)]) {
     if (tier.some((c) => !prices.get(c.code)?.some((p) => p > 0) && unchecked(c))) return undefined
     const matched = tier.filter((c) => prices.get(c.code)?.some((p) => agrees(close, p)))
-    if (matched.length) return narrow(matched, etf)
+    if (matched.length) return matched
   }
   return undefined
 }
@@ -206,21 +211,42 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
   const pending = rows.filter(needsCode)
   const names = [...new Set(pending.map((r) => r.componentName as string))]
   const candidates = new Map<string, Candidate[]>()
-  // A failed lookup leaves that name without candidates: the component list itself was
-  // fetched (and billed) already, and is printed whatever happens here.
+  // A failed lookup leaves that name without candidates — the component list itself was
+  // fetched (and billed) already, and is printed whatever happens here — and the market of an
+  // ETF holding it unknown: the name may trade in a market no other row shows.
+  const failed = new Set<string>()
   await runWithConcurrency(names, PAGE_CONCURRENCY, async (name) => {
-    candidates.set(name, await candidatesFor(name, lookup).catch(() => []))
+    try {
+      candidates.set(name, await candidatesFor(name, lookup))
+    } catch {
+      candidates.set(name, [])
+      failed.add(name)
+    }
   })
   const quotable = [...new Set([...candidates.values()].flat().filter((c) => ["stock", "dr"].includes(c.category) && QUOTABLE.test(c.code)).map((c) => c.code))]
   const prices = new Map((await runWithConcurrency(inBatches(quotable, QUOTE_BATCH), PAGE_CONCURRENCY, (batch) => splitting(batch, (codes) => lookup.quotes(codes)))).flatMap((quoted) => [...quoted]))
   const isQuotable = (c: Candidate) => ["stock", "dr"].includes(c.category) && QUOTABLE.test(c.code)
+  const candidatesOf = (row: Row) => candidates.get(row.componentName as string) ?? []
+  const marketsOf = (listed: Candidate[]) => new Set(listed.map((c) => market(c.code)))
 
   const codes = new Map<Row, string | null>()
+  // Rows a price narrowed to listings in more than one market, or to one whose other-market
+  // listing could not be ruled out: settled by the ETF's market once it is known to be one.
+  const tentative = new Map<Row, Candidate[]>()
   const etfs = new Map<unknown, { own: Row[]; etf: EtfContext }>()
   const place = (row: Row, code: string | null, etf: EtfContext) => {
     codes.set(row, code)
+    tentative.delete(row)
     if (code) etf.used.add(code)
   }
+  const settle = (row: Row, matched: Candidate[], etf: EtfContext) => {
+    if (marketsOf(matched).size > 1) tentative.set(row, matched)
+    else place(row, narrow(matched, etf), etf)
+  }
+  // A quote that agrees while the other market still has a listing the row could be: when the
+  // list's prices lag the quote, the row's own listing quotes something else and the other
+  // market's can equal the row by chance. Checked against that listing's daily closes below.
+  const unverified = new Map<Row, Candidate[]>()
   // Prices first, over every row: a listing its own price confirms is taken before a row
   // of the same name (the other share class of an A+H pair) can claim it by name alone.
   for (const fundCode of new Set(pending.map((r) => r.fundCode))) {
@@ -229,43 +255,79 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
     etfs.set(fundCode, { own, etf })
     for (const row of own) {
       // A listing the quote misses is checked against its daily closes below.
-      const code = byPrice(row, candidates.get(row.componentName as string) ?? [], prices, etf, isQuotable)
-      if (code !== undefined) place(row, code, etf)
+      const matched = byPrice(row, candidatesOf(row), prices, etf, isQuotable)
+      if (!matched) continue
+      const held = marketsOf(matched)
+      if (held.size === 1 && candidatesOf(row).some((c) => isQuotable(c) && !held.has(market(c.code)))) unverified.set(row, matched)
+      else settle(row, matched, etf)
     }
   }
   // A list whose prices lag the quote by a day or more leaves its rows unplaced, as do a
   // suspension and an ex-dividend day: those are checked against the daily closes of the day
   // the list's prices in each market belong to.
-  const open = (own: Row[]) => own.filter((r) => !codes.has(r) && typeof r.close === "number" && (candidates.get(r.componentName as string) ?? []).some(isQuotable))
+  const open = (own: Row[]) => own.filter((r) => !codes.has(r) && typeof r.close === "number" && candidatesOf(r).some(isQuotable))
   const lagging = [...etfs.values()].filter(({ own }) => open(own).length)
+  const history = new Map<string, Array<[string, number]>>()
   if (lagging.length && lookup.closes) {
-    const wanted = [...new Set(lagging.flatMap(({ own }) => own.flatMap((r) => (candidates.get(r.componentName as string) ?? []).filter(isQuotable).map((c) => c.code))))]
+    const wanted = [...new Set(lagging.flatMap(({ own }) => own.flatMap((r) => candidatesOf(r).filter(isQuotable).map((c) => c.code))))]
     const end = beijingDateString(new Date())
     const start = beijingDateString(new Date(Date.now() - CLOSES_WINDOW_DAYS * 86_400_000))
-    const history = new Map((await runWithConcurrency(inBatches(wanted, CLOSES_BATCH), PAGE_CONCURRENCY, (batch) => splitting(batch, (codes) => lookup.closes!(codes, start, end)))).flatMap((part) => [...part]))
+    for (const part of await runWithConcurrency(inBatches(wanted, CLOSES_BATCH), PAGE_CONCURRENCY, (batch) => splitting(batch, (codes) => lookup.closes!(codes, start, end)))) {
+      for (const [code, series] of part) history.set(code, series)
+    }
+  }
+  /** One of the row's recent closes, by the premise that a list price is such a close. A listing
+   * without daily closes cannot be ruled out. */
+  const mayBe = (row: Row, c: Candidate) => !history.has(c.code) || history.get(c.code)!.some(([, close]) => agrees(row.close as number, close))
+  for (const { own, etf } of etfs.values()) {
+    for (const row of own) {
+      const matched = unverified.get(row)
+      if (!matched) continue
+      // Without daily closes to check against (a lookup that has none), the quote stands.
+      const held = marketsOf(matched)
+      const contested = lookup.closes !== undefined && candidatesOf(row).some((c) => isQuotable(c) && !etf.used.has(c.code) && !held.has(market(c.code)) && mayBe(row, c))
+      if (!contested && matched.every((c) => !etf.used.has(c.code))) settle(row, matched, etf)
+      else tentative.set(row, matched)
+    }
+  }
+  if (lagging.length && lookup.closes) {
     for (const { own, etf } of lagging) {
       const dates = listDates(own, candidates, history)
       const onDate = closesOn(dates, history)
       for (const row of open(own)) {
         // A listing without a close on its market's day (that market has none, or the listing
         // no daily closes) is ruled out only when none of its recent closes agrees.
-        const unchecked = (c: Candidate) => isQuotable(c) && (history.get(c.code)?.some(([, close]) => agrees(row.close as number, close)) ?? true)
-        const code = byPrice(row, candidates.get(row.componentName as string) ?? [], onDate, etf, unchecked)
-        if (code !== undefined) place(row, code, etf)
+        const unchecked = (c: Candidate) => isQuotable(c) && mayBe(row, c)
+        const matched = byPrice(row, candidatesOf(row), onDate, etf, unchecked)
+        if (matched) settle(row, matched, etf)
       }
     }
   }
   for (const { own, etf } of etfs.values()) {
     // The markets this ETF holds, as far as anything shows: listings its prices confirmed, and
-    // names whose exact listings all trade in one market. Only when all of it points to one
-    // market is that market trusted for what the prices could not settle (byName / narrow).
+    // the open rows whose remaining candidates all trade in one market. An open row that could
+    // be in two markets (an A/H name, or a Hong Kong listing whose name starts with the row's:
+    // 中国石油 / 中国石油股份) leaves the ETF's market unknown, as does a name whose lookup
+    // failed: the other rows cannot then stand for the whole ETF. A candidate another row took,
+    // or one whose recent closes all disagree, is no longer one the row could be. A prefix
+    // candidate counts here; a code is still filled from exact names only (byName).
     const markets = new Set([...etf.used].map(market))
+    let undecided = own.some((r) => failed.has(r.componentName as string))
     for (const r of own) {
-      const held = new Set((candidates.get(r.componentName as string) ?? []).filter((c) => !c.prefix).map((c) => market(c.code)))
-      if (held.size === 1) markets.add([...held][0])
+      if (codes.get(r) || tentative.has(r)) continue
+      const held = marketsOf(candidatesOf(r).filter((c) => !etf.used.has(c.code) && (typeof r.close !== "number" || mayBe(r, c))))
+      if (held.size > 1) undecided = true
+      else if (held.size === 1) markets.add([...held][0])
     }
-    if (markets.size === 1) etf.market = [...markets][0]
-    for (const row of own) if (!codes.has(row)) place(row, byName(candidates.get(row.componentName as string) ?? [], etf), etf)
+    if (!undecided && markets.size === 1) etf.market = [...markets][0]
+    // Before the names: a listing a price narrowed down to goes to its row first.
+    for (const row of own) {
+      const matched = tentative.get(row)
+      if (!matched) continue
+      const pool = matched.filter((c) => !etf.used.has(c.code) && market(c.code) === etf.market)
+      place(row, pool.length ? narrow(pool, etf) : null, etf)
+    }
+    for (const row of own) if (!codes.has(row)) place(row, byName(candidatesOf(row), etf), etf)
   }
 
   const unresolved: FilledComponents["unresolved"] = []

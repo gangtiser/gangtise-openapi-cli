@@ -16,13 +16,13 @@
 | `999999` | 系统错误。`indicator`（EDE）的「无数据」不用此码（无数据是保留行列的占位单元格 `null`，见 `commands/indicator.md`；代码或参数名写错报 `100003`、缺必填参数报 `100001`，都会点名），所以这个码基本只剩真故障 | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | 确认参数无误仍报此码即服务端故障 |
 | `410110` | **异步生成中**（HTTP 400，旧码）。新码 `140001`，CLI 两码都认 | 轮询视为 pending | 继续等 |
 | `410111` | **异步生成失败**（HTTP 400，旧码）。新码 `140002`，CLI 两码都认 | 终态 | **不重试**，换参数 |
-| `130002` | 资源不存在——下载类的常见码：`reportId` 不存在 / 非数字多归此码。另有更具体的 `130003`（资源未生成 / 无附件）；`--file-type` 写错由 CLI 在本地报错、不发请求 | — | 确认 ID 有效且本账号可见；换 `--file-type` 或换一篇验证 |
+| `130002` | 资源不存在——下载类的常见码：`reportId` 不存在 / 非数字多归此码。另有更具体的 `130003`（资源未生成 / 无附件）；`--file-type` 写错由 CLI 在本地报错、不发请求。`vault stock-note-update` 传了不存在或不属于本人的笔记 ID 也报此码（`stock-note-delete` 不报，这类 ID 计入 `successList`） | — | 确认 ID 有效且本账号可见（笔记 ID 用 `vault stock-note-list` 核对）；换 `--file-type` 或换一篇验证 |
 | `130001` | 数据未找到，或**该指标无权限**（`indicator` 内层失败会带具体 msg 如"指标无权限"） | — | 检查查询条件与指标权限 |
 | `100001` | 缺必填参数——**msg 带字段名**（「缺少必填参数: reportId」） | — | 按 msg 指的字段补上 |
 | `110001` / `110002` | 日期格式错（msg 带字段名）/ 起晚于止。⚠️ **服务端对多种格式做宽松解析**（`2026/07/01`、`20260701`、`07/01/2026` 都能被接受），所以「没报 110001」不等于「格式被按你的意思理解了」 | — | 按参数名：`--*-date` 用 `YYYY-MM-DD`、`--*-time` 用 `YYYY-MM-DD HH:mm:ss`；`ai knowledge-batch` 的 --start-time/--end-time 收时间戳或 datetime，CLI 统一转 13 位毫秒 |
 | `120001` | 证券代码无效——msg 带原因（「非有效A股」）。Fundamental 系与 `quote day-kline`/`realtime`/`minute-kline`/`fund-flow` 都会报；**旧版 `day-kline-hk`/`day-kline-us`/`index-day-kline` 静默返回空** | — | `reference securities-search` 确认代码与后缀（`600519.SH` / `00700.HK`） |
 | `110003` | **超出账号数据权限的时间范围**。范围按账号等级而定、**不是平台常量**；窗口按**账号**配、不按接口配 | — | 把日期移进权限范围内；整个区间都早于下界时缩短窗口无用（`--fiscal-year 2015` 无论怎么缩都报错）；**换接口绕不过去**，要更长历史联系客户经理开通。⚠️ 区间**跨过**下界时，`indicator`、`bond` 与 `fund` 报这个码，`quote` 日 K 与 `valuation-analysis` 则从下界起返回、不报错——核对首行日期 |
-| `100006` | 查询/下载数量超限；**`indicator cross-section` / `time-series` 单次单元格数超 30000**、**`fund` 命令单次超过 10000 行**也是此码（msg 写明限额） | — | 缩短日期范围或调小 `--size`/`--limit`；全市场场景应已自动分片；EDE 按「截面=证券数×指标数、时序=证券数或指标数×日期数」拆批；`fund` 不分页、没有 `--size`，减少 `--security` 只数或缩短日期区间分批查 |
+| `100006` | 查询/下载数量超限；**`indicator cross-section` / `time-series` 单次单元格数超 30000**、**`fund` 命令单次超过 10000 行**、**`quote sector-fund-flow` 计算量超限**也是此码（msg 写明限额） | — | 缩短日期范围或调小 `--size`/`--limit`；全市场场景应已自动分片；EDE 按「截面=证券数×指标数、时序=证券数或指标数×日期数」拆批；`fund` 不分页、没有 `--size`，减少 `--security` 只数或缩短日期区间分批查；`quote sector-fund-flow` 缩短日期区间、减少 `--sector` 或 `--field`，**调小 `--limit` 无效**（它只截返回行数，不减计算量） |
 | `240001` | 财报期未披露或超出查询期（`earnings-review` 提交阶段就报，**不扣积分**） | — | 换更早的 `--period`（`2025q3` → `2025interim`） |
 | `250001` | 不支持的数据源 | — | 检查 `resourceType + sourceId` 组合 |
 | `999011` | 开发账号凭证无效（不区分 AK 错还是 SK 错） | 登录即失败，**不重试** | 检查 `GANGTISE_ACCESS_KEY`/`GANGTISE_SECRET_KEY` 是否写反或未 export |

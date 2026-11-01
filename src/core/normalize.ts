@@ -69,8 +69,8 @@ export function flagFailedItems(data: unknown, label: string): void {
   const detail = rec.failList.map((item) => {
     if (!item || typeof item !== "object") return String(item)
     const entry = item as Record<string, unknown>
-    // Each write family keys the failure on its own field (securityCode / poolId / fileId).
-    const id = entry.securityCode ?? entry.poolId ?? entry.fileId ?? JSON.stringify(entry)
+    // Each write family keys the failure on its own field (securityCode / poolId / fileId / stockNoteId).
+    const id = entry.securityCode ?? entry.poolId ?? entry.fileId ?? entry.stockNoteId ?? JSON.stringify(entry)
     return entry.failReason ? `${String(id)}（${String(entry.failReason)}）` : String(id)
   }).join("、")
   process.stderr.write(`[gangtise] warning: ${label} — ${rec.failList.length} item(s) failed while the request itself succeeded: ${detail}. Result marked partial (exit 3).\n`)

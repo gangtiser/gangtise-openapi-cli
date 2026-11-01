@@ -33,6 +33,8 @@ if (group === "quote" && command === "realtime") {
   ]) }
 } else if (group === "quote" && command === "fund-flow") {
   out = { total: 1, list: [{ securityCode: "600519.SH", tradeDate: "2026-09-04", mainNetInflow: 1 }] }
+} else if (group === "quote" && command === "sector-fund-flow") {
+  out = { total: 1, list: [{ sectorId: "1000001141", tradeDate: "2026-09-04", sectorMainNetInflow: 1 }] }
 } else if (group === "indicator" && command === "search") {
   const codes = { 复权因子: "qte_adj_factor", 收盘价: "qte_close", 营业收入: "is_op_rev", 市盈率: "finc_pe_ttm", 总市值: "qte_mkt_cptl" }
   const hit = { indicatorCode: codes[values("--keyword")[0]], parameterList: [{ paramKey: "tradeDate", required: true }], scopeList: [{ market: "A股", securityType: "股票" }] }

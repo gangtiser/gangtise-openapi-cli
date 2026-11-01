@@ -1,6 +1,6 @@
 # Vault 命令详细参数（私域数据）
 
-列表类命令大多有 `--keyword` `--start-time` `--end-time` `--from` `--size`；`wechat-chatroom-list` 只有 `--from` / `--size`，股票池的查询命令都没有这些选项。`my-conference-list` 按条计费，省略 `--size` 时估算全量超过 1000 积分会报错退出 1，确认后加 `--yes` 或改传 `--size N`。
+列表类命令大多有 `--keyword` `--start-time` `--end-time` `--from` `--size`；`wechat-chatroom-list` 只有 `--from` / `--size`，股票池的查询命令都没有这些选项，笔记查询只有 `--from` / `--size`。`my-conference-list` 按条计费，省略 `--size` 时估算全量超过 1000 积分会报错退出 1，确认后加 `--yes` 或改传 `--size N`。
 
 ---
 
@@ -101,24 +101,27 @@ gangtise vault wechat-chatroom-list [--room-name <name>] [--from <n>] [--size <n
 
 ## 自选股股票池 `vault stock-pool-*`
 
-查询两个、增删改五个，全部免费，只操作当前账号本人的数据。
+查询两个、增删改五个，全部免费。查询可看个人股票池或所属租户的股票池，增删改只操作当前账号本人的个人股票池。
 
 ### 查询
 
 ```bash
-gangtise vault stock-pool-list
-gangtise vault stock-pool-stocks [--pool-id <id>]
+gangtise vault stock-pool-list   [--space-type 1|2]
+gangtise vault stock-pool-stocks [--space-type 1|2] [--pool-id <id>]
 ```
 
-- `stock-pool-list`：查询当前用户的全部股票池，返回 `poolId` / `poolName`
+- `--space-type`：`1` 个人自选股股票池（不传即此项）、`2` 所属租户的股票池（终端租户页签下的池；页签名不是池名）。一次只查一种。无租户股票池查询权限时报 `999004`；有权限但没有可见的池返回空列表
+- `stock-pool-list`：查询股票池列表，返回 `poolId` / `poolName` / `spaceType`
 - `stock-pool-stocks`：查询股票池中的证券明细
-  - `--pool-id`：股票池 ID，可重复；不传默认 `all`（返回所有池中的非重复证券）
-  - 传入 `--pool-id all` 等同于全量查询，最多返回 10000 只
+  - `--pool-id`：股票池 ID，可重复；不传默认 `all`（返回该 `--space-type` 下所有可见池中的非重复证券）
+  - 🔴 **`--pool-id` 要取自同一 `--space-type` 的 `stock-pool-list`**：另一种空间的 ID 不会被匹配——与其他有效 ID 一起传时被静默忽略，全部不匹配时报 `999004`「股票池不存在或无权访问」。租户池的明细要带 `--space-type 2`
+  - 按完整 `securityCode` 去重合并，不标注来自哪个池；要逐池归属就逐池查
+  - 单次最多返回 10000 只，超出截断且没有截断标记，返回恰好 10000 只时不能当作已取全（逐池查可降低截断）
   - 返回字段：`securityCode` / `securityName`
 
 ### 增删改
 
-🔴 **这五个命令会改动账号数据**（与上面的云盘管理命令同属写操作）；`--pool-id` 一律取自 `stock-pool-list`。
+🔴 **这五个命令会改动账号数据**（与上面的云盘管理命令同属写操作）；`--pool-id` 一律取自不带 `--space-type` 的 `stock-pool-list`（个人股票池）。
 
 ```bash
 gangtise vault stock-pool-create      --name <名称>
@@ -146,3 +149,46 @@ gangtise vault stock-pool-delete      --pool-id <id> [--pool-id <id>...] --yes
 **幂等**：重复加已在池内的证券、移出本就不在池内的证券、删不存在的 `poolId`，都算成功并计入 `successList`，不会报错。唯一不幂等的是 `stock-pool-create`（见上面的重名规则）。
 
 **返回字段**：`create` / `rename` 返回 `poolId` / `poolName`；`add-stock` / `remove-stock` / `delete` 返回 `successList[]` + `failList[]{securityCode 或 poolId, failReason}`。
+
+## 个股投资笔记 `vault stock-note-*`
+
+查询、新增、改写、删除四个命令，全部免费，只操作当前账号本人写的笔记（别人的笔记查不到、改不了、删不到，也不会暴露是否存在）。笔记与证券是多对多：一条笔记关联 1~50 只证券，同一只证券可以有多条笔记，每条笔记以 `stockNoteId` 区分。笔记与自选关注相互独立——取消关注、删股票池都不会删笔记。
+
+```bash
+gangtise vault stock-note-list   [--security <code>... | --note-id <id>...] [--from <n>] [--size <n>]
+gangtise vault stock-note-add    --security <code> [--security <code>...] --content <正文>
+gangtise vault stock-note-update --note-id <id> --content <新正文>
+gangtise vault stock-note-delete --note-id <id> [--note-id <id>...] --yes
+```
+
+### 查询 `stock-note-list`
+
+- 不传筛选 = 本人**全部**笔记（含已取消关注的证券下仍保留的笔记）；`--security` 按证券筛，笔记关联的证券里**含其中任一只**即命中；`--note-id` 按笔记 ID 精确查。`--security` 与 `--note-id` 二选一，同传本地报错
+- `--security` / `--note-id` 各最多 100 个；代码大小写、首尾空格不影响匹配，但港股要 5 位（`00700.HK`，`700.HK` 不会补零）、美股要用交易所后缀（`AAPL.O`，`AAPL.US` 不会转换）。**代码写错、不存在或类型不支持时整次报 `120001`**，不会当成「这只票没有笔记」返回空；有效代码没有笔记才是空结果
+- 不存在或不属于本人的笔记 ID 被直接过滤，不计入 `total`、不报错
+- 自动翻页，省略 `--size` 取全部；按 `createTime` 倒序（同秒按 ID 倒序），同时命中多只证券的笔记只出现一次。翻页期间有增删时偏移会变，不保证跨页一致
+- 返回字段：`stockNoteId` / `securityList`（该笔记**完整**的关联证券，按代码升序，不只是你筛的那几只）/ `content`（纯文本原样，保留换行；Markdown 只是文字）/ `createTime` / `updateTime`（北京时间，精确到秒；正文没变的提交不刷新 `updateTime`）
+- 默认输出 json（正文常含换行，表格不便阅读）
+
+### 新增 `stock-note-add`
+
+- `--security`：1~50 只（按规范化去重后计数），可重复或逗号分隔。可关联 A 股、港股、美股（`.O` / `.N` 等）、ETF、交易所指数、概念指数（`.GT`）、中信行业指数（`.CI`）、全球指数（如 `SPX.SPI`），可混传；**申万行业指数（`.SWI`）不支持**。任一只无效则整条不建，报 `120001` 并点名
+- `--content`：纯文本，不能为空或全是空白，最长 10000 个字符（按 Unicode 码点计，首尾空白和换行都算）；原样保存，不裁剪
+- 返回 `stockNoteId` 与实际关联的 `securityList`（规范化代码、升序）
+- 🔴 **关联的证券建好后不能改**：要换关联范围就新增一条、核对无误后再删旧的（两步不是原子操作，中间会短暂同时存在两条）
+- 🔴 **超时或 5xx 不会自动重发，也不要直接重跑**：服务端没有防重机制，同样的请求再提交一次就是第二条笔记。超时后先 `stock-note-list --security <code>` 看是否已经写入
+
+### 改写 `stock-note-update`
+
+- `--note-id` 取自 `stock-note-list`；`--content` **整体替换**旧正文（不是追加），规则同新增
+- 只改正文，关联证券不变；一条笔记关联多只证券时，改动在每只证券下都可见
+- 成功返回 `{}`；`updateTime` 从查询里看。不存在或不属于本人返回 `130002`「笔记不存在或无权操作」
+- 没有版本控制，并发改写以最后提交的为准
+
+### 删除 `stock-note-delete`
+
+- **必须显式加 `--yes`**（不加直接报错退出，不发请求）；删除的是整条笔记连同它与全部证券的关联，**不可恢复**。`raw call vault.stock-note.delete` 同样要 `--yes`
+- `--note-id` 可重复或逗号分隔，一次最多 100 个；**只接受明确的 ID，没有 `all`**——批量删先 `stock-note-list` 拿 ID 核对
+- 幂等：已删掉的、不存在的、不属于本人的 ID 都进 `successList`（不会删到别人的笔记），重复执行仍算成功
+- 部分失败同股票池写命令：服务端仍返回成功信封、把失败项放进 `failList`，CLI 在 stderr 列出、标 `partial`、**退出码 3**；拿到结果后只需对 `failList` 里的 ID 重试
+- 返回字段：`successList[]` + `failList[]{stockNoteId, failReason}`

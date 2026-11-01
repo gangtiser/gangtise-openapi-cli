@@ -86,6 +86,11 @@ const probes = {
     const list = rows(cli(["quote", "fund-flow", "--security", "600519.SH", "--start-date", START, "--end-date", END]))
     return { columns: columns(list) }
   },
+  // 1000001141 = 上证50指数 (reference sector-search).
+  "quote.sector-fund-flow": () => {
+    const list = rows(cli(["quote", "sector-fund-flow", "--sector", "1000001141", "--start-date", START, "--end-date", END]))
+    return { columns: columns(list) }
+  },
   "indicator.search": () => {
     const out = []
     for (const [keyword, code] of INDICATORS) {

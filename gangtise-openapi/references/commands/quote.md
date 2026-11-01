@@ -112,6 +112,26 @@ gangtise quote fund-flow [--security <code>] [--start-date <YYYY-MM-DD>] [--end-
 - 金额单位：元；占比单位：%（各分类流入占比之和 = 100）
 - 无积分消耗
 
+## 板块资金流向 `quote sector-fund-flow`
+
+```bash
+gangtise quote sector-fund-flow --sector <sectorId> [--sector <sectorId2>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--limit <n>] [--field <name>]
+```
+
+- 行业 / 概念 / 指数类板块的**日频**资金流向，仅历史数据，免费。每个值是该板块**当日成分股**（历史哪天就用哪天的成分名单，不是现在的）资金流向的加总，**只计沪深京上市公司**——板块里的港股、美股等不计入
+- `--sector`（必填）：板块 ID，可重复或逗号分隔；用 `gangtise reference sector-search --keyword <名称>` 查（与 `indicator` 的板块 ID 同一套）。ID 不存在报 `100003`
+- `--start-date` / `--end-date`：`yyyy-MM-dd`；省略时 `end-date` 默认最新已入库交易日、`start-date` 默认往前 1 年。超出账号的数据窗口报 `110003`（区间跨过下界也整段报错，不截短返回）。可回溯范围不在官方权限表里，且可能短于 `quote fund-flow`——长区间先查最早的一小段确认
+- 返回按板块、日期倒序排列，每行 `sectorId` / `tradeDate` 在最前
+- `--limit`：默认 6000，上限 10000（超出本地报错）。**只截返回行数，不减计算量**；返回行数撞上 `--limit` 时结果标 `partial`、退出码 3、stderr 警告
+- 🔴 **查询太重会报 `100006`、不返回部分数据**：计算量随板块数、板块成分股数、日期跨度和字段数增长，没有固定的最大天数。撞上就缩短日期区间、减少 `--sector` 或用 `--field` 少取几项，分成不重叠的区间分批查；**调小 `--limit` 无效**，原样重试也无效（这不是限流）
+- `--field`：不传返回全部；可选（金额单位：元）
+  - 小/中/大/特大单：`sector{Small|Medium|Large|Xlarge}{Inflow|Outflow|NetInflow}`
+  - 主力（大单 + 特大单）：`sectorMain{Inflow|Outflow|NetInflow}`
+  - 全单（四类合计）：`sectorTotalInflow` / `sectorTotalOutflow`——同 `fund-flow` 的 `totalInflow` / `totalOutflow`；板块只含沪深成分股时两者相等，含北交所成分股时可以不等
+  - 字段名写错报 `100005` 并点名（不会静默少一列）
+  - ⚠️ 只传 `sectorId` / `tradeDate`、不带任何资金字段时返回 0 行、不报错（CLI 在 stderr 提示）——至少带一个资金字段
+- 与 `fund-flow` 不同，**没有占比字段**，也没有全市场关键字
+
 ## 指数日 K 线 `quote index-day-kline`（⚠️ 已弃用，改用 `day-kline`）
 
 ```bash

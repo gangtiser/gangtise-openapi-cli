@@ -90,29 +90,29 @@ gangtise indicator cross-section \
 ```bash
 gangtise indicator time-series --indicator <code> [--indicator <code2>] \
   --security <code> [--security <code2>] --start-date <date> --end-date <date> \
-  [--calendar-type <ND|TD|WD>] [--currency <c>] [--scale <s>] [--indicator-param <spec>] [--key-by name|code]
+  [--calendar-type <ND|TD|WD|RD>] [--currency <c>] [--scale <s>] [--indicator-param <spec>] [--key-by name|code]
 ```
 
 - `--indicator` / `--security`：同上，但**只允许「多指标 × 单证券」或「单指标 × 多证券」**，不能两边都多个（要多 × 多用 `cross-section`，否则报 `100003`「仅支持多指标单证券或单指标多证券」）。**单指标时 `--security` 才能传板块 ID**；多指标时只能传一个证券代码、不得传板块 ID
 - `--start-date` / `--end-date`（**均必选**）：区间端点 `yyyy-MM-dd`。时序的时间范围由这两个参数统管，**不要**再用 `--indicator-param` 传 `tradeDate` 这类单日期参数
 - ⚠️ **同一 `indicatorCode` 挂多套参数：截面和时序都不支持，这是设计如此，要拆成两次调用**。只有 `screener` 支持（它把指标绑到不同变量 `F1`/`F2` 上，天然可区分）。CLI 也表达不了该请求——`--indicator-param` 按 code 建 Map，同 code 的多组参数会被合并成一组，与服务端设计一致。走 `raw call` 真发出去会报 `100003「指标 xxx 重复配置」`
-- `--calendar-type`：日期类型 `ND`(自然日)/`TD`(交易日)/`WD`(工作日)。`TD` 且跨市场时，`date` 列是各市场交易日的**并集**。服务端默认 `ND`
+- `--calendar-type`：日期类型 `ND`(自然日) / `TD`(交易日) / `WD`(工作日) / `RD`(报告期，固定为 `03-31` / `06-30` / `09-30` / `12-31`)。显式传了就按你给的发
 
-  **不传时 CLI 会自动选**：发请求前用 `indicator search`（免费）读每个指标的 `parameterList`——**去重后每个指标码各查一次**（并发，`--indicator` 只给一个时就是一次）——
+  **不传时由服务端按指标定日期轴**（CLI 不另发请求、也不改写）：
 
-  | 本次请求的指标 | CLI 发什么 | 为什么 |
-  | :-- | :-- | :-- |
-  | **全部**都声明 `tradeDate`、且**都不**声明 `reportDate` / `fiscalYear` | `TD`，并在 stderr 说明一句 | 行情 / 日频估值序列，交易日轴上一格不少，还省掉周末空行 |
-  | 任一指标声明 `reportDate` 或 `fiscalYear` | 不发（服务端按 `ND`） | 见下面那条红字 |
-  | `parameterList` 为空、查不到该 code、或这次查询失败 | 不发（服务端按 `ND`） | 拿不准就退回服务端默认，不赌 |
+  | 本次请求的指标 | 返回的日期 |
+  | :-- | :-- |
+  | 全部是交易日类（行情、日频估值，如 `qte_close` / `finc_pe_ttm`） | 交易日序列 |
+  | 全部是报告期类（`is_*` 等财务指标） | 报告期序列（区间内的 `03-31` / `06-30` / `09-30` / `12-31`） |
+  | 两类混查 | 两者日期的**并集**：报告期类指标只在报告期末那几行有值，其余行 `null`；报告期末不是交易日时，交易日类指标在那一行是 `null` |
 
-  **显式传了 `--calendar-type` 就完全按你给的发**，不查也不改。
-
-  - 🔴 **两个方向的代价不对称，所以自动选择只往 `ND` 一边兜底**：报告期末常落在非交易日（如 2024-03-31、2024-06-30 均为周日），`TD` 的日期轴里没有那一列，报告期类指标于是**整行全 `null`、退出码 0、不报错**，读起来像「这只票没有这项财务数据」。**选 `ND` 选错只是多花单元格，选 `TD` 选错是静默丢数。**
-  - **混合两类指标时一律 `ND`**：一次请求只有一个 `calendarType`，管不到单个指标——`ND` 下两类都取得到（行情列在周末是 `null`，本就该是），`TD` 下行情列正常而报告期列整行全空。自动选择按的就是这条：只要有一个报告期类指标，整条走 `ND`
-  - **`TD` 能省多少**：A 股一年约 240~245 个交易日，所以同一区间 `ND` 的日期列大约是 `TD` 的 **1.5 倍**，多出来的那三分之一全是非交易日的 `null`。换算到 30000 上限就是「单指标拉一年，`TD` 能带的证券数比 `ND` 多约一半」。**要精确值就用自己的区间各跑一次比 `dates` 长度**，别套这里的比例——交易日数逐年不同
+  - 🔴 **一致预期类指标（`frcst_*`）不传时走交易日序列**，但它们在非交易日也有值、而且会变（节假日期间预测更新）。要逐日完整的序列就显式传 `--calendar-type ND`
+  - 🔴 **报告期类指标别传 `TD`**：报告期末常落在非交易日（如 2024-03-31、2024-06-30 均为周日），`TD` 的日期轴里没有那一天，这几期报告期类指标于是**整期缺失、退出码 0、不报错**；落在交易日的报告期末照常有值（2024 年传 `TD` 只有 09-30、12-31 两期），看着像正常数据，很难发现少了期。不传或传 `RD` 即可
+  - 混查时要所有指标按同一种日历取值，显式传 `ND` / `TD` / `RD`
+  - `TD` 且跨市场时，日期是各市场交易日的**并集**；`RD` 跨市场用同一组报告期日期，不按市场取并集
+  - **`ND` 与 `TD` 差多少**：A 股一年约 240~245 个交易日，同一区间 `ND` 的日期列大约是 `TD` 的 **1.5 倍**，多出来的全是非交易日。换算到 30000 上限就是「单指标拉一年，`TD` 能带的证券数比 `ND` 多约一半」。**要精确值就用自己的区间各跑一次比 `dates` 长度**，别套这里的比例——交易日数逐年不同
 - `--currency` / `--scale`：同 `cross-section`（根级 `--scale` 只作用于支持它的指标，价格类与金额类可以混查）
-- **输出（宽表）**：每行一个日期，列为 `date / <各序列名>…`；序列在「单指标」时是各**证券**，在「单证券多指标」时是各**指标**。**板块 ID 算多证券**——传 1 个 `sectorId` 服务端会展开成 N 只成分股，列就是这 N 只（如中信白酒 → 每只成分股一列）
+- **输出（宽表）**：每行一个日期，**按日期倒序（最新在前）**，与接口返回的 `dates` 顺序一致——按相邻行算涨跌、收益率前先按 `date` 升序排好，否则符号全反；列为 `date / <各序列名>…`；序列在「单指标」时是各**证券**，在「单证券多指标」时是各**指标**。**板块 ID 算多证券**——传 1 个 `sectorId` 服务端会展开成 N 只成分股，列就是这 N 只（如中信白酒 → 每只成分股一列）
 - **`--key-by name|code`**（默认 `name`）：同 `cross-section`；`code` 模式下单证券列=各 `indicatorCode`、多证券列=各 `securityCode`，批量按 code 回填用它
 - ⚠️ 部分指标标注**不支持时序接口**：`search` 返回的 `scopeList[].usageRestriction` 会写明（如「不支持指标时间序列接口」），`null` 表示无限制。**但它不是硬约束**——`qte_vol_intvl` 带着该标注调时序照样返回数据，不会被拦下。把它当"口径可能不对、结果别当真"的提示，而不是"会报错"的保证
 
@@ -219,17 +219,17 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 
 **撞上限就按这个乘积拆批**：截面拆证券或拆指标，时序拆证券或缩日期区间，分批取回后自己合并。
 
-⚠️ **两处最容易撞**：① `--security` 传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进命令的条数（全 A 股板块是数千只，配几个指标就到顶）；② 时序的日期轴由 `--calendar-type` 决定，`ND` 的日期列约是 `TD` 的 1.5 倍（周末与节假日各占一列），同一个查询在 `ND` 下更容易超限——纯行情序列走 `TD` 就省下这部分（不传时 CLI 会自动判，见上文）。
+⚠️ **两处最容易撞**：① `--security` 传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进命令的条数（全 A 股板块是数千只，配几个指标就到顶）；② 时序的日期轴由 `--calendar-type` 决定，`ND` 的日期列约是 `TD` 的 1.5 倍（周末与节假日各占一列），同一个查询在 `ND` 下更容易超限——纯行情序列走 `TD` 就省下这部分（不传 `--calendar-type` 时服务端对行情类指标就是按交易日给，见上文）。
 
 **缺数据 vs 代码写错**：
 
 **缺数据一律保留行列并给一个占位单元格**，连单指标 × 单证券的 1×1 缺口也有行有列、不是空表。判据是**代码认不认识**，跟有没有数据无关：
 
-> 🔴 **报告期类指标（`is_*`）取不到数时返 `null`，而时序上大部分行都是 `null`——这一条会直接影响聚合结果**
+> 🔴 **报告期类指标（`is_*`）取不到数时返 `null`，而在逐日的日期轴上（混查，或显式传 `ND` / `TD` / `WD`）时序大部分行都是 `null`——这一条会直接影响聚合结果**
 >
 > 占位值统一是 `null`（截面与时序都一样，不会是 `0`）。`null` 在宽表里一眼可见，**Excel `AVERAGE` / pandas `mean()` / SQL `AVG` 会跳过它**，但**行数不会变**。🔴 **`jq` 不跳过**：`[1,null,2,null,null] | add/length` 得 **0.6**（正确值 1.5），`add` 把 `null` 当加法单位元而 `length` 照数——正是「整列求均值差几十倍」那个错法本身；全为 `null` 时 `add/length` 直接报错。用 jq 聚合前先 `map(select(. != null))`。
 >
-> **时序这一档最容易踩**：报告期类指标按日返回，**只有报告期末那几行是真值**，其余全是 `null`——例如茅台 `is_dnrpnp` 查 3 月到 7 月共 104 行，只有 03-31 和 06-30 两行有数。而**时序没有任何参数能让它只返回报告期末**（传 `tradeDate` / `reportDate` 都会被拒）。用「总和 ÷ 行数」手工求均值会得到偏低 50 倍的结果；用会跳过 `null` 的聚合（如多数 DataFrame 的 `mean()`）才是对的。
+> **时序这一档最容易踩**：报告期类指标与交易日类指标混查、或显式传 `--calendar-type ND` / `TD` / `WD` 时，日期轴是逐日的，**只有报告期末那几行是真值**，其余全是 `null`——`ND` 下查 3 月到 7 月只有 03-31 和 06-30 两行有数（`TD` 下落在非交易日的那期连行都没有，见上文日期轴一节）。用「总和 ÷ 行数」手工求均值会偏低几十倍；用会跳过 `null` 的聚合（如多数 DataFrame 的 `mean()`）才是对的。只要报告期末那几行：单独查报告期类指标，不传 `--calendar-type` 或传 `RD`（时序不收 `tradeDate` / `reportDate` 参数，传了会被拒）。
 >
 > **截面这一档**：日期不落在报告期末（如 `2025-05-15`）时整批返 `null`，`screener` 的任何比较都不成立、筛出空集——**这不是「没有符合条件的标的」，是日期用错了**。
 >
@@ -396,6 +396,26 @@ gangtise indicator cross-section --indicator shr_hld --indicator shr_avg_qty \
   --indicator-param "shr_avg_qty:shareType=2" --security 600519.SH --date 2026-10-15
 ```
 
+### 量比、自由流通、流通股本与市值、涨跌停、TTM 利润类指标
+
+参数与覆盖市场以 `indicator search` 为准：
+
+| 类别 | 指标 | 日期参数 / 覆盖 |
+| :-- | :-- | :-- |
+| 量比 | `qte_vol_ratio` 量比（可选 `periodNum` / `changePeriod`）；`qte_vol_ratio_max` / `qte_vol_ratio_min` 区间最大 / 最小量比 | `tradeDate`；区间两项另传 `sDate`，不传返回 `null`。A / 港 / 美 |
+| 自由流通 | `qte_turn_free` 换手率（基于自由流通股，%）、`shr_free` 自由流通股本、`shr_free_rti` 自由流通股占总股本比例 | `tradeDate`。A / 港 |
+| 流通股本与市值 | `shr_float` / `shr_float_2` 流通股本（不含 / 含限售）、`qte_float_mkt_cptl` / `qte_float_mkt_cptl_2` 流通市值（不含 / 含限售）、`shr_float_tot_rti` 流通股合计占总股本比例 | `tradeDate`。A / 港 / 美 |
+| AH 溢价率 | `qte_prem_rate_ah`（%，用 A 股代码查） | `tradeDate`。A 股 |
+| 涨跌停与涨跌幅极值 | `qte_limit_up_num` / `qte_limit_down_num` 涨停 / 跌停天数；`qte_inc_pct_max` / `qte_dec_pct_max` 区间日涨幅最大值 / 日跌幅最大值 | `tradeDate` + `sDate`（前三个 `sDate` 必填；`qte_dec_pct_max` 可选，不传时区间起点元数据未写明，显式传）。涨跌停天数只有 A 股，涨跌幅极值 A / 港 / 美 |
+| 日均价与开盘价 | `qte_avg` 日均价、`qte_open` 开盘价（可选 `adjustType` / `currency`） | `tradeDate`。A / 港 / 美 |
+| TTM 利润类 | `is_net_prft_ttm` 净利润、`is_tot_prft_ttm` 利润总额、`is_op_prft_ttm` 营业利润、`is_gr_prft_ttm` 毛利、`is_invst_incm_ttm` 投资净收益、`is_exchg_incm_ttm` 汇兑收益（均为 TTM） | **`tradeDate`（`--date`），不是 `reportDate`**。A / 港；银行等没有毛利口径的公司 `is_gr_prft_ttm` 为 `null` |
+
+```bash
+gangtise indicator cross-section --indicator qte_vol_ratio --indicator qte_turn_free --indicator qte_float_mkt_cptl \
+  --indicator qte_limit_up_num --indicator-param "qte_limit_up_num:sDate=2026-01-01" --indicator is_net_prft_ttm \
+  --security 600036.SH --security 600519.SH --date 2026-10-30
+```
+
 ### 基金指标
 
 `--security` 传基金代码（场外 `.OF`，场内 `.SH` / `.SZ`，如 `005827.OF` / `510300.SH`）。
@@ -408,6 +428,7 @@ gangtise indicator cross-section --indicator shr_hld --indicator shr_avg_qty \
 
 - 🔴 **区间指标的其余参数一律显式传**，漏传报 `100001`（`parameterList` 列了默认值也一样）：`changePeriod` 变化周期、`yieldType`（`0` 普通 / `1` 对数收益率）、`riskFreeRate`（`0` = 常数 0）、`benchmarkCode` 基准代码（Alpha / Beta / 相关系数 / Jensen / Treynor / 非系统风险要）、`industryLevel`（同类排名按哪一级分类）。每个指标要哪几个以 `parameterList` 为准
 - ⚠️ **`changePeriod` 列出的默认值 `6`（区间）不是每个指标都收**：Sharpe 等的 `description` 写明只支持日 / 周 / 月 / 年（`0` / `1` / `2` / `5`），传 `6` 报 `100003`
+- ⚠️ **`fund_ret_rank` / `fund_ret_rank_pct` 的「同类基金数量」不一定等于所属分类的基金数**：不同分类的基金（如偏股混合型 FOF、偏股混合型、QDII 偏股混合型）在同一 `industryLevel` 下可能拿到几乎相同、接近全部基金数的分母。按同类位置下结论前先核对分母；要在同类里比，用 `fund_cls2_typ` 自己分组后比区间收益（`finc_ann_ret` 等）
 - `finc_intvl_max_dd` 返回负的百分数（`-19.23` 即 -19.23%），无回撤为 `0`；`fund_estb_dt` 返回 `yyyyMMdd` 整数（如 `20180905`），不是日期字符串
 - 这批区间指标的 `scopeList` 标着「不支持指标时间序列接口」，用 `cross-section` 取
 - 单只基金的净值序列、持仓、规模走 `fund` 命令组；EDE 适合多只基金横向比
@@ -472,6 +493,6 @@ gangtise indicator cross-section --indicator finc_sharpe_ann \
 
 - **发现流程**：`indicator search --format json` → 核对 `indicatorName` + `description`、`scopeList`（含 `usageRestriction`）、`parameterList`（**参数名以此为准**）→ 三项都通过才用 `cross-section` / `time-series` / `screener`
 - **积分**：`search` 免费；`cross-section` / `time-series` / `screener` 按请求单元格数量计费，标价为每 100 单元格 A 股 0.05 / 港股 0.1 / 美股 0.2 积分，每次查询不足 100 单元格按 100 计
-- **空结果排查顺序**：代码、参数名写错与缺必填参数会直接报错并点名（`100003` / `100001`），不会以空结果出现。拿到整批 `null` 或 `screener` 空集时按序排查：① 日期语义对不对（`tradeDate` vs `reportDate`——报告期类指标日期用错会整批返 `null`，看着像「没数据」）② 该指标覆不覆盖这批证券（`scopeList`，单查一行确认）③ 真的没有数据
+- **空结果排查顺序**：代码、参数名写错与缺必填参数会直接报错并点名（`100003` / `100001`），不会以空结果出现。时序整批空结果（`total: 0`、没有任何行）先看区间里有没有该日期轴上的日期：报告期类指标不传 `--calendar-type`（或传 `RD`）时区间要含 `03-31` / `06-30` / `09-30` / `12-31`，交易日类指标区间要含交易日（只查长假会空）——放宽区间，或传 `--calendar-type ND` 拿逐日行。拿到整批 `null` 或 `screener` 空集时按序排查：① 日期语义对不对（`tradeDate` vs `reportDate`——报告期类指标日期用错会整批返 `null`，看着像「没数据」）② 该指标覆不覆盖这批证券（`scopeList`，单查一行确认）③ 真的没有数据
 - **数据权限**：正式账号行情 / 财务 / 指标类可回溯的年限按服务等级而定，试用账号更短。这个时间窗口按**账号**配、不按接口配——三个 EDE 接口同界，区间跨过下界也整批返 `110003`（`quote day-kline` 在同一条界上，但跨界时从下界起返回、不报错），**换接口绕不过去**；整段区间都早于下界时缩短窗口无用，要更长历史联系客户经理开通
 - 所有格式（table/json/jsonl/csv/markdown）均可用；导出宽表给 Excel 直接用 `--format csv --output xxx.csv`

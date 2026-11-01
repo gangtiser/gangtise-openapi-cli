@@ -192,6 +192,33 @@ describe("ApiError", () => {
     expect(hint).toContain("枚举")
   })
 
+  // The layout the server switched to (probed 2026-10-31): the indicator is named once,
+  // ahead of its clauses, and a missing key reads 「必填参数 K 不能为空」. Each message
+  // below is a live answer; each must land on the same rule as its older twin above.
+  it.each([
+    ["is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空", "100003", "要的是 reportDate"],
+    ["is_op_rev: 必填参数 reportDate 不能为空", "100001", "要的是 reportDate"],
+    ["F1 (指标代码 is_op_rev): 不支持参数 tradeDate; 必填参数 reportDate 不能为空", "100003", "要的是 reportDate"],
+    ["qte_close: 不支持参数 reportDate; 必填参数 tradeDate 不能为空", "100003", "别在这一步用"],
+    ["div_cash_yld: 必填参数 tradeDate 不能为空", "100001", "tradeDate=YYYY-MM-DD"],
+    ["pty_op_scope: 不支持参数 tradeDate", "100003", '"<指标code>:"'],
+    ["is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空; pty_op_scope: 不支持参数 tradeDate", "100003", "失败的方式不同"],
+  ])("routes the current layout %s to its rule", (message, code, expected) => {
+    expect(new ApiError(message, code).hint ?? "").toContain(expected)
+  })
+
+  it("keeps one hint for a current-layout batch whose indicators failed the same way", () => {
+    const hint = new ApiError("is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空; is_dnrpnp: 不支持参数 tradeDate; 必填参数 reportDate 不能为空", "100003").hint ?? ""
+    expect(hint).toContain("要的是 reportDate")
+    expect(hint).not.toContain("失败的方式不同")
+  })
+
+  it("does not tell a current-layout reportDate message to stay away from reportDate", () => {
+    const hint = new ApiError("is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空", "100003").hint ?? ""
+    expect(hint).not.toContain("没说该换成哪个")
+    expect(new ApiError("qte_close: 不支持参数 bogusKey", "100003").hint).not.toContain("--indicator-param")
+  })
+
   it("provides hints for codes documented in the skill error table", () => {
     expect(new ApiError("quote range", "430007").hint).toContain("日期范围")
     expect(new ApiError("download", "430004").hint).toContain("file-type")

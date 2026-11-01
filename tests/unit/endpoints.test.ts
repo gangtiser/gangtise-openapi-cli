@@ -615,6 +615,8 @@ describe("ENDPOINTS", () => {
       // duplicate pool names are rejected, so replaying a create whose first
       // attempt succeeded answers 230006 and reports the success as a failure.
       "vault.stock-pool.create",
+      // Free, but no idempotency key: replaying an add that landed creates a second note.
+      "vault.stock-note.add",
       // Free drive writes, marked for their side effects (probed 2026-09-24): upload /
       // create-folder / copy make a second same-name item on replay, and a replayed
       // delete reports the delete that already landed as a failure.
@@ -640,7 +642,8 @@ describe("ENDPOINTS", () => {
     // already in the pool, removing one that isn't, and deleting a missing pool id all
     // succeed server-side, so a replay after a 5xx cannot do damage or double-charge.
     // Drive rename / moveFile / moveFolder answered identically when repeated (probed 2026-09-24).
-    for (const key of ["vault.stock-pool.delete", "vault.stock-pool.rename", "vault.stock-pool.add-stock", "vault.stock-pool.remove-stock", "vault.drive.rename", "vault.drive.move-file", "vault.drive.move-folder"]) {
+    // Note update / delete likewise: the same content again, or an id already deleted, succeeds (probed 2026-10-31).
+    for (const key of ["vault.stock-pool.delete", "vault.stock-pool.rename", "vault.stock-pool.add-stock", "vault.stock-pool.remove-stock", "vault.drive.rename", "vault.drive.move-file", "vault.drive.move-folder", "vault.stock-note.update", "vault.stock-note.delete"]) {
       expect(ENDPOINTS[key], key).toBeDefined()
       expect(ENDPOINTS[key].retry, key).toBeUndefined()
     }
@@ -718,7 +721,7 @@ describe("ENDPOINTS", () => {
     // omission direction is covered by the classification test below, which needs an
     // independent signal rather than the marker itself.
     const destructive = Object.keys(ENDPOINTS).filter((k) => ENDPOINTS[k].destructive)
-    expect(destructive.sort()).toEqual(["vault.drive.delete-file", "vault.drive.delete-folder", "vault.stock-pool.delete"])
+    expect(destructive.sort()).toEqual(["vault.drive.delete-file", "vault.drive.delete-folder", "vault.stock-note.delete", "vault.stock-pool.delete"])
     // The warning lives on the endpoint because the gate is generic: a shared string
     // would tell whoever adds the second destructive endpoint that they are about to
     // lose stock pools. Every marked endpoint must carry its own.
@@ -764,6 +767,7 @@ describe("ENDPOINTS", () => {
       "vault.drive.copy",
       "vault.drive.delete-file",
       "vault.drive.move-file",
+      "vault.stock-note.delete",
       "vault.stock-pool.add-stock",
       "vault.stock-pool.delete",
       "vault.stock-pool.remove-stock",

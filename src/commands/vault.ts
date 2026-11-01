@@ -1,10 +1,10 @@
 import { Command, Option } from "commander"
 
-import { collectList, collectNames } from "../core/args.js"
+import { collectList, collectNames, parseFrom, parseSize } from "../core/args.js"
 import { uploadDriveFile } from "../core/driveUpload.js"
 import { ValidationError } from "../core/errors.js"
 import { flagFailedItems } from "../core/normalize.js"
-import { emit, addDownloadCommand, assertConfirmed, field, value, required, list, numberList, format, output, from, size, startTime, endTime, query, RESEARCH_AREA_CITIC_OR_DIRECTION } from "./shared.js"
+import { emit, addDownloadCommand, assertConfirmed, field, value, required, requiredList, list, numberList, format, output, from, size, startTime, endTime, query, RESEARCH_AREA_CITIC_OR_DIRECTION } from "./shared.js"
 
 export const vault = new Command("vault").description("Vault APIs")
 query(vault, "drive-list", {
@@ -179,13 +179,16 @@ query(vault, "wechat-chatroom-list", {
     format(), output(),
   ],
 })
-query(vault, "stock-pool-list", { endpoint: "vault.stock-pool.list", fields: [format(), output()] })
+// Left out of the body when not given: the server reads a missing spaceType as 1.
+const poolSpaceType = () => field(new Option("--space-type <n>", "Pools: 1=my pools (default) 2=tenant pools").choices(["1", "2"]), (v?: string) => ({ spaceType: v === undefined ? undefined : Number(v) }))
+query(vault, "stock-pool-list", { endpoint: "vault.stock-pool.list", fields: [poolSpaceType(), format(), output()] })
 query(vault, "stock-pool-stocks", {
   endpoint: "vault.stock-pool.stocks",
   fields: [
+    poolSpaceType(),
     // No default: Commander passes an option's default to the first collect as `previous`,
     // so a ["all"] default would leak into every explicit list. Omitted means all pools.
-    field(new Option("--pool-id <id>", "Pool ID; repeat for multiple; omit (or 'all') for all pools").argParser(collectList), (v?: string[]) => ({ poolIdList: v?.length ? v : ["all"] })),
+    field(new Option("--pool-id <id>", "Pool ID from 'stock-pool-list' with the same --space-type (an ID of the other space is not matched); repeat for multiple; omit (or 'all') for all pools of that space").argParser(collectList), (v?: string[]) => ({ poolIdList: v?.length ? v : ["all"] })),
     format(), output(),
   ],
 })
@@ -245,3 +248,52 @@ vault.command("stock-pool-delete")
     return data
   })
 })
+
+// ── stock notes ──
+// The user's own notes, free. A note links 1–50 securities, fixed at creation: changing
+// them means adding a new note and deleting the old one. Content is plain text, at most
+// 10000 code points; the server checks every limit, so nothing is checked here.
+vault.command("stock-note-list").description("List your stock notes: all, by security, or by note ID (free)")
+  .option("--security <code>", "Security code (repeat or comma-separate): notes linked to ANY of them; omit both filters for all your notes", collectList)
+  .option("--note-id <id>", "Note ID (repeat or comma-separate); not together with --security", collectList)
+  .option("--from <number>", "Starting offset", "0")
+  .option("--size <number>", "Total rows to return; omit to fetch all")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action((options) => {
+    // The API needs exactly one of the two lists and refuses both (100003); omitted
+    // means every note, the way stock-pool-stocks reads an omitted --pool-id.
+    if (options.security?.length && options.noteId?.length) throw new ValidationError("pass --security or --note-id, not both")
+    const filter = options.noteId?.length ? { stockNoteIdList: options.noteId } : { securityList: options.security?.length ? options.security : ["all"] }
+    const body = { ...filter, from: parseFrom(options.from), size: parseSize(options.size) }
+    return emit(options, (client) => client.call("vault.stock-note.list", body))
+  })
+query(vault, "stock-note-add", {
+  description: "Add a stock note linked to 1-50 securities (free). Not retried on a timeout: check 'stock-note-list' before re-running, or you get two notes",
+  endpoint: "vault.stock-note.add",
+  fields: [
+    requiredList("--security <code>", "Security code to link, 1-50 (repeat or comma-separate); fixed once created. Stocks, ETFs, exchange / concept / CITIC industry / global indices; .SWI is refused (120001)", "securityList"),
+    required("--content <text>", "Note text, plain (Markdown is kept as text), max 10000 characters", "content"),
+    format("json"), output(),
+  ],
+})
+query(vault, "stock-note-update", {
+  description: "Replace the whole content of a stock note (free); its securities cannot be changed",
+  endpoint: "vault.stock-note.update",
+  fields: [
+    required("--note-id <id>", "Note ID from 'stock-note-list'", "stockNoteId"),
+    required("--content <text>", "New text, replacing the old in full; max 10000 characters", "content"),
+    format("json"), output(),
+  ],
+})
+vault.command("stock-note-delete").description("Delete stock notes — irreversible (free)")
+  .requiredOption("--note-id <id>", "Note ID to delete; repeat or comma-separate, max 100", collectList)
+  .option("--yes", "Required: confirm the deletion")
+  .option("--format <format>", "Output format", "json").option("--output <path>")
+  .action(async (options) => {
+    assertConfirmed("vault.stock-note.delete", Boolean(options.yes), options.noteId.join("、"))
+    await emit(options, async (client) => {
+      const data = await client.call("vault.stock-note.delete", { stockNoteIdList: options.noteId })
+      flagFailedItems(data, "vault stock-note-delete")
+      return data
+    })
+  })

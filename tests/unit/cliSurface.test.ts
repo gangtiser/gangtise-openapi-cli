@@ -114,6 +114,7 @@ const OMIT: Record<string, string[]> = {
   "bond default-list": ["--security", "--issuer"],
   "vault drive-copy": ["--folder-id", "--target-parent-id"],
   "insight opinion list": ["--with-content"],
+  "vault stock-note-list": ["--note-id"],
 }
 
 function synthesize(option: OptionInfo, tmp: string): string[] {
@@ -134,6 +135,7 @@ function synthesize(option: OptionInfo, tmp: string): string[] {
     "space-type": "2", "file-type": "1", "max-content-chars": "1000", site: "example.com",
     "target-folder-id": "root", "target-parent-id": "root", "parent-id": "root", "folder-id": "F1",
     viewpoint: "vp", expression: "F1 > 0", "indicator-param": "qte_close:adjustType=2",
+    "publish-start-time": "2026-05-20 08:00:00", "publish-end-time": "2026-05-31",
   }
   if (name in fixed) return [fixed[name]]
   return [`${name}-v`]

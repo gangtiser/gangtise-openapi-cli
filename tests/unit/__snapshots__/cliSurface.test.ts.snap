@@ -71,6 +71,7 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "quote minute-kline",
   "quote realtime",
   "quote fund-flow",
+  "quote sector-fund-flow",
   "fundamental",
   "fundamental income-statement",
   "fundamental income-statement-quarterly",
@@ -155,6 +156,10 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "vault stock-pool-add-stock",
   "vault stock-pool-remove-stock",
   "vault stock-pool-delete",
+  "vault stock-note-list",
+  "vault stock-note-add",
+  "vault stock-note-update",
+  "vault stock-note-delete",
   "ai",
   "ai knowledge-batch",
   "ai knowledge-resource-download",
@@ -1812,14 +1817,13 @@ Options:
                             repeat; union, deduped) (default: [])
   --start-date <date>       Start date (yyyy-MM-dd)
   --end-date <date>         End date (yyyy-MM-dd)
-  --calendar-type <type>    Calendar: ND=natural TD=trading WD=weekday. Omit it
-                            and the CLI picks: a free 'indicator search' reads
-                            each parameterList and sends TD only when EVERY
-                            indicator is trading-day typed, otherwise it leaves
-                            the server on ND (report-period indicators land on
-                            dates a trading calendar lacks, and TD would answer
-                            them with an all-null grid). An explicit value is
-                            sent as given, with no lookup
+  --calendar-type <type>    Calendar: ND=natural TD=trading WD=weekday RD=report
+                            period (03-31/06-30/09-30/12-31). Omit it and the
+                            server picks by indicator: TD for trading-day
+                            indicators, RD for report-period ones, the union of
+                            both dates when they are mixed. Forecast indicators
+                            (frcst_*) get TD that way, though their values also
+                            change on non-trading days — pass ND to keep those
   --currency <code>         Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD
                             (default DFT)
   --scale <code>            Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)
@@ -2173,23 +2177,30 @@ exports[`CLI surface > help > help: gangtise insight forum list 1`] = `
 "Usage: gangtise insight forum list [options]
 
 Options:
-  --research-area <id>     Research area ID: citicIndustry code (1008001xx) or
-                           gangtiseIndustry direction code (122000xxx:
-                           macro/strategy/fixed-income/quant/overseas).
-                           swIndustry (104xx0000) returns 0 here (default: [])
-  --location <id>          Location ID (domesticCity constant, via 'reference
-                           constant-list') (default: [])
-  --format <format>        Output format (default: "table")
-  --output <path>          Output path
-  --from <number>          Starting offset (default: "0")
-  --size <number>          Total rows to return; omit to fetch all
-  --start-time <datetime>  Start time
-  --end-time <datetime>    End time
-  --keyword <keyword>      Keyword
-  --yes                    Fetch past the credit guard: a fetch without --size,
-                           or with a large one, estimated above 1000 credits
-                           (the list is billed per row)
-  -h, --help               display help for command
+  --research-area <id>             Research area ID: citicIndustry code
+                                   (1008001xx) or gangtiseIndustry direction
+                                   code (122000xxx:
+                                   macro/strategy/fixed-income/quant/overseas).
+                                   swIndustry (104xx0000) returns 0 here
+                                   (default: [])
+  --location <id>                  Location ID (domesticCity constant, via
+                                   'reference constant-list') (default: [])
+  --format <format>                Output format (default: "table")
+  --output <path>                  Output path
+  --from <number>                  Starting offset (default: "0")
+  --size <number>                  Total rows to return; omit to fetch all
+  --start-time <datetime>          Start time
+  --end-time <datetime>            End time
+  --keyword <keyword>              Keyword
+  --publish-start-time <datetime>  Collected from (publishTime, when the
+                                   schedule first came in — not when it is
+                                   held); combines with --start-time/--end-time
+  --publish-end-time <datetime>    Collected until (publishTime); a bare date
+                                   covers that whole day
+  --yes                            Fetch past the credit guard: a fetch without
+                                   --size, or with a large one, estimated above
+                                   1000 credits (the list is billed per row)
+  -h, --help                       display help for command
 "
 `;
 
@@ -2686,34 +2697,43 @@ exports[`CLI surface > help > help: gangtise insight roadshow list 1`] = `
 "Usage: gangtise insight roadshow list [options]
 
 Options:
-  --research-area <id>       Research area ID: citicIndustry code (1008001xx) or
-                             gangtiseIndustry direction code (122000xxx:
-                             macro/strategy/fixed-income/quant/overseas).
-                             swIndustry (104xx0000) returns 0 here (default: [])
-  --institution <id>         Lead institution ID (default: [])
-  --security <code>          Security code (default: [])
-  --category <name>          Roadshow type:
-                             earningsCall/strategyMeeting/companyAnalysis/industryAnalysis/fundRoadshow
-                             (default: [])
-  --market <name>            Market: aShares/hkStocks/usChinaConcept/usStocks
-                             (default: [])
-  --participant-role <name>  Participant role: management/expert (default: [])
-  --broker-type <name>       Lead broker type: cnBroker/otherBroker (default:
-                             [])
-  --permission <number>      Permission: 1=public 2=private (default: [])
-  --location <id>            Location ID (domesticCity constant, via 'reference
-                             constant-list') (default: [])
-  --format <format>          Output format (default: "table")
-  --output <path>            Output path
-  --from <number>            Starting offset (default: "0")
-  --size <number>            Total rows to return; omit to fetch all
-  --start-time <datetime>    Start time
-  --end-time <datetime>      End time
-  --keyword <keyword>        Keyword
-  --yes                      Fetch past the credit guard: a fetch without
-                             --size, or with a large one, estimated above 1000
-                             credits (the list is billed per row)
-  -h, --help                 display help for command
+  --research-area <id>             Research area ID: citicIndustry code
+                                   (1008001xx) or gangtiseIndustry direction
+                                   code (122000xxx:
+                                   macro/strategy/fixed-income/quant/overseas).
+                                   swIndustry (104xx0000) returns 0 here
+                                   (default: [])
+  --institution <id>               Lead institution ID (default: [])
+  --security <code>                Security code (default: [])
+  --category <name>                Roadshow type:
+                                   earningsCall/strategyMeeting/companyAnalysis/industryAnalysis/fundRoadshow
+                                   (default: [])
+  --market <name>                  Market:
+                                   aShares/hkStocks/usChinaConcept/usStocks
+                                   (default: [])
+  --participant-role <name>        Participant role: management/expert (default:
+                                   [])
+  --broker-type <name>             Lead broker type: cnBroker/otherBroker
+                                   (default: [])
+  --permission <number>            Permission: 1=public 2=private (default: [])
+  --location <id>                  Location ID (domesticCity constant, via
+                                   'reference constant-list') (default: [])
+  --format <format>                Output format (default: "table")
+  --output <path>                  Output path
+  --from <number>                  Starting offset (default: "0")
+  --size <number>                  Total rows to return; omit to fetch all
+  --start-time <datetime>          Start time
+  --end-time <datetime>            End time
+  --keyword <keyword>              Keyword
+  --publish-start-time <datetime>  Collected from (publishTime, when the
+                                   schedule first came in — not when it is
+                                   held); combines with --start-time/--end-time
+  --publish-end-time <datetime>    Collected until (publishTime); a bare date
+                                   covers that whole day
+  --yes                            Fetch past the credit guard: a fetch without
+                                   --size, or with a large one, estimated above
+                                   1000 credits (the list is billed per row)
+  -h, --help                       display help for command
 "
 `;
 
@@ -2733,29 +2753,37 @@ exports[`CLI surface > help > help: gangtise insight site-visit list 1`] = `
 "Usage: gangtise insight site-visit list [options]
 
 Options:
-  --research-area <id>     Research area ID: citicIndustry code (1008001xx) or
-                           gangtiseIndustry direction code (122000xxx:
-                           macro/strategy/fixed-income/quant/overseas).
-                           swIndustry (104xx0000) returns 0 here (default: [])
-  --institution <id>       Lead institution ID (default: [])
-  --security <code>        Security code (default: [])
-  --object <type>          Object type: company/industry (default: [])
-  --category <name>        Site-visit form: single/series (default: [])
-  --market <name>          Market: aShares/hkStocks/usChinaConcept (default: [])
-  --permission <number>    Permission: 1=public 2=private (default: [])
-  --location <id>          Location ID (domesticCity constant, via 'reference
-                           constant-list') (default: [])
-  --format <format>        Output format (default: "table")
-  --output <path>          Output path
-  --from <number>          Starting offset (default: "0")
-  --size <number>          Total rows to return; omit to fetch all
-  --start-time <datetime>  Start time
-  --end-time <datetime>    End time
-  --keyword <keyword>      Keyword
-  --yes                    Fetch past the credit guard: a fetch without --size,
-                           or with a large one, estimated above 1000 credits
-                           (the list is billed per row)
-  -h, --help               display help for command
+  --research-area <id>             Research area ID: citicIndustry code
+                                   (1008001xx) or gangtiseIndustry direction
+                                   code (122000xxx:
+                                   macro/strategy/fixed-income/quant/overseas).
+                                   swIndustry (104xx0000) returns 0 here
+                                   (default: [])
+  --institution <id>               Lead institution ID (default: [])
+  --security <code>                Security code (default: [])
+  --object <type>                  Object type: company/industry (default: [])
+  --category <name>                Site-visit form: single/series (default: [])
+  --market <name>                  Market: aShares/hkStocks/usChinaConcept
+                                   (default: [])
+  --permission <number>            Permission: 1=public 2=private (default: [])
+  --location <id>                  Location ID (domesticCity constant, via
+                                   'reference constant-list') (default: [])
+  --format <format>                Output format (default: "table")
+  --output <path>                  Output path
+  --from <number>                  Starting offset (default: "0")
+  --size <number>                  Total rows to return; omit to fetch all
+  --start-time <datetime>          Start time
+  --end-time <datetime>            End time
+  --keyword <keyword>              Keyword
+  --publish-start-time <datetime>  Collected from (publishTime, when the
+                                   schedule first came in — not when it is
+                                   held); combines with --start-time/--end-time
+  --publish-end-time <datetime>    Collected until (publishTime); a bare date
+                                   covers that whole day
+  --yes                            Fetch past the credit guard: a fetch without
+                                   --size, or with a large one, estimated above
+                                   1000 credits (the list is billed per row)
+  -h, --help                       display help for command
 "
 `;
 
@@ -2775,20 +2803,25 @@ exports[`CLI surface > help > help: gangtise insight strategy list 1`] = `
 "Usage: gangtise insight strategy list [options]
 
 Options:
-  --institution <id>       Lead institution ID (default: [])
-  --location <id>          Location ID (domesticCity constant, via 'reference
-                           constant-list') (default: [])
-  --format <format>        Output format (default: "table")
-  --output <path>          Output path
-  --from <number>          Starting offset (default: "0")
-  --size <number>          Total rows to return; omit to fetch all
-  --start-time <datetime>  Start time
-  --end-time <datetime>    End time
-  --keyword <keyword>      Keyword
-  --yes                    Fetch past the credit guard: a fetch without --size,
-                           or with a large one, estimated above 1000 credits
-                           (the list is billed per row)
-  -h, --help               display help for command
+  --institution <id>               Lead institution ID (default: [])
+  --location <id>                  Location ID (domesticCity constant, via
+                                   'reference constant-list') (default: [])
+  --format <format>                Output format (default: "table")
+  --output <path>                  Output path
+  --from <number>                  Starting offset (default: "0")
+  --size <number>                  Total rows to return; omit to fetch all
+  --start-time <datetime>          Start time
+  --end-time <datetime>            End time
+  --keyword <keyword>              Keyword
+  --publish-start-time <datetime>  Collected from (publishTime, when the
+                                   schedule first came in — not when it is
+                                   held); combines with --start-time/--end-time
+  --publish-end-time <datetime>    Collected until (publishTime); a bare date
+                                   covers that whole day
+  --yes                            Fetch past the credit guard: a fetch without
+                                   --size, or with a large one, estimated above
+                                   1000 credits (the list is billed per row)
+  -h, --help                       display help for command
 "
 `;
 
@@ -2916,7 +2949,7 @@ exports[`CLI surface > help > help: gangtise quote 1`] = `
 Quote APIs
 
 Options:
-  -h, --help                 display help for command
+  -h, --help                  display help for command
 
 Commands:
   day-kline [options]
@@ -2924,10 +2957,12 @@ Commands:
   day-kline-us [options]
   index-day-kline [options]
   minute-kline [options]
-  realtime [options]         Realtime quote snapshot (A-share / HK / US stocks,
-                             ETFs, and indices incl. global indices)
-  fund-flow [options]        A-share daily fund flow (SH/SZ/BJ)
-  help [command]             display help for command
+  realtime [options]          Realtime quote snapshot (A-share / HK / US stocks,
+                              ETFs, and indices incl. global indices)
+  fund-flow [options]         A-share daily fund flow (SH/SZ/BJ)
+  sector-fund-flow [options]  Sector daily fund flow: each sector's constituents
+                              on that day summed, SH/SZ/BJ listings only (free)
+  help [command]              display help for command
 "
 `;
 
@@ -3074,6 +3109,30 @@ Options:
   --format <format>  Output format (default: "table")
   --output <path>
   -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise quote sector-fund-flow 1`] = `
+"Usage: gangtise quote sector-fund-flow [options]
+
+Sector daily fund flow: each sector's constituents on that day summed, SH/SZ/BJ
+listings only (free)
+
+Options:
+  --sector <id>        Sector ID from 'gangtise reference sector-search' (repeat
+                       or comma-separate)
+  --start-date <date>  Start date yyyy-MM-dd (default: endDate minus 1 year)
+  --end-date <date>    End date yyyy-MM-dd (default: latest trading day)
+  --limit <number>     Max rows returned (default: 6000, max: 10000). It cuts
+                       the answer only: a query too heavy to compute fails with
+                       100006 whatever the limit — shorten the range, or pass
+                       fewer sectors or fields
+  --field <field>      Field, e.g. sectorMainNetInflow / sectorLargeInflow
+                       (repeat); omit for all. sectorId and tradeDate always
+                       come first (default: [])
+  --format <format>    Output format (default: "table")
+  --output <path>
+  -h, --help           display help for command
 "
 `;
 
@@ -3393,6 +3452,15 @@ Commands:
   stock-pool-add-stock [options]
   stock-pool-remove-stock [options]
   stock-pool-delete [options]
+  stock-note-list [options]          List your stock notes: all, by security, or
+                                     by note ID (free)
+  stock-note-add [options]           Add a stock note linked to 1-50 securities
+                                     (free). Not retried on a timeout: check
+                                     'stock-note-list' before re-running, or you
+                                     get two notes
+  stock-note-update [options]        Replace the whole content of a stock note
+                                     (free); its securities cannot be changed
+  stock-note-delete [options]        Delete stock notes — irreversible (free)
   help [command]                     display help for command
 "
 `;
@@ -3658,6 +3726,71 @@ Options:
 "
 `;
 
+exports[`CLI surface > help > help: gangtise vault stock-note-add 1`] = `
+"Usage: gangtise vault stock-note-add [options]
+
+Add a stock note linked to 1-50 securities (free). Not retried on a timeout:
+check 'stock-note-list' before re-running, or you get two notes
+
+Options:
+  --security <code>  Security code to link, 1-50 (repeat or comma-separate);
+                     fixed once created. Stocks, ETFs, exchange / concept /
+                     CITIC industry / global indices; .SWI is refused (120001)
+  --content <text>   Note text, plain (Markdown is kept as text), max 10000
+                     characters
+  --format <format>  Output format (default: "json")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise vault stock-note-delete 1`] = `
+"Usage: gangtise vault stock-note-delete [options]
+
+Delete stock notes — irreversible (free)
+
+Options:
+  --note-id <id>     Note ID to delete; repeat or comma-separate, max 100
+  --yes              Required: confirm the deletion
+  --format <format>  Output format (default: "json")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise vault stock-note-list 1`] = `
+"Usage: gangtise vault stock-note-list [options]
+
+List your stock notes: all, by security, or by note ID (free)
+
+Options:
+  --security <code>  Security code (repeat or comma-separate): notes linked to
+                     ANY of them; omit both filters for all your notes
+  --note-id <id>     Note ID (repeat or comma-separate); not together with
+                     --security
+  --from <number>    Starting offset (default: "0")
+  --size <number>    Total rows to return; omit to fetch all
+  --format <format>  Output format (default: "json")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise vault stock-note-update 1`] = `
+"Usage: gangtise vault stock-note-update [options]
+
+Replace the whole content of a stock note (free); its securities cannot be
+changed
+
+Options:
+  --note-id <id>     Note ID from 'stock-note-list'
+  --content <text>   New text, replacing the old in full; max 10000 characters
+  --format <format>  Output format (default: "json")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
 exports[`CLI surface > help > help: gangtise vault stock-pool-add-stock 1`] = `
 "Usage: gangtise vault stock-pool-add-stock [options]
 
@@ -3700,6 +3833,8 @@ exports[`CLI surface > help > help: gangtise vault stock-pool-list 1`] = `
 "Usage: gangtise vault stock-pool-list [options]
 
 Options:
+  --space-type <n>   Pools: 1=my pools (default) 2=tenant pools (choices: "1",
+                     "2")
   --format <format>  Output format (default: "table")
   --output <path>
   -h, --help         display help for command
@@ -3736,7 +3871,11 @@ exports[`CLI surface > help > help: gangtise vault stock-pool-stocks 1`] = `
 "Usage: gangtise vault stock-pool-stocks [options]
 
 Options:
-  --pool-id <id>     Pool ID; repeat for multiple; omit (or 'all') for all pools
+  --space-type <n>   Pools: 1=my pools (default) 2=tenant pools (choices: "1",
+                     "2")
+  --pool-id <id>     Pool ID from 'stock-pool-list' with the same --space-type
+                     (an ID of the other space is not matched); repeat for
+                     multiple; omit (or 'all') for all pools of that space
   --format <format>  Output format (default: "table")
   --output <path>
   -h, --help         display help for command
@@ -6097,6 +6236,20 @@ exports[`CLI surface > invocations > bare: quote realtime 1`] = `
 }
 `;
 
+exports[`CLI surface > invocations > bare: quote sector-fund-flow 1`] = `
+{
+  "argv": [
+    "quote",
+    "sector-fund-flow",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--sector <id>' not specified
+",
+  "stdout": "",
+}
+`;
+
 exports[`CLI surface > invocations > bare: raw list 1`] = `
 {
   "argv": [
@@ -6161,6 +6314,7 @@ quote.index-day-kline                      POST    /application/open-quote/index
 quote.minute-kline                         POST    /application/open-quote/kline/minute                                            Query A-share minute kline (SH/SZ/BJ)                                                        
 quote.realtime                             POST    /application/open-quote/quote/realtime                                          Query realtime quote snapshot (A-share / HK / US)                                            
 quote.fund-flow                            POST    /application/open-quote/fund-flow/daily                                         Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow) 
+quote.sector-fund-flow                     POST    /application/open-quote/fund-flow/sector-daily                                  Query sector daily fund flow (constituents summed, SH/SZ/BJ only)                            
 fundamental.income-statement               POST    /application/open-fundamental/financial-report/income-statement/accumulated     Query A-share income statement (accumulated)                                                 
 fundamental.income-statement-quarterly     POST    /application/open-fundamental/financial-report/income-statement/quarterly       Query A-share income statement (quarterly)                                                   
 fundamental.balance-sheet                  POST    /application/open-fundamental/financial-report/balance-sheet/accumulated        Query A-share balance sheet (accumulated)                                                    
@@ -6250,6 +6404,10 @@ vault.stock-pool.delete                    POST    /application/open-vault/stock
 vault.stock-pool.rename                    POST    /application/open-vault/stock-pool/updatePool                                   Rename a stock pool                                                                          
 vault.stock-pool.add-stock                 POST    /application/open-vault/stock-pool/addStock                                     Add securities to a stock pool                                                               
 vault.stock-pool.remove-stock              POST    /application/open-vault/stock-pool/deleteStock                                  Remove securities from a stock pool                                                          
+vault.stock-note.list                      POST    /application/open-vault/stock-pool/getNoteList                                  List your stock notes (all, by security, or by note ID)                                      
+vault.stock-note.add                       POST    /application/open-vault/stock-pool/addNote                                      Add a stock note linked to 1-50 securities                                                   
+vault.stock-note.update                    POST    /application/open-vault/stock-pool/updateNote                                   Replace the content of a stock note                                                          
+vault.stock-note.delete                    POST    /application/open-vault/stock-pool/deleteNote                                   Delete stock notes                                                                           
 alternative.edb-search                     POST    /application/open-alternative/EDB/search                                        Search industry indicator list by keyword                                                    
 alternative.edb-data                       POST    /application/open-alternative/EDB/getData                                       Get industry indicator time-series data by indicator ID list                                 
 alternative.concept-info                   POST    /application/open-alternative/concept/v2/info                                   Query latest concept (theme index) profile by conceptId                                      
@@ -6714,6 +6872,83 @@ exports[`CLI surface > invocations > bare: vault record-list 1`] = `
 --  -----  -----
 1   t      1    
 ",
+}
+`;
+
+exports[`CLI surface > invocations > bare: vault stock-note-add 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-add",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--security <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: vault stock-note-delete 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-delete",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--note-id <id>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: vault stock-note-list 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-list",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "from": 0,
+        "securityList": [
+          "all",
+        ],
+        "size": 50,
+      },
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/getNoteList",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > bare: vault stock-note-update 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-update",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--note-id <id>' not specified
+",
+  "stdout": "",
 }
 `;
 
@@ -10917,6 +11152,10 @@ exports[`CLI surface > invocations > full: insight forum list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--publish-start-time",
+    "2026-05-20 08:00:00",
+    "--publish-end-time",
+    "2026-05-31",
     "--yes",
     "--format",
     "json",
@@ -10931,6 +11170,8 @@ exports[`CLI surface > invocations > full: insight forum list 1`] = `
         "locationList": [
           "location-v",
         ],
+        "publishEndTime": "2026-05-31",
+        "publishStartTime": "2026-05-20 08:00:00",
         "researchAreaList": [
           "research-area-v",
         ],
@@ -11875,6 +12116,10 @@ exports[`CLI surface > invocations > full: insight roadshow list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--publish-start-time",
+    "2026-05-20 08:00:00",
+    "--publish-end-time",
+    "2026-05-31",
     "--yes",
     "--format",
     "json",
@@ -11907,6 +12152,8 @@ exports[`CLI surface > invocations > full: insight roadshow list 1`] = `
         "permission": [
           1,
         ],
+        "publishEndTime": "2026-05-31",
+        "publishStartTime": "2026-05-20 08:00:00",
         "researchAreaList": [
           "research-area-v",
         ],
@@ -11967,6 +12214,10 @@ exports[`CLI surface > invocations > full: insight site-visit list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--publish-start-time",
+    "2026-05-20 08:00:00",
+    "--publish-end-time",
+    "2026-05-31",
     "--yes",
     "--format",
     "json",
@@ -11996,6 +12247,8 @@ exports[`CLI surface > invocations > full: insight site-visit list 1`] = `
         "permission": [
           1,
         ],
+        "publishEndTime": "2026-05-31",
+        "publishStartTime": "2026-05-20 08:00:00",
         "researchAreaList": [
           "research-area-v",
         ],
@@ -12044,6 +12297,10 @@ exports[`CLI surface > invocations > full: insight strategy list 1`] = `
     "2026-06-03 15:00:00",
     "--keyword",
     "kw",
+    "--publish-start-time",
+    "2026-05-20 08:00:00",
+    "--publish-end-time",
+    "2026-05-31",
     "--yes",
     "--format",
     "json",
@@ -12061,6 +12318,8 @@ exports[`CLI surface > invocations > full: insight strategy list 1`] = `
         "locationList": [
           "location-v",
         ],
+        "publishEndTime": "2026-05-31",
+        "publishStartTime": "2026-05-20 08:00:00",
         "size": 3,
         "startTime": "2026-06-01 09:30:00",
       },
@@ -13831,6 +14090,57 @@ exports[`CLI surface > invocations > full: quote realtime 1`] = `
 }
 `;
 
+exports[`CLI surface > invocations > full: quote sector-fund-flow 1`] = `
+{
+  "argv": [
+    "quote",
+    "sector-fund-flow",
+    "--sector",
+    "sector-v",
+    "--start-date",
+    "2026-06-01",
+    "--end-date",
+    "2026-06-03",
+    "--limit",
+    "5",
+    "--field",
+    "field-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "endDate": "2026-06-03",
+        "fieldList": [
+          "field-v",
+        ],
+        "limit": 5,
+        "sectorList": [
+          "sector-v",
+        ],
+        "startDate": "2026-06-01",
+      },
+      "method": "POST",
+      "path": "/application/open-quote/fund-flow/sector-daily",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
 exports[`CLI surface > invocations > full: raw list 1`] = `
 {
   "argv": [
@@ -14160,6 +14470,12 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "method": "POST",
     "path": "/application/open-quote/fund-flow/daily",
     "description": "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)"
+  },
+  {
+    "key": "quote.sector-fund-flow",
+    "method": "POST",
+    "path": "/application/open-quote/fund-flow/sector-daily",
+    "description": "Query sector daily fund flow (constituents summed, SH/SZ/BJ only)"
   },
   {
     "key": "fundamental.income-statement",
@@ -14694,6 +15010,30 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "method": "POST",
     "path": "/application/open-vault/stock-pool/deleteStock",
     "description": "Remove securities from a stock pool"
+  },
+  {
+    "key": "vault.stock-note.list",
+    "method": "POST",
+    "path": "/application/open-vault/stock-pool/getNoteList",
+    "description": "List your stock notes (all, by security, or by note ID)"
+  },
+  {
+    "key": "vault.stock-note.add",
+    "method": "POST",
+    "path": "/application/open-vault/stock-pool/addNote",
+    "description": "Add a stock note linked to 1-50 securities"
+  },
+  {
+    "key": "vault.stock-note.update",
+    "method": "POST",
+    "path": "/application/open-vault/stock-pool/updateNote",
+    "description": "Replace the content of a stock note"
+  },
+  {
+    "key": "vault.stock-note.delete",
+    "method": "POST",
+    "path": "/application/open-vault/stock-pool/deleteNote",
+    "description": "Delete stock notes"
   },
   {
     "key": "alternative.edb-search",
@@ -15863,6 +16203,161 @@ exports[`CLI surface > invocations > full: vault record-list 1`] = `
 }
 `;
 
+exports[`CLI surface > invocations > full: vault stock-note-add 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-add",
+    "--security",
+    "600519.SH",
+    "--content",
+    "content-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "content": "content-v",
+        "securityList": [
+          "600519.SH",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/addNote",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: vault stock-note-delete 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-delete",
+    "--note-id",
+    "note-id-v",
+    "--yes",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "stockNoteIdList": [
+          "note-id-v",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/deleteNote",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "successList": [
+    "ok"
+  ],
+  "failList": []
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: vault stock-note-list 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-list",
+    "--security",
+    "600519.SH",
+    "--from",
+    "2",
+    "--size",
+    "3",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "from": 2,
+        "securityList": [
+          "600519.SH",
+        ],
+        "size": 3,
+      },
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/getNoteList",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: vault stock-note-update 1`] = `
+{
+  "argv": [
+    "vault",
+    "stock-note-update",
+    "--note-id",
+    "note-id-v",
+    "--content",
+    "content-v",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "content": "content-v",
+        "stockNoteId": "note-id-v",
+      },
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/updateNote",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
 exports[`CLI surface > invocations > full: vault stock-pool-add-stock 1`] = `
 {
   "argv": [
@@ -15973,13 +16468,17 @@ exports[`CLI surface > invocations > full: vault stock-pool-list 1`] = `
   "argv": [
     "vault",
     "stock-pool-list",
+    "--space-type",
+    "2",
     "--format",
     "json",
   ],
   "exit": 0,
   "requests": [
     {
-      "body": {},
+      "body": {
+        "spaceType": 2,
+      },
       "method": "POST",
       "path": "/application/open-vault/stock-pool/getPoolList",
     },
@@ -16078,6 +16577,8 @@ exports[`CLI surface > invocations > full: vault stock-pool-stocks 1`] = `
   "argv": [
     "vault",
     "stock-pool-stocks",
+    "--space-type",
+    "2",
     "--pool-id",
     "pool-id-v",
     "--format",
@@ -16090,6 +16591,7 @@ exports[`CLI surface > invocations > full: vault stock-pool-stocks 1`] = `
         "poolIdList": [
           "pool-id-v",
         ],
+        "spaceType": 2,
       },
       "method": "POST",
       "path": "/application/open-vault/stock-pool/getStockList",

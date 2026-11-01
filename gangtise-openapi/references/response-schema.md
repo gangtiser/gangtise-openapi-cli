@@ -4,7 +4,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 
 > 例外：`indicator`（EDE）四个接口（`search` / `cross-section` / `time-series` / `screener`）成功时**双层信封**（`data` 里再裹一层 `{code, status, data}`）。内层字段名为 `securityCodeList` / `securityNameList` / `indicatorList[{code,name,dataType}]`（screener 另带 `field`），`values` 是 2D 矩阵：**截面与 screener 为 `[证券][指标]`**、时序为 `[序列][日期]`。
 >
-> **缺数据 vs 代码写错**：无数据 / 无覆盖一律保留行列并给占位单元格——**占位值统一为 `null`**；⚠️ 报告期类指标（`is_*`）的时序只有报告期末那几行是真值，其余全是 `null`，详见 `commands/indicator.md`。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N`/`.A` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；服务端没有返回请求里的某个指标或证券时标 `partial` + `omittedIndicators` / `omittedSecurities`、退出码 3（写错的 code 会直接报 `100003`，所以这种情况很少出现）。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
+> **缺数据 vs 代码写错**：无数据 / 无覆盖一律保留行列并给占位单元格——**占位值统一为 `null`**；⚠️ 报告期类指标（`is_*`）的时序与交易日类指标混查、或显式传 `ND` / `TD` / `WD` 时，只有报告期末那几行是真值，其余全是 `null`，详见 `commands/indicator.md`。**代码写错则直接报 `100003` 并点名**（指标 code 拼错 →「指标 xxx 不存在」；证券 code 后缀错 →「xxx 不是有效证券或者板块ID」，美股是 `.O`/`.N`/`.A` 不是 `.US`），**无论同批有没有正确的 code 都会报**。CLI 的 `indicator` 子命令已二次解包、拍平成宽表；服务端没有返回请求里的某个指标或证券时标 `partial` + `omittedIndicators` / `omittedSecurities`、退出码 3（写错的 code 会直接报 `100003`，所以这种情况很少出现）。**`screener` 例外**：把缺列的变量当作无法求值，按表达式的**布尔结构**判断是否还有分支能成立（`A && B` 要两边、`A || B` 只要一边）。一条都不剩 → **退出码 1 且不输出**（那些行以「通过了该条件」的名义呈现，而条件根本无法证明被执行过）；仍有分支可求值、或缺的只是输出用的辅助变量 → `partial` + 退出码 3。直接 `raw call indicator.*` 只会剥外层，内层需自行处理。
 
 ## 通用模式（5 类）
 
@@ -27,7 +27,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | insight summary download | 文件路径（stdout） | — |
 | insight pamirs-summary list | `{list, total}` | `list[].summaryId` / `list[].title` / `list[].brief` / `list[].summaryTime`（纪要生成时间）/ `list[].publishTime`（发布时间）/ `list[].securityList[]{securityCode, securityName}` / `list[].researchAreaList[]{researchAreaId, researchAreaName}` / `list[].conceptList[]{conceptId, conceptName}` / `list[].categoryList` / `list[].marketList`。⚠️ `conceptList` / `categoryList` / `marketList` 三个标签字段**稀疏，且是否有值随记录和查法而变**：不带筛选时经常整条为空，用 `--category` 或 `--market` 任一过滤时回填率明显更高（这两个字段绑定，一起有或一起没有）。所以**别拉全量再本地分组**（会漏记录），也**别据此断言某条记录没有该属性**（为空只说明这次没回填）。详见 `commands/insight.md` |
 | insight pamirs-summary download | 文件路径（stdout） | — |
-| insight roadshow / site-visit / strategy / forum list | `{list, total}` | 各自的 ID：`list[].roadshowId` / `siteVisitId` / `strategyMeetingId` / `forumId`；`list[].title` / `list[].startTime` / `list[].endTime` / `list[].publishTime` / `list[].location`；路演、调研、策略会另有 `list[].institutionList[]{institutionId, institutionName}`（论坛没有） |
+| insight roadshow / site-visit / strategy / forum list | `{list, total}` | 各自的 ID：`list[].roadshowId` / `siteVisitId` / `strategyMeetingId` / `forumId`；`list[].title` / `list[].startTime` / `list[].endTime`（举办时间）/ `list[].publishTime`（首次收录时间，可为 `null`）/ `list[].location`；路演、调研、策略会另有 `list[].institutionList[]{institutionId, institutionName}`（论坛没有） |
 | insight research list | `{list, total}` | `list[].reportId` / `list[].title` / `list[].brief`（全文摘要） / `list[].publishTime` / `list[].publisher.brokerName` / `list[].securityList[].rating` |
 | insight research download | 文件路径（stdout） | — |
 | insight foreign-report list | `{list, total}` | `list[].reportId` / `list[].title` / `list[].titleTranslate` / `list[].brief` / `list[].briefTranslate`（中译全文摘要） / `list[].publishTime` / `list[].publisher.brokerName` |
@@ -65,6 +65,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `tradeStatus` / `open` / `high` / `low` / `latestPrice` / `preClose` / `change` / `pctChange` / `volume` / `amount` / `amplitude`（共 15 个，**无 `close`、无市值、无 `turnoverRate` / `volumeRatio`**；美股 `amount`、全球指数 `volume` / `amount` / `amplitude` 为 `null`） |
 | quote fund-flow | `{fieldList, list, total}` 列式 → 规范化后 `{list: [{...}], total}` 宽表 | `securityCode` / `tradeDate` + 请求的字段（`mainNetInflow` / `largeInflow` / `xlargeOutflow` / …） |
+| quote sector-fund-flow | 同 `fund-flow` | `sectorId` / `tradeDate` + 请求的字段（`sectorMainNetInflow` / `sectorLargeInflow` / `sectorTotalOutflow` / …，单位元）。`total` 是本次返回行数，不是满足条件的总数 |
 | fundamental income-statement / balance-sheet / cash-flow（含 quarterly / -hk / -us） | `{total, list: [{...}]}` | `fiscalYear` / `period` / `endDate` / `companyName` / `companyType` / `currency` / `unit` + 各 `--field` 字段；港股/美股另含 `timeCovered`（不规则跨度）。⚠️ A 股 `*-quarterly` 单季表的 `companyType` 返回未映射的数字码（如 `102119999`），`currency` 正常；累计口径的三张表两列均正确。科目数字不受影响 |
 | fundamental main-business | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | 前 3 列恒定：`periodName` / `periodEndDate` / `categoryName`（分项名，随 `--breakdown` 变）+ `opRevenue` / `opRevenueYoy` / `opRevenueRatio` / `opCost` / `opCostYoy` / `opCostRatio` / `grossProfit` / `grossProfitYoy` / `grossProfitRatio` / `grossMargin` / `grossMarginYoy` / `grossMarginRatio`（共 15 个）。`--field` 只能从后 12 个里选 |
 | fundamental valuation-analysis（仅 A 股） | `{fieldList, list}` 列式 → 规范化后 `{list: [{...}]}` | `tradeDate` / `value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`（共 7 个）；**无 `securityCode`**——`--field` 写不存在的名字（含 `securityCode`）报 `100005`；只传 `tradeDate` 返回 0 行、不报错 |
@@ -97,11 +98,15 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault my-conference-download | 文件路径（stdout） | — |
 | vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**字段名是 `content` / `url`**，不是 `msgContent` / `contentUrl` |
 | vault wechat-chatroom-list | `{list, total}` | `list[].chatroomName` / `list[].chatroomId` |
-| vault stock-pool-list | 数组 | `[].poolId`（后续命令的 `--pool-id`）/ `[].poolName` |
+| vault stock-pool-list | 数组 | `[].poolId`（后续命令的 `--pool-id`）/ `[].poolName` / `[].spaceType`（`1` 个人、`2` 租户；查明细时 `--space-type` 要与之一致） |
 | vault stock-pool-stocks | 数组 | `[].securityCode` / `[].securityName`。空池返回 `[]` |
 | vault stock-pool-create / stock-pool-rename | `{poolId, poolName}` | 新建 / 改名后的池 ID 与名称 |
 | vault stock-pool-add-stock / stock-pool-remove-stock | `{successList, failList}` | `successList[]` 是规范化后的证券代码（含已在池内 / 本就不在池内的幂等成功项）；`failList[]{securityCode, failReason}`。**外层 `code` 恒为 `000000`，逐条失败只在 `failList` 里**——CLI 检测到非空时标 `partial`、退出码 3 |
 | vault stock-pool-delete | `{successList, failList}` | 同上，但键是 `failList[].poolId`；删不存在的池算幂等成功，计入 `successList` |
+| vault stock-note-list | `{list, total}` | `list[].stockNoteId`（后续命令的 `--note-id`）/ `list[].securityList`（该笔记完整的关联证券，升序）/ `list[].content` / `list[].createTime` / `list[].updateTime`。`total` 是按笔记去重后的真实总数 |
+| vault stock-note-add | `{stockNoteId, securityList}` | 新笔记 ID 与实际关联的规范化证券代码（升序） |
+| vault stock-note-update | `{}` | 成功即空对象；改后的时间从 `stock-note-list` 看 |
+| vault stock-note-delete | `{successList, failList}` | `successList[]` 是笔记 ID（含已不存在的幂等成功项）；`failList[]{stockNoteId, failReason}`，非空时 CLI 标 `partial`、退出码 3 |
 | alternative edb-search | `{list: [...]}` 指标列表 | `indicatorId` / `indicatorName` / `dataSource` / `frequency` / `unit` |
 | alternative edb-data | 列表，每行 `{date, <indicatorId>: value, ...}` 宽表 | `date` + 每个 `--indicator-id` 一列（该日指标值） |
 | alternative concept-info | `{conceptId, conceptName, ...}`（单对象，**非列表**） | `conceptName` / `definition` / `investmentLogic` / `industrySpace` / `competitiveLandscape`；**`keyEvents[].date` / `keyEvents[].content` 仅 `--full`**；文本字段未配置为 `null` |

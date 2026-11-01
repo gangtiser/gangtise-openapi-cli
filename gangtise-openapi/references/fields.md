@@ -9,7 +9,7 @@
 | 接口 | 响应里发生什么 | CLI 怎么处理 |
 | :-- | :-- | :-- |
 | `quote realtime` / `day-kline` / `minute-kline` / `fund-flow` | **不报错，字段名和值一起消失**，`fieldList` 里也没有它，列数与值数始终对得上 | 比对请求与返回的列名，缺列标 `partial` + `missingFields`、在 stderr 点名、**退出码 3** |
-| `fundamental main-business` / `valuation-analysis` | 整条报 `100005`，msg 点名写错的名字（`fieldList 枚举值非法: <名字>`） | 原样报错，退出 1 |
+| `fundamental main-business` / `valuation-analysis`、`quote sector-fund-flow` | 整条报 `100005`，msg 点名写错的名字（`fieldList 枚举值非法: <名字>` / `fieldList 包含不支持的字段 [<名字>]`） | 原样报错，退出 1 |
 | `bond` / `fund` | 整条报 `100003` 并点名 | 原样报错，退出 1 |
 
 **行情这一族才是要留神的那个**：结果只是少一列、看着正常。绕过 CLI 直连时，`fieldList` 与行**始终等长**，只比长度什么都查不出来——要拿**请求的字段名**去比**返回的 `fieldList`**，少了哪个就是那个名字没被认出来。

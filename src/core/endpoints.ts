@@ -610,6 +610,13 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     description: "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)",
     expects: "list",
   },
+  "quote.sector-fund-flow": {
+    method: "POST",
+    path: "/application/open-quote/fund-flow/sector-daily",
+    kind: "json",
+    description: "Query sector daily fund flow (constituents summed, SH/SZ/BJ only)",
+    expects: "list",
+  },
 
   // ─── fundamental ───
   "fundamental.income-statement": {
@@ -1389,6 +1396,41 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     kind: "json",
     itemFailures: true,
     description: "Remove securities from a stock pool",
+  },
+  // ─── vault stock notes ───
+  // The user's own notes; one note links 1–50 securities. update and delete are
+  // idempotent by the server's rules (probed 2026-10-31: re-sending the same content
+  // succeeds, and an id already deleted lands in successList), so they keep the default
+  // retry; addNote is not.
+  "vault.stock-note.list": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/getNoteList",
+    kind: "json",
+    description: "List your stock notes (all, by security, or by note ID)",
+    pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "stockNoteId",
+  },
+  "vault.stock-note.add": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/addNote",
+    kind: "json",
+    // No idempotency key: a replayed add whose first attempt landed creates a second note.
+    retry: "no-replay",
+    description: "Add a stock note linked to 1-50 securities",
+  },
+  "vault.stock-note.update": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/updateNote",
+    kind: "json",
+    description: "Replace the content of a stock note",
+  },
+  "vault.stock-note.delete": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/deleteNote",
+    kind: "json",
+    destructive: { warning: "删除笔记会删掉整条笔记（含它与全部关联证券的关系），不可恢复；先用 'gangtise vault stock-note-list --note-id <id>' 核对内容。" },
+    itemFailures: true,
+    description: "Delete stock notes",
   },
 
   // ─── alternative ───

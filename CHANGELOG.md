@@ -2,6 +2,24 @@
 
 本项目完整版本历史。README 顶部仅展示最近 5 个版本摘要与关键历史里程碑。
 
+### v0.50.0 — 2026-11-01
+
+**新增个股投资笔记的查询、新增、改写、删除，新增板块资金流向；股票池可查所属租户的池，路演 / 调研 / 策略会 / 论坛可按收录时间筛选；指标时序不传日期类型时由服务端按指标定日期轴；ETF 成分补代码在跨市场的几种情形下更稳妥。**
+
+1. **个股笔记**（全部免费，只操作本人笔记）：
+   - `vault stock-note-list`：不传筛选即本人全部笔记，`--security`（笔记关联的证券含其中任一只即命中）或 `--note-id` 二选一；自动翻页。返回每条笔记完整的关联证券、正文与创建 / 修改时间
+   - `vault stock-note-add`：`--security` 关联 1~50 只证券（建后不能改关联）、`--content` 正文（纯文本，最长 10000 字符）。没有防重机制，超时或 5xx 不自动重发，重跑前先查一下是否已写入
+   - `vault stock-note-update`：`--note-id` + `--content` 整体替换正文
+   - `vault stock-note-delete`：按 `--note-id` 删除，须加 `--yes`（`raw call vault.stock-note.delete` 同样要）；部分失败时列出失败项、退出码 3
+2. **`quote sector-fund-flow` 板块日资金流向**（免费）：`--sector` 传板块 ID（`reference sector-search` 查），按当日成分股加总、只计沪深京上市公司；返回小 / 中 / 大 / 特大单、主力与全单的流入流出。`--limit` 默认 6000、上限 10000，撞满标 `partial`、退出码 3。查询太重报 `100006`：缩短日期区间、减少板块或字段，调小 `--limit` 无效。`--field` 只给 `sectorId` / `tradeDate` 时接口返回 0 行，CLI 在 stderr 提示至少带一个资金字段。
+3. **股票池**：`vault stock-pool-list` / `stock-pool-stocks` 加 `--space-type`（`1` 个人，默认；`2` 所属租户）。查明细时 `--pool-id` 要取自同一 `--space-type` 的列表。
+4. **日程列表**：`insight roadshow` / `site-visit` / `strategy` / `forum list` 加 `--publish-start-time` / `--publish-end-time`，按收录时间（返回字段 `publishTime`）筛选，与按举办时间筛的 `--start-time` / `--end-time` 同时生效；只写日期的结束时间覆盖当天整天。
+5. **`indicator time-series` 不传 `--calendar-type`**：CLI 不再先查一次 `indicator search` 来选日期轴，由服务端按指标决定——行情类给交易日、报告期类给报告期、两类混查给两者日期的并集。纯行情序列结果不变；报告期类指标不再返回大量全 `null` 的自然日行。⚠️ 一致预期类指标（`frcst_*`）这样会走交易日，节假日也会变的预测值不在其中，要逐日序列就显式传 `--calendar-type ND`。区间里没有报告期末（如只查 5 月）的报告期类查询现在返回空结果，此前是逐日的 `null` 行；CLI 对空结果提示放宽区间或传 `--calendar-type ND`。`--calendar-type` 的说明补上 `RD`（报告期）。
+6. **`fund etf-pcf-components` 补代码**：某个成分名称查询失败、或有一行可能在两个市场（同名 A / H 股，或港股名称更长的同一公司）而价格定不了时，这只 ETF 不再按其余行推断市场，价格定不了的行留 `null`。同名证券在两个市场都有时，实时价对上的一方要另一市场那只的近期收盘价都对不上才直接采用；否则（含两个市场的价格都对得上，此前一律为 `null`）按其余各行推断：都在同一市场时取该市场那只，不然留 `null`。美股代码被两次搜索命中时不再误判为两个候选。含 A / H 同名成分的 ETF 每次多一次日 K 查询。
+7. **指标报错提示**：适配参数报错的新写法（`is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空`），报告期类指标的改法提示恢复为改用 `reportDate`；旧写法照常识别。
+8. **指标文档**：`indicator.md` 新增量比、自由流通换手率与股本、流通股本与市值、AH 溢价率、涨跌停天数与涨跌幅极值、日均价与开盘价、TTM 利润类指标一节（TTM 利润类用 `tradeDate`）。基金分类 `fund_cls1_typ` / `fund_cls2_typ` 对 FOF 现返回 FOF 分类；⚠️ `fund_ret_rank` / `fund_ret_rank_pct` 的同类基金数量不一定等于所属分类的基金数，同类比较前先核对分母。
+9. **文档**：`quote sector-fund-flow` 撞 `100006` 的处理、笔记 ID 撞 `130002` 的核对方法补进报错提示；`fields.md`、`response-schema.md` 补新命令；`indicator.md` 写明时序输出按日期倒序（最新在前，此前即如此）。
+
 ### v0.49.0 — 2026-10-28
 
 **新增 `gangtise update` 一条命令更新 CLI 与 Agent Skill，终端里有新版本时提示；管理层情绪的 `publishTime` 现为北京时间；日程类四个列表的翻页去重改按各自的 ID；基金持有人户数改为整数；ETF 申赎成分的代码改由 CLI 按名称匹配补上。**

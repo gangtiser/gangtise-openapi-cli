@@ -1,10 +1,10 @@
-import { Command } from "commander"
+import { Command, Option } from "commander"
 
-import { collectList, dateArg, maybeArray, parseChoiceList, parseEndTimestamp13, parseFrom, parseSize, parseTimestamp13 } from "../core/args.js"
+import { collectList, dateArg, datetimeArg, maybeArray, parseChoiceList, parseEndTimestamp13, parseFrom, parseSize, parseTimestamp13 } from "../core/args.js"
 import { ValidationError } from "../core/errors.js"
 import { fetchOpinionDetails } from "../core/opinionDetail.js"
 import { rowCount } from "../core/rowSink.js"
-import { emit, addDownloadCommand, confirmCostly, multiChoice, value, required, list, numberList, choiceList, count, rankType, searchType, top, flag, format, output, from, size, startTime, endTime, timeFilters, query, RESEARCH_AREA_CITIC_OR_DIRECTION } from "./shared.js"
+import { emit, addDownloadCommand, confirmCostly, multiChoice, field, value, required, list, numberList, choiceList, count, rankType, searchType, top, flag, format, output, from, size, startTime, endTime, timeFilters, query, RESEARCH_AREA_CITIC_OR_DIRECTION } from "./shared.js"
 import type { Field } from "./shared.js"
 
 export const insight = new Command("insight").description("Insight APIs")
@@ -110,6 +110,11 @@ addDownloadCommand(pamirsSummary, { endpointKey: "insight.pamirs-summary.downloa
 // strategy --research-area) silently returned 0. Each command now advertises
 // only the fields its endpoint supports. `category`/`market` carry per-command
 // help because their valid values differ (roadshow type vs site-visit form).
+const publishTime = (flags: string, description: string, key: string): Field => {
+  const option = new Option(flags, description)
+  option.argParser(datetimeArg(option.long as string))
+  return field(option, (v) => ({ [key]: v }))
+}
 type ScheduleFields = {
   researchArea?: boolean
   institution?: boolean
@@ -137,6 +142,10 @@ const addScheduleList = (command: Command, endpointKey: string, fields: Schedule
     fields.location && list("--location <id>", "Location ID (domesticCity constant, via 'reference constant-list')", "locationList"),
     format(), output("Output path"),
     ...timeFilters(),
+    // --start-time / --end-time filter when the event is held; these filter publishTime,
+    // when the schedule was first collected. Both windows apply together.
+    publishTime("--publish-start-time <datetime>", "Collected from (publishTime, when the schedule first came in — not when it is held); combines with --start-time/--end-time", "publishStartTime"),
+    publishTime("--publish-end-time <datetime>", "Collected until (publishTime); a bare date covers that whole day", "publishEndTime"),
   ].filter((f): f is Field => Boolean(f)),
 })
 addScheduleList(roadshow, "insight.roadshow.list", {

@@ -146,7 +146,10 @@ gangtise insight forum list      [--research-area <id>] [--location <id>]
 
 - **积分**：列表 **10/条**——务必带 `--size`
 
-- 共用：`--keyword` `--start-time` `--end-time` `--from` `--size` `--location`
+- 共用：`--keyword` `--start-time` `--end-time` `--from` `--size` `--location` `--publish-start-time` `--publish-end-time`
+- **两组时间别混**：`--start-time` / `--end-time` 按**举办时间**（`startTime`）筛；`--publish-start-time` / `--publish-end-time` 按**收录时间**（返回字段 `publishTime`，Gangtise 首次收录该日程的时刻）筛。两组可同时传，同时生效（取交集），适合「昨天新收录、下周举办」这类增量同步。格式同 `--start-time`；`--publish-end-time` 只写日期时覆盖当天整天
+  - `publishTime` 通常早于举办时间，补录的日程可能晚于举办时间；后续改期、改地点不刷新它；部分记录只精确到日（时分秒为 `00:00:00`），没有收录时刻的为 `null`
+  - 账号能看到多久以前的日程按**举办时间**算，与 `publishTime` 无关：举办时间在窗口外的日程，即使最近才收录也查不到
 - `--location`：城市/省份 ID（`reference constant-list --category domesticCity` 查，如 `156440000` 广东省）。传省份 ID 会命中该省
 - 路演 `--category`：`earningsCall` | `strategyMeeting` | `companyAnalysis` | `industryAnalysis` | `fundRoadshow`
 - 调研 `--category`：`single` 单场 | `series` 系列

@@ -257,4 +257,4 @@ gangtise raw call insight.research.download --query reportId=<id> --query fileTy
 - **endpoint key 不能按命令名猜**（如券商本地表是 `lookup.broker-orgs.list`），先用 `gangtise raw list` 查
 - **JSON 端点**（绝大多数）用 `--body` 传 JSON；**`kind=download` 端点**（各 `*.download`）用 `--query key=value`（可重复）。传反会被 CLI **直接拒绝**（JSON 端点给 `--query`、或 GET 下载端点给 `--body`，都抛 ValidationError，不发请求；POST 下载端点 `tool.file-parse.result` 的参数走 `--body`）
 - `--yes`：删除 / 改动数据的端点必须加才会执行；按条计费的列表省略 `size` 时，也要加它才会越过积分额度保护拉全量
-- **与专用命令一致的只有**自动翻页、重试策略、翻页的完整性标记。K 线全市场分片、多证券分批请求、撞 `limit` 标 `partial`、`--field` 缺列检测、EDE 解包与拍平、时序日期轴自动判定都**只在专用命令里**——能用专用命令就别用 `raw call`
+- **与专用命令一致的只有**自动翻页、重试策略、翻页的完整性标记。K 线全市场分片、多证券分批请求、撞 `limit` 标 `partial`、`--field` 缺列检测、EDE 解包与拍平都**只在专用命令里**——能用专用命令就别用 `raw call`

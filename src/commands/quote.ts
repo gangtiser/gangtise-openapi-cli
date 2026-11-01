@@ -294,3 +294,25 @@ quote.command("fund-flow")
   await printData(data, format, options.output)
   })
 })
+quote.command("sector-fund-flow")
+  .description("Sector daily fund flow: each sector's constituents on that day summed, SH/SZ/BJ listings only (free)")
+  .requiredOption("--sector <id>", "Sector ID from 'gangtise reference sector-search' (repeat or comma-separate)", collectList)
+  .option("--start-date <date>", "Start date yyyy-MM-dd (default: endDate minus 1 year)", dateArg("--start-date"))
+  .option("--end-date <date>", "End date yyyy-MM-dd (default: latest trading day)", dateArg("--end-date"))
+  .option("--limit <number>", `Max rows returned (default: ${DEFAULT_QUOTE_LIMIT}, max: ${MAX_QUOTE_LIMIT}). It cuts the answer only: a query too heavy to compute fails with 100006 whatever the limit — shorten the range, or pass fewer sectors or fields`)
+  .option("--field <field>", "Field, e.g. sectorMainNetInflow / sectorLargeInflow (repeat); omit for all. sectorId and tradeDate always come first", collectList, [])
+  .option("--format <format>", "Output format", "table")
+  .option("--output <path>")
+  .action((options) => emit(options, async (client) => {
+    // Sent explicitly so the truncation check compares against the limit actually used.
+    const limit = parseOptionalNumberOption(options.limit, "--limit", { integer: true, min: 1, max: MAX_QUOTE_LIMIT }) ?? DEFAULT_QUOTE_LIMIT
+    const fieldList = maybeArray<string>(options.field)
+    const data = await client.call("quote.sector-fund-flow", { sectorList: options.sector, startDate: options.startDate, endDate: options.endDate, limit, fieldList })
+    // A fieldList of key columns only comes back as an empty list, not an error (probed
+    // 2026-11-01: ["tradeDate"] and ["sectorId"] → 0 rows where a value field gives 5).
+    if (fieldList?.every((field) => field === "sectorId" || field === "tradeDate") && rowCount(data) === 0) {
+      process.stderr.write(`[gangtise] note: no rows came back, and --field names no fund-flow column (${fieldList.join(", ")}). This endpoint answers such a request with an empty list rather than an error, so it says nothing about whether data exists: add a value field such as sectorMainNetInflow, or drop --field.\n`)
+    }
+    flagIfLimitTruncated(data, limit, "sector-fund-flow")
+    return data
+  }))

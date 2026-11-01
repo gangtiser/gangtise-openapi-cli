@@ -87,7 +87,7 @@ const ERROR_HINTS: Record<string, string> = {
   "100005": "对照命令 --help 列出的合法取值检查。",
   // 2026-08-14 起 list 类端点把单页上限（50）也归到此码，不再只是「一次要太多行」。
   // 2026-09 起 EDE 截面 / 时序的单次单元格上限（30000）也归这里，msg 会写明限额。
-  "100006": "缩短日期范围或调小 --size / --limit（list 类端点单页上限为 50，CLI 自动翻页，直发接口时要自己遵守）；indicator cross-section / time-series 撞此码是单次单元格数超 30000（截面=证券数×指标数，时序=证券数或指标数×日期数），按这个乘积拆批重跑；fund 命令不分页，撞此码是单次超过 10000 行，减少 --security 只数或缩短日期区间分批查。",
+  "100006": "缩短日期范围或调小 --size / --limit（list 类端点单页上限为 50，CLI 自动翻页，直发接口时要自己遵守）；indicator cross-section / time-series 撞此码是单次单元格数超 30000（截面=证券数×指标数，时序=证券数或指标数×日期数），按这个乘积拆批重跑；fund 命令不分页，撞此码是单次超过 10000 行，减少 --security 只数或缩短日期区间分批查；quote sector-fund-flow 撞此码是计算量超限，缩短日期区间、减少 --sector 或 --field（调小 --limit 无效）。",
   // 按参数名判断，不要按命令组：AI 下 management-discuss 的 --report-date 是 date，
   // 而同属 AI 的 knowledge-batch 收时间戳或 datetime——旧文案笼统写"AI 用 datetime"会把
   // --report-date 的用户越导越错。
@@ -101,7 +101,7 @@ const ERROR_HINTS: Record<string, string> = {
   // 2026-08-14 起下载类把「file-type 非法」拆到 130005、「资源未生成」拆到 130003，
   // 但历史上两者都归过此码，所以提示保留对 --file-type 的指引。云盘管理对不存在的
   // 文件夹 / 文件 ID 也回此码，包括重复执行一次已生效的删除。
-  "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹 ID 用 `vault drive-folder-list` 核对；删除类命令收到此码可能是目标已被删掉）；下载类还需检查 --file-type 取值是否合法。",
+  "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹 ID 用 `vault drive-folder-list` 核对，笔记 ID 用 `vault stock-note-list` 核对；删除类命令收到此码可能是目标已被删掉）；下载类还需检查 --file-type 取值是否合法。",
   "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment/hasFile 为 true 的），或稍后再试。",
   // 下载类命令各有各的 ID 参数（--report-id / --announcement-id / --chunk-id /
   // --summary-id / --conference-id / --record-id / --file-id / --article-id /
@@ -240,10 +240,24 @@ const ERROR_HINTS: Record<string, string> = {
  * and the assertive rules stay reachable. */
 function distinctFailureShapes(message: string): number {
   const byCode = new Map<string, Set<string>>()
+  // Two layouts. The older names the indicator in every clause: 「指标 X 不支持参数 K;
+  // 指标 X 缺少必填参数 K2」. The current one (seen 2026-10-31) names it once, ahead of its
+  // clauses: 「X: 不支持参数 K; 必填参数 K2 不能为空; Y: …」, the screener as 「F1 (指标代码 X): …」.
+  let current: string | undefined
   for (const clause of message.split(/[;；]/)) {
-    const m = /指标\s+(\S+)\s+(不支持参数|缺少必填参数)[:：]?\s*(\S+)/.exec(clause)
-    if (!m) continue
-    const [, code, kind, key] = m
+    let code: string, kind: string, key: string
+    const old = /指标\s+(\S+)\s+(不支持参数|缺少必填参数)[:：]?\s*(\S+)/.exec(clause)
+    if (old) {
+      [, code, kind, key] = old
+    } else {
+      const head = /^\s*([^\s:：]+)(?:\s*\(指标代码\s*[^)]*\))?\s*[:：]/.exec(clause)
+      if (head) current = head[1]
+      const body = /不支持参数\s*(\S+)|必填参数\s*(\S+)\s*不能为空/.exec(clause)
+      if (!body || !current) continue
+      code = current
+      kind = body[1] ? "不支持参数" : "缺少必填参数"
+      key = body[1] ?? body[2]
+    }
     let shape = byCode.get(code)
     if (!shape) {
       shape = new Set<string>()
@@ -255,38 +269,41 @@ function distinctFailureShapes(message: string): number {
   return new Set([...byCode.values()].map((shape) => [...shape].sort().join("|"))).size
 }
 
+/** 「缺少必填参数 K」(older layout) or 「必填参数 K 不能为空」(current). */
+const missing = (keys: string) => new RegExp(`缺少必填参数[:：]?\\s*(?:${keys})|必填参数\\s*(?:${keys})\\s*不能为空`)
+
 const MESSAGE_HINTS: Array<{ codes: string[]; match: RegExp; also?: RegExp; notMatch?: RegExp; when?: (message: string) => boolean; hint: string }> = [
   {
     // Must come first: when the server named several indicators, no singular hint below
     // can be right about all of them.
     codes: ["100001", "100003"],
-    match: /不支持参数\s*(?:tradeDate|reportDate)|缺少必填参数[:：]?\s*(?:tradeDate|reportDate)/,
+    match: new RegExp(`不支持参数\\s*(?:tradeDate|reportDate)|${missing("tradeDate|reportDate").source}`),
     when: (message) => distinctFailureShapes(message) > 1,
-    hint: "🔴 **这条报错涉及多个指标，而且它们失败的方式不同**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：msg 里对某个指标说「不支持参数 X; 缺少必填参数 Y」= 把 X 换成 Y（`--indicator-param \"<该指标code>:Y=...\"`）；只说「不支持参数 X」而没说缺什么 = 该指标一个日期都不要，给它加 `--indicator-param \"<该指标code>:\"`（冒号后留空）；只说「缺少必填参数 Y」= 补上 Y。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。以 `indicator search --keyword <指标code> --format json` 的 parameterList 为准。",
+    hint: "🔴 **这条报错涉及多个指标，而且它们失败的方式不同**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：msg 里对某个指标说「不支持参数 X; 必填参数 Y 不能为空」（旧写法「缺少必填参数 Y」）= 把 X 换成 Y（`--indicator-param \"<该指标code>:Y=...\"`）；只说「不支持参数 X」而没说缺什么 = 该指标一个日期都不要，给它加 `--indicator-param \"<该指标code>:\"`（冒号后留空）；只说 Y 必填 = 补上 Y。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。以 `indicator search --keyword <指标code> --format json` 的 parameterList 为准。",
   },
   {
     codes: ["100001", "100003"],
-    match: /缺少必填参数[:：]?\s*reportDate/,
+    match: missing("reportDate"),
     when: (message) => distinctFailureShapes(message) <= 1,
     hint: "报错点名的指标要的是 reportDate（报告期），不是 --date 下发的 tradeDate。给每个被点名的指标各补一条 --indicator-param \"<指标code>:reportDate=YYYY-MM-DD\"（screener 用 \"F1:reportDate=...\"），--date 仍要保留——补上后 CLI 就不再为该指标注入 tradeDate。⚠️ 少数指标两个日期都要（如 div_cash_yld），补完若再报缺 tradeDate，就把 tradeDate 也显式传上。**以 `indicator search` 返回的 parameterList 为准，别按 code 前缀推断**。",
   },
   {
     codes: ["100001", "100003"],
     match: /不支持参数\s*(?:tradeDate|reportDate)/,
-    also: /缺少必填参数[:：]?\s*tradeDate/,
+    also: missing("tradeDate"),
     when: (message) => distinctFailureShapes(message) <= 1,
     hint: "服务端在同一句里**已经点名了两边**：一个键不该出现，另一个键缺了——把前者换成后者即可，别再往里加键。多半是两个日期键写反了：删掉 --indicator-param 里被拒的那个，改成 msg 里说缺的那个（如 --indicator-param \"<指标code>:tradeDate=YYYY-MM-DD\"，screener 用 \"F1:tradeDate=...\"）。⚠️ 别在这一步用 --indicator-param \"<指标code>:\"（「不要日期」的写法）——服务端明说了它要一个日期，那样只会撞下一个报错。",
   },
   {
     codes: ["100001", "100003"],
     match: /不支持参数\s*(?:tradeDate|reportDate)/,
-    notMatch: /缺少必填参数[:：]?\s*(?:reportDate|tradeDate)/,
+    notMatch: missing("reportDate|tradeDate"),
     when: (message) => distinctFailureShapes(message) <= 1,
     hint: "服务端只说这个键不该出现，**没说该换成哪个**——别照着「改用 reportDate」做，那多半同样被拒。报错点名的指标，其 parameterList 里没有 --date 下发的那个日期键，给每个被点名的指标各加一条 --indicator-param \"<指标code>:\"（冒号后留空）声明「本指标不要查询日期」即可，它与真实参数可以共存。跑 `indicator search --keyword <指标code> --format json` 确认还缺什么：parameterList 为空就只加这一条；还列了 fiscalYear 之类的就连同 --indicator-param \"<指标code>:fiscalYear=2025\" 一起给。screener 上是同一个写法，只是按变量写：--indicator-param \"F1:\"。",
   },
   {
     codes: ["100001", "100003"],
-    match: /缺少必填参数[:：]?\s*tradeDate/,
+    match: missing("tradeDate"),
     when: (message) => distinctFailureShapes(message) <= 1,
     hint: "--date 的 tradeDate 这次没有下发——你为该指标传了 reportDate/tradeDate，或者用了 --indicator-param \"<指标code>:\" 这个「不要日期」的写法，两者都会关掉自动注入。对症改：如果这个指标两个日期都必填（如 div_cash_yld），把 tradeDate 也显式传上 --indicator-param \"<指标code>:tradeDate=YYYY-MM-DD\"（screener 用 \"F1:tradeDate=...\"）；如果是空冒号那条加错了指标，删掉它即可。",
   },

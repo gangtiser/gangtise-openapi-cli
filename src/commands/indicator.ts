@@ -3,7 +3,6 @@ import { Command, Option } from "commander"
 import { collectList, collectNames, dateArg, screenerExpressionFields, parseNumberOption, parseScreenerIndicators } from "../core/args.js"
 import { buildIndicatorCrossSectionBody, buildIndicatorScreenerBody, buildIndicatorTimeSeriesBody } from "../core/commandBodies.js"
 import { checkScreenerBindings, droppedFromMatrix, flattenCrossSection, flattenTimeSeries, isEmptyMatrix, requireIndicatorMatrix, unwrapIndicatorData } from "../core/indicatorMatrix.js"
-import { resolveCalendarType } from "../core/calendarType.js"
 import { ValidationError } from "../core/errors.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
@@ -28,11 +27,18 @@ import { withClient } from "./shared.js"
  * Same signal as a failed page or a row cap: `partial` on the payload (printData
  * → exit 3) plus the omitted codes, so an automated caller can react without
  * parsing stderr. */
-function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[], requestedIndicators: string[]): void {
+function flagDropped(rows: unknown, data: unknown, requestedSecurities: string[], requestedIndicators: string[], timeSeries = false): void {
   // A wholly empty response is not a partial one: the diff against the request
   // would list everything as "omitted", which says nothing about which axis is
   // at fault. Exit 0, but say why it is ambiguous.
   if (isEmptyMatrix(data)) {
+    // A time series whose range holds no date of its calendar comes back empty too
+    // (probed 2026-11-01: is_op_rev over 2026-05 with no --calendar-type, qte_close
+    // over 2026-10-01..07); the same request with ND answers a null row per day.
+    if (timeSeries) {
+      process.stderr.write("[gangtise] note: the query returned no data at all. In a time series that usually means the range holds no date of its calendar: no trading day for a trading-day indicator (a holiday range), no report-period end (03-31 / 06-30 / 09-30 / 12-31) for a report-period one when --calendar-type is omitted or RD. Widen the range, or pass --calendar-type ND for one row per day. If the range does hold such dates, cross-check the codes against 'gangtise indicator search --format json' and 'gangtise reference securities-search'; if they are right, report it with the command.\n")
+      return
+    }
     process.stderr.write("[gangtise] note: the query returned no data at all. A missing value comes back as a null cell and an unrecognised code or parameter name as an error (100003), so an empty answer is neither. Cross-check the codes against 'gangtise indicator search --format json' and 'gangtise reference securities-search'; if they are right, report it with the command.\n")
     return
   }
@@ -102,7 +108,7 @@ indicator.command("time-series")
   .option("--security <code>", "Security code, e.g. 600519.SH, or a sector ID from 'gangtise reference sector-search' (REQUIRED, repeat; union, deduped)", collectList, [])
   .requiredOption("--start-date <date>", "Start date (yyyy-MM-dd)", dateArg("--start-date"))
   .requiredOption("--end-date <date>", "End date (yyyy-MM-dd)", dateArg("--end-date"))
-  .option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday. Omit it and the CLI picks: a free 'indicator search' reads each parameterList and sends TD only when EVERY indicator is trading-day typed, otherwise it leaves the server on ND (report-period indicators land on dates a trading calendar lacks, and TD would answer them with an all-null grid). An explicit value is sent as given, with no lookup")
+  .option("--calendar-type <type>", "Calendar: ND=natural TD=trading WD=weekday RD=report period (03-31/06-30/09-30/12-31). Omit it and the server picks by indicator: TD for trading-day indicators, RD for report-period ones, the union of both dates when they are mixed. Forecast indicators (frcst_*) get TD that way, though their values also change on non-trading days — pass ND to keep those")
   .option("--currency <code>", "Currency: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD (default DFT)")
   .option("--scale <code>", "Scale: 0=个 3=千 4=万 6=百万 8=亿 9=十亿 (default 0)")
   .option("--indicator-param <spec>", "Per-indicator param 'code:key=value', e.g. qte_close:adjustType=2 for 前复权 (repeat); read exact keys from 'indicator search'", collectNames, [])
@@ -112,19 +118,7 @@ indicator.command("time-series")
   .action((options) => withClient(async (client) => {
   const format = parseOutputFormat(options.format)
   requireIndicatorScope(options.indicator, options.security)
-  // Build first: buildIndicatorTimeSeriesBody runs the --indicator-param binding check,
-  // and that guard has to fire before ANY request goes out — including the free probe below.
-  const body = buildIndicatorTimeSeriesBody(options)
-  // Then pick the date axis, and only when the caller left --calendar-type off:
-  // an explicit value is an instruction, not a default to improve on.
-  if (!body.calendarType) {
-    const resolved = await resolveCalendarType(client, options.indicator)
-    if (resolved) {
-      body.calendarType = resolved
-      process.stderr.write(`[gangtise] note: every requested indicator takes tradeDate, so this series was fetched on the trading-day calendar (calendarType=TD) instead of the server default ND — no all-null non-trading rows, and fewer cells against the 30000 cap. Pass --calendar-type ND to override.\n`)
-    }
-  }
-  const raw = await client.call("indicator.time-series", body)
+  const raw = await client.call("indicator.time-series", buildIndicatorTimeSeriesBody(options))
   const data = requireIndicatorMatrix(raw)
   // Pass the universe itself, not a count: flattenTimeSeries needs to know
   // whether a sector ID is in play (the server expands it, so one entry can mean
@@ -132,7 +126,8 @@ indicator.command("time-series")
   // the response is 1×1 anyway. Flatten before flagging so a shape error surfaces
   // on its own.
   const rows = flattenTimeSeries(data, options.keyBy, options.security)
-  flagDropped(rows, data, options.security, options.indicator)
+  // An ND axis has a date for every day of the range, so an empty answer there is not the axis.
+  flagDropped(rows, data, options.security, options.indicator, options.calendarType?.toUpperCase() !== "ND")
   await printData(rows, format, options.output)
 }))
 indicator.command("screener")
