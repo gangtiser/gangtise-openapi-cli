@@ -102,12 +102,15 @@ const ERROR_HINTS: Record<string, string> = {
   // 但历史上两者都归过此码，所以提示保留对 --file-type 的指引。云盘管理对不存在的
   // 文件夹 / 文件 ID 也回此码，包括重复执行一次已生效的删除。
   "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹 ID 用 `vault drive-folder-list` 核对，笔记 ID 用 `vault stock-note-list` 核对；删除类命令收到此码可能是目标已被删掉）；下载类还需检查 --file-type 取值是否合法。",
-  "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment/hasFile 为 true 的），或稍后再试。",
+  // 群消息文件下载对「消息不存在 / 无权访问 / 文件已不可用」统一回此码、不区分原因，
+  // 文档要求不重试（实测 2026-11-07：不存在的 msgId 回 HTTP 404 + 130003）。
+  "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment/hasFile 为 true 的），或稍后再试；`vault wechat-message-download` 收到此码是消息不存在、本账号无权访问或文件已不可用，重试不会变。",
   // 下载类命令各有各的 ID 参数（--report-id / --announcement-id / --chunk-id /
   // --summary-id / --conference-id / --record-id / --file-id / --article-id /
   // --independent-opinion-id）；--data-id 是异步 *-check 用的，不产生此码。
   "130004": "下载 ID 需为数字，检查该命令的 --*-id 参数是否传对。",
-  "130005": "对照命令 --help 检查 --file-type / --content-type 取值。",
+  // 群消息文件下载：text / url 消息没有文件，回 HTTP 400 + 130005（实测 2026-11-07）。
+  "130005": "对照命令 --help 检查 --file-type / --content-type 取值；`vault wechat-message-download` 收到此码是该消息为 text / url、没有文件——只有 document / image / audio / video 消息可下载。",
   "140001": "稍后用对应 *-check 命令查询。",
   // 三类来源共用此码：AI 异步生成失败；EDE 的参数/表达式错误（实测 2026-08-02：
   // 枚举越界「参数 adjustType 的值 99 不在有效范围内 [1,2,3,4]」、表达式语法错误）；

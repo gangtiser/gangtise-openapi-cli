@@ -165,11 +165,14 @@ query(vault, "wechat-message-list", {
     list("--security <code>", "Security code (e.g. 000001.SZ)", "securityList"),
     list("--wechat-group-id <id>", "WeChat group ID", "wechatGroupIdList"),
     list("--industry <id>", "Industry ID -- citicIndustry codes (1008001xx) only; swIndustry codes and unknown values are rejected with 100005", "industryIdList"),
-    list("--category <name>", "Message type: text/image/documents/url", "categoryList"),
+    list("--category <name>", "Message type: text/image/document/url/audio/video; any other value is rejected with 100005", "categoryList"),
     list("--tag <name>", "Tag: roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview", "tagList"),
     format(), output(),
   ],
 })
+// The file itself, saved as sent (a group file can be JSON or text, so no type is read as
+// an answer); named after the server's filename. Text and url messages have no file (130005).
+addDownloadCommand(vault, { endpointKey: "vault.wechat-message.download", name: "wechat-message-download", idOption: "--msg-id", idField: "msgId", fallbackPrefix: "wechat-file" })
 query(vault, "wechat-chatroom-list", {
   endpoint: "vault.wechat-chatroom.list",
   fields: [

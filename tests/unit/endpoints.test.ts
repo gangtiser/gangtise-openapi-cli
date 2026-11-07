@@ -20,7 +20,7 @@ describe("ENDPOINTS", () => {
     // An unverified id is not trusted to flag a changed row (client.ts), so dropping the
     // mark from one of these lists would let a non-unique id mark every fetch partial.
     const unverified = Object.values(ENDPOINTS).filter((ep) => ep.rowIdUnverified).map((ep) => ep.key).sort()
-    expect(unverified).toEqual(["ai.management-sentiment-conclusion", "ai.management-sentiment-indicator", "insight.forum.list", "insight.independent-opinion.list", "insight.roadshow.list", "insight.site-visit.list", "insight.strategy.list"])
+    expect(unverified).toEqual(["ai.expert-intel.list", "ai.management-sentiment-conclusion", "ai.management-sentiment-indicator", "insight.forum.list", "insight.independent-opinion.list", "insight.roadshow.list", "insight.site-visit.list", "insight.strategy.list"])
     for (const ep of Object.values(ENDPOINTS)) if (ep.rowIdUnverified) expect(ep.rowId, ep.key).toBeDefined()
   })
 
@@ -573,6 +573,8 @@ describe("ENDPOINTS", () => {
       "tool.web-search",
       // 5 credits per ROW: replaying a page re-bills rows already delivered.
       "insight.highlight.list",
+      // 20 credits per ROW, a full page 1000: same reasoning.
+      "ai.expert-intel.list",
       // 3 per row and up to 6000 codes per call: one replay can re-bill 18000 credits.
       "ai.stock-summary.list",
       // 0.5 per row with rows bounded only by the account's history window.

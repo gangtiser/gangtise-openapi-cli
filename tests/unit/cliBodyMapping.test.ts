@@ -40,6 +40,9 @@ const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x01, 0x02, 0x03])
 /** How long the trickling stub answer ran before the client hung up (the total-deadline test). */
 let lastDripMs: number | undefined
 
+// "报告\n" in GBK — not valid UTF-8, so a body decoded as text no longer matches it.
+const GBK_TEXT = Buffer.from([0xb1, 0xa8, 0xb8, 0xe6, 0x0a])
+
 // "PK\x03\x04" — the file-parse result arrives as a ZIP stream, not JSON.
 const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00])
 
@@ -639,6 +642,25 @@ beforeAll(async () => {
         const from = b.from ?? 0
         const count = Math.max(0, Math.min(b.size ?? 50, 300 - from))
         res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: 300, list: Array.from({ length: count }, (_, i) => ({ id: String(from + i), title: `r${from + i}` })) } }))
+        return
+      }
+      if ((req.url ?? "").includes("/wechatgroupmsg/download/file")) {
+        // A group file served as text: the client must keep its bytes and its name.
+        if ((req.url ?? "").includes("msgId=404")) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ code: "130003", errorType: "FILE_NOT_FOUND", msg: "没有文件可供下载", status: false, data: "" }))
+          return
+        }
+        res.setHeader("content-type", "text/plain; charset=utf-8")
+        res.setHeader("content-disposition", "attachment; filename*=UTF-8''%E6%8A%A5%E5%91%8A.txt")
+        res.end(GBK_TEXT)
+        return
+      }
+      if ((req.url ?? "").includes("/index/constituent-weight")) {
+        // Weights for 000300.SH only, answered upper-case whatever case was asked.
+        const codes = (body as { indexCodeList?: string[] } | undefined)?.indexCodeList ?? []
+        const list = codes.some((c) => c.toUpperCase() === "000300.SH") ? [{ indexCode: "000300.SH", indexName: "沪深300", tradeDate: "2026-10-30", securityCode: "300308.SZ", securityName: "中际旭创", weight: 4.8731 }] : []
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { total: list.length, list } }))
         return
       }
       if ((req.url ?? "").includes("/wechatgroupmsg/list")) {
@@ -1360,6 +1382,51 @@ describe("cli option→body mapping (real CLI against a local stub)", () => {
       ["/application/open-ai/management-sentiment/company/indicator", { from: 0, size: 1 }],
       ["/application/open-ai/management-sentiment/company/detail", { sourceId: "554030", sourceType: "conference" }],
     ])
+  }, 30_000)
+
+  it("ai expert-intel maps every filter, leaves searchType to the API unless given, and probes one row first when unbounded", async () => {
+    await cli(["ai", "expert-intel", "--start-time", "2026-10-20", "--end-time", "2026-10-23 18:00:00", "--keyword", "特斯拉", "--search-type", "1",
+      "--security", "603119.SH,000700.SZ", "--research-area", "100800110", "--concept", "121000745", "--tag", "景气上行", "--tag", "超预期,重大催化", "--size", "40"])
+    // Without --size: a full page bills 1000 credits, so the credit guard learns the total from one row.
+    await cli(["ai", "expert-intel", "--keyword", "锂电"])
+    expect(captured.map((r) => [r.path, r.body])).toEqual([
+      ["/application/open-insight/expertIntel/getList", { from: 0, size: 40, startTime: "2026-10-20", endTime: "2026-10-23 18:00:00", keyword: "特斯拉", searchType: 1, securityList: ["603119.SH", "000700.SZ"], researchAreaList: ["100800110"], conceptList: ["121000745"], tagList: ["景气上行", "超预期", "重大催化"] }],
+      ["/application/open-insight/expertIntel/getList", { from: 0, size: 1, keyword: "锂电" }],
+    ])
+    expect((await cli(["ai", "expert-intel", "--search-type", "3"])).code).not.toBe(0)
+  }, 30_000)
+
+  it("reference index-weight sends indexCodeList + tradeDate and names on stderr the indices that came back empty", async () => {
+    const { code, stdout, stderr } = await cli(["reference", "index-weight", "--index", "000300.sh,HSI.HI", "--date", "2026/10/30", "--format", "json"])
+    expect(code).toBe(0)
+    expect(captured.map((r) => [r.path, r.body])).toEqual([
+      ["/application/open-quote/index/constituent-weight", { indexCodeList: ["000300.sh", "HSI.HI"], tradeDate: "2026-10-30" }],
+    ])
+    expect(JSON.parse(stdout).list[0].weight).toBe(4.8731)
+    // The lower-case code came back upper-case: only HSI.HI is missing.
+    expect(stderr).toContain("no constituent weights for HSI.HI on 2026-10-30")
+    expect(stderr).not.toContain("000300")
+    const quiet = await cli(["reference", "index-weight", "--index", "000300.SH", "--date", "2026-10-30", "--format", "json"])
+    expect(quiet.stderr).not.toContain("no constituent weights")
+    expect((await cli(["reference", "index-weight", "--index", "000300.SH"])).code).not.toBe(0)
+  }, 30_000)
+
+  it("vault wechat-message-download keeps a text body byte for byte under the server's filename", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-wechat-dl-"))
+    try {
+      const out = path.join(dir, "kept.txt")
+      const { code, stdout } = await cli(["vault", "wechat-message-download", "--msg-id", "4784255865508301077", "--output", out])
+      expect(code).toBe(0)
+      expect(stdout.trim()).toBe(out)
+      expect(captured.map((r) => r.path)).toEqual(["/application/open-vault/wechatgroupmsg/download/file?msgId=4784255865508301077"])
+      expect(await readFile(out)).toEqual(GBK_TEXT)
+      const missing = await cli(["vault", "wechat-message-download", "--msg-id", "404", "--output", path.join(dir, "none.txt")])
+      expect(missing.code).not.toBe(0)
+      expect(missing.stderr).toContain("130003")
+      expect(await fs.readdir(dir)).toEqual(["kept.txt"])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   }, 30_000)
 
   it("insight announcement list converts both date forms to the same local-midnight epoch millis", async () => {

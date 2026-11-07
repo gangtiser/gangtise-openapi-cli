@@ -51,6 +51,9 @@ if (group === "quote" && command === "realtime") {
   out = { total: 1, list: [{ securityCode: values("--security")[0], couponRate: 1 }] }
 } else if (group === "reference" && command === "sector-constituents") {
   out = { total: 1, list: [{ gtsCode: "600519.SH", gtsName: "贵州茅台" }] }
+} else if (group === "reference" && command === "index-weight") {
+  const rows = values("--date")[0] === "2026-09-30" ? [{ indexCode: "000300.SH", tradeDate: "2026-09-30", securityCode: "600519.SH", weight: 1 }] : []
+  out = { total: rows.length, list: rows }
 } else if (group === "fund" && ["basic-info", "holder-structure", "stock-portfolio", "etf-pcf-components"].includes(command)) {
   out = { list: [{ fundCode: values("--security")[0], reportDate: "2026-06-30", holderCount: "1,000" }] }
 } else {

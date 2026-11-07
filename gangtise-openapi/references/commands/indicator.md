@@ -13,13 +13,14 @@
 | 多证券批量取一组**已实现**财务 / 估值指标 | 先 `indicator search`，通过下方三项校验后用 `cross-section` / `time-series` 一次拉取，避免逐只循环 |
 | A股盈利预测 / 一致预期（含预测 EPS） | `fundamental earning-forecast`；EDE 搜到的基本 / 稀释 EPS 是已实现值，不能替代预测 |
 | A股估值历史分位 | `fundamental valuation-analysis` |
+| 港 / 美股估值历史分位 | EDE `finc_*_quantile`（`sDate` 至 `--date` 区间里的分位；各指标覆盖的市场不同，以 `scopeList` 为准，见下方「银行 / 保险 / 券商专项指标与估值分位数」） |
 | **估值指标的历史序列**（分位 / 回测 / 择时） | 两个接口口径不同、都要交叉核——EDE 按正式财报披露日切换财报口径，`valuation-analysis` 按业绩快报切，见下方专门小节 |
 | 开高低收 / 成交量等行情与 K 线 | `quote`；免费且支持多证券批量。**换接口不换口径**：`quote` 的 `volume` 与 EDE `qte_vol` 逐位相同（A股 / 港股 / 美股，单位均为股）。EDE 只在 `quote` 不提供的口径上才需要——周 / 月 / 季 / 年 / 区间成交量 |
 | 单只基金的净值 / 持仓 / 规模 / 经理 | `fund` 命令组；多只基金批量取分类、复权净值与风险收益指标才用 EDE，见下方「基金指标」 |
 | 单证券资金流向（要占比字段） | `quote fund-flow`；免费，且有 EDE 没有的 `*Ratio` 占比。多证券批量取某一两个档位才用 EDE 的 `flow_*` |
 | 单证券三大报表全部科目 | 对应 `fundamental` 利润表 / 资产负债表 / 现金流量表命令 |
 
-EDE 不是“搜到就优先”。取数前必须核对：① `indicatorName` + `description` 与目标语义一致；② `scopeList` 覆盖**全部**目标市场和证券类型；③ `parameterList` 的必填参数与枚举可满足。`scopeList` 缺失 / `null` / 空或任一项不符，都视为无法证明覆盖并回退上表的专用接口；专用接口也不支持目标市场时，如实说明当前 CLI 无可用口径，不能用其他语义代替。`valuation-analysis` / `earning-forecast` 仅支持 A 股，港 / 美股的**估值历史分位**与**盈利预测**当前无可用口径。但估值指标本身港股有数：`finc_pe_ttm`(PE TTM) 与 `finc_pb_mrq`(PB MRQ)。⚠️ **本文里所有「仅 A 股」「无数据」这类否定结论都只是某个时点的抽查**——服务端在持续补数据，正面结论过期会给错数，负面结论过期则会让你白白拒掉一个现在能跑的查询（不报错、不告警，只是少调一次）。**一律以当次 `scopeList` + 抽查一行为准。**`search` 免费，EDE 取数按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`。
+EDE 不是“搜到就优先”。取数前必须核对：① `indicatorName` + `description` 与目标语义一致；② `scopeList` 覆盖**全部**目标市场和证券类型；③ `parameterList` 的必填参数与枚举可满足。`scopeList` 缺失 / `null` / 空或任一项不符，都视为无法证明覆盖并回退上表的专用接口；专用接口也不支持目标市场时，如实说明当前 CLI 无可用口径，不能用其他语义代替。`valuation-analysis` / `earning-forecast` 仅支持 A 股：港 / 美股的**盈利预测**当前无可用口径；**估值历史分位**走 EDE 的 `finc_*_quantile`（逐指标核 `scopeList`，见上表）。估值指标本身港 / 美股也有数：`finc_pe_ttm`（PE TTM，`scopeList` 列 A / 港 / 美）与 `finc_pb_mrq`（PB MRQ，列 A / 港）。⚠️ **本文里所有「仅 A 股」「无数据」这类否定结论都只是某个时点的抽查**——服务端在持续补数据，正面结论过期会给错数，负面结论过期则会让你白白拒掉一个现在能跑的查询（不报错、不告警，只是少调一次）。**一律以当次 `scopeList` + 抽查一行为准。**`search` 免费，EDE 取数按单元格计费；除多证券批量的效率收益外，仍优先免费 / 低价的 `quote` 或 `fundamental`。
 
 ## 指标搜索 `indicator search`
 
@@ -31,7 +32,7 @@ gangtise indicator search --keyword <text> [--limit <n>]
 - `--limit`：返回条数上限，默认 50，最大 100
 - 默认 `--format table` 只适合浏览名称；正式路由 / 取数前必须加 `--format json`，才能完成语义、`scopeList`、`parameterList` 三项校验
 - 返回字段：`indicatorCode` / `indicatorName` / `description`（算法与口径）/ `scopeList`（该指标适用的市场 + 证券类型 + `usageRestriction`）/ `parameterList`（可传的 `--indicator-param` 参数名及枚举）/ `score`
-- **市场范围按指标判断**：`scopeList` 会返回实际覆盖范围，且指标之间不同；不能笼统写成每个指标都覆盖 A / 港 / 美股。覆盖面在持续扩，别把抽查结论当常量：例如 `qte_mkt_cptl`/`shr_tot` 覆盖 A/港/美股，`finc_pe_ttm` / `finc_pb_mrq` 覆盖 A/港股，`is_op_rev_ttm`/`is_shnp_ttm` 覆盖 A/港股。目标列表含任一 scope 外证券时，本批 EDE 校验不通过，应回退专用接口
+- **市场范围按指标判断**：`scopeList` 会返回实际覆盖范围，且指标之间不同；不能笼统写成每个指标都覆盖 A / 港 / 美股。覆盖面在持续扩，别把抽查结论当常量：例如 `qte_mkt_cptl` / `shr_tot` / `finc_pe_ttm` / `is_op_rev_ttm` / `is_shnp_ttm` 覆盖 A/港/美股，`finc_pb_mrq` 的 `scopeList` 只列 A/港股。目标列表含任一 scope 外证券时，本批 EDE 校验不通过，应回退专用接口
 - **`scopeList[].usageRestriction`**：该指标在具体接口上的限制，`null` = 无限制。⚠️ **它是提示不是硬约束**——标着「不支持指标时间序列接口」的 `qte_vol_intvl` 调时序照样返数据、不会被拦下。当成「口径可能不对、结果别当真」看，别指望它会报错
 - ⚠️ **`scopeList` 是声明不是保证**：它可能**超前于数据**（声明覆盖但该市场暂无数据），也可能**滞后于数据**（已有数据尚未声明）。**「某某仍无数据」这类否定结论过期得和正面结论一样快**，照着它走会白白拒掉一个现在能跑的查询，而且不报错。**判断成本很低**：无数据会保留行列、给一个占位单元格，抽查一行就能看出覆盖情况；code 写错则直接报 `100003`，两种情形不会混淆。占位值统一是 `null`（详见下方「缺数据 vs 代码写错」）
 - 美股代码用交易所后缀 `.O`(NASDAQ) / `.N`(NYSE) / `.A`(NYSE American，原 AMEX)：用 `AAPL.O`，`AAPL.US` 取不到数据
@@ -292,7 +293,7 @@ gangtise indicator cross-section --indicator qte_close --security 600519.SH \
 | `periodNum` | N 期统计（N 期均值/最值，如 `finc_roe_avg_avg` 平均ROE N期均值） | `--indicator-param "finc_roe_avg_avg:periodNum=4"`；`finc_roe_avg_avg` 属报告期类，还要补 `--indicator-param "finc_roe_avg_avg:reportDate=2025-12-31"`（只给 `--date` 报 `100003`） |
 | `sDate` | 区间类的**起始日**（如 `qte_vol_intvl` 区间成交量、`qte_avg_vol` 区间日均成交量），格式 `yyyy-MM-dd` | `--indicator-param "qte_vol_intvl:sDate=2024-01-02"`。⚠️ **`sDate` 不能替代 `tradeDate`**——它是区间起点，`tradeDate`（=区间终点）仍是 required，`--date` 会照常下发。区间起始日的参数名就是 `sDate`，写成 `startDate` 会报 `100003 不支持参数 startDate`。⚠️ **不传 `sDate` 不报错**——它是可选参数，缺了就按默认区间算，所以要的是特定区间就必须显式传。另：`qte_amp_mo`（月振幅）等周期变体只吃 `tradeDate`，没有起始日参数 |
 | `fiscalYear` | 年度/报告期类（如 `div_cash_yr` 年度现金分红）、预测类（如 `frcst_pe`，与 `tradeDate` 同时必填） | `--indicator-param "div_cash_yr:fiscalYear=2025"` |
-| `industryType` + `industryLevel` | `scr_indu` 所属行业（两个都 required，缺任一报 `100001`） | `--indicator-param "scr_indu:industryType=1" --indicator-param "scr_indu:industryLevel=0"` |
+| `industryType` + `industryLevel` | `scr_indu` 所属行业（两个都 required，缺任一报 `100001`；⚠️ 预计下线，改用下文的 `scr_indu_citic` / `scr_indu_sw` / `scr_indu_gics`） | `--indicator-param "scr_indu:industryType=1" --indicator-param "scr_indu:industryLevel=0"` |
 
 > `paramValue` 一律按**字符串**约定传（`periodNum=4` 内部即 `"4"`，CLI 已处理）。
 
@@ -339,7 +340,7 @@ gangtise indicator cross-section --indicator mgn_bal --indicator mgn_fin_bal --i
 # 茅台 2026-08-07：两融 176.7 亿 / 融资 175.4 亿 / 融券 1.3 亿
 ```
 
-**行业分类 `scr_indu`（所属行业）**——一个指标覆盖四套体系，A/港/美股均支持，返回**字符串**：
+**行业分类 `scr_indu`（所属行业）**——⚠️ **预计下线**：`indicator search` 已搜不到，取数暂时仍可用，新写的取数一律改用下文的**行业组合指标**。一个指标覆盖四套体系，A/港/美股均支持，返回**字符串**：
 
 - `industryType`：`1`=申万 `2`=中信 `3`=恒生 `4`=GICS
 - `industryLevel`：`0`=全路径（用 `-` 连接各级）`1`=一级 `2`=二级 `3`=三级 `4`=四级
@@ -354,11 +355,11 @@ gangtise indicator cross-section --indicator scr_indu \
 
 体系与市场要配对：A 股查恒生 / GICS、美股查申万，都返 `null`（如茅台 `industryType=3/4` 均为 `null`）。
 
-**行业组合指标（3 个）**——把体系写进指标编码，省掉 `industryType`：
+**行业组合指标（3 个）**——把体系写进指标编码，省掉 `industryType`；`scr_indu` 下线后行业分类走这三个：
 
 | 指标 | 体系 | 参数 |
 | :-- | :-- | :-- |
-| `scr_indu_citic` | 中信行业 | `tradeDate`（必填）+ `industryLevel`（**可选**） |
+| `scr_indu_citic` | 中信行业 | `industryLevel`（**可选**，取值同上；不传为全路径）。`parameterList` 现列为空，但 `--date` 照常传、不会被拒 |
 | `scr_indu_sw` | 申万行业 | 同上 |
 | `scr_indu_gics` | GICS 行业 | 同上 |
 
@@ -367,7 +368,7 @@ gangtise indicator cross-section --indicator scr_indu_citic --indicator scr_indu
   --security 600519.SH --date 2026-08-13
 ```
 
-与 `scr_indu` 的取舍：**只要一套体系就用组合指标**（少一个必填参数，且 `industryLevel` 可省），**要在同一次请求里横比多套体系**才用 `scr_indu`（换 `industryType` 即可，不必记三个编码）。恒生体系没有组合指标，仍走 `scr_indu:industryType=3`。
+多套体系横比就在同一次请求里列多个组合指标（如上例）。⚠️ **恒生体系没有组合指标**：目前只能走 `scr_indu:industryType=3`，`scr_indu` 下线后 EDE 不再提供恒生行业。
 
 **`finc_pb_mrq`（市净率 MRQ）是日频指标**：每个交易日都有数且逐日变动，别按报告期末取（那会拿到几个月前的陈值）。
 
@@ -416,6 +417,53 @@ gangtise indicator cross-section --indicator qte_vol_ratio --indicator qte_turn_
   --security 600036.SH --security 600519.SH --date 2026-10-30
 ```
 
+### 银行 / 保险 / 券商专项指标与估值分位数
+
+**行业专项财务指标**——`scopeList` 只有 **A 股**，都是报告期类（`reportDate` 必填，`reportType` 可选、默认 `1` 合并报表）；**非本行业的公司返回 `null`**。比率类直接是百分数（`0.94` 即 0.94%）。
+
+| 族 | 覆盖 | 例 |
+| :-- | :-- | :-- |
+| 银行 `bk_*` | 资本充足率（含 2013 口径 `_2`）与资本净额、存贷款余额与成本 / 收益率、不良贷款率与拨备覆盖率、净息差 / 净利差、流动性比率、非利息收入、客户集中度 | `bk_npl_rti` 不良贷款比率、`bk_npl_prvs_covrg` 拨备覆盖率、`bk_net_int_margin` 净息差 |
+| 保险 `insu_*` | 寿险 / 产险分列（`_li` / `_pci`）的实际资本与偿付能力充足率、产险综合成本率 / 费用率 / 赔付率、退保率、净 / 总投资收益率 | `insu_solv_adeq_rti_li`、`insu_compr_cost_rti_pci` |
+| 券商 `secu_*` | 净资本、净资本 / 净资产、净资本 / 各项风险准备之和 | `secu_net_captl`（另有可选 `currency` / `scale`） |
+
+```bash
+gangtise indicator cross-section --indicator bk_npl_rti --indicator bk_npl_prvs_covrg --indicator bk_captl_adeq_rti_2 \
+  --indicator-param "bk_npl_rti:reportDate=2025-12-31" --indicator-param "bk_npl_prvs_covrg:reportDate=2025-12-31" \
+  --indicator-param "bk_captl_adeq_rti_2:reportDate=2025-12-31" --security 600036.SH --date 2026-11-06
+# 招商银行 2025 年报：不良贷款比率 0.94 / 拨备覆盖率 391.79 / 资本充足率(2013) 18.24
+```
+
+**估值分位数（5 个 `finc_*_quantile`）**——`finc_pe_ttm_quantile` 市盈率(TTM)、`finc_pb_mrq_quantile` 市净率(MRQ)、`finc_ps_ttm_quantile` 市销率(TTM)、`finc_pcf_ttm_quantile` / `finc_pcf_ncf_ttm_quantile` 市现率(TTM，经营 / 全部现金净流量)。`scopeList`：`finc_pb_mrq_quantile` 列 A / 港股，其余四个列 A / 港 / 美股——按目标市场逐个核，个别证券取不到时为 `null`。返回当前估值在 `sDate` 至 `tradeDate` 区间里的历史分位（%，0–100，越低越便宜）；负值估值不参与计算，取不到时为 `null`。
+
+- `tradeDate`（即 `--date`）与 **`sDate`（统计区间起点）都必填**，缺 `sDate` 报 `100001`；`quantile` 可选
+
+```bash
+gangtise indicator cross-section --indicator finc_pe_ttm_quantile --indicator-param "finc_pe_ttm_quantile:sDate=2021-11-05" \
+  --security 600519.SH --security 00700.HK --date 2026-11-06
+```
+
+**其他新增的常用指标**（参数以 `parameterList` 为准）：
+
+- **N 年增长率 `*_yoy_n`**（营业收入、净利润、归母净利润、扣非归母净利润、营业利润、利润总额、总资产、股东权益、经营现金流、ROE 等）与 `is_tot_op_rev_cagr` 营业总收入复合增长率：报告期类，`reportDate` + `periodNum`（N 年）都必填
+- **相对年初增长率 `*_yoy_ytd`**（总资产、每股净资产、归母权益）：报告期类
+- **单季度**：`is_gr_prft_qtr` 毛利、`is_oth_bus_incm_qtr` 其他业务净收益、`cf_op_cf_indir_qtr` 间接法经营现金流、`cf_exchg_eff_qtr` 汇率变动影响
+- **TTM 与交易日类**：`finc_fcff_ttm` 企业自由现金流、`finc_roic_ttm` 投入资本回报率——用 `tradeDate`（`--date`）
+- **`div_cash_paid_ratio_cum` 累计股利支付率**：`tradeDate` + `periodNum` 都必填
+
+### 预计下线的指标
+
+共 23 个，`indicator search` 已搜不到，取数暂时仍可用，**存量取数尽快迁走**：
+
+| 预计下线 | 改用 |
+| :-- | :-- |
+| `scr_indu` 所属行业 | `scr_indu_citic` / `scr_indu_sw` / `scr_indu_gics`（恒生行业暂无替代） |
+| `cdr_conv_ratio` CDR 转换比例 | — |
+| 半年期行情 `qte_*_halfyr`：振幅、涨跌幅、收盘价、最高 / 最低价、前收盘价、换手率与最高 / 最低换手率、成交额、成交量 | 带 `sDate` 的区间指标，`sDate` 取半年前：`qte_amp_intvl` / `qte_chg_pct_intvl` / `qte_high_intvl` / `qte_low_intvl` / `qte_turn_intvl` / `qte_amt_intvl` / `qte_vol_intvl`；收盘价、前收盘价直接用 `quote day-kline` 取对应日 |
+| 周 / 月 / 季 / 半年 / 年均成交额与均成交量 `qte_avg_amt_{wk,mo,qtr,halfyr,yr}` / `qte_avg_vol_{…}` | `qte_avg_amt` 区间日均成交额 / `qte_avg_vol` 区间日均成交量，`sDate` 取对应周期的起点 |
+
+区间指标的 `sDate` 是可选参数，**不传不报错、按默认区间算**——要的是特定区间就必须显式传。
+
 ### 基金指标
 
 `--security` 传基金代码（场外 `.OF`，场内 `.SH` / `.SZ`，如 `005827.OF` / `510300.SH`）。
@@ -428,7 +476,7 @@ gangtise indicator cross-section --indicator qte_vol_ratio --indicator qte_turn_
 
 - 🔴 **区间指标的其余参数一律显式传**，漏传报 `100001`（`parameterList` 列了默认值也一样）：`changePeriod` 变化周期、`yieldType`（`0` 普通 / `1` 对数收益率）、`riskFreeRate`（`0` = 常数 0）、`benchmarkCode` 基准代码（Alpha / Beta / 相关系数 / Jensen / Treynor / 非系统风险要）、`industryLevel`（同类排名按哪一级分类）。每个指标要哪几个以 `parameterList` 为准
 - ⚠️ **`changePeriod` 列出的默认值 `6`（区间）不是每个指标都收**：Sharpe 等的 `description` 写明只支持日 / 周 / 月 / 年（`0` / `1` / `2` / `5`），传 `6` 报 `100003`
-- ⚠️ **`fund_ret_rank` / `fund_ret_rank_pct` 的「同类基金数量」不一定等于所属分类的基金数**：不同分类的基金（如偏股混合型 FOF、偏股混合型、QDII 偏股混合型）在同一 `industryLevel` 下可能拿到几乎相同、接近全部基金数的分母。按同类位置下结论前先核对分母；要在同类里比，用 `fund_cls2_typ` 自己分组后比区间收益（`finc_ann_ret` 等）
+- `fund_ret_rank` / `fund_ret_rank_pct` 的「同类」是 `industryLevel` 指定那一级的 Gangtise 分类：`1` 按 `fund_cls1_typ`、`2` 按 `fund_cls2_typ`，同分类的基金分母相同（如两只偏股混合型基金在 `industryLevel=2` 下同为 `/3098`）
 - `finc_intvl_max_dd` 返回负的百分数（`-19.23` 即 -19.23%），无回撤为 `0`；`fund_estb_dt` 返回 `yyyyMMdd` 整数（如 `20180905`），不是日期字符串
 - 这批区间指标的 `scopeList` 标着「不支持指标时间序列接口」，用 `cross-section` 取
 - 单只基金的净值序列、持仓、规模走 `fund` 命令组；EDE 适合多只基金横向比

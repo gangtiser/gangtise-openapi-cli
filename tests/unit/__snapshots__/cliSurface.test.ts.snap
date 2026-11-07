@@ -128,6 +128,7 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "reference concept-search",
   "reference sector-search",
   "reference sector-constituents",
+  "reference index-weight",
   "reference chiefs-search",
   "reference institution-search",
   "reference official-account-search",
@@ -148,6 +149,7 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "vault my-conference-list",
   "vault my-conference-download",
   "vault wechat-message-list",
+  "vault wechat-message-download",
   "vault wechat-chatroom-list",
   "vault stock-pool-list",
   "vault stock-pool-stocks",
@@ -172,6 +174,7 @@ exports[`CLI surface > has the expected shape of command tree 1`] = `
   "ai theme-tracking",
   "ai research-outline",
   "ai hot-topic",
+  "ai expert-intel",
   "ai management-discuss-announcement",
   "ai management-discuss-earnings-call",
   "ai management-sentiment-indicator",
@@ -258,6 +261,7 @@ Commands:
   theme-tracking [options]
   research-outline [options]
   hot-topic [options]
+  expert-intel [options]                      AI expert intel: company takeaways distilled from expert meetings and minutes, newest first (20 credits/row)
   management-discuss-announcement [options]
   management-discuss-earnings-call [options]
   management-sentiment-indicator [options]    Management sentiment scores per earnings call: responsiveness / polarity / conviction (0-5), overall and by question type (5 credits/row)
@@ -291,6 +295,45 @@ Options:
   --format <format>  Output format (default: "json")
   --output <path>
   -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise ai expert-intel 1`] = `
+"Usage: gangtise ai expert-intel [options]
+
+AI expert intel: company takeaways distilled from expert meetings and minutes,
+newest first (20 credits/row)
+
+Options:
+  --from <number>          Starting offset (default: "0")
+  --size <number>          Total rows to return; omit to fetch all (max page
+                           50). Billed per row — bound this on wide ranges
+  --start-time <datetime>  Publish time from (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)
+  --end-time <datetime>    Publish time to (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss; a
+                           bare date covers the whole day)
+  --keyword <text>         Keyword
+  --search-type <number>   Where --keyword matches: 1=title 2=title + body (the
+                           API default). Titles carry no company name — filter
+                           companies with --security (choices: "1", "2")
+  --security <code>        Security code with market suffix, e.g. 300750.SZ
+                           (repeatable); intel linked to ANY of them matches. A
+                           missing or unknown suffix rejects the call (120001);
+                           a real suffix of the wrong market (600519.SZ) is not
+                           rejected and matches nothing (default: [])
+  --research-area <id>     Research area ID: citicIndustry code (1008001xx,
+                           reference constant-list). swIndustry (104xx0000),
+                           gangtiseIndustry direction (122000xxx) and unknown
+                           codes return 0 here (default: [])
+  --concept <id>           Concept ID (reference concept-search); an unknown ID
+                           matches nothing (default: [])
+  --tag <text>             Content tag, plain text, e.g. 景气上行 / 超预期 / 重大催化
+                           (repeatable; any of them matches) (default: [])
+  --format <format>        Output format (default: "json")
+  --output <path>
+  --yes                    Fetch past the credit guard: a fetch without --size,
+                           or with a large one, estimated above 1000 credits
+                           (the list is billed per row)
+  -h, --help               display help for command
 "
 `;
 
@@ -3195,6 +3238,8 @@ Commands:
   concept-search [options]
   sector-search [options]
   sector-constituents [options]
+  index-weight [options]             Index constituents and their weights (%) on
+                                     the last trading day of a month (free)
   chiefs-search [options]
   institution-search [options]
   official-account-search [options]
@@ -3244,6 +3289,23 @@ exports[`CLI surface > help > help: gangtise reference constant-list 1`] = `
 Options:
   --category <code>  Category code from 'reference constant-category' (e.g.
                      citicIndustry/swIndustry/regionCategory)
+  --format <format>  Output format (default: "table")
+  --output <path>
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI surface > help > help: gangtise reference index-weight 1`] = `
+"Usage: gangtise reference index-weight [options]
+
+Index constituents and their weights (%) on the last trading day of a month
+(free)
+
+Options:
+  --index <code>     Index code, e.g. 000300.SH / 000905.SH / 399006.SZ (repeat
+                     or comma-separate)
+  --date <date>      Trading date (yyyy-MM-dd): the last trading day of a month,
+                     e.g. 2026-10-30; any other date returns no rows
   --format <format>  Output format (default: "table")
   --output <path>
   -h, --help         display help for command
@@ -3444,6 +3506,7 @@ Commands:
   my-conference-list [options]
   my-conference-download [options]
   wechat-message-list [options]
+  wechat-message-download [options]
   wechat-chatroom-list [options]
   stock-pool-list [options]
   stock-pool-stocks [options]
@@ -3896,6 +3959,16 @@ Options:
 "
 `;
 
+exports[`CLI surface > help > help: gangtise vault wechat-message-download 1`] = `
+"Usage: gangtise vault wechat-message-download [options]
+
+Options:
+  --msg-id <id>
+  --output <path>
+  -h, --help       display help for command
+"
+`;
+
 exports[`CLI surface > help > help: gangtise vault wechat-message-list 1`] = `
 "Usage: gangtise vault wechat-message-list [options]
 
@@ -3910,7 +3983,8 @@ Options:
   --industry <id>          Industry ID -- citicIndustry codes (1008001xx) only;
                            swIndustry codes and unknown values are rejected with
                            100005 (default: [])
-  --category <name>        Message type: text/image/documents/url (default: [])
+  --category <name>        Message type: text/image/document/url/audio/video;
+                           any other value is rejected with 100005 (default: [])
   --tag <name>             Tag:
                            roadShow/research/strategyMeeting/meetingSummary/industryComment/companyComment/earningsReview
                            (default: [])
@@ -3945,6 +4019,38 @@ exports[`CLI surface > invocations > bare: ai earnings-review-check 1`] = `
   "stderr": "error: required option '--data-id <id>' not specified
 ",
   "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: ai expert-intel 1`] = `
+{
+  "argv": [
+    "ai",
+    "expert-intel",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "from": 0,
+        "size": 1,
+      },
+      "method": "POST",
+      "path": "/application/open-insight/expertIntel/getList",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
 }
 `;
 
@@ -6307,6 +6413,7 @@ reference.constant-list                    POST    /application/open-reference/c
 reference.concept-search                   POST    /application/open-reference/concepts/search                                     Search concept (theme) IDs by keyword                                                        
 reference.sector-search                    POST    /application/open-reference/sectors/search                                      Search sector IDs by keyword                                                                 
 reference.sector-constituents              POST    /application/open-reference/sectors/constituents                                List constituent securities of a sector                                                      
+reference.index-weight                     POST    /application/open-quote/index/constituent-weight                                List index constituents with their weights (%) on one trading date                           
 quote.day-kline                            POST    /application/open-quote/kline/daily                                             Query A-share historical daily kline (SH/SZ/BJ)                                              
 quote.day-kline-hk                         POST    /application/open-quote/kline-hk/daily                                          Query HK stock historical daily kline (HK)                                                   
 quote.day-kline-us                         POST    /application/open-quote/kline-us/daily                                          Query US stock historical daily kline (NYSE/NASDAQ/AMEX)                                     
@@ -6373,6 +6480,7 @@ ai.earnings-review.get-content             POST    /application/open-ai/agent/ea
 ai.theme-tracking                          POST    /application/open-ai/agent/theme-tracking                                       Get theme tracking daily report                                                              
 ai.research-outline                        POST    /application/open-ai/agent/research-outline                                     Get company research outline                                                                 
 ai.hot-topic                               POST    /application/open-ai/hot-topic/getList                                          List hot topic reports                                                                       
+ai.expert-intel.list                       POST    /application/open-insight/expertIntel/getList                                   List AI expert intel (takeaways distilled from expert meetings and minutes)                  
 ai.management-discuss-announcement         POST    /application/open-ai/management-discuss/from-announcement                       Management discussion from financial reports (half-year/annual)                              
 ai.management-discuss-earnings-call        POST    /application/open-ai/management-discuss/from-earningsCall                       Management discussion from earnings calls                                                    
 ai.management-sentiment-indicator          POST    /application/open-ai/management-sentiment/company/indicator                     Management sentiment scores per earnings call (responsiveness / polarity / conviction)       
@@ -6396,6 +6504,7 @@ vault.record.download                      GET     /application/open-vault/recor
 vault.my-conference.list                   POST    /application/open-vault/my-conference/getList                                   List my conferences                                                                          
 vault.my-conference.download               GET     /application/open-vault/my-conference/download/file                             Download my conference resource                                                              
 vault.wechat-message.list                  POST    /application/open-vault/wechatgroupmsg/list                                     List WeChat group messages                                                                   
+vault.wechat-message.download              GET     /application/open-vault/wechatgroupmsg/download/file                            Download the file of a WeChat group message (document / image / audio / video)               
 vault.wechat-chatroom.list                 POST    /application/open-vault/wechatgroupmsg/chatroomId                               List WeChat group chatroom IDs                                                               
 vault.stock-pool.list                      POST    /application/open-vault/stock-pool/getPoolList                                  List user stock pool IDs and names                                                           
 vault.stock-pool.stocks                    POST    /application/open-vault/stock-pool/getStockList                                 List securities in stock pool(s)                                                             
@@ -6484,6 +6593,20 @@ exports[`CLI surface > invocations > bare: reference constant-list 1`] = `
   "exit": 1,
   "requests": [],
   "stderr": "error: required option '--category <code>' not specified
+",
+  "stdout": "",
+}
+`;
+
+exports[`CLI surface > invocations > bare: reference index-weight 1`] = `
+{
+  "argv": [
+    "reference",
+    "index-weight",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--index <code>' not specified
 ",
   "stdout": "",
 }
@@ -7098,6 +7221,20 @@ exports[`CLI surface > invocations > bare: vault wechat-chatroom-list 1`] = `
 }
 `;
 
+exports[`CLI surface > invocations > bare: vault wechat-message-download 1`] = `
+{
+  "argv": [
+    "vault",
+    "wechat-message-download",
+  ],
+  "exit": 1,
+  "requests": [],
+  "stderr": "error: required option '--msg-id <id>' not specified
+",
+  "stdout": "",
+}
+`;
+
 exports[`CLI surface > invocations > bare: vault wechat-message-list 1`] = `
 {
   "argv": [
@@ -7189,6 +7326,77 @@ exports[`CLI surface > invocations > full: ai earnings-review-check 1`] = `
   "stdout": "{
   "dataId": "data-id-v",
   "content": "generated"
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: ai expert-intel 1`] = `
+{
+  "argv": [
+    "ai",
+    "expert-intel",
+    "--from",
+    "2",
+    "--size",
+    "3",
+    "--start-time",
+    "2026-06-01 09:30:00",
+    "--end-time",
+    "2026-06-03 15:00:00",
+    "--keyword",
+    "kw",
+    "--search-type",
+    "2",
+    "--security",
+    "600519.SH",
+    "--research-area",
+    "research-area-v",
+    "--concept",
+    "concept-v",
+    "--tag",
+    "tag-v",
+    "--yes",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "conceptList": [
+          "concept-v",
+        ],
+        "endTime": "2026-06-03 15:00:00",
+        "from": 2,
+        "keyword": "kw",
+        "researchAreaList": [
+          "research-area-v",
+        ],
+        "searchType": 2,
+        "securityList": [
+          "600519.SH",
+        ],
+        "size": 3,
+        "startTime": "2026-06-01 09:30:00",
+        "tagList": [
+          "tag-v",
+        ],
+      },
+      "method": "POST",
+      "path": "/application/open-insight/expertIntel/getList",
+    },
+  ],
+  "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
 }
 ",
 }
@@ -14430,6 +14638,12 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "description": "List constituent securities of a sector"
   },
   {
+    "key": "reference.index-weight",
+    "method": "POST",
+    "path": "/application/open-quote/index/constituent-weight",
+    "description": "List index constituents with their weights (%) on one trading date"
+  },
+  {
     "key": "quote.day-kline",
     "method": "POST",
     "path": "/application/open-quote/kline/daily",
@@ -14826,6 +15040,12 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "description": "List hot topic reports"
   },
   {
+    "key": "ai.expert-intel.list",
+    "method": "POST",
+    "path": "/application/open-insight/expertIntel/getList",
+    "description": "List AI expert intel (takeaways distilled from expert meetings and minutes)"
+  },
+  {
     "key": "ai.management-discuss-announcement",
     "method": "POST",
     "path": "/application/open-ai/management-discuss/from-announcement",
@@ -14962,6 +15182,12 @@ exports[`CLI surface > invocations > full: raw list 1`] = `
     "method": "POST",
     "path": "/application/open-vault/wechatgroupmsg/list",
     "description": "List WeChat group messages"
+  },
+  {
+    "key": "vault.wechat-message.download",
+    "method": "GET",
+    "path": "/application/open-vault/wechatgroupmsg/download/file",
+    "description": "Download the file of a WeChat group message (document / image / audio / video)"
   },
   {
     "key": "vault.wechat-chatroom.list",
@@ -15245,6 +15471,47 @@ exports[`CLI surface > invocations > full: reference constant-list 1`] = `
     },
   ],
   "stderr": "",
+  "stdout": "{
+  "total": 1,
+  "list": [
+    {
+      "id": "1",
+      "title": "t",
+      "value": 1
+    }
+  ]
+}
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: reference index-weight 1`] = `
+{
+  "argv": [
+    "reference",
+    "index-weight",
+    "--index",
+    "index-v",
+    "--date",
+    "2026-06-02",
+    "--format",
+    "json",
+  ],
+  "exit": 0,
+  "requests": [
+    {
+      "body": {
+        "indexCodeList": [
+          "index-v",
+        ],
+        "tradeDate": "2026-06-02",
+      },
+      "method": "POST",
+      "path": "/application/open-quote/index/constituent-weight",
+    },
+  ],
+  "stderr": "[gangtise] note: no constituent weights for index-v on 2026-06-02. Weights come for the last trading day of each month — another date, like an unknown index code, comes back empty without an error. Check the date, and the code with 'reference securities-search --category index'.
+",
   "stdout": "{
   "total": 1,
   "list": [
@@ -16649,6 +16916,30 @@ exports[`CLI surface > invocations > full: vault wechat-chatroom-list 1`] = `
     }
   ]
 }
+",
+}
+`;
+
+exports[`CLI surface > invocations > full: vault wechat-message-download 1`] = `
+{
+  "argv": [
+    "vault",
+    "wechat-message-download",
+    "--msg-id",
+    "msg-id-v",
+  ],
+  "exit": 0,
+  "filesWritten": [
+    "wechat-file-msg-id-v.bin",
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/application/open-vault/wechatgroupmsg/download/file?msgId=msg-id-v",
+    },
+  ],
+  "stderr": "",
+  "stdout": "wechat-file-msg-id-v.bin
 ",
 }
 `;

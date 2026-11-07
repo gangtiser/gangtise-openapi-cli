@@ -83,11 +83,33 @@ gangtise vault wechat-message-list [--keyword <text>] [--security <code>] [--wec
 - 🔴 **`--industry` 是收窄工具，不是全量召回**：行业标签由服务端标注，**同一条消息可能挂多个行业，也可能一个都没挂**。同一个关键词加上「本行业」过滤后，命中数会明显少于只用关键词——**少掉的既有没打标签的，也有被标到相邻行业去的**（如半导体相关的消息在计算机 / 机械 / 通信下同样查得到）。所以「按行业筛出 N 条」不能读成「该行业只有 N 条」；要尽量全，用 `--keyword` 取回后本地判断，或把相邻行业码一起查再去重
 - `--wechat-group-id`：先用 `vault wechat-chatroom-list` 查；可重复
 - 按偏移量**最多取到第 10000 条**（`--from` + 条数不能超过 10000），且 `total` 最多也只报到 10000——正好报 10000 时实际条数可能更多，CLI 按封顶处理：标 `partial` + `totalCapped`、退出码 3。要更多请缩短时间范围分段取，每段的 `total` 低于 10000 才说明取全了
-- `--category`：`text` | `image` | `documents` | `url`（可重复）
+- `--category`：`text` | `image` | `document`（PDF、Excel 等文档）| `url` | `audio` | `video`（可重复）。其他取值（如 `documents`、`pdf`、`mp4` 这类文件格式名）报 `100005`，`--tag` / `--industry` 同样整批拒绝、不会忽略筛选返回全部
 - `--tag`：`roadShow` | `research` | `strategyMeeting` | `meetingSummary` | `industryComment` | `companyComment` | `earningsReview`（可重复）
-- 返回字段：`msgId` / **`content`**（正文）/ **`url`**（链接）/ `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `tagList[]{tagCode, tagName}` / `securityList[]{securityCode, securityName}` / `quoteMsg{quoteMsgId, quoteContent, quoteUrl}`。正文取 `content`、链接取 `url`（不是 `msgContent` / `contentUrl`）
-- `quoteMsg`：被引用的消息，无引用时为 `null`；`quoteContent` / `quoteUrl` 也可能为空。做上下文还原时用它把「回复」接回原消息
+- 返回字段：`msgId` / **`content`**（正文）/ **`url`**（链接）/ `msgTime` / `wechatGroupId` / `wechatGroupName` / `speakerName` / `category` / `fileInfo{fileName, fileSize}` / `tagList[]{tagCode, tagName}` / `securityList[]{securityCode, securityName}` / `quoteMsg{quoteMsgId, quoteCategory, quoteContent, quoteUrl, quoteFileInfo}`。正文取 `content`、链接取 `url`（不是 `msgContent` / `contentUrl`）
+- `msgId` 是长数字串，可能超过 JavaScript 安全整数范围——**始终按字符串保存和传递**，别转成数字（会被舍入，拿去下载就对不上）
+- `content` 随 `category` 不同：`text` 为正文、`document` 为文件名、`image` 为图片识别出的文字（可能含 AI 摘要段落，也可能为空，不保证逐字准确）、`url` 为链接标题、`audio` / `video` 为附带文字（常为空，不含转写）
+- `fileInfo`：`document` / `image` / `audio` / `video` 消息的文件名与字节数（`fileSize`，未知时为 `null`），其他类型为 `null`。要文件本身用下面的 `wechat-message-download`
+- `quoteMsg`：被引用的消息，无引用时为 `null`；`quoteContent` / `quoteUrl` 也可能为空。做上下文还原时用它把「回复」接回原消息。被引用的是文件消息时，`quoteFileInfo` 给文件名与大小，下载用 `quoteMsgId`
 - 未打标签/未关联证券的消息，`tagList` / `securityList` 返回 `null`（不是空数组）
+
+## 群消息文件下载 `vault wechat-message-download`
+
+```bash
+gangtise vault wechat-message-download --msg-id <msgId> [--output <path>]
+```
+
+- 免费。`--msg-id` 取自 `wechat-message-list` 的 `msgId`（按字符串原样传）；只有 `document` / `image` / `audio` / `video` 消息有文件。引用里的文件用 `quoteMsg.quoteMsgId`（先确认 `quoteCategory` 是这四类之一）
+- 一次一个文件。不带 `--output` 时按服务端给的文件名保存（文档、音频一般是原文件名，图片、视频多为一串随机字符），同名自动加 `-1`、`-2`；stdout 是保存路径
+- 内容原样落盘：`.txt` / `.json` / `.html` 等文本类文件也按原字节保存，不做转码。图片是平台保存的版本，不保证原图分辨率；音频、视频只有文件本身，没有转写
+- 报错：`130005` = 该消息是 `text` / `url`，没有文件；`130003` = 消息不存在、本账号无权访问或文件已不可用（三种情况不区分，**重试不会变**，别轮询）；`100003` = `--msg-id` 不是纯数字
+- 列表里有 `fileInfo` 不代表文件一定还能下载，以下载结果为准
+
+```bash
+# 某个群里最近的文件消息 → 逐个下载
+gangtise vault wechat-message-list --wechat-group-id <群ID> --category document --category image --category audio --category video --size 20 --format json
+gangtise vault wechat-message-download --msg-id 4784255865508301077
+gangtise vault wechat-message-download --msg-id 4784255865508301077 --output ./群文件/研报.pdf
+```
 
 ## 群 ID 查询 `vault wechat-chatroom-list`
 

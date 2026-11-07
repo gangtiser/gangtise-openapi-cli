@@ -12,6 +12,8 @@
  * company, which an A+H ETF lists as two rows under the same name. Where the candidates span
  * markets, a quote that agrees counts only once the other market's listing is ruled out by its
  * recent closes: a list whose prices lag the quote can equal the other listing's quote by chance.
+ * A row the price leaves between listings (that, or a tie across markets) is settled by its own
+ * `pctChange`: the listing with a day carrying both the row's close and that change.
  * Where no price decides (an ex-dividend day, a suspension, a bond with no quote), an exact name
  * match stands only in an ETF known to trade in one market — the ETF's own exchange breaking a
  * tie within it. That is not known while any row still open could be in two markets (an A/H
@@ -29,18 +31,28 @@ export interface CodeLookup {
   search(keyword: string): Promise<unknown[]>
   /** Previous close and latest price per code that the quote service knows. */
   quotes(codes: string[]): Promise<Map<string, number[]>>
-  /** Daily closes per code between two dates, oldest first: for a list whose prices are a
-   * day or more behind the quote. Without it such rows are left to the name. */
-  closes?(codes: string[], startDate: string, endDate: string): Promise<Map<string, Array<[date: string, close: number]>>>
+  /** Daily closes per code between two dates, oldest first, each with that day's change in
+   * percent when the previous close is known: for a list whose prices are a day or more behind
+   * the quote, and for rows the price leaves between listings. Without it such rows are left
+   * to the name. */
+  closes?(codes: string[], startDate: string, endDate: string): Promise<Map<string, Bar[]>>
 }
 
 type Row = Record<string, unknown>
+type Bar = [date: string, close: number, change?: number]
 
 /** A component's close is the quoted price itself: on 14 ETFs (2026-10-27) every confirmed row
  * was equal to the cent, while the same name's listing in another market came as close as
  * 0.15% (A and H shares of one company, 0.3% often). The slack stays well under that. */
 const PRICE_TOLERANCE = 0.0005
 const agrees = (close: number, price: number) => price > 0 && Math.abs(close - price) / price <= PRICE_TOLERANCE
+/** A row's `pctChange` is its listing's change on the day the row's `close` belongs to — the
+ * close over the previous close, to the list's four decimals (probed on 45 ETFs, 2026-11-07;
+ * a US row differed once, likely on an ex-dividend day). With the close it makes a second
+ * fingerprint: the A and H listings of one name whose closes coincide do not also share that
+ * day's change. It only decides between listings the price left open, never rules out the one
+ * listing a price confirmed. */
+const CHANGE_TOLERANCE = 0.005
 /** Code formats the realtime quote takes; nothing else is sent (bonds, listings in other
  * markets, placeholder codes the search returns). */
 const QUOTABLE = /^(\d{6}\.(SH|SZ|BJ)|\d{5}\.HK|[A-Z][A-Z0-9.]*\.(O|N|A))$/
@@ -164,7 +176,7 @@ const inBatches = (codes: string[], size: number) => Array.from({ length: Math.c
  * its A shares' closes of one day and its H shares' of another: the day on which the most rows
  * with a single exact listing in that market equal that listing's close. A market gets none
  * unless at least two rows agree on one day and no other day ties with it. */
-function listDates(rows: Row[], candidates: Map<string, Candidate[]>, history: Map<string, Array<[string, number]>>): Map<string, string> {
+function listDates(rows: Row[], candidates: Map<string, Candidate[]>, history: Map<string, Bar[]>): Map<string, string> {
   const votes = new Map<string, Map<string, number>>()
   for (const row of rows) {
     if (typeof row.close !== "number") continue
@@ -186,7 +198,7 @@ function listDates(rows: Row[], candidates: Map<string, Candidate[]>, history: M
 
 /** Each code's close on its market's date, or its last close before it (a market closed that
  * day, or a suspension). */
-function closesOn(dates: Map<string, string>, history: Map<string, Array<[string, number]>>): Map<string, number[]> {
+function closesOn(dates: Map<string, string>, history: Map<string, Bar[]>): Map<string, number[]> {
   const out = new Map<string, number[]>()
   for (const [code, series] of history) {
     const date = dates.get(market(code))
@@ -267,7 +279,7 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
   // the list's prices in each market belong to.
   const open = (own: Row[]) => own.filter((r) => !codes.has(r) && typeof r.close === "number" && candidatesOf(r).some(isQuotable))
   const lagging = [...etfs.values()].filter(({ own }) => open(own).length)
-  const history = new Map<string, Array<[string, number]>>()
+  const history = new Map<string, Bar[]>()
   if (lagging.length && lookup.closes) {
     const wanted = [...new Set(lagging.flatMap(({ own }) => own.flatMap((r) => candidatesOf(r).filter(isQuotable).map((c) => c.code))))]
     const end = beijingDateString(new Date())
@@ -303,9 +315,33 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
       }
     }
   }
+  // A row the prices left between listings (a tie across markets, a quote the other market's
+  // closes could not rule out) or unplaced: its listing is the one with a day carrying both the
+  // row's close and its change, when exactly one market's listings do. Every listing it could
+  // be needs daily bars to be ruled out, and a day at the row's close with a change to compare;
+  // a change that fits none (an ex-dividend day can move the previous close) leaves the row to
+  // the rules below.
+  for (const { own, etf } of etfs.values()) {
+    for (const row of own) {
+      const change = row.pctChange
+      if (codes.has(row) || typeof change !== "number" || typeof row.close !== "number") continue
+      const close = row.close
+      const pool = candidatesOf(row).filter((c) => !etf.used.has(c.code))
+      if (!pool.length || !pool.every((c) => isQuotable(c) && history.has(c.code))) continue
+      const atClose = (c: Candidate) => history.get(c.code)!.filter(([, price]) => agrees(close, price))
+      const hit = pool.filter((c) => atClose(c).some(([, , moved]) => moved !== undefined && Math.abs(moved - change) <= CHANGE_TOLERANCE))
+      // A listing with a day at the row's close whose change is unknown (no previous close) is not ruled out.
+      const unknown = pool.some((c) => !hit.includes(c) && atClose(c).some(([, , moved]) => moved === undefined))
+      if (!hit.length || unknown || marketsOf(hit).size > 1) continue
+      const code = narrow(hit, etf)
+      if (code) place(row, code, etf)
+    }
+  }
   for (const { own, etf } of etfs.values()) {
     // The markets this ETF holds, as far as anything shows: listings its prices confirmed, and
-    // the open rows whose remaining candidates all trade in one market. An open row that could
+    // the rows without a code whose remaining candidates all trade in one market — a row a price
+    // narrowed but did not settle counts like an open one, or the other rows' market would fill
+    // in the very guess the cross-market check refused. A row that could
     // be in two markets (an A/H name, or a Hong Kong listing whose name starts with the row's:
     // 中国石油 / 中国石油股份) leaves the ETF's market unknown, as does a name whose lookup
     // failed: the other rows cannot then stand for the whole ETF. A candidate another row took,
@@ -314,7 +350,7 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
     const markets = new Set([...etf.used].map(market))
     let undecided = own.some((r) => failed.has(r.componentName as string))
     for (const r of own) {
-      if (codes.get(r) || tentative.has(r)) continue
+      if (codes.get(r)) continue
       const held = marketsOf(candidatesOf(r).filter((c) => !etf.used.has(c.code) && (typeof r.close !== "number" || mayBe(r, c))))
       if (held.size > 1) undecided = true
       else if (held.size === 1) markets.add([...held][0])
@@ -435,13 +471,14 @@ export function clientLookup(client: { call(endpoint: string, body: unknown): Pr
       return Array.isArray(data?.list) ? data.list : []
     },
     async closes(codes, startDate, endDate) {
-      const data = normalizeRows(await client.call("quote.day-kline", { securityList: codes, startDate, endDate, fieldList: ["securityCode", "tradeDate", "close"], limit: 10_000 }))
+      const data = normalizeRows(await client.call("quote.day-kline", { securityList: codes, startDate, endDate, fieldList: ["securityCode", "tradeDate", "close", "preClose"], limit: 10_000 }))
       const list = Array.isArray(data) ? data : ((data as { list?: unknown[] })?.list ?? [])
-      const out = new Map<string, Array<[string, number]>>()
+      const out = new Map<string, Bar[]>()
       for (const k of list as Row[]) {
         if (typeof k.securityCode !== "string" || typeof k.tradeDate !== "string" || typeof k.close !== "number") continue
         const series = out.get(k.securityCode) ?? []
-        series.push([k.tradeDate, k.close])
+        // From the two closes rather than the bar's own pctChange, which Hong Kong rounds to two decimals.
+        series.push(typeof k.preClose === "number" && k.preClose > 0 ? [k.tradeDate, k.close, (k.close / k.preClose - 1) * 100] : [k.tradeDate, k.close])
         out.set(k.securityCode, series)
       }
       for (const series of out.values()) series.sort((a, b) => (a[0] < b[0] ? -1 : 1))

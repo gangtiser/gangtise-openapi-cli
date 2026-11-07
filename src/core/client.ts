@@ -952,8 +952,10 @@ export class GangtiseClient {
       // From the final (post-redirect) response, so a rate-limited download honors
       // Retry-After too — every error branch below passes it into the ApiError.
       const retryAfterMs = parseRetryAfterMs(response.headers['retry-after'], Date.now())
+      // A success here is the file itself, whatever its type (see `fileOnSuccess`).
+      const rawFile = endpoint.fileOnSuccess === true && response.statusCode < 300
 
-      if (contentType?.includes('application/json')) {
+      if (!rawFile && contentType?.includes('application/json')) {
         const text = await response.body.text()
         logTiming(`${endpoint.method} ${endpoint.path} (json)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         let parsed: unknown
@@ -982,7 +984,7 @@ export class GangtiseClient {
         return { text: JSON.stringify(data, null, 2), contentType }
       }
 
-      if (contentType?.includes('text/plain') || contentType?.includes('text/html')) {
+      if (!rawFile && (contentType?.includes('text/plain') || contentType?.includes('text/html'))) {
         const text = await response.body.text()
         logTiming(`${endpoint.method} ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         if (response.statusCode >= 400) {

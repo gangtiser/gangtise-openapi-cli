@@ -969,6 +969,48 @@ describe("GangtiseClient pagination", () => {
     expect(result.filename).toBe("研报.pdf")
   })
 
+  describe("a fileOnSuccess download keeps a 200 body as the file, whatever its type", () => {
+    // "报告" in GBK: not valid UTF-8, so decoding the body as text would replace it.
+    const GBK = new Uint8Array([0xb1, 0xa8, 0xb8, 0xe6, 0x0a])
+    const typed = (contentType: string, data: Uint8Array, filename: string, statusCode = 200) => ({
+      statusCode,
+      headers: { "content-type": contentType, "content-disposition": `attachment; filename=${filename}` },
+      body: {
+        arrayBuffer: vi.fn().mockResolvedValue(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)),
+        text: vi.fn().mockResolvedValue(Buffer.from(data).toString("utf8")),
+      },
+    })
+
+    it("saves a text/plain body byte for byte under the server's filename", async () => {
+      expect(ENDPOINTS["vault.wechat-message.download"].fileOnSuccess).toBe(true)
+      requestMock.mockResolvedValueOnce(typed("text/plain; charset=utf-8", GBK, "report.txt"))
+      const result = await createClient().call("vault.wechat-message.download", undefined, { msgId: "4784255865508301077" }) as { data?: Uint8Array; text?: string; filename?: string }
+      expect(result.text).toBeUndefined()
+      expect(result.filename).toBe("report.txt")
+      expect(Buffer.from(result.data ?? [])).toEqual(Buffer.from(GBK))
+    })
+
+    it("saves an application/json body verbatim, even one shaped like an error envelope", async () => {
+      const file = new TextEncoder().encode('{"code":"100005","msg":"saved reply","status":false}')
+      requestMock.mockResolvedValueOnce(typed("application/json", file, "reply.json"))
+      const result = await createClient().call("vault.wechat-message.download", undefined, { msgId: "1" }) as { data?: Uint8Array; filename?: string }
+      expect(result.filename).toBe("reply.json")
+      expect(Buffer.from(result.data ?? [])).toEqual(Buffer.from(file))
+    })
+
+    it("still raises a non-200 JSON envelope as the API error", async () => {
+      requestMock.mockResolvedValueOnce(rawJsonResponse({ code: "130003", errorType: "FILE_NOT_FOUND", msg: "没有文件可供下载", status: false, data: "" }, 404))
+      await expect(createClient().call("vault.wechat-message.download", undefined, { msgId: "1" })).rejects.toMatchObject({ code: "130003", statusCode: 404 })
+    })
+
+    it("leaves other downloads reading a text/plain body as text", async () => {
+      requestMock.mockResolvedValueOnce(typed("text/plain; charset=utf-8", GBK, "report.txt"))
+      const result = await createClient().call("insight.research.download", undefined, { reportId: "9" }) as { data?: Uint8Array; text?: string }
+      expect(result.data).toBeUndefined()
+      expect(typeof result.text).toBe("string")
+    })
+  })
+
   it("returns built-in lookup data without making HTTP requests", async () => {
     const client = createClient()
 

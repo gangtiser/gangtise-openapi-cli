@@ -121,6 +121,13 @@ export interface EndpointDefinition {
    * points run `flagFailedItems` on these, so the same response cannot exit 3 through
    * the dedicated command and 0 through `raw call`. */
   itemFailures?: true
+  /** Download only: an HTTP 200 answer IS the file, whatever its Content-Type — the body is
+   * saved byte for byte under the Content-Disposition name. Without it a `text/plain` or
+   * `text/html` body is decoded as UTF-8 and saved as `<id>.txt`, and an `application/json`
+   * body is read as an envelope; a user-shared file can be any of those. Only for an
+   * endpoint whose errors carry a non-200 status (probed on the group-file download
+   * 2026-11-07: 400 / 401 / 404, each with a JSON envelope). */
+  fileOnSuccess?: true
 }
 
 /** Credits above which a fetch whose size the caller left open is refused without --yes: a
@@ -558,6 +565,16 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     path: "/application/open-reference/sectors/constituents",
     kind: "json",
     description: "List constituent securities of a sector",
+  },
+  // Under open-quote, filed by the platform under reference data. Not paginated: one call
+  // returns every constituent of every index asked for. An empty answer is
+  // `{total: 0, list: []}` (probed 2026-11-07).
+  "reference.index-weight": {
+    method: "POST",
+    path: "/application/open-quote/index/constituent-weight",
+    kind: "json",
+    description: "List index constituents with their weights (%) on one trading date",
+    expects: "list",
   },
 
   // ─── quote ───
@@ -1129,6 +1146,22 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     pagination: { enabled: true, maxPageSize: 20 },
     retry: "no-replay",
   },
+  // Under open-insight, filed by the platform under AI+Agent. An empty answer is
+  // `{total: 0, list: []}` (probed 2026-11-07).
+  "ai.expert-intel.list": {
+    method: "POST",
+    path: "/application/open-insight/expertIntel/getList",
+    kind: "json",
+    description: "List AI expert intel (takeaways distilled from expert meetings and minutes)",
+    billing: { per: "row", price: 20 },
+    pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "intelId",
+    rowIdUnverified: true,
+    // 20 credits per ROW, so a 50-row page is 1000: replaying a page re-bills rows the
+    // server already delivered, same reasoning as `ai.hot-topic`.
+    retry: "no-replay",
+    expects: "list",
+  },
   "ai.management-discuss-announcement": {
     method: "POST",
     path: "/application/open-ai/management-discuss/from-announcement",
@@ -1329,6 +1362,16 @@ const ENDPOINT_DEFS: Record<string, Omit<EndpointDefinition, "key">> = {
     // past 10000 is refused (140002) — the same offset window highlight.list declares.
     pagination: { enabled: true, maxPageSize: 50, maxWindow: 10000 },
     rowId: "msgId",
+  },
+  // The file of a document / image / audio / video message, by msgId. A text or url
+  // message answers 130005; a message that is missing, not yours or has no file left
+  // answers 130003 (probed 2026-11-07).
+  "vault.wechat-message.download": {
+    method: "GET",
+    path: "/application/open-vault/wechatgroupmsg/download/file",
+    kind: "download",
+    description: "Download the file of a WeChat group message (document / image / audio / video)",
+    fileOnSuccess: true,
   },
   "vault.wechat-chatroom.list": {
     method: "POST",

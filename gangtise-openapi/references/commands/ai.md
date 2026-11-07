@@ -147,6 +147,32 @@ gangtise ai hot-topic [--start-date <date>] [--end-date <date>] [--category <nam
 - 🔴 **计费 10/篇，按返回条数计**（不是按调用次数）。📌 **一「篇」= 一整份报告**（一份早报 / 午报 / 盘中快报 / 晚报），**不是报告里的一条话题**——一份报告通常包含多条热点话题，`--category` 选的也是报告类型而不是话题。所以一页 20 条 = 20 份报告 = 200 积分：**先用 `--start-date`/`--end-date` + `--category` 把范围收窄，再考虑要不要全量**（省略 `--size` 时 CLI 先取 1 篇拿到总数来估算，超过 1000 积分报错，确认要全量加 `--yes`；结果多于 1 篇时这 1 篇会多计一次，知道要几篇就直接传 `--size`）
 - **可查的历史范围是前溯 3 个月**（各档相同）。超出范围的日期**返回空结果、不报错**——拿到空先确认是不是撞了本账号的窗口，别当成「那天没有报告」
 
+## AI 专家情报 `ai expert-intel`
+
+```bash
+gangtise ai expert-intel [--security <code>...] [--research-area <id>...] [--concept <id>...] [--tag <text>...] [--keyword <text>] [--search-type 1|2] [--start-time <datetime>] [--end-time <datetime>] [--from <n>] [--size <n>] [--yes]
+```
+
+AI 从专家会议、会议纪要等一手信息里提炼的个股情报：一条 = 主体公司 + 核心观点标题 + 内容标签 + 正文，适合追踪产品进展、经营与景气变化。按发布时间倒序。
+
+- 🔴 **积分：20/条**（按返回条数计），`--size 20` = 400 积分。省略 `--size` 时 CLI 先取 1 条拿总数估算，超过 1000 积分（50 条）报错退出，确认要全量加 `--yes`；**先用筛选收窄，务必带 `--size`**。超时 / 5xx 不自动重发
+- `--security`：带市场后缀的代码（如 `300750.SZ`），可重复；一条情报关联多只证券时任一命中即返回。不带后缀或后缀不存在（如 `.XX`）报 `120001`；⚠️ **后缀存在但与代码的市场对不上（如 `600519.SZ`）不报错、返回空结果**——拿到空先核对后缀。证券简称先用 `reference securities-search` 换代码
+- `--research-area`：研究方向 ID，**用中信码 `1008001xx`**（`reference constant-list --category citicIndustry`）。⚠️ 申万码 `104xx0000` 与方向码 `122000xxx` 在这里返回空结果、不报错；`--concept`：题材 ID（`reference concept-search`）；`--tag`：纯文本内容标签（如 `景气上行` / `超预期` / `重大催化` / `产品进展`）。三者写错的值都按无匹配处理，**返回空结果、不报错**——拿到空先核对 ID 与标签写法
+- 不同筛选之间是「且」，同一筛选的多个取值是「或」
+- `--keyword` + `--search-type`：不传 `--search-type` 时按接口默认的全文检索（标题 + 正文）；`1` 只搜标题——**标题不含公司名**，按公司查用 `--security`
+- `--start-time` / `--end-time`：按发布时间筛，`yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm:ss`；只写日期的 `--end-time` 含当天整天。起止颠倒报 `110002`，超出账号可查范围报 `110003`
+- `--from` / `--size`：自动翻页（单页 50）
+- 返回字段：`intelId` / `title` / `mainSecurity{securityCode, securityName}`（标题前缀展示用的主体公司）/ `tagList[]`（纯文本）/ `content`（正文，纯文本）/ `publishTime`（北京时间）/ `securityList[]{securityCode, securityName}`（含主体公司在其他市场的上市主体）/ `researchAreaList[]{researchAreaId, researchAreaName}` / `conceptList[]{conceptId, conceptName}`
+- 未开通该数据库的账号报 `999004`
+
+**示例：**
+```bash
+# 某公司近期的专家情报
+gangtise ai expert-intel --security 300750.SZ --start-time 2026-10-01 --size 10 --format json
+# 题材 + 标签：特斯拉机器人里景气上行或超预期的
+gangtise ai expert-intel --concept 121000745 --tag 景气上行 --tag 超预期 --size 20 --format json
+```
+
 ## 管理层讨论-财报 `ai management-discuss-announcement`
 
 ```bash

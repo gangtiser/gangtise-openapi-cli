@@ -7,7 +7,7 @@ import { ValidationError } from "../core/errors.js"
 import { markFailed } from "../core/exitStatus.js"
 import { parseOutputFormat } from "../core/output.js"
 import { printData } from "../core/printer.js"
-import { emit, withClient, runDownload, multiChoice, field, required, date, list, choiceList, flag, format, output, from, size, startTime, endTime, requestBody, query } from "./shared.js"
+import { emit, withClient, runDownload, multiChoice, field, value, required, date, list, choiceList, flag, format, output, from, size, startTime, endTime, requestBody, query } from "./shared.js"
 import { checkMarketKeywords } from "./quote.js"
 import type { Field } from "./shared.js"
 
@@ -124,6 +124,24 @@ query(ai, "hot-topic", {
     flag("--no-with-related-securities", "Exclude related securities info"),
     field(new Option("--with-close-reading", "Include close reading content"), (v?: boolean) => ({ withCloseReading: v !== false })),
     flag("--no-with-close-reading", "Exclude close reading content"),
+    format("json"), output(),
+  ],
+})
+// Expert intel: one row per takeaway distilled from expert meetings and minutes, newest
+// first. Billed per ROW at 20, so an unbounded fetch passes the credit guard only with --yes.
+query(ai, "expert-intel", {
+  description: "AI expert intel: company takeaways distilled from expert meetings and minutes, newest first (20 credits/row)",
+  endpoint: "ai.expert-intel.list",
+  fields: [
+    from(), size("Total rows to return; omit to fetch all (max page 50). Billed per row — bound this on wide ranges"),
+    startTime("Publish time from (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss)"), endTime("Publish time to (yyyy-MM-dd or yyyy-MM-dd HH:mm:ss; a bare date covers the whole day)"),
+    value("--keyword <text>", "Keyword", "keyword"),
+    // Left out unless given: the API's own default is 2 (full text), unlike the insight lists.
+    field(new Option("--search-type <number>", "Where --keyword matches: 1=title 2=title + body (the API default). Titles carry no company name — filter companies with --security").choices(["1", "2"]), (v?: string) => ({ searchType: v === undefined ? undefined : Number(v) })),
+    list("--security <code>", "Security code with market suffix, e.g. 300750.SZ (repeatable); intel linked to ANY of them matches. A missing or unknown suffix rejects the call (120001); a real suffix of the wrong market (600519.SZ) is not rejected and matches nothing", "securityList"),
+    list("--research-area <id>", "Research area ID: citicIndustry code (1008001xx, reference constant-list). swIndustry (104xx0000), gangtiseIndustry direction (122000xxx) and unknown codes return 0 here", "researchAreaList"),
+    list("--concept <id>", "Concept ID (reference concept-search); an unknown ID matches nothing", "conceptList"),
+    list("--tag <text>", "Content tag, plain text, e.g. 景气上行 / 超预期 / 重大催化 (repeatable; any of them matches)", "tagList"),
     format("json"), output(),
   ],
 })

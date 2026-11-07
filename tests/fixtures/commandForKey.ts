@@ -3,6 +3,7 @@
  * special-cased. Shared by the README and option consistency tests. */
 export const SPECIAL_COMMANDS: Record<string, string> = {
   "ai.security-clue.list": "ai security-clue",
+  "ai.expert-intel.list": "ai expert-intel",
   "ai.hot-topic": "ai hot-topic",
   "ai.management-sentiment-indicator": "ai management-sentiment-indicator",
   "ai.management-sentiment-conclusion": "ai management-sentiment-conclusion",

@@ -16,7 +16,7 @@
 | `999999` | 系统错误。`indicator`（EDE）的「无数据」不用此码（无数据是保留行列的占位单元格 `null`，见 `commands/indicator.md`；代码或参数名写错报 `100003`、缺必填参数报 `100001`，都会点名），所以这个码基本只剩真故障 | 普通端点自动重试 ×2；🔴 贵档与 `indicator` 端点不重试 | 确认参数无误仍报此码即服务端故障 |
 | `410110` | **异步生成中**（HTTP 400，旧码）。新码 `140001`，CLI 两码都认 | 轮询视为 pending | 继续等 |
 | `410111` | **异步生成失败**（HTTP 400，旧码）。新码 `140002`，CLI 两码都认 | 终态 | **不重试**，换参数 |
-| `130002` | 资源不存在——下载类的常见码：`reportId` 不存在 / 非数字多归此码。另有更具体的 `130003`（资源未生成 / 无附件）；`--file-type` 写错由 CLI 在本地报错、不发请求。`vault stock-note-update` 传了不存在或不属于本人的笔记 ID 也报此码（`stock-note-delete` 不报，这类 ID 计入 `successList`） | — | 确认 ID 有效且本账号可见（笔记 ID 用 `vault stock-note-list` 核对）；换 `--file-type` 或换一篇验证 |
+| `130002` | 资源不存在——下载类的常见码：`reportId` 不存在 / 非数字多归此码。另有更具体的 `130003`（资源未生成 / 无附件；`vault wechat-message-download` 收到它是消息不存在、无权访问或文件已不可用，不区分原因、重试不会变）与 `130005`（`vault wechat-message-download`：该消息是 text / url，没有文件）；`--file-type` 写错由 CLI 在本地报错、不发请求。`vault stock-note-update` 传了不存在或不属于本人的笔记 ID 也报此码（`stock-note-delete` 不报，这类 ID 计入 `successList`） | — | 确认 ID 有效且本账号可见（笔记 ID 用 `vault stock-note-list` 核对）；换 `--file-type` 或换一篇验证 |
 | `130001` | 数据未找到，或**该指标无权限**（`indicator` 内层失败会带具体 msg 如"指标无权限"） | — | 检查查询条件与指标权限 |
 | `100001` | 缺必填参数——**msg 带字段名**（「缺少必填参数: reportId」） | — | 按 msg 指的字段补上 |
 | `110001` / `110002` | 日期格式错（msg 带字段名）/ 起晚于止。⚠️ **服务端对多种格式做宽松解析**（`2026/07/01`、`20260701`、`07/01/2026` 都能被接受），所以「没报 110001」不等于「格式被按你的意思理解了」 | — | 按参数名：`--*-date` 用 `YYYY-MM-DD`、`--*-time` 用 `YYYY-MM-DD HH:mm:ss`；`ai knowledge-batch` 的 --start-time/--end-time 收时间戳或 datetime，CLI 统一转 13 位毫秒 |

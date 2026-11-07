@@ -139,6 +139,13 @@ const probes = {
     const list = rows(cli(["reference", "sector-constituents", "--sector-id", id]))
     return [id, { columns: columns(list), listed: list.length > 0 }]
   })),
+  // Free. Weights have come for the last trading day of a month only, and `reference
+  // index-weight` says so on stderr when an index comes back empty. A non-month-end trading
+  // day starting to answer rows is the cue to drop that note and the docs that repeat it.
+  "reference.index-weight": () => ({
+    columns: columns(rows(cli(["reference", "index-weight", "--index", "000300.SH", "--date", "2026-09-30"]))),
+    midMonthRows: rows(cli(["reference", "index-weight", "--index", "000300.SH", "--date", "2026-09-29"])).length > 0,
+  }),
   // Free. `quote index-day-kline` refuses `all` locally because this endpoint answers it
   // with an empty list. Sent through `raw call` (which has no such check) so a server that
   // starts answering it again shows up here as a change — the cue to lift the refusal.

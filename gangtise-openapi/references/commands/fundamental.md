@@ -89,7 +89,7 @@ gangtise fundamental main-business --security-code <code> [--breakdown <type>] [
 gangtise fundamental valuation-analysis --security-code <code> --indicator <name> [--start-date <date>] [--end-date <date>] [--limit <n>] [--field <name>] [--skip-null]
 ```
 
-- **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股单证券估值序列与估值历史分位始终优先本命令；多证券批量取一组已实现估值点值，且 `indicator search` 三项校验都通过时，才优先 EDE `cross-section` / `time-series`。港 / 美股估值历史分位当前 CLI 不支持，不能用普通 EDE 点值冒充
+- **市场与路由**：本命令仅支持 A 股（港股 / 美股会报 `120001`「非有效A股」）。A股单证券估值序列与估值历史分位始终优先本命令；多证券批量取一组已实现估值点值，且 `indicator search` 三项校验都通过时，才优先 EDE `cross-section` / `time-series`。港 / 美股估值历史分位走 EDE 的 `finc_*_quantile`（各指标覆盖的市场以 `scopeList` 为准，见 `indicator.md`），不能用普通 EDE 点值冒充
 - `--indicator`（**必选**）：`peTtm` 滚动PE | `pbMrq` PB | `peg` PEG | `psTtm` 滚动PS | `pcfTtm` 滚动PCF | `em` 企业倍数
 - `--limit` 默认 2000，省略 `--start-date` 时自动查近一年
 - 🔴 **序列按自然日逐日一行（含周末）**，行数超过 `--limit` 时接口**保留最近的行、丢掉区间开头**。CLI 撞满即标 `partial`、退出码 3 并在 stderr 说明（首行恰好就是 `--start-date` 时说明没丢，不标）。取长区间把 `--limit` 设到不小于区间天数：取 N 年就设 `--limit` ≥ 366 × N（且不早于账号权限窗口的起点）

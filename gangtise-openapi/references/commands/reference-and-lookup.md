@@ -134,6 +134,7 @@ gangtise reference constant-category [--format json]
 > | `insight forum` | ✅ | **❌ 返 0** | ✅ |
 > | `vault my-conference-list` | ✅ | **❌ 返 0** | ✅ |
 > | `insight highlight` | ✅ | **❌ 不可用** | ✅ |
+> | `ai expert-intel` | ✅ | **❌ 返 0** | 返 0（情报按公司归类，未见方向类） |
 >
 > 一句话结论：**行业维度一律传中信码**（唯一全端点通吃的一套），方向维度传 `122000xxx`（`pamirs-summary` 不支持方向）。
 
@@ -211,6 +212,25 @@ gangtise reference sector-constituents --sector-id 2000000014 --format json
 ```
 
 单个行业也可以直接 `reference securities-search --keyword 申万银行 --category index` → `821047.SWI`。
+
+## 指数成分股权重 `reference index-weight`
+
+```bash
+gangtise reference index-weight --index <code>... --date <yyyy-MM-dd>
+```
+
+- 免费。`--index`（**必选**，可重复或逗号分隔）：指数代码，如 `000300.SH` 沪深300、`000905.SH` 中证500、`000852.SH` 中证1000、`000016.SH` 上证50、`000688.SH` 科创50、`399006.SZ` 创业板指；不确定用 `reference securities-search --keyword <指数名> --category index`
+- `--date`（**必选**）：单个交易日。🔴 **只有每月最后一个交易日有数**（如 `2026-09-30`、`2026-10-30`）——其他交易日、非交易日与写错的指数代码都返回空结果、**不报错**；CLI 在 stderr 点名没取到数据的指数。要「最新」权重就取上个月最后一个交易日
+- 超出账号可查范围报 `110003`
+- 不分页、不限条数：一次返回所选指数当日的全部成分股，多个指数合在同一个 `list` 里，按 `indexCode` 区分
+- 返回 `{total, list}`，`list[]`：`indexCode` / `indexName` / `tradeDate` / `securityCode` / `securityName` / `weight`（**单位 %**，最多四位小数）。同一指数的权重合计约为 100，受舍入影响不严格等于 100，校验合计时留容差
+- 与 `reference sector-constituents` 的区别：后者是板块的纯成分名单、不带权重；要权重（基金归因、指数对标）用本接口
+
+**示例：**
+```bash
+gangtise reference index-weight --index 000300.SH --date 2026-10-30 --format csv --output hs300-weight.csv
+gangtise reference index-weight --index 000300.SH,000905.SH --date 2026-09-30 --format json
+```
 
 ## Lookup 本地表
 

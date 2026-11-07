@@ -61,6 +61,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | reference concept-search | `{returnedCount, list}` | `list[].conceptId` / `list[].conceptName` / `list[].matchScore` |
 | reference sector-search | `{returnedCount, list}` | `list[].sectorId` / `list[].sectorName` / `list[].hierarchy`（层级路径） / `list[].matchScore` |
 | reference sector-constituents | `{total, list}` | `list[].gtsCode` / `list[].gtsName`；total=0 说明 sectorId 不对（先 sector-search 确认） |
+| reference index-weight | `{total, list}`，不分页 | `list[].indexCode` / `indexName` / `tradeDate` / `securityCode` / `securityName` / `weight`（%）；多个指数合在一个 `list`，按 `indexCode` 区分；total=0 多为日期不是月末交易日 |
 | quote day-kline（及已弃用的 day-kline-hk / day-kline-us / index-day-kline） | `{fieldList, list}` 或规范化后 `{list: [{...}]}` | `tradeDate` / `securityCode` / `open` / `close` / `pctChange` / `volume` / `amount`（全球指数为 `null`）/ `adjustFactor`（指数为 `null`，ETF 有值）；四者字段相同，均不含指数名称 |
 | quote minute-kline | `{list: [{...}]}` | `tradeTime` / `open` / `close` / `volume` |
 | quote realtime | `{fieldList, list, total}` 或规范化后 `{list: [{...}]}` | `securityCode` / `exchange` / `tradeDate` / `tradeTime` / `tradeStatus` / `open` / `high` / `low` / `latestPrice` / `preClose` / `change` / `pctChange` / `volume` / `amount` / `amplitude`（共 15 个，**无 `close`、无市值、无 `turnoverRate` / `volumeRatio`**；美股 `amount`、全球指数 `volume` / `amount` / `amplitude` 为 `null`） |
@@ -78,6 +79,7 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | ai theme-tracking | `[{type, date, content}, ...]`（列表，每元素一份报告） | 遍历筛选 `type === "morning" / "night"`；某主题在该日期可能只有一种类型，或两种都没（空列表） |
 | ai hot-topic | `{list, total}` | `list[].title` / `list[].reportDate` / `list[].category` / `list[].topics[].topicTitle` / `list[].topics[].driverEvent` / `list[].topics[].investLogic` |
 | ai management-discuss-* | `{securityCode, reportDate, discussionDimension, content}` | `content` 为字符串（业绩会）或字符串数组（财报） |
+| ai expert-intel | `{list, total}` | `list[].intelId` / `title` / `mainSecurity.securityCode` · `securityName` / `tagList[]`（纯文本）/ `content` / `publishTime` / `securityList[]` / `researchAreaList[].researchAreaName` / `conceptList[].conceptName` |
 | ai management-sentiment-indicator | `{list, total}`，一条 = 一只证券 × 一场业绩会 | `list[].securityCode` / `publishTime` / `sentimentResponsiveness` · `sentimentPolarity` · `sentimentConviction`（0–5）/ `qaCount` / `qaEvasionRatio` · `qaRiskRatio` · `qaUncertaintyRatio`（百分数）/ `questionCategoryList[]` / `source.sourceType` + `source.sourceId` |
 | ai management-sentiment-conclusion | `{list, total}`，粒度同上 | `list[].sentimentSummary.{overallSentiment, questionCategorySentiment, qaSentimentChange}` / `sentimentSignal.*Signal`（文本）/ `qaSentimentContrast[]` / `source` / `previousSource`（无可对比的上一场时为 `null`） |
 | ai management-sentiment-detail | `{list, total}`，一条 = 一条问答，不分页 | `list[].qaId` / `questionCategory` / `questionBrief` / `question` / `answer` / `qaResponsiveness` · `qaPolarity` · `qaConviction`（`5.0` / `2.5` / `0.0` 三档）/ 三组 `*Quote` + `*Reason` |
@@ -96,7 +98,8 @@ CLI 自动处理 envelope：`{code, msg, data}` 信封会按 `code === "000000"`
 | vault record-download | 文件路径（stdout） | — |
 | vault my-conference-list | `{list, total}` | `list[].conferenceId` / `list[].title` / `list[].category` / `list[].institution.institutionName` / `list[].publishTime` |
 | vault my-conference-download | 文件路径（stdout） | — |
-| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].quoteMsg.quoteContent`（引用消息，无引用为 `null`）。**字段名是 `content` / `url`**，不是 `msgContent` / `contentUrl` |
+| vault wechat-message-list | `{list, total}` | `list[].msgId` / `list[].content`（正文）/ `list[].url` / `list[].msgTime` / `list[].wechatGroupName` / `list[].speakerName` / `list[].category` / `list[].tagList[].tagCode` / `list[].securityList[].securityCode` / `list[].fileInfo.fileName` · `fileSize`（文档 / 图片 / 音频 / 视频消息，其他为 `null`）/ `list[].quoteMsg.quoteMsgId` · `quoteCategory` · `quoteContent` · `quoteFileInfo`（引用消息，无引用为 `null`）。**字段名是 `content` / `url`**，不是 `msgContent` / `contentUrl`；`msgId` 是长数字串，按字符串保存 |
+| vault wechat-message-download | 文件路径（stdout） | — |
 | vault wechat-chatroom-list | `{list, total}` | `list[].chatroomName` / `list[].chatroomId` |
 | vault stock-pool-list | 数组 | `[].poolId`（后续命令的 `--pool-id`）/ `[].poolName` / `[].spaceType`（`1` 个人、`2` 租户；查明细时 `--space-type` 要与之一致） |
 | vault stock-pool-stocks | 数组 | `[].securityCode` / `[].securityName`。空池返回 `[]` |
